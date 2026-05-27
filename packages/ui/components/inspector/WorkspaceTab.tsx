@@ -64,6 +64,8 @@ import {
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
 import { RepoPickerDialog } from "@/components/sidebar/RepoPickerDialog"
+import { InspectorScopePicker } from "./InspectorScopePicker"
+import type { InspectorScope } from "./inspectorScope"
 
 /* ── Types ── */
 
@@ -137,9 +139,6 @@ function joinWorkspacePath(parentPath: string, name: string): string {
   if (!parentPath) return normalizedName
   return `${parentPath}/${normalizedName}`
 }
-
-let globalWorkspaceSessionKeyCache: string | null = null
-
 
 /* ── Icon button with tooltip ── */
 
@@ -960,13 +959,17 @@ function getFileSidebarDefaults() {
 export function WorkspaceTab({
   sessionKey,
   projectId,
+  inspectorScope,
+  onInspectorScopeChange,
 }: {
   sessionKey?: string | null
   projectId?: string | null
+  inspectorScope: InspectorScope
+  onInspectorScopeChange: (scope: InspectorScope) => void
 }) {
-  const [workspaceSessionKey, setWorkspaceSessionKey] = useState<string | null>(
-    globalWorkspaceSessionKeyCache ?? sessionKey ?? null,
-  )
+  const effectiveProjectId = projectId ?? (inspectorScope.kind === "project" ? inspectorScope.projectId : null)
+  const scopeUnset = !projectId && inspectorScope.kind === "unset"
+  const effectiveSessionKey = scopeUnset ? null : sessionKey ?? null
   const fileSidebarRef = useRef(getFileSidebarDefaults())
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
   const [tree, setTree] = useState<FileNode[]>([])
@@ -988,8 +991,7 @@ export function WorkspaceTab({
   const refreshTimeoutRef = useRef<number | null>(null)
   const loadRequestRef = useRef(0)
   const capabilityRequestRef = useRef(0)
-  const effectiveSessionKey = workspaceSessionKey ?? sessionKey ?? null
-  const workspaceScopeKey = `${effectiveSessionKey ?? ""}:${projectId ?? ""}`
+  const workspaceScopeKey = `${effectiveSessionKey ?? ""}:${effectiveProjectId ?? ""}:${inspectorScope.kind}`
   const workspaceScopeKeyRef = useRef(workspaceScopeKey)
   workspaceScopeKeyRef.current = workspaceScopeKey
 
@@ -999,45 +1001,9 @@ export function WorkspaceTab({
       tab: "workspace",
       effectiveSessionKey,
       activeSessionKey: sessionKey,
-      projectId: projectId ?? null,
+      projectId: effectiveProjectId ?? null,
     }, "warn")
-  }, [effectiveSessionKey, projectId, sessionKey])
-
-  useEffect(() => {
-    if (workspaceSessionKey) return
-    if (sessionKey) {
-      globalWorkspaceSessionKeyCache = sessionKey
-      setWorkspaceSessionKey(sessionKey)
-      return
-    }
-
-    let gwActive = false
-    try {
-      gwActive =
-        localStorage.getItem("jarvis.gatewayActive") === "true"
-    } catch {}
-    if (!gwActive) return
-
-    let cancelled = false
-    void invoke<{
-      sessions: Array<{ key: string; hidden?: boolean; source?: string }>
-    }>("middleware_sessions_list", { input: {} })
-      .then((result) => {
-        if (cancelled) return
-        const fallback =
-          result.sessions.find((item) => !item.hidden && item.source === "jarvis")?.key ??
-          result.sessions.find((item) => !item.hidden)?.key ??
-          null
-        if (!fallback) return
-        globalWorkspaceSessionKeyCache = fallback
-        setWorkspaceSessionKey(fallback)
-      })
-      .catch(() => {})
-
-    return () => {
-      cancelled = true
-    }
-  }, [sessionKey, workspaceSessionKey])
+  }, [effectiveProjectId, effectiveSessionKey, sessionKey])
 
   useEffect(() => {
     const el = previewPaneRef.current
@@ -1076,7 +1042,7 @@ export function WorkspaceTab({
         (
           await fetchRemoteWorkspaceTree({
             sessionKey: activeSessionKey,
-            projectId,
+            projectId: effectiveProjectId,
             path: root,
           })
         ).entries,
@@ -1091,7 +1057,7 @@ export function WorkspaceTab({
                   (
                     await fetchRemoteWorkspaceTree({
                       sessionKey: activeSessionKey,
-                      projectId,
+                      projectId: effectiveProjectId,
                       path: node.id,
                     })
                   ).entries,
@@ -1115,7 +1081,7 @@ export function WorkspaceTab({
     } finally {
       if (loadRequestRef.current === requestId && !silent) setTreeLoading(false)
     }
-  }, [effectiveSessionKey, projectId])
+  }, [effectiveProjectId, effectiveSessionKey])
 
   const scheduleRefresh = useCallback((delayMs = 900) => {
     if (refreshTimeoutRef.current !== null) {
@@ -1160,7 +1126,7 @@ export function WorkspaceTab({
     setExpandedIds(new Set())
     setWorkspaceRoot("")
     setTreeLoading(true)
-    void fetchRemoteWorkspaceCapabilities(projectId)
+    void fetchRemoteWorkspaceCapabilities(effectiveProjectId)
       .then((result) => {
         if (
           capabilityRequestRef.current === capabilityRequestId &&
@@ -1178,7 +1144,7 @@ export function WorkspaceTab({
         }
       })
     void loadRoot("")
-  }, [effectiveSessionKey, projectId, loadRoot, workspaceScopeKey])
+  }, [effectiveProjectId, effectiveSessionKey, loadRoot, workspaceScopeKey])
 
   useEffect(() => {
     return () => {
@@ -1190,46 +1156,9 @@ export function WorkspaceTab({
 
   useEffect(() => {
     return on("sidebar:refresh", () => {
-      let gwActive = false
-      try {
-        gwActive =
-          localStorage.getItem("jarvis.gatewayActive") === "true"
-      } catch {}
-
-      if (!gwActive) {
-        globalWorkspaceSessionKeyCache = null
-        setWorkspaceSessionKey(null)
-        setTree([])
-        setSelectedId(null)
-        setCapabilities(null)
-        setWorkspaceRoot(null)
-        return
-      }
-
-      void invoke<{
-        sessions: Array<{
-          key: string
-          hidden?: boolean
-          source?: string
-        }>
-      }>("middleware_sessions_list", { input: {} })
-        .then((result) => {
-          const key =
-            result.sessions.find(
-              (item) =>
-                !item.hidden && item.source === "jarvis",
-            )?.key ??
-            result.sessions.find((item) => !item.hidden)
-              ?.key ??
-            null
-          if (key) {
-            globalWorkspaceSessionKeyCache = key
-            setWorkspaceSessionKey(key)
-          }
-        })
-        .catch(() => {})
+      if (workspaceRoot !== null && effectiveSessionKey) void loadRoot(workspaceRoot, true)
     })
-  }, [])
+  }, [effectiveSessionKey, loadRoot, workspaceRoot])
 
   useEffect(() => {
     if (workspaceRoot === null || !effectiveSessionKey) return
@@ -1296,7 +1225,7 @@ export function WorkspaceTab({
         (
           await fetchRemoteWorkspaceTree({
             sessionKey: activeSessionKey,
-            projectId,
+            projectId: effectiveProjectId,
             path: nodeId,
           })
         ).entries,
@@ -1305,7 +1234,7 @@ export function WorkspaceTab({
     } catch {
       setTree((prev) => updateNodeChildren(prev, nodeId, []))
     }
-  }, [effectiveSessionKey, projectId])
+  }, [effectiveProjectId, effectiveSessionKey])
 
   const handleToggleExpand = useCallback((id: string, open: boolean) => {
     setExpandedIds((prev) => {
@@ -1365,13 +1294,13 @@ export function WorkspaceTab({
       if (newItemType === "folder") {
         await createRemoteWorkspaceDirectory({
           sessionKey: effectiveSessionKey,
-          projectId,
+          projectId: effectiveProjectId,
           path: targetPath,
         })
       } else {
         await saveRemoteWorkspaceFile({
           sessionKey: effectiveSessionKey,
-          projectId,
+          projectId: effectiveProjectId,
           path: targetPath,
           content: "",
         })
@@ -1388,7 +1317,7 @@ export function WorkspaceTab({
     loadRoot,
     newItemName,
     newItemType,
-    projectId,
+    effectiveProjectId,
     selectedDirectoryPath,
     workspaceRoot,
   ])
@@ -1408,12 +1337,12 @@ export function WorkspaceTab({
   }, [loadRoot, workspaceRoot])
 
   const handleWorkspaceRepoSelect = useCallback(async (repo: { name: string; path: string }) => {
-    if (!projectId) return
+    if (!effectiveProjectId) return
     setRepairingWorkspace(true)
     try {
       await invoke("middleware_projects_update", {
         input: {
-          projectId,
+          projectId: effectiveProjectId,
           workspaceRoot: repo.path,
           repoRoot: repo.path,
         },
@@ -1431,9 +1360,13 @@ export function WorkspaceTab({
     } finally {
       setRepairingWorkspace(false)
     }
-  }, [loadRoot, projectId])
+  }, [effectiveProjectId, loadRoot])
 
   const missingWorkspace = isMissingWorkspaceError(treeError)
+
+  if (scopeUnset) {
+    return <InspectorScopePicker onSelectScope={onInspectorScopeChange} />
+  }
 
   return (
     <div className="relative flex h-full overflow-hidden">
@@ -1603,7 +1536,7 @@ export function WorkspaceTab({
                   : treeError}
               </p>
               <div className="mt-1 flex items-center gap-2">
-                {projectId && (
+                {effectiveProjectId && (
                   <button
                     type="button"
                     onClick={() => setRepoPickerOpen(true)}
@@ -1671,7 +1604,7 @@ export function WorkspaceTab({
           <FilePreviewPane
             capabilities={capabilities}
             sessionKey={effectiveSessionKey}
-            projectId={projectId}
+            projectId={effectiveProjectId}
             filePath={selectedId!}
             fileName={selectedNode.name}
             compact={previewCompact}

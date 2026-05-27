@@ -44,6 +44,12 @@ import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 import { InspectorView, type InspectorTabId } from "@/components/inspector/InspectorView"
+import {
+  effectiveInspectorScope,
+  readStoredInspectorScope,
+  writeStoredInspectorScope,
+  type InspectorScope,
+} from "@/components/inspector/inspectorScope"
 import { cn } from "@/lib/utils"
 import type { SearchSpaceResult } from "@/lib/api/search"
 import {
@@ -468,6 +474,8 @@ function AppShell({
   )
   const [fullWindowInspectorTab, setFullWindowInspectorTab] =
     useState<InspectorTabId>("activity")
+  const [sideInspectorTab, setSideInspectorTab] = useState<InspectorTabId>("activity")
+  const [inspectorScope, setInspectorScope] = useState<InspectorScope>({ kind: "unset" })
   const [fullScreenInspectorMounted, setFullScreenInspectorMounted] = useState(() => {
     if (typeof window === "undefined") return false
     return parseRoute(getRoutePath()).kind === "inspector"
@@ -588,6 +596,16 @@ function AppShell({
     }
     frontendLog("session", "active-session.change", { sessionKey: activeSessionKey, title: activeSessionTitle })
   }, [activeSessionKey, activeSessionTitle])
+
+  useEffect(() => {
+    setInspectorScope(effectiveInspectorScope(activeTopic?.projectId ?? null, readStoredInspectorScope(activeSessionKey)))
+  }, [activeSessionKey, activeTopic?.projectId])
+
+  const handleInspectorScopeChange = useCallback((scope: InspectorScope) => {
+    const next = effectiveInspectorScope(activeTopic?.projectId ?? null, scope)
+    setInspectorScope(next)
+    if (!activeTopic?.projectId) writeStoredInspectorScope(activeSessionKey, next)
+  }, [activeSessionKey, activeTopic?.projectId])
 
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null)
   const [editorGroups, dispatchGroups] = useReducer(
@@ -1020,6 +1038,8 @@ function AppShell({
 
   const handleSubagentOpen = useCallback((_sessionKey: string | null, agentId?: string | null) => {
     if (agentId && !inspectorOpen) setInspectorOpen(true)
+    setSideInspectorTab("activity")
+    setFullWindowInspectorTab("activity")
     setActiveAgentId(agentId ?? "root")
   }, [inspectorOpen])
 
@@ -2759,10 +2779,14 @@ function AppShell({
           onWidthChange={setInspectorWidth}
           terminalActive={terminalActive}
           onTerminalActiveChange={setTerminalActive}
+          activeTab={sideInspectorTab}
+          onTabChange={setSideInspectorTab}
           sessionKey={activeSessionKey}
           focusedToolCallId={focusedToolCallId}
           onClearFocusedToolCall={() => setFocusedToolCallId(null)}
           projectId={activeTopic?.projectId ?? null}
+          inspectorScope={inspectorScope}
+          onInspectorScopeChange={handleInspectorScopeChange}
           activeAgentId={activeAgentId}
           onAgentSelect={setActiveAgentId}
         />
@@ -2783,6 +2807,8 @@ function AppShell({
           collapsedWidth={inspectorWidth}
           sessionKey={activeSessionKey}
           projectId={activeTopic?.projectId ?? null}
+          inspectorScope={inspectorScope}
+          onInspectorScopeChange={handleInspectorScopeChange}
           activeAgentId={activeAgentId}
           onAgentSelect={setActiveAgentId}
         />
@@ -3014,6 +3040,8 @@ function FullScreenInspectorOverlay({
   collapsedWidth,
   sessionKey,
   projectId,
+  inspectorScope,
+  onInspectorScopeChange,
   activeAgentId,
   onAgentSelect,
 }: {
@@ -3025,6 +3053,8 @@ function FullScreenInspectorOverlay({
   collapsedWidth: number
   sessionKey: string | null
   projectId: string | null
+  inspectorScope: InspectorScope
+  onInspectorScopeChange: (scope: InspectorScope) => void
   activeAgentId: string | null
   onAgentSelect: (id: string) => void
 }) {
@@ -3064,6 +3094,8 @@ function FullScreenInspectorOverlay({
         closeVariant="collapse"
         sessionKey={sessionKey}
         projectId={projectId}
+        inspectorScope={inspectorScope}
+        onInspectorScopeChange={onInspectorScopeChange}
         activeAgentId={activeAgentId}
         onAgentSelect={onAgentSelect}
         className="h-full"

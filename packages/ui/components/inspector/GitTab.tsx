@@ -7,6 +7,8 @@ import { VscGitCommit, VscSourceControl, VscRefresh, VscArrowLeft, VscFile, VscM
 import { LuChevronDown, LuFolderGit2 } from "react-icons/lu"
 import { BranchDropdown } from "./BranchDropdown"
 import { RepoPickerDialog } from "@/components/sidebar/RepoPickerDialog"
+import { InspectorScopePicker } from "./InspectorScopePicker"
+import type { InspectorScope } from "./inspectorScope"
 import {
   type FileState, type GitFile, type GitContextResponse, type BranchesResponse,
   STATE_CONFIG, parseStatusLine, parseCommitLine, parseGitShow, type FileDiff, type GitDiffResponse,
@@ -20,7 +22,11 @@ export type GitTabSelection = {
   repo: PickedRepo | null
 }
 
-let gitTabSelectionCache: GitTabSelection | null = null
+const gitTabSelectionCache = new Map<string, GitTabSelection | null>()
+
+function gitSelectionStorageKey(scopeKey?: string | null) {
+  return scopeKey ? `${GIT_TAB_SELECTION_STORAGE_KEY}:${scopeKey}` : GIT_TAB_SELECTION_STORAGE_KEY
+}
 
 export function parsePersistedGitTabSelection(raw: string | null): GitTabSelection | null {
   if (!raw) return null
@@ -37,25 +43,32 @@ export function parsePersistedGitTabSelection(raw: string | null): GitTabSelecti
   }
 }
 
-function readPersistedGitTabSelection(): GitTabSelection | null {
-  if (gitTabSelectionCache) return gitTabSelectionCache
+function readPersistedGitTabSelection(scopeKey?: string | null): GitTabSelection | null {
   if (typeof window === "undefined") return null
-  const sessionSelection = parsePersistedGitTabSelection(window.sessionStorage.getItem(GIT_TAB_SELECTION_STORAGE_KEY))
+  const key = gitSelectionStorageKey(scopeKey)
+  if (gitTabSelectionCache.has(key)) return gitTabSelectionCache.get(key) ?? null
+  const sessionSelection = parsePersistedGitTabSelection(window.sessionStorage.getItem(key))
   if (sessionSelection) {
-    gitTabSelectionCache = sessionSelection
+    gitTabSelectionCache.set(key, sessionSelection)
     return sessionSelection
   }
-  const localSelection = parsePersistedGitTabSelection(window.localStorage.getItem(GIT_TAB_SELECTION_STORAGE_KEY))
-  gitTabSelectionCache = localSelection
+  const scopedLocalSelection = parsePersistedGitTabSelection(window.localStorage.getItem(key))
+  if (scopedLocalSelection) {
+    gitTabSelectionCache.set(key, scopedLocalSelection)
+    return scopedLocalSelection
+  }
+  const localSelection = scopeKey ? null : parsePersistedGitTabSelection(window.localStorage.getItem(GIT_TAB_SELECTION_STORAGE_KEY))
+  gitTabSelectionCache.set(key, localSelection)
   return localSelection
 }
 
-function persistGitTabSelection(selection: GitTabSelection) {
-  gitTabSelectionCache = selection
+function persistGitTabSelection(selection: GitTabSelection, scopeKey?: string | null) {
   if (typeof window === "undefined") return
+  const key = gitSelectionStorageKey(scopeKey)
+  gitTabSelectionCache.set(key, selection)
   try {
-    window.sessionStorage.setItem(GIT_TAB_SELECTION_STORAGE_KEY, JSON.stringify(selection))
-    window.localStorage.setItem(GIT_TAB_SELECTION_STORAGE_KEY, JSON.stringify(selection))
+    window.sessionStorage.setItem(key, JSON.stringify(selection))
+    window.localStorage.setItem(key, JSON.stringify(selection))
   } catch { /* ignore */ }
 }
 
@@ -152,19 +165,25 @@ function GitDiffSkeleton() {
 }
 
 type GitTabProps = {
+  sessionKey?: string | null
   projectId: string | null
+  inspectorScope: InspectorScope
+  onInspectorScopeChange: (scope: InspectorScope) => void
+  storageScopeKey?: string | null
   selection?: GitTabSelection | null
   onSelectionChange?: (selection: GitTabSelection) => void
 }
 
-export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps) {
+export function GitTab({ projectId, inspectorScope, onInspectorScopeChange, storageScopeKey, selection, onSelectionChange }: GitTabProps) {
+  const effectiveScopeProjectId = projectId ?? (inspectorScope.kind === "project" ? inspectorScope.projectId : null)
+  const scopeUnset = !projectId && inspectorScope.kind === "unset"
   const persistedSelectionRef = useRef<GitTabSelection | null>(null)
   if (persistedSelectionRef.current === null) {
-    persistedSelectionRef.current = readPersistedGitTabSelection()
+    persistedSelectionRef.current = readPersistedGitTabSelection(storageScopeKey)
   }
 
   const [internalSelection, setInternalSelection] = useState<GitTabSelection>(() => {
-    if (projectId) return { projectId, repo: null }
+    if (effectiveScopeProjectId) return { projectId: effectiveScopeProjectId, repo: null }
     return persistedSelectionRef.current ?? { projectId: null, repo: null }
   })
   const [context, setContext] = useState<GitContextResponse | null>(null)
@@ -176,15 +195,15 @@ export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps)
   const [selectedCommit, setSelectedCommit] = useState<{ hash: string; message: string } | null>(null)
   const [selectedChangedFile, setSelectedChangedFile] = useState<GitFile | null>(null)
   const activeSelection = selection ?? internalSelection
-  const { projectId: effectiveProjectId, repoPath: effectiveRepoPath } = getEffectiveGitTarget(projectId, activeSelection)
+  const { projectId: effectiveProjectId, repoPath: effectiveRepoPath } = getEffectiveGitTarget(effectiveScopeProjectId, activeSelection)
   const skipNextAutoLoadRef = useRef<string | null>(null)
   const loadSeqRef = useRef(0)
 
   const updateSelection = useCallback((nextSelection: GitTabSelection) => {
     setInternalSelection(nextSelection)
     onSelectionChange?.(nextSelection)
-    persistGitTabSelection(nextSelection)
-  }, [onSelectionChange])
+    persistGitTabSelection(nextSelection, storageScopeKey)
+  }, [onSelectionChange, storageScopeKey])
 
   const loadGitTarget = useCallback(async (targetProjectId: string | null, targetRepoPath: string | null = null) => {
     if (!targetProjectId && !targetRepoPath) return
@@ -222,9 +241,9 @@ export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps)
   }, [effectiveProjectId, effectiveRepoPath, loadGitTarget])
 
   useEffect(() => {
-    if (!projectId) return
-    updateSelection({ projectId, repo: null })
-  }, [projectId, updateSelection])
+    if (!effectiveScopeProjectId) return
+    updateSelection({ projectId: effectiveScopeProjectId, repo: null })
+  }, [effectiveScopeProjectId, updateSelection])
 
   useEffect(() => {
     if (!effectiveProjectId && !effectiveRepoPath) {
@@ -294,6 +313,10 @@ export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps)
       await loadGitTarget(null, repo.path)
     } catch { /* ignore */ }
   }, [effectiveProjectId, loadGitTarget, updateSelection])
+
+  if (scopeUnset) {
+    return <InspectorScopePicker onSelectScope={onInspectorScopeChange} />
+  }
 
   if (!effectiveProjectId && !activeSelection.repo) {
     return (

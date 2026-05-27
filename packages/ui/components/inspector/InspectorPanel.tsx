@@ -4,6 +4,7 @@ import * as React from "react"
 import { useState, useRef, useCallback, useEffect, type CSSProperties } from "react"
 import { cn } from "@/lib/utils"
 import { InspectorView, type InspectorTabId } from "./InspectorView"
+import type { InspectorScope } from "./inspectorScope"
 
 function getResponsiveDefaults() {
   if (typeof window === "undefined") return { min: 480, max: 860, default: 480 }
@@ -27,10 +28,14 @@ interface InspectorPanelProps {
   projectId?: string | null
   activeAgentId?: string | null
   onAgentSelect?: (id: string) => void
+  activeTab?: InspectorTabId
+  onTabChange?: (tab: InspectorTabId) => void
+  inspectorScope: InspectorScope
+  onInspectorScopeChange: (scope: InspectorScope) => void
 }
 
-export function InspectorPanel({ open, onClose, onOpenFullWindow, onWidthChange, terminalActive, onTerminalActiveChange, sessionKey, focusedToolCallId, onClearFocusedToolCall, projectId, activeAgentId, onAgentSelect }: InspectorPanelProps) {
-  const [activeTab, setActiveTab] = useState<InspectorTabId>("activity")
+export function InspectorPanel({ open, onClose, onOpenFullWindow, onWidthChange, terminalActive, onTerminalActiveChange, sessionKey, focusedToolCallId, onClearFocusedToolCall, projectId, activeAgentId, onAgentSelect, activeTab: controlledActiveTab, onTabChange, inspectorScope, onInspectorScopeChange }: InspectorPanelProps) {
+  const [internalActiveTab, setInternalActiveTab] = useState<InspectorTabId>("activity")
   const responsiveDefaults = getResponsiveDefaults()
   const responsiveRef = useRef(responsiveDefaults)
   const [width, setWidth] = useState(responsiveDefaults.default)
@@ -60,7 +65,12 @@ export function InspectorPanel({ open, onClose, onOpenFullWindow, onWidthChange,
       ? "terminal"
       : focusedToolCallId
         ? "activity"
-        : activeTab
+        : controlledActiveTab ?? internalActiveTab
+
+  const handleTabChange = useCallback((tab: InspectorTabId) => {
+    setInternalActiveTab(tab)
+    onTabChange?.(tab)
+  }, [onTabChange])
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -120,7 +130,7 @@ export function InspectorPanel({ open, onClose, onOpenFullWindow, onWidthChange,
       >
         <InspectorView
           activeTab={displayedTab}
-          onTabChange={setActiveTab}
+          onTabChange={handleTabChange}
           onTerminalTabChange={onTerminalActiveChange}
           onClose={onClose}
           onOpenFullWindow={onOpenFullWindow}
@@ -128,6 +138,8 @@ export function InspectorPanel({ open, onClose, onOpenFullWindow, onWidthChange,
           focusedToolCallId={focusedToolCallId}
           onClearFocusedToolCall={onClearFocusedToolCall}
           projectId={projectId}
+          inspectorScope={inspectorScope}
+          onInspectorScopeChange={onInspectorScopeChange}
           activeAgentId={activeAgentId}
           onAgentSelect={onAgentSelect}
         />

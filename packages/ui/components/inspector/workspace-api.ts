@@ -22,7 +22,9 @@ export type RemoteWorkspaceCapabilities = {
 }
 
 function workspaceBasePath(projectId?: string | null): string {
-  const id = projectId ?? (typeof window !== "undefined" ? localStorage.getItem("openclaw.activeProjectId") : null)
+  const id = projectId === undefined
+    ? (typeof window !== "undefined" ? localStorage.getItem("openclaw.activeProjectId") : null)
+    : projectId
   return id ? `/api/projects/${id}/workspace` : "/api/workspace"
 }
 
