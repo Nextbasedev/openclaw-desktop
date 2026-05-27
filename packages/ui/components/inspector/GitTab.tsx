@@ -211,10 +211,60 @@ function DiffFileHeader({
 }
 
 function DiffLines({ diff, mode }: { diff: FileDiff; mode: DiffViewMode }) {
+  const [splitPercent, setSplitPercent] = useState(50)
+  const splitContainerRef = useRef<HTMLDivElement | null>(null)
+  const draggingSplitRef = useRef(false)
+
+  useEffect(() => {
+    if (mode !== "split") return
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!draggingSplitRef.current || !splitContainerRef.current) return
+      const rect = splitContainerRef.current.getBoundingClientRect()
+      if (rect.width <= 0) return
+      const nextPercent = ((event.clientX - rect.left) / rect.width) * 100
+      setSplitPercent(Math.min(80, Math.max(20, nextPercent)))
+    }
+
+    const handlePointerUp = () => {
+      if (!draggingSplitRef.current) return
+      draggingSplitRef.current = false
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", handlePointerUp)
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", handlePointerUp)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    }
+  }, [mode])
+
   if (mode === "split") {
     return (
-      <div className="grid min-w-0 grid-cols-2 font-mono text-[12px] leading-[1.65]">
+      <div
+        ref={splitContainerRef}
+        className="grid min-w-0 font-mono text-[12px] leading-[1.65]"
+        style={{ gridTemplateColumns: `${splitPercent}% 6px minmax(0, 1fr)` }}
+      >
         <SplitDiffPane diff={diff} side="old" />
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize split diff panes"
+          className="group relative z-10 cursor-col-resize bg-white/5 transition-colors hover:bg-white/12 active:bg-white/16"
+          onPointerDown={(event) => {
+            event.preventDefault()
+            draggingSplitRef.current = true
+            document.body.style.cursor = "col-resize"
+            document.body.style.userSelect = "none"
+          }}
+        >
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/15 transition-colors group-hover:bg-white/35" />
+        </div>
         <SplitDiffPane diff={diff} side="new" />
       </div>
     )
