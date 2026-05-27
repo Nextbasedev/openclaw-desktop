@@ -762,24 +762,12 @@ function HeaderTooltip({
   label: string
   children: ReactNode
 }) {
+  // Keep tab labels on the native title tooltip. The Radix tooltip portal can
+  // enter an update loop when mounted inside Framer Motion's Reorder.Item while
+  // tabs are remeasured/reordered.
   return (
-    <Tooltip delayDuration={250}>
-      <TooltipTrigger asChild>
-        <div className="shrink-0">{children}</div>
-      </TooltipTrigger>
-      <TooltipContent
-        side="bottom"
-        align="center"
-        sideOffset={8}
-        collisionPadding={12}
-        showArrow={false}
-        className={cn(
-          "max-w-[min(420px,calc(100vw-24px))] rounded-md border border-white/[0.08] bg-[#1B1B1D]/88 px-2.5 py-1 text-[12px] font-medium text-foreground backdrop-blur-xl",
-          "shadow-[0_8px_24px_rgba(0,0,0,0.28)]",
-        )}
-      >
-        <span className="block break-words whitespace-normal">{label}</span>
-      </TooltipContent>
-    </Tooltip>
+    <div className="shrink-0" title={label} aria-label={label}>
+      {children}
+    </div>
   )
 }
