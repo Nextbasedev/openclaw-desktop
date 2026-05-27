@@ -224,8 +224,8 @@ export function CollapsedSpacesPopover({
             >
               <span
                 className={cn(
-                  "relative flex size-full items-center justify-center overflow-hidden rounded-md text-[14px] font-light shadow-lg shadow-black/30 transition-colors group-hover:text-white",
-                  active ? `${ACTIVE_SPACE_ICON_SURFACE} text-white` : `${SPACE_ICON_SURFACE} text-muted-foreground/75`,
+                  "relative flex size-full items-center justify-center overflow-hidden rounded-md text-[14px] font-semibold text-white shadow-lg shadow-black/30",
+                  active ? ACTIVE_SPACE_ICON_SURFACE : SPACE_ICON_SURFACE,
                 )}
               >
                 {spaceInitial(space)}
