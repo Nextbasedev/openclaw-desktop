@@ -9,7 +9,7 @@ import { BranchDropdown } from "./BranchDropdown"
 import { RepoPickerDialog } from "@/components/sidebar/RepoPickerDialog"
 import {
   type FileState, type GitFile, type GitContextResponse, type BranchesResponse,
-  STATE_CONFIG, parseStatusLine, parseCommitLine, parseGitShow, type FileDiff, type DiffLine, type GitDiffResponse,
+  STATE_CONFIG, parseStatusLine, parseCommitLine, parseGitShow, type FileDiff, type GitDiffResponse,
 } from "./git-helpers"
 
 const GIT_TAB_SELECTION_STORAGE_KEY = "openclaw.gitTab.selectedProject.v1"
@@ -125,6 +125,19 @@ function GitPanelSkeleton() {
   )
 }
 
+function GitFileListSkeleton() {
+  return (
+    <div className="space-y-2 p-2">
+      {["w-24", "w-20", "w-28", "w-16"].map((width, index) => (
+        <div key={index} className="flex items-center gap-2 rounded-md px-2 py-1.5">
+          <div className="size-3.5 animate-pulse rounded bg-secondary/50" />
+          <div className={cn("h-3 animate-pulse rounded bg-secondary/40", width)} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function GitDiffSkeleton() {
   return (
     <div className="space-y-2 p-4 font-mono">
@@ -134,156 +147,6 @@ function GitDiffSkeleton() {
       <div className="h-4 w-[500px] animate-pulse rounded bg-red-500/20" />
       <div className="h-4 w-[420px] animate-pulse rounded bg-white/10" />
       <div className="h-4 w-[540px] animate-pulse rounded bg-emerald-500/15" />
-    </div>
-  )
-}
-
-type DiffViewMode = "unified" | "split"
-
-function GitChangesToolbar({
-  mode,
-  onModeChange,
-  onCollapseAll,
-}: {
-  mode: DiffViewMode
-  onModeChange: (mode: DiffViewMode) => void
-  onCollapseAll: () => void
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="inline-flex overflow-hidden rounded-lg border border-border/20 bg-white/[0.035] p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-        {(["unified", "split"] as DiffViewMode[]).map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => onModeChange(item)}
-            className={cn(
-              "cursor-pointer rounded-md px-3 py-1 text-[11px] font-semibold capitalize transition-colors",
-              mode === item
-                ? "bg-white/10 text-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
-            )}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-      <button
-        type="button"
-        onClick={onCollapseAll}
-        className="cursor-pointer rounded-lg border border-border/20 bg-white/[0.035] px-3 py-1.5 text-[11px] font-semibold text-foreground/90 transition-colors hover:bg-white/[0.07]"
-      >
-        Collapse all
-      </button>
-    </div>
-  )
-}
-
-function DiffFileHeader({
-  path,
-  additions,
-  deletions,
-  open,
-  onClick,
-}: {
-  path: string
-  additions: number
-  deletions: number
-  open: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full cursor-pointer items-center gap-3 border-b border-border/20 bg-white/[0.025] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.045]"
-    >
-      <VscMarkdown className="size-3.5 shrink-0 text-sky-400/80" />
-      <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/90">{path}</span>
-      <span className="shrink-0 font-mono text-[12px] font-bold text-emerald-400">+{additions}</span>
-      <span className="shrink-0 font-mono text-[12px] font-bold text-red-400">-{deletions}</span>
-      <LuChevronDown
-        size={14}
-        className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
-      />
-    </button>
-  )
-}
-
-function DiffLines({ diff, mode }: { diff: FileDiff; mode: DiffViewMode }) {
-  if (mode === "split") {
-    return (
-      <div className="min-w-[760px] font-mono text-[12px] leading-[1.65]">
-        {diff.lines.map((line, idx) => {
-          if (line.type === "hunk") {
-            return (
-              <div key={idx} className="grid grid-cols-2 border-y border-white/5 bg-[#161b22] text-[11px] font-bold text-[#7d8590]">
-                <div className="px-4 py-1.5">{line.content}</div>
-                <div className="border-l border-white/10 px-4 py-1.5">{line.content}</div>
-              </div>
-            )
-          }
-          const isAdd = line.type === "addition"
-          const isDel = line.type === "deletion"
-          return (
-            <div key={idx} className="grid grid-cols-2 border-b border-white/[0.025]">
-              <DiffLineCell line={line} side="old" muted={isAdd} tone={isDel ? "del" : "normal"} />
-              <DiffLineCell line={line} side="new" muted={isDel} tone={isAdd ? "add" : "normal"} split />
-            </div>
-          )
-        })}
-      </div>
-    )
-  }
-
-  return (
-    <div className="min-w-[720px] font-mono text-[12px] leading-[1.65]">
-      {diff.lines.map((line, idx) => {
-        if (line.type === "hunk") {
-          return (
-            <div key={idx} className="border-y border-white/5 bg-[#161b22] px-4 py-1.5 text-[11px] font-bold text-[#7d8590]">
-              {line.content}
-            </div>
-          )
-        }
-        const tone = line.type === "addition" ? "add" : line.type === "deletion" ? "del" : "normal"
-        return <DiffLineCell key={idx} line={line} side="both" tone={tone} />
-      })}
-    </div>
-  )
-}
-
-function DiffLineCell({
-  line,
-  side,
-  tone,
-  muted = false,
-  split = false,
-}: {
-  line: DiffLine
-  side: "old" | "new" | "both"
-  tone: "add" | "del" | "normal"
-  muted?: boolean
-  split?: boolean
-}) {
-  const sign = tone === "add" ? "+" : tone === "del" ? "-" : " "
-  const number = side === "old" ? line.oldLineNumber : side === "new" ? line.newLineNumber : (line.oldLineNumber ?? line.newLineNumber)
-  return (
-    <div
-      className={cn(
-        "flex min-w-0 transition-colors",
-        split && "border-l border-white/10",
-        muted && "opacity-30",
-        tone === "add" && "bg-[#12351f] text-[#d7ffe0]",
-        tone === "del" && "bg-[#3a1719] text-[#ffe0e0]",
-        tone === "normal" && "bg-[#0b0b0c] text-[#d6d6d8] hover:bg-white/[0.04]",
-      )}
-    >
-      <div className="w-10 shrink-0 select-none px-2 text-right text-[10px] tabular-nums text-muted-foreground/45">
-        {muted ? "" : (number ?? "")}
-      </div>
-      <div className={cn("w-6 shrink-0 select-none text-center text-[13px] font-bold", tone === "add" && "text-emerald-300", tone === "del" && "text-red-300", tone === "normal" && "text-muted-foreground/30")}>{muted ? "" : sign}</div>
-      <div className="flex-1 whitespace-pre px-3 font-medium">{muted ? "" : line.content}</div>
     </div>
   )
 }
@@ -722,7 +585,6 @@ function CommitDetailView({
   const [diffs, setDiffs] = useState<FileDiff[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
-  const [diffMode, setDiffMode] = useState<DiffViewMode>("unified")
   const requestRef = useRef(0)
 
   useEffect(() => {
@@ -750,60 +612,155 @@ function CommitDetailView({
     return () => { requestRef.current += 1 }
   }, [projectId, repoPath, hash])
 
-  const openFile = selectedFile
-  const currentFileDiff = diffs?.find(f => f.path === openFile)
+  const currentFileDiff = diffs?.find(f => f.path === selectedFile)
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#0f0f10] text-foreground">
-      <div className="flex shrink-0 items-center gap-3 border-b border-white/10 px-3 py-2">
+    <div className="flex h-full flex-col overflow-hidden bg-background/50 backdrop-blur-xl">
+      <div className="flex items-center gap-3 border-b border-border/20 px-4 py-3 shrink-0 bg-secondary/5 backdrop-blur-md">
         <button
           onClick={onBack}
-          className="cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          className="rounded-md p-1.5 transition-colors hover:bg-secondary text-muted-foreground hover:text-foreground cursor-pointer"
         >
           <VscArrowLeft size={16} />
         </button>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[13px] font-semibold text-foreground">{message}</h3>
-          <code className="text-[10px] text-muted-foreground/55 font-mono">{hash.substring(0, 8)}</code>
+          <h3 className="truncate text-[13px] font-bold text-foreground">
+            {message}
+          </h3>
+          <code className="text-[10px] text-muted-foreground/50 font-mono">
+            {hash.substring(0, 8)}
+          </code>
         </div>
-        <GitChangesToolbar
-          mode={diffMode}
-          onModeChange={setDiffMode}
-          onCollapseAll={() => setSelectedFile(null)}
-        />
       </div>
 
-      <div className="flex-1 overflow-auto">
-        {loading ? (
-          <GitDiffSkeleton />
-        ) : !diffs?.length ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground/60">
-            <VscFile size={40} className="opacity-30" />
-            <p className="text-[13px]">No files changed</p>
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left Side: File List (GitHub Desktop style) */}
+        <div className="w-[200px] shrink-0 border-r border-border/10 flex flex-col bg-muted/5 backdrop-blur-sm max-md:w-[144px]">
+          <div className="px-3 py-2 border-b border-border/10">
+             <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
+               Changed Files
+             </span>
           </div>
-        ) : (
-          <div className="min-w-0 divide-y divide-white/10">
-            {diffs.map((file) => {
-              const open = file.path === openFile
-              return (
-                <div key={file.path} className="bg-[#101011]">
-                  <DiffFileHeader
-                    path={file.path}
-                    additions={file.additions}
-                    deletions={file.deletions}
-                    open={open}
-                    onClick={() => setSelectedFile(open ? null : file.path)}
-                  />
-                  {open && (
-                    <div className="overflow-auto bg-[#050505] text-[#e6edf3]">
-                      {currentFileDiff ? <DiffLines diff={currentFileDiff} mode={diffMode} /> : null}
+          <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
+            {loading ? (
+              <GitFileListSkeleton />
+            ) : diffs?.length === 0 ? (
+              <div className="p-4 text-center text-[11px] text-muted-foreground italic">
+                No files changed
+              </div>
+            ) : (
+              diffs?.map((file) => (
+                <button
+                  key={file.path}
+                  onClick={() => setSelectedFile(file.path)}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-[11px] transition-all",
+                    selectedFile === file.path 
+                      ? "bg-secondary/80 text-foreground font-medium shadow-sm" 
+                      : "text-muted-foreground hover:bg-secondary/30 hover:text-foreground cursor-pointer"
+                  )}
+                >
+                  <span className="truncate flex-1">{file.path.split('/').pop()}</span>
+                  <div className="flex gap-1.5 font-mono text-[9px] ml-1">
+                    <span className="text-emerald-500">+{file.additions}</span>
+                    <span className="text-red-500">-{file.deletions}</span>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Right Side: Diff View */}
+        <div className="flex-1 flex flex-col overflow-hidden relative bg-white/5 backdrop-blur-sm">
+          {!selectedFile ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 opacity-40">
+               <VscFile size={48} className="text-muted-foreground/20" />
+               <div className="text-center">
+                 <p className="text-[14px] font-medium">No file selected</p>
+                 <p className="text-[11px] text-muted-foreground">Select a file to view changes</p>
+               </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col overflow-hidden">
+               <div className="px-3 py-2 border-b border-border/10 bg-muted/5 flex items-center gap-2">
+                  <VscMarkdown className="size-3.5 text-muted-foreground/60" />
+                  <span className="text-[11px] font-medium text-muted-foreground truncate italic">
+                    {selectedFile}
+                  </span>
+               </div>
+               <div className="flex-1 overflow-auto bg-black text-[#e6edf3] dark:bg-black">
+                  {!currentFileDiff && !loading ? (
+                    <div className="p-20 text-center text-muted-foreground/40 italic text-[13px]">
+                      Diff unavailable
+                    </div>
+                  ) : (
+                    <div className="min-w-max flex flex-col font-mono text-[12px] leading-[1.6]">
+                      {currentFileDiff?.lines.map((line, idx) => {
+                        if (line.type === "hunk") {
+                          return (
+                            <div key={idx} className="bg-[#161b22] text-[#7d8590] py-1.5 px-4 sticky top-0 z-10 border-y border-white/5 my-2 select-none text-[11px] font-bold opacity-80 backdrop-blur-sm">
+                              {line.content}
+                            </div>
+                          )
+                        }
+
+                        const isAdd = line.type === "addition"
+                        const isDel = line.type === "deletion"
+
+                        return (
+                          <div
+                            key={idx}
+                            className={cn(
+                              "flex w-full group transition-colors",
+                              isAdd && "bg-[#2ea04333] hover:bg-[#2ea04344]",
+                              isDel && "bg-[#f8514933] hover:bg-[#f8514944]",
+                              !isAdd && !isDel && "hover:bg-white/5"
+                            )}
+                          >
+                            {/* Line numbers gutter */}
+                            <div className="flex shrink-0 select-none border-r border-white/5 bg-black/40">
+                              <div className={cn(
+                                "w-10 px-2 text-right text-[10px] tabular-nums transition-opacity",
+                                isDel ? "bg-[#f8514944] text-red-300 opacity-100" : "text-muted-foreground opacity-30 group-hover:opacity-60"
+                              )}>
+                                {line.oldLineNumber ?? ""}
+                              </div>
+                              <div className={cn(
+                                "w-10 px-2 text-right text-[10px] tabular-nums transition-opacity border-l border-white/5",
+                                isAdd ? "bg-[#2ea04344] text-emerald-300 opacity-100" : "text-muted-foreground opacity-30 group-hover:opacity-60"
+                              )}>
+                                {line.newLineNumber ?? ""}
+                              </div>
+                            </div>
+
+                            {/* Diff sign gutter */}
+                            <div className={cn(
+                              "w-6 shrink-0 flex items-center justify-center select-none text-[13px] font-bold",
+                              isAdd && "text-[#7ee787]",
+                              isDel && "text-[#ffa198]",
+                              !isAdd && !isDel && "text-muted-foreground/30"
+                            )}>
+                              {isAdd ? "+" : isDel ? "-" : " "}
+                            </div>
+
+                            {/* Content */}
+                            <div className={cn(
+                              "flex-1 px-4 whitespace-pre font-medium",
+                              isAdd && "text-[#e6ffec]",
+                              isDel && "text-[#fff0f0]",
+                            )}>
+                              {line.content}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
-                </div>
-              )
-            })}
-          </div>
-        )}
+               </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
