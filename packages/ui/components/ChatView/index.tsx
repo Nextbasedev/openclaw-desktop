@@ -1877,18 +1877,19 @@ export function ChatView({
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.94 }}
                 className={cn(
-                  "group flex h-8 w-16 cursor-pointer items-center justify-center",
-                  "bg-transparent text-foreground/80 transition-colors hover:text-foreground",
+                  "group flex size-9 cursor-pointer items-center justify-center rounded-full",
+                  "border border-border/50 bg-background/95 text-foreground/80 shadow-sm backdrop-blur",
+                  "transition-colors hover:bg-muted hover:text-foreground",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
                 )}
               >
                 <motion.span
                   aria-hidden="true"
-                  animate={{ y: [0, 5, 0] }}
+                  animate={{ y: [0, 4, 0] }}
                   transition={{ duration: 1.8, ease: "easeInOut", repeat: Infinity }}
-                  className="flex origin-center scale-x-125 bg-transparent"
+                  className="flex origin-center bg-transparent"
                 >
-                  <MdKeyboardDoubleArrowDown size={30} />
+                  <MdKeyboardDoubleArrowDown size={22} />
                 </motion.span>
               </motion.button>
             </motion.div>
