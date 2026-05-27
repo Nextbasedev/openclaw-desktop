@@ -1,17 +1,10 @@
-import { useState, useCallback, useMemo, useEffect, useRef, type CSSProperties } from "react"
+import { useState, useCallback, useMemo, useEffect, type CSSProperties } from "react"
 import { Reorder } from "framer-motion"
 import type { ActiveTopic } from "@/types/project"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
 import { CollapsedSpacesPopover } from "./CollapsedSpacesPopover"
 import { cn } from "@/lib/utils"
-import { SidebarItem, GlassTooltip, type SidebarNavItem } from "./SidebarItem"
-import { Icons } from "../icons"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import { GLASS_POPOVER } from "@/constants/glassPopover"
+import { SidebarItem, type SidebarNavItem } from "./SidebarItem"
 import type { Space } from "@/types/space"
 
 const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = []
@@ -74,12 +67,10 @@ export function Sidebar({
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false)
   const [isMobileViewport, setIsMobileViewport] = useState(false)
-  const [chatsPopoverOpen, setChatsPopoverOpen] = useState(false)
   const [uniqueSidebarBg, setUniqueSidebarBg] = useState(() => {
     if (typeof window === "undefined") return false
     return localStorage.getItem(UNIQUE_SIDEBAR_BG_KEY) === "true"
   })
-  const prevCollapsed = useRef(collapsed)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setMounted(true), 0)
@@ -113,17 +104,6 @@ export function Sidebar({
     }
   }, [])
 
-  useEffect(() => {
-    if (prevCollapsed.current === collapsed) return
-    prevCollapsed.current = collapsed
-    if (!collapsed) {
-      const frame = window.requestAnimationFrame(() => {
-        if (chatsPopoverOpen) setChatsPopoverOpen(false)
-      })
-      return () => window.cancelAnimationFrame(frame)
-    }
-  }, [chatsPopoverOpen, collapsed])
-
   const sidebarStyle = useMemo(
     () =>
       ({
@@ -132,11 +112,6 @@ export function Sidebar({
       }) as CSSProperties,
     [width],
   )
-  const handleChatSelectInPopover = useCallback((chat: ActiveChat) => {
-    setChatsPopoverOpen(false)
-    onChatSelect(chat)
-  }, [onChatSelect])
-
   const handlePrimaryTabClick = useCallback((tab: string) => {
     onTabChange(tab)
     if (isMobileViewport) onClose?.()
@@ -258,64 +233,6 @@ export function Sidebar({
                 onSpaceArchive={onSpaceArchive}
                 onSpaceDelete={onSpaceDelete}
               />
-
-              <div className="mt-1 h-px w-7 bg-border/40" />
-
-              {items.map((item) => (
-                <SidebarItem
-                  key={item.id}
-                  item={item}
-                  isActive={activeTab === item.id}
-                  onClick={() => handlePrimaryTabClick(item.id)}
-                  href={NAV_HREFS[item.id]}
-                  collapsed={itemCollapsed}
-                />
-              ))}
-              <Popover open={chatsPopoverOpen} onOpenChange={setChatsPopoverOpen}>
-                <PopoverTrigger asChild>
-                  <div>
-                    <GlassTooltip label="Chats" disabled={chatsPopoverOpen}>
-                      <button
-                        type="button"
-                        className={cn(
-                          "group flex w-full min-w-0 cursor-pointer items-center rounded-md px-2.5 py-2 text-left text-[13px] font-normal",
-                          "transition-[background-color,color,opacity] duration-150 ease-in-out",
-                          chatsPopoverOpen
-                            ? "text-foreground"
-                            : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
-                        )}
-                      >
-                        <span className="flex size-4 shrink-0 items-center justify-center">
-                          <Icons.BubbleChat size={16} strokeWidth={1.5} />
-                        </span>
-                      </button>
-                    </GlassTooltip>
-                  </div>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="start"
-                  side="right"
-                  sideOffset={8}
-                  className={cn("w-[260px] p-0", GLASS_POPOVER)}
-                >
-                  <div className="max-h-[360px] overflow-y-auto p-2">
-                    <ChatsSection
-                      collapsed={false}
-                      collapsible={false}
-                      sectionLabel={activeSpaceName}
-                      activeChat={activeChat}
-                      onChatSelect={handleChatSelectInPopover}
-                      onChatClear={onChatClear}
-                      onNewChat={() => {
-                        setChatsPopoverOpen(false)
-                        onNewChat()
-                      }}
-                      refreshTrigger={chatRefreshTrigger}
-                      spaceId={activeSpaceId}
-                    />
-                  </div>
-                </PopoverContent>
-              </Popover>
             </div>
           ) : null}
 

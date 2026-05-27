@@ -221,7 +221,7 @@ function focusedChatWindowParams() {
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
-const SIDEBAR_DEFAULT = 220
+const SIDEBAR_DEFAULT = 240
 const SIDEBAR_COLLAPSED = 56
 const INSPECTOR_DEFAULT_WIDTH = 460
 
@@ -1570,6 +1570,7 @@ function AppShell({
   }, [clearConversationState, editorGroups.focusedGroupId])
 
   const handleSpaceSwitch = useCallback(async (spaceId: string) => {
+    setSidebarOpen(true)
     if (spaceId === activeSpaceId) return
     if (activeSpaceId) {
       const route = parseRoute(getRoutePath())
