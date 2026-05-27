@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { MarkdownContent } from "../MarkdownContent"
 import { ToolCallSteps } from "../ToolCallSteps"
 import type { ChatMessage } from "../types"
+import { shouldAutoLoadOlderHistory } from "../chatHistoryAutoLoad"
 import { buildStableVercelTimeline, type StableChatMessage } from "./timeline"
 import { useStableChatScroll } from "./useStableChatScroll"
 
@@ -223,9 +224,17 @@ export function OpenClawVercelChat({
   const loadOlderInFlightRef = useRef(false)
   const userScrollIntentRef = useRef(false)
   const lastOlderLoadAtRef = useRef(0)
+  const previousScrollTopRef = useRef(0)
   const pendingOlderAnchorRef = useRef<VercelScrollAnchor | null>(null)
   const [localOlderLoading, setLocalOlderLoading] = useState(false)
   const isOlderLoading = loadingOlderMessages || localOlderLoading
+
+  useEffect(() => {
+    userScrollIntentRef.current = false
+    previousScrollTopRef.current = 0
+    lastOlderLoadAtRef.current = 0
+  }, [sessionKey])
+
   const loadOlderWithoutJump = useCallback(async () => {
     const now = Date.now()
     if (!hasOlderMessages || isOlderLoading || loadOlderInFlightRef.current) return
@@ -261,7 +270,16 @@ export function OpenClawVercelChat({
       userScrollIntentRef.current = true
     }
     const onScroll = () => {
-      if (userScrollIntentRef.current && container.scrollTop <= 360) void loadOlderWithoutJump()
+      if (shouldAutoLoadOlderHistory({
+        scrollTop: container.scrollTop,
+        scrollHeight: container.scrollHeight,
+        clientHeight: container.clientHeight,
+        previousScrollTop: previousScrollTopRef.current,
+        hasUserIntent: userScrollIntentRef.current,
+      })) {
+        void loadOlderWithoutJump()
+      }
+      previousScrollTopRef.current = container.scrollTop
     }
     container.addEventListener("wheel", markUserIntent, { passive: true })
     container.addEventListener("touchstart", markUserIntent, { passive: true })

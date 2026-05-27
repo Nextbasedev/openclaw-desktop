@@ -8,6 +8,7 @@ import { ToolCallSteps } from "./ToolCallSteps"
 import { ChatSearch } from "./ChatSearch"
 import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
 import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
+import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
@@ -926,6 +927,7 @@ export function ChatView({
   const needsInitialScrollRef = useRef(true)
   const loadOlderClickInFlightRef = useRef(false)
   const lastOlderLoadAtRef = useRef(0)
+  const previousScrollTopRef = useRef(0)
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const [loadOlderUiBusy, setLoadOlderUiBusy] = useState(false)
   useEffect(() => {
@@ -944,6 +946,7 @@ export function ChatView({
     needsInitialScrollRef.current = true
     loadOlderClickInFlightRef.current = false
     lastOlderLoadAtRef.current = 0
+    previousScrollTopRef.current = 0
     setLoadOlderUiBusy(false)
   }, [sessionKey])
 
@@ -1154,9 +1157,16 @@ export function ChatView({
     if (el) {
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
       setShowJumpToBottom(!atBottom)
-      if (hasOlderMessages && userScrollIntentRef.current && el.scrollTop <= 360) {
+      if (hasOlderMessages && shouldAutoLoadOlderHistory({
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+        previousScrollTop: previousScrollTopRef.current,
+        hasUserIntent: userScrollIntentRef.current,
+      })) {
         void loadOlderWithoutJump()
       }
+      previousScrollTopRef.current = el.scrollTop
     }
     if (activePopoverId) setActivePopoverId(null)
   }, [activePopoverId, hasOlderMessages, loadOlderWithoutJump, onScroll, scrollContainerRef])
