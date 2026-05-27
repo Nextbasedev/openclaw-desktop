@@ -480,7 +480,7 @@ function subagentFromCanonicalTool(tool: InlineToolCall): SpawnedSubagent | null
     id: `spawn:${tool.id}`,
     label: subagentLabelFromToolInput(tool.input),
     sessionKey: childSessionKey,
-    status: tool.status === "error" ? "failed" : tool.status === "success" ? "completed" : childSessionKey ? "working" : "spawning",
+    status: tool.status === "error" ? "failed" : childSessionKey ? "working" : "spawning",
     toolCallId: tool.id,
   }
 }
@@ -1110,7 +1110,7 @@ export function useChatMessages(
                 toolCallId,
               }),
               sessionKey: childKey,
-              status: error ? "failed" : childKey ? "working" : "completed",
+              status: error ? "failed" : childKey ? "working" : prev?.status ?? "spawning",
             })
             break
           }
