@@ -5,12 +5,11 @@ import { LuArrowDown, LuSparkles } from "react-icons/lu"
 import { cn } from "@/lib/utils"
 import { MarkdownContent } from "../MarkdownContent"
 import { ToolCallSteps } from "../ToolCallSteps"
-import type { ChatMessage, InlineToolCall } from "../types"
+import type { ChatMessage } from "../types"
+import { buildStableVercelTimeline, type StableChatMessage } from "./timeline"
 import { useStableChatScroll } from "./useStableChatScroll"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
-
-type StableMessage = ChatMessage & { uiId: string }
 
 type Props = {
   sessionKey: string
@@ -23,70 +22,6 @@ type Props = {
     decision: ApprovalDecision
   ) => Promise<void> | void
 }
-
-function mergeText(existing: string, incoming: string) {
-  if (!existing.trim()) return incoming
-  if (!incoming.trim()) return existing
-  if (incoming.startsWith(existing)) return incoming
-  if (existing.includes(incoming)) return existing
-  return `${existing}\n\n${incoming}`
-}
-
-function mergeTools(existing?: InlineToolCall[], incoming?: InlineToolCall[]) {
-  const merged = new Map<string, InlineToolCall>()
-  for (const tool of [...(existing ?? []), ...(incoming ?? [])]) {
-    const current = merged.get(tool.id)
-    merged.set(tool.id, current ? { ...current, ...tool } : tool)
-  }
-  return Array.from(merged.values())
-}
-
-function mergeAssistantTurn(existing: StableMessage, incoming: ChatMessage): StableMessage {
-  return {
-    ...existing,
-    ...incoming,
-    uiId: existing.uiId,
-    messageId: existing.messageId,
-    text: mergeText(existing.text, incoming.text),
-    reasoningText: mergeText(existing.reasoningText ?? "", incoming.reasoningText ?? "") || undefined,
-    toolCalls: mergeTools(existing.toolCalls, incoming.toolCalls),
-    embeds: [...(existing.embeds ?? []), ...(incoming.embeds ?? [])],
-    attachments: [...(existing.attachments ?? []), ...(incoming.attachments ?? [])],
-    animateText: Boolean(existing.animateText || incoming.animateText),
-  }
-}
-
-function useStableMessages(messages: readonly ChatMessage[]) {
-  return useMemo(() => {
-    const out: StableMessage[] = []
-    let userTurn = 0
-    let activeAssistant: StableMessage | null = null
-
-    const flushAssistant = () => {
-      if (!activeAssistant) return
-      out.push(activeAssistant)
-      activeAssistant = null
-    }
-
-    for (const message of messages) {
-      if (message.role === "assistant") {
-        const assistantUiId = `user-turn:${userTurn || 0}:assistant`
-        activeAssistant = activeAssistant
-          ? mergeAssistantTurn(activeAssistant, message)
-          : { ...message, uiId: assistantUiId }
-        continue
-      }
-
-      flushAssistant()
-      userTurn += 1
-      out.push({ ...message, uiId: `user-turn:${userTurn}` })
-    }
-
-    flushAssistant()
-    return out
-  }, [messages])
-}
-
 
 function ThinkingMessage({ statusText }: { statusText?: string | null }) {
   return (
@@ -114,7 +49,7 @@ function VercelMessage({
   onSelectTool,
   onResolveApproval,
 }: {
-  message: StableMessage
+  message: StableChatMessage
   isStreaming: boolean
   onSelectTool?: (toolCallId: string) => void
   onResolveApproval?: Props["onResolveApproval"]
@@ -126,10 +61,10 @@ function VercelMessage({
   return (
     <div
       className={cn(
-        "group/message w-full [content-visibility:auto]",
+        "group/message w-full scroll-mt-6",
         isUser
-          ? "animate-[fade-up_0.25s_cubic-bezier(0.22,1,0.36,1)] [contain-intrinsic-size:auto_64px]"
-          : "animate-[fade-up_0.18s_ease-out] [contain-intrinsic-size:auto_180px]"
+          ? "animate-[fade-up_0.18s_cubic-bezier(0.22,1,0.36,1)]"
+          : "animate-[fade-up_0.14s_ease-out]"
       )}
       data-role={message.role}
       data-message-id={message.messageId}
@@ -191,8 +126,14 @@ export function OpenClawVercelChat({
   onSelectTool,
   onResolveApproval,
 }: Props) {
-  const stableMessages = useStableMessages(messages)
-  const { containerRef, endRef, isAtBottom, scrollToBottom } = useStableChatScroll(sessionKey)
+  const stableMessages = useMemo(() => buildStableVercelTimeline(messages), [messages])
+  const firstMessageKey = stableMessages[0]?.uiId ?? null
+  const contentKey = stableMessages.map((message) => `${message.uiId}:${message.text.length}:${message.toolCalls?.length ?? 0}`).join("|")
+  const { containerRef, endRef, isAtBottom, scrollToBottom } = useStableChatScroll({
+    sessionKey,
+    firstMessageKey,
+    contentKey,
+  })
   const lastMessage = stableMessages.at(-1)
   const showThinking = isGenerating && lastMessage?.role === "user"
 
