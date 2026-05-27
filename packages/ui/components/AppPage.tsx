@@ -2638,17 +2638,14 @@ function AppShell({
         onContextMenu={handleAppContextMenu}
       >
         <Header
+          minimal
           inspectorOpen={false}
           terminalOpen={false}
           sidebarOpen={false}
           sidebarReservedWidth={0}
           editorGroups={null}
           workspaceControls={false}
-          onOpenSettings={openSettings}
-          onOpenNotifications={openNotifications}
-          onOpenLogs={openLogs}
           useNativeWindowChrome={useNativeWindowChrome}
-          onNavigateToChat={handleCronJobNavigate}
         />
 
         <main className="min-h-0 flex-1 overflow-hidden">
