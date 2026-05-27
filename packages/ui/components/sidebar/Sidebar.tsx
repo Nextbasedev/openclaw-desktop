@@ -203,6 +203,9 @@ export function Sidebar({
                   onSpaceSwitch={onSpaceSwitch}
                   onSpaceNewChat={onSpaceNewChat}
                   onSpaceCreate={onSpaceCreate}
+                  onSpaceUpdate={onSpaceUpdate}
+                  onSpaceArchive={onSpaceArchive}
+                  onSpaceDelete={onSpaceDelete}
                 />
               </div>
 
@@ -251,6 +254,9 @@ export function Sidebar({
                 onSpaceSwitch={onSpaceSwitch}
                 onSpaceNewChat={onSpaceNewChat}
                 onSpaceCreate={onSpaceCreate}
+                onSpaceUpdate={onSpaceUpdate}
+                onSpaceArchive={onSpaceArchive}
+                onSpaceDelete={onSpaceDelete}
               />
 
               <div className="mt-1 h-px w-7 bg-border/40" />
