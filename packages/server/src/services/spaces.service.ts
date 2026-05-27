@@ -21,6 +21,10 @@ type SpaceIconImage = {
   size: number
 }
 
+type SpaceIconInput = SpaceIconImage | null | undefined
+type SpaceCreateInput = { name?: string; iconImage?: SpaceIconInput; ImageIcon?: SpaceIconInput; imageIcon?: SpaceIconInput; icon_image?: SpaceIconInput; repoRoot?: string; projectId?: string }
+type SpaceUpdateInput = { spaceId: string; name?: string; iconImage?: SpaceIconInput; ImageIcon?: SpaceIconInput; imageIcon?: SpaceIconInput; icon_image?: SpaceIconInput; repoRoot?: string | null; projectId?: string | null }
+
 const SPACE_COLUMNS = "id, name, icon_image_json, repo_root, project_id, sort_order, archived, created_at, updated_at"
 const ACTIVE_SPACE_SETTING = "spaces.active_space_id"
 
@@ -55,11 +59,18 @@ function serializeIconImage(input?: SpaceIconImage | null): string | null {
   })
 }
 
+function iconImageFromInput(input?: { iconImage?: SpaceIconInput; ImageIcon?: SpaceIconInput; imageIcon?: SpaceIconInput; icon_image?: SpaceIconInput } | null): SpaceIconInput {
+  if (!input) return undefined
+  return input.iconImage ?? input.ImageIcon ?? input.imageIcon ?? input.icon_image
+}
+
 function rowToJson(row: SpaceRow) {
+  const iconImage = parseIconImage(row.icon_image_json)
   return {
     id: row.id,
     name: row.name,
-    iconImage: parseIconImage(row.icon_image_json),
+    iconImage,
+    ...(iconImage ? { ImageIcon: iconImage } : {}),
     repoRoot: row.repo_root ?? undefined,
     projectId: row.project_id ?? undefined,
     sortOrder: row.sort_order,
@@ -96,29 +107,32 @@ export function spacesList() {
   return { spaces: rows.map(rowToJson), activeSpaceId }
 }
 
-export function spacesCreate(input?: { name?: string; iconImage?: SpaceIconImage | null; repoRoot?: string; projectId?: string }) {
+export function spacesCreate(input?: SpaceCreateInput) {
   const db = getDb()
   ensureDefaultSpace()
   const now = nowIso()
   const id = generateId("space")
   const maxSort = (db.prepare("SELECT MAX(sort_order) AS maxSort FROM spaces").get() as { maxSort: number | null } | undefined)?.maxSort ?? 0
   const name = input?.name?.trim() || "New Space"
-  db.prepare(`INSERT INTO spaces (${SPACE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`)
-    .run(id, name, serializeIconImage(input?.iconImage), input?.repoRoot?.trim() || null, input?.projectId?.trim() || null, maxSort + 1, now, now)
+  const iconImage = iconImageFromInput(input)
+  db.prepare(`INSERT INTO spaces (${SPACE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`) 
+    .run(id, name, serializeIconImage(iconImage), input?.repoRoot?.trim() || null, input?.projectId?.trim() || null, maxSort + 1, now, now)
   db.prepare("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(ACTIVE_SPACE_SETTING, id, now)
   return { space: rowToJson(db.prepare(`SELECT ${SPACE_COLUMNS} FROM spaces WHERE id = ?`).get(id) as SpaceRow), activeSpaceId: id }
 }
 
-export function spacesUpdate(input: { spaceId: string; name?: string; iconImage?: SpaceIconImage | null; repoRoot?: string | null; projectId?: string | null }) {
+export function spacesUpdate(input: SpaceUpdateInput) {
   const db = getDb()
   const existing = db.prepare(`SELECT ${SPACE_COLUMNS} FROM spaces WHERE id = ? AND archived = 0`).get(input.spaceId) as SpaceRow | undefined
   if (!existing) throw new Error(`Space not found: ${input.spaceId}`)
   const name = input.name !== undefined ? input.name.trim() : existing.name
   if (!name) throw new Error("Space name cannot be empty")
+  const hasIconImageInput = input.iconImage !== undefined || input.ImageIcon !== undefined || input.imageIcon !== undefined || input.icon_image !== undefined
+  const iconImage = iconImageFromInput(input)
   db.prepare("UPDATE spaces SET name = ?, icon_image_json = ?, repo_root = ?, project_id = ?, updated_at = ? WHERE id = ?")
     .run(
       name,
-      input.iconImage !== undefined ? serializeIconImage(input.iconImage) : existing.icon_image_json,
+      hasIconImageInput ? serializeIconImage(iconImage) : existing.icon_image_json,
       input.repoRoot !== undefined ? input.repoRoot?.trim() || null : existing.repo_root,
       input.projectId !== undefined ? input.projectId?.trim() || null : existing.project_id,
       nowIso(),
