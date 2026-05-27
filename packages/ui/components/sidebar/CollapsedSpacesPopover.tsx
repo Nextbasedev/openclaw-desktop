@@ -24,38 +24,8 @@ type Props = {
   onSpaceDelete: (spaceId: string) => void | Promise<void>
 }
 
-const ICON_STYLES = [
-  {
-    background: "bg-[#073642]",
-    text: "text-cyan-200",
-    glow: "shadow-cyan-300/18",
-  },
-  {
-    background: "bg-[#2f155f]",
-    text: "text-violet-200",
-    glow: "shadow-violet-300/18",
-  },
-  {
-    background: "bg-[#073f2f]",
-    text: "text-emerald-200",
-    glow: "shadow-emerald-300/18",
-  },
-  {
-    background: "bg-[#4a2607]",
-    text: "text-amber-200",
-    glow: "shadow-amber-300/18",
-  },
-  {
-    background: "bg-[#4a0f25]",
-    text: "text-pink-200",
-    glow: "shadow-pink-300/18",
-  },
-]
-
-function styleForSpace(space: Space) {
-  const seed = [...space.id].reduce((total, char) => total + char.charCodeAt(0), 0)
-  return ICON_STYLES[seed % ICON_STYLES.length]
-}
+const SPACE_ICON_BACKGROUND = "bg-[linear-gradient(135deg,#09090B_0%,rgba(23,22,25,0.85)_50%,rgba(25,23,25,0.65)_100%)]"
+const ACTIVE_SPACE_ICON_BACKGROUND = "bg-[linear-gradient(135deg,#020618_0%,rgba(5,51,69,0.80)_50%,rgba(5,47,74,0.60)_100%)]"
 
 function getSpaceRank(space: Space) {
   if (typeof space.sortOrder === "number") return space.sortOrder
@@ -236,7 +206,6 @@ export function CollapsedSpacesPopover({
     <div className="flex flex-col items-center gap-3" aria-label="Projects">
       {orderedSpaces.map((space) => {
         const active = space.id === activeSpaceId
-        const iconStyle = styleForSpace(space)
 
         return (
           <GlassTooltip key={space.id} label={space.name} disabled={tooltipsDisabled || contextMenu.open}>
@@ -246,20 +215,17 @@ export function CollapsedSpacesPopover({
               onMouseEnter={() => onCollapsedPreviewStart?.(space.id)}
               onContextMenu={(event) => openContextMenu(event, space)}
               className={cn(
-                "group flex size-10 cursor-pointer items-center justify-center rounded-md border",
-                "bg-white/[0.035] text-foreground/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all duration-150 ease-in-out hover:bg-white/[0.08] hover:text-foreground",
+                "group flex size-10 cursor-pointer items-center justify-center rounded-[8px] border p-0.5 transition-all duration-150 ease-in-out",
                 active
-                  ? "border-white shadow-[0_0_0_1px_rgba(255,255,255,0.75),0_0_18px_rgba(255,255,255,0.22)]"
-                  : "border-0",
+                  ? "border-white shadow-[0_0_0_1px_rgba(255,255,255,0.75),0_0_18px_rgba(59,130,246,0.28)]"
+                  : "border-transparent hover:border-white/25",
               )}
               aria-label={`Open project ${space.name}`}
             >
               <span
                 className={cn(
-                  "relative flex size-full items-center justify-center overflow-hidden rounded-md text-[14px] font-semibold shadow-lg shadow-black/25 ring-1 ring-inset ring-white/10",
-                  iconStyle.background,
-                  iconStyle.text,
-                  iconStyle.glow,
+                  "relative flex size-full items-center justify-center overflow-hidden rounded-[8px] text-[14px] font-semibold text-white shadow-lg shadow-black/30 ring-1 ring-inset ring-white/5",
+                  active ? ACTIVE_SPACE_ICON_BACKGROUND : SPACE_ICON_BACKGROUND,
                 )}
               >
                 {spaceInitial(space)}
@@ -274,7 +240,10 @@ export function CollapsedSpacesPopover({
           type="button"
           onClick={openCreate}
           onContextMenu={openPlusMenu}
-          className="flex size-10 cursor-pointer items-center justify-center rounded-md border border-none bg-white/[0.035] text-muted-foreground/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all hover:bg-white/[0.08] hover:text-foreground"
+          className={cn(
+            "flex size-10 cursor-pointer items-center justify-center rounded-[8px] border border-transparent text-muted-foreground/70 shadow-lg shadow-black/30 transition-all hover:border-white/25 hover:text-foreground",
+            SPACE_ICON_BACKGROUND,
+          )}
           aria-label="New project"
         >
           <LuPlus className="size-7 stroke-[1.7]" />
