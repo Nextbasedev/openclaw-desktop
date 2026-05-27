@@ -307,6 +307,7 @@ export function Header({
                         tab={tab}
                         isActive={group.activeTabId === tab.id}
                         isFocusedGroup={isFocusedGroup}
+                        curved={visibleTabs.length > 1}
                         isDragging={draggingTabId === tab.id}
                         isDragTarget={dragOverTabId === tab.id}
                         onSelect={() => onSelectChatTab?.(group.id, tab.id)}
@@ -604,6 +605,7 @@ function HeaderTab({
   tab,
   isActive,
   isFocusedGroup = true,
+  curved = false,
   isDragging = false,
   isDragTarget = false,
   onSelect,
@@ -617,6 +619,7 @@ function HeaderTab({
   tab: EditorTab
   isActive: boolean
   isFocusedGroup?: boolean
+  curved?: boolean
   isDragging?: boolean
   isDragTarget?: boolean
   onSelect: () => void
@@ -628,6 +631,10 @@ function HeaderTab({
   onDragEnd?: () => void
 }) {
   const activeAndFocused = isActive && isFocusedGroup
+  const curvedTabSurface = curved && (tab.kind === "chat" || tab.kind === "draft")
+  const activeTabCurve = curvedTabSurface
+    ? "before:pointer-events-none before:absolute before:bottom-0 before:-left-[12px] before:size-3 before:rounded-br-xl before:shadow-[5px_5px_0_5px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[12px] after:size-3 after:rounded-bl-xl after:shadow-[-5px_5px_0_5px_var(--background)]"
+    : ""
   const tabLabel = `${tab.subtitle} / ${tab.title}`
   const openTabWindow = () => {
     if (onOpenWindow) {
@@ -661,14 +668,17 @@ function HeaderTab({
         }
       }}
       className={cn(
-        "group relative mb-0 flex h-[35px] w-46 shrink-0 cursor-grab items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200 active:cursor-grabbing",
+        "group relative mb-0 flex h-[35px] w-46 shrink-0 cursor-grab items-center gap-2 overflow-hidden border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200 active:cursor-grabbing",
+        curvedTabSurface ? "rounded-t-xl" : "rounded-t-[10px]",
         isDragging && "opacity-45",
         isDragTarget && !isDragging && "-translate-y-px ring-1 ring-inset ring-white/15",
         activeAndFocused
-          ? "z-20 overflow-visible border-transparent bg-background text-foreground shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
+          ? cn("z-20 overflow-visible border-transparent bg-background text-foreground shadow-none", activeTabCurve)
           : isActive
-            ? "z-10 overflow-visible border-transparent bg-background/72 text-foreground/74 shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
-            : "border-transparent bg-transparent text-foreground/56 hover:bg-white/[0.045] hover:text-foreground/78 dark:border-transparent dark:bg-transparent dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/80",
+            ? cn("z-10 overflow-visible border-transparent bg-background/72 text-foreground/74 shadow-none", activeTabCurve)
+            : curvedTabSurface
+              ? "border-transparent bg-white/[0.025] text-foreground/58 hover:bg-white/[0.055] hover:text-foreground/82 dark:border-transparent dark:bg-white/[0.025] dark:text-white/60 dark:hover:bg-white/[0.065] dark:hover:text-white/84"
+              : "border-transparent bg-transparent text-foreground/56 hover:bg-white/[0.045] hover:text-foreground/78 dark:border-transparent dark:bg-transparent dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/80",
       )}
     >
       <div
