@@ -82,9 +82,15 @@ type MessageScrollAnchor = {
 
 function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrollAnchor | null {
   if (!container) return null
-  const containerTop = container.getBoundingClientRect().top
+  const containerRect = container.getBoundingClientRect()
+  const containerTop = containerRect.top
+  const anchorY = containerTop + Math.min(180, Math.max(80, containerRect.height * 0.25))
   const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-  const visibleRow = rows.find((row) => row.getBoundingClientRect().bottom > containerTop + 1)
+  const visibleRow =
+    rows.find((row) => {
+      const rect = row.getBoundingClientRect()
+      return rect.top <= anchorY && rect.bottom >= anchorY
+    }) ?? rows.find((row) => row.getBoundingClientRect().bottom > containerTop + 1)
   if (!visibleRow?.id) {
     return {
       id: "",
@@ -115,21 +121,50 @@ function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: Messa
 }
 
 function settleMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null, done: () => void) {
-  const restore = () => restoreMessageScrollAnchor(container, anchor)
+  let finished = false
+  let frame: number | null = null
+  let resizeObserver: ResizeObserver | null = null
+  let mutationObserver: MutationObserver | null = null
+
+  const restore = () => {
+    if (finished) return
+    restoreMessageScrollAnchor(container, anchor)
+  }
+  const scheduleRestore = () => {
+    if (finished || frame !== null) return
+    frame = requestAnimationFrame(() => {
+      frame = null
+      restore()
+    })
+  }
+  const finish = () => {
+    if (finished) return
+    finished = true
+    if (frame !== null) cancelAnimationFrame(frame)
+    resizeObserver?.disconnect()
+    mutationObserver?.disconnect()
+    restoreMessageScrollAnchor(container, anchor)
+    done()
+  }
+
+  if (container && typeof ResizeObserver !== "undefined") {
+    resizeObserver = new ResizeObserver(scheduleRestore)
+    resizeObserver.observe(container)
+  }
+  if (container && typeof MutationObserver !== "undefined") {
+    mutationObserver = new MutationObserver(scheduleRestore)
+    mutationObserver.observe(container, { childList: true, subtree: true, characterData: true })
+  }
+
   restore()
   requestAnimationFrame(() => {
     restore()
-    requestAnimationFrame(() => {
-      restore()
-      window.setTimeout(() => {
-        restore()
-        window.setTimeout(() => {
-          restore()
-          done()
-        }, 180)
-      }, 80)
-    })
+    requestAnimationFrame(restore)
   })
+  window.setTimeout(restore, 80)
+  window.setTimeout(restore, 220)
+  window.setTimeout(restore, 520)
+  window.setTimeout(finish, 900)
 }
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
 
