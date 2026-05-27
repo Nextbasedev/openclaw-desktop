@@ -95,6 +95,86 @@ Behavior:
 
 Recommendation: use existing project selection if available; avoid inventing project creation in this PR.
 
+### Folder picker UI design
+
+The Workspace picker must not be Git-only. Users can create a project from any folder, even before Git is initialized, and they often need to choose a subfolder inside a larger parent folder.
+
+Use a split picker model:
+
+- **Workspace picker** — folder-first. Shows all browsable folders under the configured workspace root. Git metadata is optional.
+- **Git picker** — repo-first. Shows Git repos first, but can still show folders labeled "No Git yet" so the user can connect the folder and initialize Git later.
+
+Recommended layout:
+
+```text
+┌────────────────────────────────────────────────────────────┐
+│ Choose workspace for this chat                         ×   │
+│ This controls Workspace and Git for this chat.             │
+├────────────────────────────────────────────────────────────┤
+│ [Search folders/projects…                              ]   │
+├──────────────────────────────┬─────────────────────────────┤
+│ Sources                      │ Folder browser              │
+│                              │                             │
+│ ○ Global Workspace           │ /root/.openclaw/workspace   │
+│ ○ Existing Projects          │ ├─ ampere-sh            Git │
+│ ○ Recent Folders             │ ├─ marketplace_frontend Git │
+│ ○ Browse Workspace Root      │ ├─ experiments       No Git │
+│                              │ │  ├─ landing-pages No Git  │
+│                              │ │  └─ prompts       No Git  │
+│                              │ └─ openclaw-desktop    Git  │
+├──────────────────────────────┴─────────────────────────────┤
+│ Selected: /root/.openclaw/workspace/experiments/prompts     │
+│ Status: No Git yet · Workspace will work, Git can be added  │
+│                              [Cancel] [Use this folder]     │
+└────────────────────────────────────────────────────────────┘
+```
+
+Visual behavior:
+
+- Rows show icon + name + compact path/status.
+- Git folders get a small `Git` badge.
+- Non-Git folders get a muted `No Git yet` badge, not an error.
+- Existing projects get a `Project` badge and can show their current `workspaceRoot`.
+- Expanded directories lazy-load children on click.
+- Search filters by folder/project name and path.
+- The bottom confirmation bar always shows the exact folder that will be connected.
+
+Primary actions:
+
+- **Use Global Workspace** — sets scope `{ kind: "global" }`.
+- **Use this folder** — creates/updates a project scope with `workspaceRoot = selectedFolder`.
+- If selected folder contains Git, also set `repoRoot = gitRoot`.
+- If selected folder has no Git, set `repoRoot = null`; Workspace opens immediately and Git shows "No repository connected" with actions to initialize/connect Git later.
+
+This keeps the mental model clean:
+
+> Workspace needs a folder. Git is optional metadata on top of that folder.
+
+Implementation recommendation:
+
+- Add or expose a folder-tree endpoint for picker browsing, e.g. `GET /api/workspace/tree?path=...` for global root and/or a dedicated `middleware_folders_scan` command if needed.
+- Reuse the existing workspace tree row styling from `WorkspaceTab`, but simplify it for selection: no file preview, no file actions, folders only.
+- Keep the current repo scanner as a fast "Recent Git repos" source, but do not rely on it as the only source.
+
+### Folder picker edge cases
+
+- **Large workspace root:** lazy-load children; do not recursively scan the whole tree on open.
+- **Deep nested folder:** breadcrumb should allow quick jump back to parent/root.
+- **Many similarly named folders:** show path under the name and support search.
+- **Permission denied folder:** show disabled row with tooltip/error; do not crash picker.
+- **Symlinks:** mark symlink folders; resolve safely server-side and prevent path escapes.
+- **Hidden folders:** hide noisy folders by default (`node_modules`, `.git`, `.next`, `dist`, `build`, vendor caches), with a "Show hidden/ignored" toggle.
+- **Folder deleted while picker open:** selecting should revalidate path and show "Folder no longer exists".
+- **Folder outside allowed workspace root:** block unless backend explicitly marks it selectable.
+- **Existing project already uses folder:** show `Project` badge and connect existing project instead of creating duplicate.
+- **Subfolder inside Git repo:** allow it for Workspace, but Git root should be detected as the parent repo root. UI should say `Git: parent repo <name>`.
+- **Non-Git folder:** valid for Workspace; Git tab should show "No Git yet" with `Initialize Git` / `Choose repository` actions.
+- **Very long paths:** truncate middle, preserve folder name and hover/title full path.
+- **Windows paths:** handle drive letters/backslashes in display and storage.
+- **Concurrent selection:** disable confirm while creating/updating project and ignore double-click duplicate creates.
+- **Chat switch while picker open:** close or reset picker if `sessionKey`/scope changes; stale selection must not apply to the new chat.
+- **Full-screen inspector vs side inspector:** both must share same chat scope but not leak transient expanded-tree UI across windows.
+
 ### Data flow
 
 1. `AppPage` owns `inspectorScopeBySession` state for the active session and passes `inspectorScope`, `onInspectorScopeChange` to `InspectorPanel` / full-screen inspector.
