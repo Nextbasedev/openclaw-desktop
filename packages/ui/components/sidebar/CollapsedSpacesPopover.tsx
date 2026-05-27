@@ -24,7 +24,7 @@ type Props = {
   onSpaceDelete: (spaceId: string) => void | Promise<void>
 }
 
-const SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#09090B_0%,rgba(23,22,25,0.85)_50%,rgba(25,23,25,0.65)_100%)]"
+const SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#25252A_0%,#151519_42%,#09090B_100%)]"
 const ACTIVE_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#020618_0%,rgba(5,51,69,0.80)_50%,rgba(5,47,74,0.60)_100%)]"
 
 function getSpaceRank(space: Space) {
@@ -215,7 +215,7 @@ export function CollapsedSpacesPopover({
               onMouseEnter={() => onCollapsedPreviewStart?.(space.id)}
               onContextMenu={(event) => openContextMenu(event, space)}
               className={cn(
-                "group flex size-10 cursor-pointer items-center justify-center rounded-tl-[8px] border transition-all duration-150 ease-in-out",
+                "group flex size-10 cursor-pointer items-center justify-center rounded-md border transition-all duration-150 ease-in-out",
                 active
                   ? "border-white shadow-[0_0_0_1px_rgba(255,255,255,0.55),0_0_18px_rgba(59,130,246,0.28)]"
                   : "border-transparent shadow-[0_12px_26px_rgba(0,0,0,0.34)] hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_12px_26px_rgba(0,0,0,0.34)]",
@@ -224,7 +224,7 @@ export function CollapsedSpacesPopover({
             >
               <span
                 className={cn(
-                  "relative flex size-full items-center justify-center overflow-hidden rounded-tl-[8px] text-[14px] font-semibold text-white shadow-lg shadow-black/30",
+                  "relative flex size-full items-center justify-center overflow-hidden rounded-md text-[14px] font-semibold text-white shadow-lg shadow-black/30",
                   active ? ACTIVE_SPACE_ICON_SURFACE : SPACE_ICON_SURFACE,
                 )}
               >
@@ -241,7 +241,7 @@ export function CollapsedSpacesPopover({
           onClick={openCreate}
           onContextMenu={openPlusMenu}
           className={cn(
-            "flex size-10 cursor-pointer items-center justify-center rounded-tl-[8px] text-muted-foreground/70 shadow-[0_12px_26px_rgba(0,0,0,0.34)] transition-all hover:text-foreground hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_12px_26px_rgba(0,0,0,0.34)]",
+            "flex size-10 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 shadow-[0_12px_26px_rgba(0,0,0,0.34)] transition-all hover:text-foreground hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_12px_26px_rgba(0,0,0,0.34)]",
             SPACE_ICON_SURFACE,
           )}
           aria-label="New project"
