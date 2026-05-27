@@ -467,8 +467,6 @@ function AppShell({
   const appContextMenuRef = useRef<HTMLDivElement>(null)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [sidebarPreviewOpen, setSidebarPreviewOpen] = useState(false)
-  const [sidebarPreviewClosing, setSidebarPreviewClosing] = useState(false)
-  const sidebarPreviewCloseTimerRef = useRef<number | null>(null)
   const [sidebarPreviewSpaceId, setSidebarPreviewSpaceId] = useState<string | null>(null)
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH)
   const [splitRatio, setSplitRatio] = useState(0.5)
@@ -504,7 +502,7 @@ function AppShell({
       ? "chat"
       : activeTab
   const fullScreenInspectorOpen = activeTab === "inspector"
-  const renderedSidebarWidth = sidebarPreviewOpen || sidebarPreviewClosing ? SIDEBAR_DEFAULT : sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED
+  const renderedSidebarWidth = sidebarPreviewOpen ? SIDEBAR_DEFAULT : sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED
 
   const prevTabRef = useRef("chat")
   const lastSettingsTabRef = useRef(activeTab)
@@ -1085,32 +1083,16 @@ function AppShell({
       setTerminalActive(true)
     }
   }, [inspectorOpen, terminalActive])
-  const clearSidebarPreviewCloseTimer = useCallback(() => {
-    if (sidebarPreviewCloseTimerRef.current === null) return
-    window.clearTimeout(sidebarPreviewCloseTimerRef.current)
-    sidebarPreviewCloseTimerRef.current = null
+  const closeSidebarPreview = useCallback(() => {
+    setSidebarPreviewOpen(false)
+    setSidebarPreviewSpaceId(null)
   }, [])
 
-  const closeSidebarPreview = useCallback(() => {
-    clearSidebarPreviewCloseTimer()
-    setSidebarPreviewOpen(false)
-    setSidebarPreviewSpaceId(null)
-    setSidebarPreviewClosing(true)
-    sidebarPreviewCloseTimerRef.current = window.setTimeout(() => {
-      setSidebarPreviewClosing(false)
-      sidebarPreviewCloseTimerRef.current = null
-    }, 350)
-  }, [clearSidebarPreviewCloseTimer])
-
-  useEffect(() => clearSidebarPreviewCloseTimer, [clearSidebarPreviewCloseTimer])
-
   const toggleSidebar = useCallback(() => {
-    clearSidebarPreviewCloseTimer()
     setSidebarPreviewOpen(false)
-    setSidebarPreviewClosing(false)
     setSidebarPreviewSpaceId(null)
     setSidebarOpen((prev) => !prev)
-  }, [clearSidebarPreviewCloseTimer])
+  }, [])
   const closeSidebar = useCallback(() => {
     closeSidebarPreview()
     setSidebarOpen(false)
@@ -2734,8 +2716,6 @@ function AppShell({
           onClose={closeSidebar}
           onPreviewOpen={(spaceId) => {
             if (sidebarOpen) return
-            clearSidebarPreviewCloseTimer()
-            setSidebarPreviewClosing(false)
             setSidebarPreviewSpaceId(spaceId)
             setSidebarPreviewOpen(true)
           }}
