@@ -37,7 +37,7 @@ const SPACE_ICON_GRADIENTS = [
   "bg-[linear-gradient(135deg,rgba(255,255,255,0.09)_0%,rgba(18,42,56,0.82)_44%,#09090B_100%)]",
   "bg-[linear-gradient(135deg,rgba(255,255,255,0.09)_0%,rgba(50,43,24,0.76)_44%,#09090B_100%)]",
 ]
-const NEW_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,rgba(255,255,255,0.10)_0%,rgba(38,30,58,0.82)_46%,#09090B_100%)]"
+const NEW_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#09090B_0%,rgba(23,22,25,0.85)_50%,rgba(25,23,25,0.65)_100%)]"
 
 function gradientForSpace(space: Space) {
   const seed = [...space.id].reduce((total, char) => total + char.charCodeAt(0), 0)
@@ -263,7 +263,7 @@ export function CollapsedSpacesPopover({
           onClick={openCreate}
           onContextMenu={openPlusMenu}
           className={cn(
-            "flex size-10 cursor-pointer items-center justify-center rounded-md text-white/70 shadow-[0_12px_26px_rgba(0,0,0,0.34)] ring-1 ring-white/[0.06] backdrop-blur-sm transition-all hover:text-white hover:brightness-110 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_12px_26px_rgba(0,0,0,0.34)]",
+            "flex size-10 cursor-pointer items-center justify-center rounded-md text-white/70 shadow-[0_12px_26px_rgba(0,0,0,0.34)] transition-all hover:text-white hover:brightness-110 hover:shadow-[0_12px_26px_rgba(0,0,0,0.34)]",
             NEW_SPACE_ICON_SURFACE,
           )}
           aria-label="New project"
