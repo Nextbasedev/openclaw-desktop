@@ -219,7 +219,7 @@ export function CollapsedSpacesPopover({
                 "bg-white/[0.035] text-foreground/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all duration-150 ease-in-out hover:bg-white/[0.08] hover:text-foreground",
                 active
                   ? "border-white shadow-[0_0_0_1px_rgba(255,255,255,0.75),0_0_18px_rgba(255,255,255,0.22)]"
-                  : "border-white/[0.18]",
+                  : "border-0",
               )}
               aria-label={`Open project ${space.name}`}
             >
@@ -242,7 +242,7 @@ export function CollapsedSpacesPopover({
         <button
           type="button"
           onClick={openCreate}
-          className="flex size-10 cursor-pointer items-center justify-center rounded-md border border-white/[0.12] bg-white/[0.035] text-muted-foreground/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all hover:bg-white/[0.08] hover:text-foreground"
+          className="flex size-10 cursor-pointer items-center justify-center rounded-md border border-none bg-white/[0.035] text-muted-foreground/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all hover:bg-white/[0.08] hover:text-foreground"
           aria-label="New project"
         >
           <LuPlus className="size-7 stroke-[1.7]" />

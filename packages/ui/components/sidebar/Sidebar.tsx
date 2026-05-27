@@ -1,4 +1,10 @@
-import { useState, useCallback, useMemo, useEffect, type CSSProperties } from "react"
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  type CSSProperties,
+} from "react"
 import { Reorder } from "framer-motion"
 import type { ActiveTopic } from "@/types/project"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
@@ -36,7 +42,10 @@ type SidebarProps = {
   onSpaceSwitch: (spaceId: string) => void | Promise<void>
   onSpaceNewChat: (spaceId: string) => void | Promise<void>
   onSpaceCreate: (name?: string) => void | Promise<void>
-  onSpaceUpdate: (spaceId: string, input: { name?: string; repoRoot?: string | null }) => unknown | Promise<unknown>
+  onSpaceUpdate: (
+    spaceId: string,
+    input: { name?: string; repoRoot?: string | null }
+  ) => unknown | Promise<unknown>
   onSpaceArchive: (spaceId: string) => void | Promise<void>
   onSpaceDelete: (spaceId: string) => void | Promise<void>
 }
@@ -110,12 +119,15 @@ export function Sidebar({
         "--sidebar-width": `${width}px`,
         "--sidebar-mobile-width": `${Math.min(width, 320)}px`,
       }) as CSSProperties,
-    [width],
+    [width]
   )
-  const handlePrimaryTabClick = useCallback((tab: string) => {
-    onTabChange(tab)
-    if (isMobileViewport) onClose?.()
-  }, [isMobileViewport, onClose, onTabChange])
+  const handlePrimaryTabClick = useCallback(
+    (tab: string) => {
+      onTabChange(tab)
+      if (isMobileViewport) onClose?.()
+    },
+    [isMobileViewport, onClose, onTabChange]
+  )
 
   const isHiddenMobileSidebar = collapsed && isMobileViewport
   const showExpandedContent = !collapsed || isMobileViewport
@@ -132,9 +144,7 @@ export function Sidebar({
         onClick={onClose}
         className={cn(
           "fixed inset-0 z-30 bg-black/30 transition-opacity duration-200 md:hidden",
-          collapsed
-            ? "pointer-events-none opacity-0"
-            : "opacity-100",
+          collapsed ? "pointer-events-none opacity-0" : "opacity-100"
         )}
       />
 
@@ -152,26 +162,30 @@ export function Sidebar({
           "shadow-none transition-[width,transform,opacity] duration-200 ease-out",
           "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:h-svh max-md:w-[var(--sidebar-mobile-width)] max-md:shadow-xl",
           collapsed
-            ? "max-md:-translate-x-full max-md:opacity-0 max-md:pointer-events-none"
+            ? "max-md:pointer-events-none max-md:-translate-x-full max-md:opacity-0"
             : "max-md:translate-x-0 max-md:opacity-100",
-          className,
+          className
         )}
       >
         <div
           className={cn(
             "pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.04)_100%)] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_100%)]",
-            uniqueSidebarBg ? "opacity-0" : "opacity-60",
+            uniqueSidebarBg ? "opacity-0" : "opacity-60"
           )}
         />
 
-        <nav className={cn(
-          "relative z-10 flex-1 py-3",
-          showExpandedContent ? "flex min-h-0 overflow-hidden" : "overflow-hidden px-2",
-          isHiddenMobileSidebar && "hidden",
-        )}>
+        <nav
+          className={cn(
+            "relative z-10 my-3 flex-1",
+            showExpandedContent
+              ? "flex min-h-0 overflow-hidden"
+              : "overflow-hidden px-2",
+            isHiddenMobileSidebar && "hidden"
+          )}
+        >
           {showExpandedContent ? (
             <>
-              <div className="flex w-[54px] shrink-0 flex-col items-center overflow-y-auto px-2 pb-2 scrollbar-hide">
+              <div className="scrollbar-hide flex w-[54px] shrink-0 flex-col items-center overflow-y-auto px-4 pb-2">
                 <CollapsedSpacesPopover
                   spaces={spaces}
                   activeSpaceId={activeSpaceId}
@@ -184,7 +198,7 @@ export function Sidebar({
                 />
               </div>
 
-              <div className="min-w-0 flex-1 overflow-y-auto px-2 scroll-smooth overscroll-contain">
+              <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth border-l border-border/30 px-1">
                 {showPrimaryNav && mounted && (
                   <Reorder.Group
                     axis="y"
@@ -207,7 +221,11 @@ export function Sidebar({
                   </Reorder.Group>
                 )}
 
-                <div className={cn(showPrimaryNav && "mt-2 border-t border-border/10 pt-2")}>
+                <div
+                  className={cn(
+                    showPrimaryNav && "mt-2 border-t border-border/10 pt-2"
+                  )}
+                >
                   <ChatsSection
                     collapsed={false}
                     sectionLabel={activeSpaceName}
@@ -235,7 +253,6 @@ export function Sidebar({
               />
             </div>
           ) : null}
-
         </nav>
 
         {!collapsed && (
@@ -244,9 +261,9 @@ export function Sidebar({
             aria-label="Resize sidebar"
             onMouseDown={onResizeStart}
             className={cn(
-              "absolute right-0 top-0 z-20 h-full w-1 -translate-x-1/2 cursor-col-resize",
+              "absolute top-0 right-0 z-20 h-full w-1 -translate-x-1/2 cursor-col-resize",
               "bg-transparent transition-colors duration-150",
-              "max-md:hidden",
+              "max-md:hidden"
             )}
           />
         )}
