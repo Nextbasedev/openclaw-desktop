@@ -126,10 +126,10 @@ function AssistantThreadSurface({
 
 const ThreadWelcome: FC = () => (
   <div className="mx-auto my-auto flex w-full max-w-(--thread-max-width) flex-col px-2 py-12">
-    <h1 className="fade-in slide-in-from-bottom-1 animate-in text-2xl font-semibold duration-200">
+    <h1 className="text-2xl font-semibold">
       Welcome
     </h1>
-    <p className="fade-in slide-in-from-bottom-1 animate-in text-xl text-muted-foreground delay-75 duration-200">
+    <p className="text-xl text-muted-foreground">
       How can I help you today?
     </p>
   </div>
@@ -164,12 +164,12 @@ const AssistantMessage: FC = () => {
   return (
     <MessagePrimitive.Root
       data-slot="aui_assistant-message-root"
-      className="aui-assistant-message fade-in slide-in-from-bottom-1 animate-in relative duration-150"
+      className="aui-assistant-message relative"
       data-role="assistant"
     >
       <div
         data-slot="aui_assistant-message-content"
-        className="px-2 text-[14px] leading-7 text-foreground [contain-intrinsic-size:auto_24px] [content-visibility:auto]"
+        className="px-2 text-[14px] leading-7 text-foreground"
       >
         <MessagePrimitive.Unstable_PartsGrouped
           groupingFunction={(parts) =>
@@ -185,8 +185,8 @@ const AssistantMessage: FC = () => {
               <MarkdownContent
                 text={text}
                 embeds={openclaw?.embeds}
-                streaming={Boolean(openclaw?.animateText)}
-                revealMode="buffered"
+                streaming={false}
+                revealMode="immediate"
               />
             ),
             tools: { Override: () => null },
@@ -214,7 +214,7 @@ const UserMessage: FC = () => {
   return (
     <MessagePrimitive.Root
       data-slot="aui_user-message-root"
-      className="aui-user-message fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 [contain-intrinsic-size:auto_60px] [content-visibility:auto]"
+      className="aui-user-message grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2"
       data-role="user"
     >
       <div className="col-start-2 max-w-[min(680px,85vw)] rounded-2xl bg-muted px-4 py-2.5 text-[14px] leading-6 text-foreground">

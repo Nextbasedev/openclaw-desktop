@@ -1492,11 +1492,7 @@ export function ChatView({
           id={`message-${msg.messageId}`}
           data-chat-message-row="true"
           className={cn(
-            "mx-auto max-w-[44rem] px-4 py-3 transition-all duration-500",
-            "[content-visibility:auto]",
-            msg.role === "assistant"
-              ? "[contain-intrinsic-size:auto_300px]"
-              : "[contain-intrinsic-size:auto_80px]",
+            "mx-auto max-w-[44rem] px-4 py-3",
             highlightedMessageId && highlightedMessageId !== msg.messageId && "opacity-40",
             highlightedMessageId === msg.messageId && "rounded-lg ring-1 ring-yellow-500/40"
           )}

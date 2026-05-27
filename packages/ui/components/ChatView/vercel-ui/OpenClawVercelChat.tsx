@@ -32,11 +32,8 @@ function ThinkingMessage({ statusText }: { statusText?: string | null }) {
             <LuSparkles size={13} />
           </div>
         </div>
-        <div className="flex h-[calc(13px*1.65)] items-center text-[13px] leading-[1.65]">
-          <span className="thinking-shimmer font-medium">
-            {(statusText || "Thinking...").replace(/\.{3}$/, "")}
-            <span className="thinking-ellipsis" aria-hidden="true" />
-          </span>
+        <div className="flex h-[calc(13px*1.65)] items-center text-[13px] leading-[1.65] text-muted-foreground">
+          {(statusText || "Thinking…").replace(/\.{3}$/, "…")}
         </div>
       </div>
     </div>
@@ -45,12 +42,10 @@ function ThinkingMessage({ statusText }: { statusText?: string | null }) {
 
 function VercelMessage({
   message,
-  isStreaming,
   onSelectTool,
   onResolveApproval,
 }: {
   message: StableChatMessage
-  isStreaming: boolean
   onSelectTool?: (toolCallId: string) => void
   onResolveApproval?: Props["onResolveApproval"]
 }) {
@@ -60,12 +55,7 @@ function VercelMessage({
 
   return (
     <div
-      className={cn(
-        "group/message w-full scroll-mt-6",
-        isUser
-          ? "animate-[fade-up_0.18s_cubic-bezier(0.22,1,0.36,1)]"
-          : "animate-[fade-up_0.14s_ease-out]"
-      )}
+      className="group/message w-full scroll-mt-6"
       data-role={message.role}
       data-message-id={message.messageId}
     >
@@ -105,8 +95,8 @@ function VercelMessage({
                   <MarkdownContent
                     text={message.text}
                     embeds={message.embeds}
-                    streaming={isStreaming || Boolean(message.animateText)}
-                    revealMode="buffered"
+                    streaming={false}
+                    revealMode="immediate"
                   />
                 </div>
               )}
@@ -150,11 +140,10 @@ export function OpenClawVercelChat({
 
       <div ref={containerRef} className="absolute inset-0 touch-pan-y overflow-y-auto overscroll-contain bg-background">
         <div className="mx-auto flex min-h-full min-w-0 max-w-4xl flex-col gap-5 px-2 py-6 md:gap-7 md:px-4">
-          {stableMessages.map((message, index) => (
+          {stableMessages.map((message) => (
             <VercelMessage
               key={message.uiId}
               message={message}
-              isStreaming={isGenerating && index === stableMessages.length - 1 && message.role === "assistant"}
               onSelectTool={onSelectTool}
               onResolveApproval={onResolveApproval}
             />
@@ -169,12 +158,10 @@ export function OpenClawVercelChat({
       <button
         aria-label="Scroll to bottom"
         className={cn(
-          "absolute bottom-4 left-1/2 z-10 flex h-7 -translate-x-1/2 items-center rounded-full border border-border/50 bg-card/90 px-3.5 shadow-[var(--shadow-float)] backdrop-blur-lg transition-all duration-200",
-          isAtBottom
-            ? "pointer-events-none scale-90 opacity-0"
-            : "pointer-events-auto scale-100 opacity-100"
+          "absolute bottom-4 left-1/2 z-10 flex h-7 -translate-x-1/2 items-center rounded-full border border-border/50 bg-card/90 px-3.5 shadow-[var(--shadow-float)] backdrop-blur-lg",
+          isAtBottom ? "hidden" : "flex"
         )}
-        onClick={() => scrollToBottom("smooth")}
+        onClick={scrollToBottom}
         type="button"
       >
         <LuArrowDown className="size-3 text-muted-foreground" />
