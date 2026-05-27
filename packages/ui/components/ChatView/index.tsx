@@ -1859,25 +1859,23 @@ export function ChatView({
         </div>
       </div>
 
-      <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
-        <AnimatePresence>
-          {showJumpToBottom && (
-            <motion.div
-              initial={{ opacity: 0, y: 8, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 8, scale: 0.96 }}
-              transition={{ duration: 0.16, ease: "easeOut" }}
-              className="mb-3 flex justify-center"
-            >
+      <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
+        <div className="pointer-events-none absolute -top-12 left-1/2 z-20 -translate-x-1/2">
+          <AnimatePresence>
+            {showJumpToBottom && (
               <motion.button
                 type="button"
                 aria-label="Scroll to latest message"
                 title="Scroll to latest message"
                 onClick={jumpToLatestMessage}
+                initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                transition={{ duration: 0.16, ease: "easeOut" }}
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.94 }}
                 className={cn(
-                  "group flex size-9 cursor-pointer items-center justify-center rounded-full",
+                  "group flex size-9 cursor-pointer items-center justify-center rounded-full pointer-events-auto",
                   "border border-border/50 bg-background/95 text-foreground/80 shadow-sm backdrop-blur",
                   "transition-colors hover:bg-muted hover:text-foreground",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
@@ -1892,9 +1890,9 @@ export function ChatView({
                   <MdKeyboardDoubleArrowDown size={22} />
                 </motion.span>
               </motion.button>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </AnimatePresence>
+        </div>
         {spawnedSubagents.length > 0 && (
           <div className="mb-2">
             <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
