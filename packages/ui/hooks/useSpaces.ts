@@ -135,17 +135,39 @@ export function useSpaces() {
     let createdSpace = result.space
     if (iconImage && !createdSpace.iconImage) {
       createdSpace = { ...createdSpace, iconImage }
-      void invoke<SpaceMutationResponse>("middleware_spaces_update", {
-        input: { spaceId: result.space.id, iconImage },
-      }).catch((error) => console.error("[Spaces] icon persistence fallback failed", error))
+      try {
+        const persisted = await invoke<SpaceMutationResponse>("middleware_spaces_update", {
+          input: { spaceId: result.space.id, iconImage },
+        })
+        if (persisted.space?.iconImage) createdSpace = persisted.space
+      } catch (error) {
+        console.error("[Spaces] icon persistence fallback failed", error)
+      }
     }
 
     invalidateMiddlewareStartupBootstrap()
     activeSpaceOverrideRef.current = result.activeSpaceId || createdSpace.id
     setSpaces((prev) => upsertSpace(prev, createdSpace))
     setActiveSpaceId(result.activeSpaceId || createdSpace.id)
-    await loadSpacesFresh().catch((error) => console.error("[Spaces] refresh after create failed", error))
-    return createdSpace
+    const fresh = await loadSpacesFresh().catch((error) => {
+      console.error("[Spaces] refresh after create failed", error)
+      return null
+    })
+    const freshSpace = fresh?.spaces?.find((space) => space.id === createdSpace.id)
+    if (iconImage && !freshSpace?.iconImage) {
+      try {
+        const persisted = await invoke<SpaceMutationResponse>("middleware_spaces_update", {
+          input: { spaceId: createdSpace.id, iconImage },
+        })
+        if (persisted.space?.iconImage) {
+          createdSpace = persisted.space
+          setSpaces((prev) => upsertSpace(prev, persisted.space as Space))
+        }
+      } catch (error) {
+        console.error("[Spaces] icon verification fallback failed", error)
+      }
+    }
+    return freshSpace?.iconImage ? freshSpace : createdSpace
   }, [loadSpacesFresh])
 
   const updateSpace = useCallback(async (spaceId: string, input: { name?: string; iconImage?: SpaceIconImage | null; repoRoot?: string | null; projectId?: string | null }) => {
