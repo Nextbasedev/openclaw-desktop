@@ -2640,9 +2640,25 @@ function AppShell({
           previewExpanded={sidebarPreviewOpen}
           onClose={closeSidebar}
           onPreviewOpen={(spaceId) => {
-            if (!sidebarOpen) void handleSpaceSwitch(spaceId, { openSidebar: false })
+            if (sidebarOpen) return
+            setSidebarPreviewSpaceId(spaceId)
+            setSidebarPreviewOpen(true)
+            if (sidebarPreviewSwitchTimerRef.current !== null) {
+              window.clearTimeout(sidebarPreviewSwitchTimerRef.current)
+            }
+            sidebarPreviewSwitchTimerRef.current = window.setTimeout(() => {
+              sidebarPreviewSwitchTimerRef.current = null
+              void handleSpaceSwitch(spaceId, { openSidebar: false })
+            }, 80)
           }}
-          onPreviewClose={() => setSidebarPreviewOpen(false)}
+          onPreviewClose={() => {
+            if (sidebarPreviewSwitchTimerRef.current !== null) {
+              window.clearTimeout(sidebarPreviewSwitchTimerRef.current)
+              sidebarPreviewSwitchTimerRef.current = null
+            }
+            setSidebarPreviewOpen(false)
+            setSidebarPreviewSpaceId(null)
+          }}
           onResizeStart={handleResizeStart}
           activeTab={effectiveActiveTab}
           onTabChange={handleTabChange}
@@ -2657,7 +2673,7 @@ function AppShell({
           onNewChat={handleNewChat}
           chatRefreshTrigger={chatRefreshTrigger}
           spaces={spaces}
-          activeSpaceId={activeSpaceId}
+          activeSpaceId={displayedActiveSpaceId}
           onSpaceSwitch={handleSpaceSwitch}
           onSpaceNewChat={handleSpaceNewChat}
           onSpaceCreate={handleSpaceCreate}
