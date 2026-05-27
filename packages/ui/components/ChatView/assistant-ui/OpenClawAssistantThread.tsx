@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useMemo, type FC } from "react"
+import { createContext, useContext, useMemo, type FC, type ReactNode } from "react"
 import {
   ActionBarPrimitive,
   AuiIf,
@@ -33,15 +33,18 @@ export type OpenClawAssistantThreadProps = {
     decision: ApprovalDecision
   ) => Promise<void> | void
   className?: string
+  renderMessageRow?: (index: number, message: ChatMessage) => ReactNode
 }
 
 type OpenClawAssistantThreadCallbacks = Pick<
   OpenClawAssistantThreadProps,
-  "onSelectTool" | "onResolveApproval"
->
+  "onSelectTool" | "onResolveApproval" | "renderMessageRow"
+> & {
+  messageIndexById: Map<string, number>
+}
 
 const OpenClawAssistantThreadCallbacksContext =
-  createContext<OpenClawAssistantThreadCallbacks>({})
+  createContext<OpenClawAssistantThreadCallbacks>({ messageIndexById: new Map() })
 
 export function OpenClawAssistantThread(props: OpenClawAssistantThreadProps) {
   const assistantMessages = useMemo(
@@ -73,10 +76,20 @@ export function OpenClawAssistantThread(props: OpenClawAssistantThreadProps) {
   )
 }
 
-function AssistantThreadSurface({ className, onSelectTool, onResolveApproval }: OpenClawAssistantThreadProps) {
+function AssistantThreadSurface({
+  className,
+  messages,
+  onSelectTool,
+  onResolveApproval,
+  renderMessageRow,
+}: OpenClawAssistantThreadProps) {
+  const messageIndexById = useMemo(
+    () => new Map(messages.map((message, index) => [message.messageId, index])),
+    [messages]
+  )
   const callbacks = useMemo(
-    () => ({ onSelectTool, onResolveApproval }),
-    [onResolveApproval, onSelectTool]
+    () => ({ onSelectTool, onResolveApproval, renderMessageRow, messageIndexById }),
+    [messageIndexById, onResolveApproval, onSelectTool, renderMessageRow]
   )
 
   return (
@@ -136,6 +149,17 @@ const ThreadScrollToBottom: FC = () => (
 
 const ThreadMessage: FC = () => {
   const role = useAuiState((s) => s.message.role)
+  const openclaw = useAuiState(
+    (s) => s.message.metadata?.custom?.openclaw as ChatMessage | undefined
+  )
+  const { renderMessageRow, messageIndexById } = useContext(
+    OpenClawAssistantThreadCallbacksContext
+  )
+
+  if (openclaw && renderMessageRow) {
+    return <>{renderMessageRow(messageIndexById.get(openclaw.messageId) ?? 0, openclaw)}</>
+  }
+
   if (role === "user") return <UserMessage />
   return <AssistantMessage />
 }
