@@ -46,6 +46,24 @@ function restoreVercelScrollAnchor(container: HTMLElement | null, anchor: Vercel
   container.scrollTop = anchor.previousScrollTop + Math.max(0, delta)
 }
 
+function settleVercelScrollAnchor(container: HTMLElement | null, anchor: VercelScrollAnchor | null, done: () => void) {
+  const restore = () => restoreVercelScrollAnchor(container, anchor)
+  restore()
+  requestAnimationFrame(() => {
+    restore()
+    requestAnimationFrame(() => {
+      restore()
+      window.setTimeout(() => {
+        restore()
+        window.setTimeout(() => {
+          restore()
+          done()
+        }, 180)
+      }, 80)
+    })
+  })
+}
+
 type Props = {
   sessionKey: string
   messages: readonly ChatMessage[]
@@ -178,12 +196,9 @@ export function OpenClawVercelChat({
     try {
       await onLoadOlderMessages?.()
     } finally {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          restoreVercelScrollAnchor(containerRef.current, anchor)
-          loadOlderInFlightRef.current = false
-          setLocalOlderLoading(false)
-        })
+      settleVercelScrollAnchor(containerRef.current, anchor, () => {
+        loadOlderInFlightRef.current = false
+        setLocalOlderLoading(false)
       })
     }
   }, [containerRef, hasOlderMessages, isOlderLoading, onLoadOlderMessages])
@@ -211,7 +226,7 @@ export function OpenClawVercelChat({
         </div>
       )}
 
-      <div ref={containerRef} className="absolute inset-0 touch-pan-y overflow-y-auto overscroll-contain bg-background">
+      <div ref={containerRef} className="absolute inset-0 touch-pan-y overflow-y-auto overscroll-contain bg-background [overflow-anchor:none]">
         <div className="mx-auto flex min-h-full min-w-0 max-w-4xl flex-col gap-5 px-2 py-6 md:gap-7 md:px-4">
           {hasOlderMessages && (
             <div className="flex justify-center py-1">

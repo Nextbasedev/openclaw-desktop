@@ -113,6 +113,24 @@ function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: Messa
   const delta = container.scrollHeight - anchor.previousScrollHeight
   container.scrollTop = anchor.previousScrollTop + Math.max(0, delta)
 }
+
+function settleMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null, done: () => void) {
+  const restore = () => restoreMessageScrollAnchor(container, anchor)
+  restore()
+  requestAnimationFrame(() => {
+    restore()
+    requestAnimationFrame(() => {
+      restore()
+      window.setTimeout(() => {
+        restore()
+        window.setTimeout(() => {
+          restore()
+          done()
+        }, 180)
+      }, 80)
+    })
+  })
+}
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
 
 function useAssistantUiChatViewEnabled() {
@@ -1048,12 +1066,9 @@ export function ChatView({
     try {
       await loadOlderMessages()
     } finally {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          restoreMessageScrollAnchor(scrollContainerRef.current, anchor)
-          loadOlderClickInFlightRef.current = false
-          setLoadOlderUiBusy(false)
-        })
+      settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
+        loadOlderClickInFlightRef.current = false
+        setLoadOlderUiBusy(false)
       })
     }
   }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, loadOlderUiBusy, scrollContainerRef])
@@ -1816,7 +1831,7 @@ export function ChatView({
           scrollContainerRef.current = ref
         }}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto overscroll-contain"
+        className="flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8">
