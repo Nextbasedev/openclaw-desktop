@@ -31,6 +31,8 @@ type Props = {
 }
 
 const MAX_ICON_BYTES = 10 * 1024 * 1024
+const ALLOWED_ICON_EXTENSIONS = new Set(["png", "svg", "jpe", "jpeg", "jpg"])
+const ALLOWED_ICON_MIME_TYPES = new Set(["image/png", "image/svg+xml", "image/jpeg"])
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = ""
@@ -41,14 +43,22 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
+function iconExtension(filename: string): string {
+  return filename.toLowerCase().split(".").pop() ?? ""
+}
+
 async function toSpaceIconImage(file: File): Promise<SpaceIconImage> {
-  if (!file.type.startsWith("image/")) throw new Error("Please choose an image file.")
+  const extension = iconExtension(file.name)
+  const mimeType = file.type || (extension === "svg" ? "image/svg+xml" : extension === "png" ? "image/png" : "image/jpeg")
+  if (!ALLOWED_ICON_EXTENSIONS.has(extension) || !ALLOWED_ICON_MIME_TYPES.has(mimeType)) {
+    throw new Error("Please choose a PNG, SVG, JPE, JPG, or JPEG image.")
+  }
   if (file.size > MAX_ICON_BYTES) throw new Error("Image must be 10 MB or smaller.")
 
   const bytes = new Uint8Array(await file.arrayBuffer())
   return {
     name: file.name,
-    mimeType: file.type || "image/png",
+    mimeType,
     content: bytesToBase64(bytes),
     encoding: "base64",
     size: file.size,
@@ -104,7 +114,7 @@ export function CreateSpaceDialog({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept=".png,.svg,.jpe,.jpg,.jpeg,image/png,image/svg+xml,image/jpeg"
             className="hidden"
             onChange={handleIconChange}
           />
@@ -116,6 +126,7 @@ export function CreateSpaceDialog({
               "group relative flex size-18 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] transition-colors",
               "shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_14px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl",
               "hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
+              previewSrc && "border-white/20",
             )}
             aria-label="Upload space image"
           >

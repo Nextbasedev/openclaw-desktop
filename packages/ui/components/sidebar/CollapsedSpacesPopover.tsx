@@ -224,14 +224,14 @@ export function CollapsedSpacesPopover({
               className={cn(
                 "group flex size-10 cursor-pointer items-center justify-center rounded-md border transition-all duration-150 ease-in-out",
                 active
-                  ? "border-white shadow-[0_0_0_1px_rgba(255,255,255,0.55),0_0_18px_rgba(59,130,246,0.28)]"
-                  : "border-transparent shadow-[0_12px_26px_rgba(0,0,0,0.34)] hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_12px_26px_rgba(0,0,0,0.34)]",
+                  ? "border-white shadow-[0_12px_26px_rgba(0,0,0,0.34)]"
+                  : "border-transparent shadow-[0_12px_26px_rgba(0,0,0,0.34)] hover:border-white/20",
               )}
               aria-label={`Open project ${space.name}`}
             >
               <span
                 className={cn(
-                  "relative flex size-full items-center justify-center overflow-hidden rounded-md text-[14px] font-semibold text-white/40 shadow-lg shadow-black/30",
+                  "relative flex size-full items-center justify-center overflow-hidden rounded-md bg-transparent text-[14px] font-semibold text-white/40 shadow-lg shadow-black/30",
                   !spaceIconSrc(space) && (active ? ACTIVE_SPACE_ICON_SURFACE : SPACE_ICON_SURFACE),
                 )}
               >
