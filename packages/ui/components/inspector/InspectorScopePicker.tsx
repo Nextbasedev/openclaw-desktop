@@ -10,7 +10,7 @@ import {
   VscFolder,
   VscFolderOpened,
   VscFolderLibrary,
-  VscGitBranch,
+  VscSourceControl,
   VscGlobe,
   VscRefresh,
   VscSearch,
@@ -119,7 +119,7 @@ function FolderRow({
         }
         <span className="min-w-0 flex-1 truncate">{node.name || "root"}</span>
         {node.hasGit && (
-          <VscGitBranch
+          <VscSourceControl
             className="size-3.5 shrink-0 text-muted-foreground/55"
             aria-label="Git repository"
           />
