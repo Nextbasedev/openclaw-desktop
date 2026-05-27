@@ -24,7 +24,8 @@ type Props = {
   onSpaceDelete: (spaceId: string) => void | Promise<void>
 }
 
-const SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#17171A_0%,#141416_42%,#0D0D0F_100%)]"
+const SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#09090B_0%,rgba(23,22,25,0.85)_50%,rgba(25,23,25,0.65)_100%)]"
+const ACTIVE_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#020618_0%,rgba(5,51,69,0.80)_50%,rgba(5,47,74,0.60)_100%)]"
 
 function getSpaceRank(space: Space) {
   if (typeof space.sortOrder === "number") return space.sortOrder
@@ -224,7 +225,7 @@ export function CollapsedSpacesPopover({
               <span
                 className={cn(
                   "relative flex size-full items-center justify-center overflow-hidden rounded-[8px] text-[14px] font-semibold text-white shadow-lg shadow-black/30",
-                  SPACE_ICON_SURFACE,
+                  active ? ACTIVE_SPACE_ICON_SURFACE : SPACE_ICON_SURFACE,
                 )}
               >
                 {spaceInitial(space)}
