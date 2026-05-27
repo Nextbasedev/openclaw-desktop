@@ -221,11 +221,16 @@ export function OpenClawVercelChat({
     contentKey,
   })
   const loadOlderInFlightRef = useRef(false)
+  const userScrollIntentRef = useRef(false)
+  const lastOlderLoadAtRef = useRef(0)
   const pendingOlderAnchorRef = useRef<VercelScrollAnchor | null>(null)
   const [localOlderLoading, setLocalOlderLoading] = useState(false)
   const isOlderLoading = loadingOlderMessages || localOlderLoading
   const loadOlderWithoutJump = useCallback(async () => {
+    const now = Date.now()
     if (!hasOlderMessages || isOlderLoading || loadOlderInFlightRef.current) return
+    if (now - lastOlderLoadAtRef.current < 900) return
+    lastOlderLoadAtRef.current = now
     loadOlderInFlightRef.current = true
     setLocalOlderLoading(true)
     pendingOlderAnchorRef.current = captureVercelScrollAnchor(containerRef.current)
@@ -243,6 +248,7 @@ export function OpenClawVercelChat({
     if (!anchor) return
     pendingOlderAnchorRef.current = null
     settleVercelScrollAnchor(containerRef.current, anchor, () => {
+      userScrollIntentRef.current = false
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
     })
@@ -251,11 +257,20 @@ export function OpenClawVercelChat({
   useEffect(() => {
     const container = containerRef.current
     if (!container || !hasOlderMessages) return
-    const onScroll = () => {
-      if (container.scrollTop <= 360) void loadOlderWithoutJump()
+    const markUserIntent = () => {
+      userScrollIntentRef.current = true
     }
+    const onScroll = () => {
+      if (userScrollIntentRef.current && container.scrollTop <= 360) void loadOlderWithoutJump()
+    }
+    container.addEventListener("wheel", markUserIntent, { passive: true })
+    container.addEventListener("touchstart", markUserIntent, { passive: true })
     container.addEventListener("scroll", onScroll, { passive: true })
-    return () => container.removeEventListener("scroll", onScroll)
+    return () => {
+      container.removeEventListener("wheel", markUserIntent)
+      container.removeEventListener("touchstart", markUserIntent)
+      container.removeEventListener("scroll", onScroll)
+    }
   }, [containerRef, hasOlderMessages, loadOlderWithoutJump])
   const lastMessage = stableMessages.at(-1)
   const showThinking = isGenerating && lastMessage?.role === "user"

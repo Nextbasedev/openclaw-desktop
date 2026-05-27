@@ -55,6 +55,24 @@ describe("buildStableVercelTimeline", () => {
     )
   })
 
+  it("keeps duplicate user rows stable when older duplicate text is prepended", () => {
+    const current = buildStableVercelTimeline([
+      msg({ messageId: "u20", role: "user", text: "same question", gatewayIndex: 20 }),
+      msg({ messageId: "a21", role: "assistant", text: "newer answer", gatewayIndex: 21 }),
+    ])
+    const withHistory = buildStableVercelTimeline([
+      msg({ messageId: "u10", role: "user", text: "same question", gatewayIndex: 10 }),
+      msg({ messageId: "a11", role: "assistant", text: "older answer", gatewayIndex: 11 }),
+      msg({ messageId: "u20-final", role: "user", text: "same question", gatewayIndex: 20 }),
+      msg({ messageId: "a21-final", role: "assistant", text: "newer answer plus", gatewayIndex: 21 }),
+    ])
+
+    expect(withHistory.slice(-2).map((message) => message.uiId)).toEqual(
+      current.map((message) => message.uiId)
+    )
+    expect(new Set(withHistory.map((message) => message.uiId)).size).toBe(withHistory.length)
+  })
+
   it("coalesces assistant tool and text chunks into one assistant row", () => {
     const timeline = buildStableVercelTimeline([
       msg({ messageId: "u1", role: "user", text: "run command" }),

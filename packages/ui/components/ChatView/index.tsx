@@ -7,6 +7,7 @@ import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
 import { ChatSearch } from "./ChatSearch"
 import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
+import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
@@ -75,6 +76,7 @@ const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 
 type MessageScrollAnchor = {
   id: string
+  uiId: string
   top: number
   previousScrollHeight: number
   previousScrollTop: number
@@ -91,9 +93,10 @@ function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrol
       const rect = row.getBoundingClientRect()
       return rect.top <= anchorY && rect.bottom >= anchorY
     }) ?? rows.find((row) => row.getBoundingClientRect().bottom > containerTop + 1)
-  if (!visibleRow?.id) {
+  if (!visibleRow) {
     return {
       id: "",
+      uiId: "",
       top: containerTop,
       previousScrollHeight: container.scrollHeight,
       previousScrollTop: container.scrollTop,
@@ -101,6 +104,7 @@ function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrol
   }
   return {
     id: visibleRow.id,
+    uiId: visibleRow.dataset.uiId ?? "",
     top: visibleRow.getBoundingClientRect().top,
     previousScrollHeight: container.scrollHeight,
     previousScrollTop: container.scrollTop,
@@ -109,6 +113,14 @@ function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrol
 
 function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null) {
   if (!container || !anchor) return
+  if (anchor.uiId) {
+    const row = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
+      .find((item) => item.dataset.uiId === anchor.uiId)
+    if (row) {
+      container.scrollTop += row.getBoundingClientRect().top - anchor.top
+      return
+    }
+  }
   if (anchor.id) {
     const row = document.getElementById(anchor.id)
     if (row) {
@@ -905,19 +917,33 @@ export function ChatView({
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
-  const renderedMessages = visibleAllMessages
+  const renderedMessages = useMemo(
+    () => buildStableChatRows(visibleAllMessages),
+    [visibleAllMessages]
+  )
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
   const needsInitialScrollRef = useRef(true)
   const loadOlderClickInFlightRef = useRef(false)
+  const lastOlderLoadAtRef = useRef(0)
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const [loadOlderUiBusy, setLoadOlderUiBusy] = useState(false)
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const previous = window.history.scrollRestoration
+    window.history.scrollRestoration = "manual"
+    return () => {
+      window.history.scrollRestoration = previous
+    }
+  }, [])
+
   // Reset mount timestamp on session change
   useEffect(() => {
     mountedAtRef.current = Date.now()
     userScrollIntentRef.current = false
     needsInitialScrollRef.current = true
     loadOlderClickInFlightRef.current = false
+    lastOlderLoadAtRef.current = 0
     setLoadOlderUiBusy(false)
   }, [sessionKey])
 
@@ -1095,7 +1121,10 @@ export function ChatView({
   )
 
   const loadOlderWithoutJump = useCallback(async () => {
+    const now = Date.now()
     if (!hasOlderMessages || loadingOlderMessages || loadOlderUiBusy || loadOlderClickInFlightRef.current) return
+    if (now - lastOlderLoadAtRef.current < 900) return
+    lastOlderLoadAtRef.current = now
     loadOlderClickInFlightRef.current = true
     setLoadOlderUiBusy(true)
     pendingOlderAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
@@ -1113,6 +1142,7 @@ export function ChatView({
     if (!anchor) return
     pendingOlderAnchorRef.current = null
     settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
+      userScrollIntentRef.current = false
       loadOlderClickInFlightRef.current = false
       setLoadOlderUiBusy(false)
     })
@@ -1458,7 +1488,7 @@ export function ChatView({
   }, [sessionKey, scrollToRenderedMessage, handleHighlightMessage])
 
   const renderMessageRow = useCallback(
-    (index: number, msg: ChatMessage) => {
+    (index: number, msg: StableChatMessage) => {
       const isLast = index === renderedMessages.length - 1
       const showPending =
         index === latestRenderedUserIndex &&
@@ -1528,6 +1558,7 @@ export function ChatView({
         <div
           id={`message-${msg.messageId}`}
           data-chat-message-row="true"
+          data-ui-id={msg.uiId}
           className={cn(
             "mx-auto max-w-[44rem] px-4 py-3",
             highlightedMessageId && highlightedMessageId !== msg.messageId && "opacity-40",
@@ -1896,7 +1927,7 @@ export function ChatView({
             )}
           </div>
           {renderedMessages.map((msg, index) => (
-            <div key={msg.messageId}>{renderMessageRow(index, msg)}</div>
+            <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
           ))}
           <div className="mx-auto max-w-3xl px-4 pb-8">
             <AnimatePresence initial={false}>
