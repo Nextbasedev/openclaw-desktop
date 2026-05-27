@@ -214,7 +214,7 @@ export function CollapsedSpacesPopover({
               onMouseEnter={() => onCollapsedPreviewStart?.(space.id)}
               onContextMenu={(event) => openContextMenu(event, space)}
               className={cn(
-                "group flex size-10 cursor-pointer items-center justify-center rounded-[8px] transition-all duration-150 ease-in-out",
+                "group flex size-10 cursor-pointer items-center justify-center rounded-tl-[8px] transition-all duration-150 ease-in-out",
                 active
                   ? "shadow-[0_0_0_2px_rgba(255,255,255,0.92),0_0_18px_rgba(59,130,246,0.28)]"
                   : "shadow-[0_12px_26px_rgba(0,0,0,0.34)] hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_12px_26px_rgba(0,0,0,0.34)]",
@@ -223,7 +223,7 @@ export function CollapsedSpacesPopover({
             >
               <span
                 className={cn(
-                  "relative flex size-full items-center justify-center overflow-hidden rounded-[8px] text-[14px] font-semibold text-white shadow-lg shadow-black/30",
+                  "relative flex size-full items-center justify-center overflow-hidden rounded-tl-[8px] text-[14px] font-semibold text-white shadow-lg shadow-black/30",
                   SPACE_ICON_SURFACE,
                 )}
               >
@@ -240,7 +240,7 @@ export function CollapsedSpacesPopover({
           onClick={openCreate}
           onContextMenu={openPlusMenu}
           className={cn(
-            "flex size-10 cursor-pointer items-center justify-center rounded-[8px] text-muted-foreground/70 shadow-[0_12px_26px_rgba(0,0,0,0.34)] transition-all hover:text-foreground hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_12px_26px_rgba(0,0,0,0.34)]",
+            "flex size-10 cursor-pointer items-center justify-center rounded-tl-[8px] text-muted-foreground/70 shadow-[0_12px_26px_rgba(0,0,0,0.34)] transition-all hover:text-foreground hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_12px_26px_rgba(0,0,0,0.34)]",
             SPACE_ICON_SURFACE,
           )}
           aria-label="New project"
