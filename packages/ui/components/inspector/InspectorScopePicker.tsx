@@ -146,13 +146,17 @@ function FolderRow({
 type InspectorScopePickerProps = {
   title?: string
   description?: string
+  targetProjectId?: string | null
   onSelectScope: (scope: InspectorScope) => void
+  onCancel?: () => void
 }
 
 export function InspectorScopePicker({
   title = "Choose workspace for this chat",
   description = "This controls Workspace and Git for this chat.",
+  targetProjectId,
   onSelectScope,
+  onCancel,
 }: InspectorScopePickerProps) {
   const [projects, setProjects] = useState<ProjectItem[]>([])
   const [rootInfo, setRootInfo] = useState<FolderEntry | null>(null)
@@ -226,14 +230,27 @@ export function InspectorScopePicker({
 
   const confirmFolder = useCallback(async () => {
     if (!selected || selected.disabledReason || connecting) return
-    // If folder is already an existing project, just select it
-    if (selected.projectId) {
-      onSelectScope({ kind: "project", projectId: selected.projectId })
-      return
-    }
     setConnecting(true)
     try {
-      // Check if an existing project already uses this path
+      const name = selected.name || selected.absolutePath?.split(/[\\/]/).pop() || "Workspace"
+      if (targetProjectId) {
+        await invoke("middleware_projects_update", {
+          input: {
+            projectId: targetProjectId,
+            name,
+            workspaceRoot: selected.absolutePath,
+            repoRoot: selected.gitRoot ?? null,
+          },
+        })
+        onSelectScope({ kind: "project", projectId: targetProjectId })
+        return
+      }
+
+      // If folder is already an existing project, just select it for normal-chat overrides
+      if (selected.projectId) {
+        onSelectScope({ kind: "project", projectId: selected.projectId })
+        return
+      }
       const existing = projects.find((p) => {
         const root = p.workspaceRoot || p.repoRoot
         return root && selected.absolutePath && root === selected.absolutePath
@@ -242,8 +259,8 @@ export function InspectorScopePicker({
         onSelectScope({ kind: "project", projectId: existing.id })
         return
       }
-      // Create a new project from this folder
-      const name = selected.name || selected.absolutePath?.split(/[\\/]/).pop() || "Workspace"
+
+      // Create a new project from this folder for a normal-chat override
       const created = await invoke<{ project?: ProjectItem }>("middleware_projects_create", {
         input: {
           name,
@@ -257,7 +274,7 @@ export function InspectorScopePicker({
     } finally {
       setConnecting(false)
     }
-  }, [connecting, onSelectScope, projects, selected])
+  }, [connecting, onSelectScope, projects, selected, targetProjectId])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
@@ -339,7 +356,7 @@ export function InspectorScopePicker({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => onSelectScope({ kind: "unset" })}
+              onClick={() => onCancel?.() ?? onSelectScope({ kind: "unset" })}
               className="cursor-pointer rounded-lg border border-border/45 px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
             >
               Cancel

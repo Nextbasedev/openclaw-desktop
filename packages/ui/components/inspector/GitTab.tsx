@@ -464,6 +464,17 @@ export function GitTab({ projectId, selection, onSelectionChange, inspectorScope
     finally { setSwitching(false) }
   }, [effectiveProjectId, effectiveRepoPath, switching, load])
 
+  const handleDisconnectRepo = useCallback(async () => {
+    setContext(null)
+    setBranches(null)
+    if (effectiveProjectId) {
+      await invoke("middleware_projects_update", { input: { projectId: effectiveProjectId, repoRoot: null } })
+      await loadGitTarget(effectiveProjectId, null)
+      return
+    }
+    updateSelection({ projectId: null, repo: null })
+  }, [effectiveProjectId, loadGitTarget, updateSelection])
+
   const handleRepoSelect = useCallback(async (repo: { name: string; path: string }) => {
     setRepoPickerOpen(false)
     setContext(null)
@@ -515,10 +526,10 @@ export function GitTab({ projectId, selection, onSelectionChange, inspectorScope
         <VscSourceControl className="size-8 text-muted-foreground/20" />
         <div className="text-center">
           <p className="text-[13px] font-medium text-foreground/80">
-            No project selected
+            No repository connected
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground/60">
-            Use the same repository picker to load git branches, changes, and commits.
+            Connect a Git repository for this chat. Workspace remains unchanged.
           </p>
         </div>
         <button
@@ -526,7 +537,7 @@ export function GitTab({ projectId, selection, onSelectionChange, inspectorScope
           onClick={() => setRepoPickerOpen(true)}
           className="glass-btn-primary px-4 py-1.5 text-[12px]"
         >
-          Select a Project
+          Connect Repository
         </button>
         <RepoPickerDialog
           open={repoPickerOpen}
@@ -548,7 +559,7 @@ export function GitTab({ projectId, selection, onSelectionChange, inspectorScope
         <div className="text-center">
           <p className="text-[13px] font-medium text-foreground/80">No repository connected</p>
           <p className="mt-1 text-[11px] text-muted-foreground/50">
-            Connect a git repository to see branches, changes, and commits.
+            Connect a Git repository. This updates repoRoot only, not the workspace folder.
           </p>
         </div>
         <button
@@ -638,7 +649,14 @@ export function GitTab({ projectId, selection, onSelectionChange, inspectorScope
             onClick={() => setRepoPickerOpen(true)}
             className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
           >
-            Change
+            Change repository
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDisconnectRepo()}
+            className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
+          >
+            Disconnect
           </button>
           <button
             type="button"
