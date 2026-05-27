@@ -24,7 +24,7 @@ type Props = {
   onSpaceDelete: (spaceId: string) => void | Promise<void>
 }
 
-const SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#25252A_0%,#151519_42%,#09090B_100%)]"
+const SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,rgba(255,255,255,0.04)_0%,#151519_42%,#09090B_100%)]"
 const ACTIVE_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#020618_0%,rgba(5,51,69,0.80)_50%,rgba(5,47,74,0.60)_100%)] text-white"
 
 function getSpaceRank(space: Space) {
