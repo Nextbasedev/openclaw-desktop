@@ -128,12 +128,12 @@ function GitPanelSkeleton() {
 function GitDiffSkeleton() {
   return (
     <div className="space-y-2 p-4 font-mono">
-      <div className="h-5 w-64 animate-pulse rounded bg-white/10" />
-      <div className="h-4 w-[520px] animate-pulse rounded bg-emerald-500/20" />
-      <div className="h-4 w-[460px] animate-pulse rounded bg-white/10" />
-      <div className="h-4 w-[500px] animate-pulse rounded bg-red-500/20" />
-      <div className="h-4 w-[420px] animate-pulse rounded bg-white/10" />
-      <div className="h-4 w-[540px] animate-pulse rounded bg-emerald-500/15" />
+      <div className="h-5 w-64 animate-pulse rounded bg-secondary/45" />
+      <div className="h-4 w-[520px] animate-pulse rounded bg-secondary/35" />
+      <div className="h-4 w-[460px] animate-pulse rounded bg-secondary/30" />
+      <div className="h-4 w-[500px] animate-pulse rounded bg-secondary/35" />
+      <div className="h-4 w-[420px] animate-pulse rounded bg-secondary/25" />
+      <div className="h-4 w-[540px] animate-pulse rounded bg-secondary/30" />
     </div>
   )
 }
