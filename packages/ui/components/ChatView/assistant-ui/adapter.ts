@@ -57,7 +57,10 @@ function convertAttachments(message: ChatMessage): ExternalThreadMessage["attach
   })) as ExternalThreadMessage["attachments"]
 }
 
-export function toAssistantMessage(message: ChatMessage): OpenClawAssistantMessage {
+export function toAssistantMessage(
+  message: ChatMessage,
+  displayId = message.messageId,
+): OpenClawAssistantMessage {
   const content: Array<Record<string, unknown>> = []
 
   if (message.reasoningText) {
@@ -88,7 +91,7 @@ export function toAssistantMessage(message: ChatMessage): OpenClawAssistantMessa
   }
 
   return {
-    id: message.messageId,
+    id: displayId,
     role: message.role,
     createdAt: createdAt(message),
     content: content as unknown as OpenClawAssistantMessage["content"],
@@ -110,7 +113,20 @@ export function toAssistantMessage(message: ChatMessage): OpenClawAssistantMessa
 }
 
 export function toAssistantMessages(messages: readonly ChatMessage[]): OpenClawAssistantMessage[] {
-  return messages.map(toAssistantMessage)
+  let currentUserTurnId = "start"
+  let assistantOrdinalInTurn = 0
+
+  return messages.map((message) => {
+    if (message.role === "user") {
+      currentUserTurnId = message.messageId
+      assistantOrdinalInTurn = 0
+      return toAssistantMessage(message)
+    }
+
+    assistantOrdinalInTurn += 1
+    const displayId = `assistant-turn:${currentUserTurnId}:${assistantOrdinalInTurn}`
+    return toAssistantMessage(message, displayId)
+  })
 }
 
 export function assistantTextFromAppendMessage(message: { content?: readonly unknown[] }): string {

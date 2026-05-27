@@ -106,7 +106,36 @@ describe("assistant-ui adapter", () => {
       base({ messageId: "a1", role: "assistant", text: "two" }),
     ])
 
-    expect(messages.map((message) => message.id)).toEqual(["u1", "a1"])
+    expect(messages.map((message) => message.id)).toEqual(["u1", "assistant-turn:u1:1"])
+  })
+
+  it("uses different assistant display ids for distinct assistant messages in one turn", () => {
+    const messages = toAssistantMessages([
+      base({ messageId: "u1", role: "user", text: "one" }),
+      base({ messageId: "tool-shell", role: "assistant", text: "", toolCalls: [{ id: "t1", tool: "read", status: "running" }] }),
+      base({ messageId: "a1", role: "assistant", text: "two" }),
+    ])
+
+    expect(messages.map((message) => message.id)).toEqual([
+      "u1",
+      "assistant-turn:u1:1",
+      "assistant-turn:u1:2",
+    ])
+  })
+
+  it("keeps assistant display ids stable when backend ids change during a turn", () => {
+    const before = toAssistantMessages([
+      base({ messageId: "u1", role: "user", text: "question" }),
+      base({ messageId: "live:r1:assistant", role: "assistant", text: "partial", animateText: true }),
+    ])
+    const after = toAssistantMessages([
+      base({ messageId: "u1", role: "user", text: "question" }),
+      base({ messageId: "assistant-final-42", role: "assistant", text: "partial final", animateText: true }),
+    ])
+
+    expect(before[1].id).toBe("assistant-turn:u1:1")
+    expect(after[1].id).toBe("assistant-turn:u1:1")
+    expect(after[1].metadata.custom.openclaw.messageId).toBe("assistant-final-42")
   })
 
   it("extracts composer text from assistant-ui append messages", () => {

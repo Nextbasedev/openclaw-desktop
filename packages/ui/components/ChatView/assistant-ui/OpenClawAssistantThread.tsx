@@ -86,30 +86,39 @@ function AssistantThreadSurface({
   return (
     <OpenClawAssistantThreadCallbacksContext.Provider value={callbacks}>
       <ThreadPrimitive.Root
-      className={cn(
-        "aui-root aui-thread-root flex h-full min-h-0 flex-col bg-background",
-        className
-      )}
-      style={{
-        ["--thread-max-width" as string]: "52rem",
-        ["--composer-radius" as string]: "24px",
-      }}
-    >
-      <ThreadPrimitive.Viewport
-        turnAnchor="top"
-        className="aui-thread-viewport flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth px-4 pt-4"
+        className={cn(
+          "aui-root aui-thread-root bg-background @container flex h-full min-h-0 flex-col",
+          className
+        )}
+        style={{
+          ["--thread-max-width" as string]: "52rem",
+          ["--composer-radius" as string]: "24px",
+          ["--composer-padding" as string]: "10px",
+        }}
       >
-        <AuiIf condition={(s) => s.thread.isEmpty}>
-          <ThreadWelcome />
-        </AuiIf>
+        <ThreadPrimitive.Viewport
+          turnAnchor="top"
+          data-slot="aui_thread-viewport"
+          className="relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth"
+        >
+          <div className="mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 pt-4">
+            <AuiIf condition={(s) => s.thread.isEmpty}>
+              <ThreadWelcome />
+            </AuiIf>
 
-        <ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
+            <div
+              data-slot="aui_message-group"
+              className="mb-10 flex flex-col gap-y-8 empty:hidden"
+            >
+              <ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
+            </div>
 
-        <ThreadPrimitive.ViewportFooter className="aui-thread-footer sticky bottom-0 mx-auto mt-auto flex w-full max-w-(--thread-max-width) flex-col gap-3 bg-background/95 pb-4 pt-2 backdrop-blur-xl">
-          <ThreadScrollToBottom />
-          <Composer />
-        </ThreadPrimitive.ViewportFooter>
-      </ThreadPrimitive.Viewport>
+            <ThreadPrimitive.ViewportFooter className="aui-thread-footer sticky bottom-0 mt-auto flex flex-col gap-4 overflow-visible rounded-t-(--composer-radius) bg-background/95 pb-4 pt-2 backdrop-blur-xl md:pb-6">
+              <ThreadScrollToBottom />
+              <Composer />
+            </ThreadPrimitive.ViewportFooter>
+          </div>
+        </ThreadPrimitive.Viewport>
       </ThreadPrimitive.Root>
     </OpenClawAssistantThreadCallbacksContext.Provider>
   )
@@ -154,10 +163,14 @@ const AssistantMessage: FC = () => {
 
   return (
     <MessagePrimitive.Root
-      className="aui-assistant-message fade-in slide-in-from-bottom-1 animate-in mx-auto w-full max-w-(--thread-max-width) py-3 duration-150"
+      data-slot="aui_assistant-message-root"
+      className="aui-assistant-message fade-in slide-in-from-bottom-1 animate-in relative duration-150"
       data-role="assistant"
     >
-      <div className="px-2 text-[14px] leading-7 text-foreground">
+      <div
+        data-slot="aui_assistant-message-content"
+        className="px-2 text-[14px] leading-7 text-foreground [contain-intrinsic-size:auto_24px] [content-visibility:auto]"
+      >
         <MessagePrimitive.Unstable_PartsGrouped
           groupingFunction={(parts) =>
             parts.map((_, index) => ({ groupKey: undefined, indices: [index] }))
@@ -173,6 +186,7 @@ const AssistantMessage: FC = () => {
                 text={text}
                 embeds={openclaw?.embeds}
                 streaming={Boolean(openclaw?.animateText)}
+                revealMode="buffered"
               />
             ),
             tools: { Override: () => null },
@@ -199,7 +213,8 @@ const UserMessage: FC = () => {
   )
   return (
     <MessagePrimitive.Root
-      className="aui-user-message fade-in slide-in-from-bottom-1 animate-in mx-auto grid w-full max-w-(--thread-max-width) grid-cols-[minmax(72px,1fr)_auto] px-2 py-3 duration-150"
+      data-slot="aui_user-message-root"
+      className="aui-user-message fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 [contain-intrinsic-size:auto_60px] [content-visibility:auto]"
       data-role="user"
     >
       <div className="col-start-2 max-w-[min(680px,85vw)] rounded-2xl bg-muted px-4 py-2.5 text-[14px] leading-6 text-foreground">
@@ -263,7 +278,10 @@ const UserActionBar: FC = () => (
 
 const Composer: FC = () => (
   <ComposerPrimitive.Root className="relative flex w-full flex-col">
-    <div className="flex w-full flex-col gap-2 rounded-(--composer-radius) border border-border/50 bg-card px-4 py-3 shadow-sm transition focus-within:border-foreground/20 focus-within:ring-1 focus-within:ring-ring/10">
+    <div
+      data-slot="aui_composer-shell"
+      className="flex w-full flex-col gap-2 rounded-(--composer-radius) border border-border/50 bg-card p-(--composer-padding) shadow-sm transition focus-within:border-foreground/20 focus-within:ring-1 focus-within:ring-ring/10"
+    >
       <ComposerPrimitive.Input
         placeholder="Message… (Shift+Enter for new line)"
         rows={1}
