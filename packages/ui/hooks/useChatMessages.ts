@@ -2927,10 +2927,12 @@ export function useChatMessages(
         (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
       )
       requestAnimationFrame(() => {
-        const nextEl = scrollContainerRef.current
-        if (!nextEl) return
-        const delta = nextEl.scrollHeight - previousScrollHeight
-        nextEl.scrollTop = previousScrollTop + Math.max(0, delta)
+        requestAnimationFrame(() => {
+          const nextEl = scrollContainerRef.current
+          if (!nextEl) return
+          const delta = nextEl.scrollHeight - previousScrollHeight
+          nextEl.scrollTop = previousScrollTop + Math.max(0, delta)
+        })
       })
     } catch (error) {
       frontendLog("chat", "chat.load-older.fail", {

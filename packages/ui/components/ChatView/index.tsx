@@ -1030,11 +1030,19 @@ export function ChatView({
       !userScrollIntentRef.current
     ) {
       needsInitialScrollRef.current = false
+      const scrollToLatest = () => {
+        const el = scrollContainerRef.current
+        if (!el) return
+        el.scrollTop = el.scrollHeight
+        setShowJumpToBottom(false)
+      }
       requestAnimationFrame(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+        scrollToLatest()
+        requestAnimationFrame(scrollToLatest)
+        window.setTimeout(scrollToLatest, 120)
       })
     }
-  }, [bottomRef, renderedMessages.length, loading])
+  }, [renderedMessages.length, loading, scrollContainerRef])
 
 
 

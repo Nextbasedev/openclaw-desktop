@@ -18,6 +18,7 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey }:
   const previousSessionKeyRef = useRef(sessionKey)
   const previousFirstMessageKeyRef = useRef<string | null>(firstMessageKey)
   const previousScrollHeightRef = useRef(0)
+  const didInitialBottomRef = useRef(false)
 
   const checkIfAtBottom = useCallback(() => {
     const container = containerRef.current
@@ -33,6 +34,15 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey }:
     isAtBottomRef.current = true
     previousScrollHeightRef.current = container.scrollHeight
   }, [])
+
+  const settleAtBottom = useCallback(() => {
+    scrollToBottom()
+    requestAnimationFrame(() => {
+      scrollToBottom()
+      requestAnimationFrame(scrollToBottom)
+      window.setTimeout(scrollToBottom, 120)
+    })
+  }, [scrollToBottom])
 
   useEffect(() => {
     isAtBottomRef.current = isAtBottom
@@ -51,13 +61,14 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey }:
       previousSessionKeyRef.current = sessionKey
       previousFirstMessageKeyRef.current = firstMessageKey
       previousScrollHeightRef.current = nextScrollHeight
+      didInitialBottomRef.current = false
       isAtBottomRef.current = true
-      container.scrollTop = nextScrollHeight
-      requestAnimationFrame(() => setIsAtBottom(true))
-      return
     }
 
-    if (firstMessageChanged && !isAtBottomRef.current && previousScrollHeight > 0) {
+    if (!didInitialBottomRef.current && firstMessageKey) {
+      didInitialBottomRef.current = true
+      requestAnimationFrame(settleAtBottom)
+    } else if (firstMessageChanged && !isAtBottomRef.current && previousScrollHeight > 0) {
       const delta = nextScrollHeight - previousScrollHeight
       if (delta > 0) container.scrollTop += delta
     } else if (isAtBottomRef.current) {
@@ -66,7 +77,7 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey }:
 
     previousFirstMessageKeyRef.current = firstMessageKey
     previousScrollHeightRef.current = container.scrollHeight
-  }, [contentKey, firstMessageKey, sessionKey])
+  }, [contentKey, firstMessageKey, sessionKey, settleAtBottom])
 
   useEffect(() => {
     const container = containerRef.current

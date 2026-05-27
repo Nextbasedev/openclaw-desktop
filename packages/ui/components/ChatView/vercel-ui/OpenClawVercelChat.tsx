@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useCallback, useMemo } from "react"
 import { LuArrowDown, LuSparkles } from "react-icons/lu"
 import { cn } from "@/lib/utils"
 import { MarkdownContent } from "../MarkdownContent"
@@ -130,6 +130,20 @@ export function OpenClawVercelChat({
     firstMessageKey,
     contentKey,
   })
+  const loadOlderWithoutJump = useCallback(async () => {
+    const container = containerRef.current
+    const previousScrollHeight = container?.scrollHeight ?? 0
+    const previousScrollTop = container?.scrollTop ?? 0
+    await onLoadOlderMessages?.()
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const nextContainer = containerRef.current
+        if (!nextContainer) return
+        const delta = nextContainer.scrollHeight - previousScrollHeight
+        nextContainer.scrollTop = previousScrollTop + Math.max(0, delta)
+      })
+    })
+  }, [containerRef, onLoadOlderMessages])
   const lastMessage = stableMessages.at(-1)
   const showThinking = isGenerating && lastMessage?.role === "user"
 
@@ -150,7 +164,7 @@ export function OpenClawVercelChat({
             <div className="flex justify-center py-1">
               <button
                 type="button"
-                onClick={() => void onLoadOlderMessages?.()}
+                onClick={() => void loadOlderWithoutJump()}
                 disabled={loadingOlderMessages}
                 className="rounded-full border border-border/50 bg-card px-3 py-1 text-xs text-muted-foreground disabled:opacity-60"
               >
