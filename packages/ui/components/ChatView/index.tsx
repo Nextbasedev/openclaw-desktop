@@ -910,6 +910,7 @@ export function ChatView({
   const userScrollIntentRef = useRef(false)
   const needsInitialScrollRef = useRef(true)
   const loadOlderClickInFlightRef = useRef(false)
+  const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const [loadOlderUiBusy, setLoadOlderUiBusy] = useState(false)
   // Reset mount timestamp on session change
   useEffect(() => {
@@ -1097,16 +1098,25 @@ export function ChatView({
     if (!hasOlderMessages || loadingOlderMessages || loadOlderUiBusy || loadOlderClickInFlightRef.current) return
     loadOlderClickInFlightRef.current = true
     setLoadOlderUiBusy(true)
-    const anchor = captureMessageScrollAnchor(scrollContainerRef.current)
+    pendingOlderAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
     try {
       await loadOlderMessages()
-    } finally {
-      settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
-        loadOlderClickInFlightRef.current = false
-        setLoadOlderUiBusy(false)
-      })
+    } catch {
+      pendingOlderAnchorRef.current = null
+      loadOlderClickInFlightRef.current = false
+      setLoadOlderUiBusy(false)
     }
   }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, loadOlderUiBusy, scrollContainerRef])
+
+  useLayoutEffect(() => {
+    const anchor = pendingOlderAnchorRef.current
+    if (!anchor) return
+    pendingOlderAnchorRef.current = null
+    settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
+      loadOlderClickInFlightRef.current = false
+      setLoadOlderUiBusy(false)
+    })
+  }, [renderedMessages.length, scrollContainerRef])
 
   const handleScroll = useCallback(() => {
     onScroll()

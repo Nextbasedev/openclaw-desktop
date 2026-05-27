@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { LuArrowDown, LuSparkles } from "react-icons/lu"
 import { cn } from "@/lib/utils"
 import { MarkdownContent } from "../MarkdownContent"
@@ -221,22 +221,32 @@ export function OpenClawVercelChat({
     contentKey,
   })
   const loadOlderInFlightRef = useRef(false)
+  const pendingOlderAnchorRef = useRef<VercelScrollAnchor | null>(null)
   const [localOlderLoading, setLocalOlderLoading] = useState(false)
   const isOlderLoading = loadingOlderMessages || localOlderLoading
   const loadOlderWithoutJump = useCallback(async () => {
     if (!hasOlderMessages || isOlderLoading || loadOlderInFlightRef.current) return
     loadOlderInFlightRef.current = true
     setLocalOlderLoading(true)
-    const anchor = captureVercelScrollAnchor(containerRef.current)
+    pendingOlderAnchorRef.current = captureVercelScrollAnchor(containerRef.current)
     try {
       await onLoadOlderMessages?.()
-    } finally {
-      settleVercelScrollAnchor(containerRef.current, anchor, () => {
-        loadOlderInFlightRef.current = false
-        setLocalOlderLoading(false)
-      })
+    } catch {
+      pendingOlderAnchorRef.current = null
+      loadOlderInFlightRef.current = false
+      setLocalOlderLoading(false)
     }
   }, [containerRef, hasOlderMessages, isOlderLoading, onLoadOlderMessages])
+
+  useLayoutEffect(() => {
+    const anchor = pendingOlderAnchorRef.current
+    if (!anchor) return
+    pendingOlderAnchorRef.current = null
+    settleVercelScrollAnchor(containerRef.current, anchor, () => {
+      loadOlderInFlightRef.current = false
+      setLocalOlderLoading(false)
+    })
+  }, [containerRef, stableMessages.length])
 
   useEffect(() => {
     const container = containerRef.current
