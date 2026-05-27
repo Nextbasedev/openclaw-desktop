@@ -227,6 +227,7 @@ export function CollapsedSpacesPopover({
     <div className="flex flex-col items-center gap-3" aria-label="Projects">
       {orderedSpaces.map((space) => {
         const active = space.id === activeSpaceId
+        const hasCustomIcon = Boolean(spaceIconSrc(space))
 
         return (
           <GlassTooltip key={space.id} label={space.name} disabled={tooltipsDisabled || contextMenu.open}>
@@ -246,8 +247,8 @@ export function CollapsedSpacesPopover({
               <span
                 className={cn(
                   "relative flex size-full items-center justify-center overflow-hidden rounded-md bg-transparent text-[14px] font-semibold text-white/80 shadow-lg shadow-black/30 ring-1 ring-white/[0.06] backdrop-blur-sm",
-                  !spaceIconSrc(space) && gradientForSpace(space),
-                  active && "text-white brightness-125 saturate-125 ring-white/20",
+                  !hasCustomIcon && gradientForSpace(space),
+                  active && !hasCustomIcon && "text-white brightness-125 saturate-125 ring-white/20",
                 )}
               >
                 {spaceIconSrc(space) ? <SpaceIconImage space={space} /> : spaceInitial(space)}

@@ -70,7 +70,6 @@ function rowToJson(row: SpaceRow) {
     id: row.id,
     name: row.name,
     iconImage,
-    ...(iconImage ? { ImageIcon: iconImage } : {}),
     repoRoot: row.repo_root ?? undefined,
     projectId: row.project_id ?? undefined,
     sortOrder: row.sort_order,

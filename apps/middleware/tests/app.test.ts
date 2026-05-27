@@ -686,12 +686,13 @@ describe("middleware app", () => {
     });
 
     expect(created.statusCode).toBe(200);
-    expect(created.json().space).toMatchObject({ name: "Image Space", iconImage, ImageIcon: iconImage });
+    expect(created.json().space).toMatchObject({ name: "Image Space", iconImage });
+    expect(created.json().space).not.toHaveProperty("ImageIcon");
 
     const listed = await app.inject({ method: "GET", url: "/api/spaces" });
     expect(listed.statusCode).toBe(200);
     expect(listed.json().spaces).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: created.json().space.id, iconImage, ImageIcon: iconImage }),
+      expect.objectContaining({ id: created.json().space.id, iconImage }),
     ]));
 
     const commandCreated = await app.inject({
@@ -701,7 +702,8 @@ describe("middleware app", () => {
     });
 
     expect(commandCreated.statusCode).toBe(200);
-    expect(commandCreated.json().space).toMatchObject({ name: "Command Image Space", iconImage, ImageIcon: iconImage });
+    expect(commandCreated.json().space).toMatchObject({ name: "Command Image Space", iconImage });
+    expect(commandCreated.json().space).not.toHaveProperty("ImageIcon");
 
     const imageIconAliasCreated = await app.inject({
       method: "POST",
@@ -710,7 +712,8 @@ describe("middleware app", () => {
     });
 
     expect(imageIconAliasCreated.statusCode).toBe(200);
-    expect(imageIconAliasCreated.json().space).toMatchObject({ name: "Alias Image Space", iconImage, ImageIcon: iconImage });
+    expect(imageIconAliasCreated.json().space).toMatchObject({ name: "Alias Image Space", iconImage });
+    expect(imageIconAliasCreated.json().space).not.toHaveProperty("ImageIcon");
 
     const updatedIconImage = { ...iconImage, name: "updated-space.png" };
     const updated = await app.inject({
@@ -720,14 +723,15 @@ describe("middleware app", () => {
     });
 
     expect(updated.statusCode).toBe(200);
-    expect(updated.json().space).toMatchObject({ iconImage: updatedIconImage, ImageIcon: updatedIconImage });
+    expect(updated.json().space).toMatchObject({ iconImage: updatedIconImage });
+    expect(updated.json().space).not.toHaveProperty("ImageIcon");
 
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
     expect(bootstrap.statusCode).toBe(200);
     expect(bootstrap.json().spaces).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: created.json().space.id, iconImage: updatedIconImage, ImageIcon: updatedIconImage }),
-      expect.objectContaining({ id: commandCreated.json().space.id, iconImage, ImageIcon: iconImage }),
-      expect.objectContaining({ id: imageIconAliasCreated.json().space.id, iconImage, ImageIcon: iconImage }),
+      expect.objectContaining({ id: created.json().space.id, iconImage: updatedIconImage }),
+      expect.objectContaining({ id: commandCreated.json().space.id, iconImage }),
+      expect.objectContaining({ id: imageIconAliasCreated.json().space.id, iconImage }),
     ]));
   });
 

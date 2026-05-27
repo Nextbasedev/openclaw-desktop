@@ -395,7 +395,7 @@ function sanitizeSpacePatch(input: CompatRecord) {
   const iconImage = spaceIconImageFrom(input);
   if (iconImage !== undefined) {
     patch.iconImage = iconImage;
-    patch.ImageIcon = iconImage;
+    delete patch.ImageIcon;
     delete patch.imageIcon;
     delete patch.icon_image;
   }
@@ -409,8 +409,9 @@ function spaceIconImageFrom(input?: CompatRecord | null) {
 
 function spaceForResponse(space: CompatRecord) {
   const iconImage = spaceIconImageFrom(space);
-  if (iconImage === undefined) return space;
-  return { ...space, iconImage, ImageIcon: iconImage };
+  const { ImageIcon: _ImageIcon, imageIcon: _imageIcon, icon_image: _icon_image, ...rest } = space;
+  if (iconImage === undefined) return rest;
+  return { ...rest, iconImage };
 }
 
 function spacesForResponse(spaces: CompatRecord[]) {
@@ -3459,7 +3460,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const space = {
       id: id("space"),
       name: body.name || "New Space",
-      ...(iconImage ? { iconImage, ImageIcon: iconImage } : {}),
+      ...(iconImage ? { iconImage } : {}),
       archived: false,
       deleted: false,
       sortOrder: compatState.spaces.length,
@@ -4401,7 +4402,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const space = {
           id: id("space"),
           name: input.name || "New Space",
-          ...(iconImage ? { iconImage, ImageIcon: iconImage } : {}),
+          ...(iconImage ? { iconImage } : {}),
           archived: false,
           deleted: false,
           sortOrder: compatState.spaces.length,

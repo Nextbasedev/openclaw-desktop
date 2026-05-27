@@ -19,13 +19,20 @@ type SpacesResponse = {
 
 type SpaceIconImage = NonNullable<Space["iconImage"]>
 
-function spaceIconPayload(iconImage?: SpaceIconImage | null) {
-  return iconImage ? { iconImage, ImageIcon: iconImage } : {}
+type LegacySpaceIconFields = {
+  ImageIcon?: SpaceIconImage
+  imageIcon?: SpaceIconImage
+  icon_image?: SpaceIconImage
 }
 
-function normalizeSpaceIcon(space: Space): Space {
-  const iconImage = space.iconImage ?? space.ImageIcon ?? space.imageIcon ?? space.icon_image
-  return iconImage ? { ...space, iconImage } : space
+function spaceIconPayload(iconImage?: SpaceIconImage | null) {
+  return iconImage ? { iconImage } : {}
+}
+
+function normalizeSpaceIcon(space: Space & LegacySpaceIconFields): Space {
+  const { ImageIcon, imageIcon, icon_image, ...rest } = space
+  const iconImage = rest.iconImage ?? ImageIcon ?? imageIcon ?? icon_image
+  return iconImage ? { ...rest, iconImage } : rest
 }
 
 function upsertSpace(spaces: Space[], nextSpace: Space) {

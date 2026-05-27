@@ -9,7 +9,7 @@ type Props = {
 }
 
 export function spaceIconSrc(space: Space): string | null {
-  const image = space.iconImage ?? space.ImageIcon ?? space.imageIcon ?? space.icon_image
+  const image = space.iconImage
   if (!image?.content || !image.mimeType?.startsWith("image/")) return null
   return `data:${image.mimeType};base64,${image.content}`
 }
