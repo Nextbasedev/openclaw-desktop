@@ -65,7 +65,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
   }
 
   return (
-    <div className="flex h-full w-full min-w-0 overflow-hidden rounded-md">
+    <div className="flex h-full w-full min-w-0 overflow-hidden rounded-3xl border border-border/60 bg-background">
       <aside className="flex w-[220px] shrink-0 flex-col border-r border-border/60 bg-muted/20">
         <div className="border-b border-border/50 px-4 py-4">
           {onBack ? (
