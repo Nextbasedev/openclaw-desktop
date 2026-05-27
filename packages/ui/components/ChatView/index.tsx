@@ -6,7 +6,7 @@ import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
 import { ChatSearch } from "./ChatSearch"
-import { OpenClawAssistantThread } from "./assistant-ui/OpenClawAssistantThread"
+import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
@@ -1803,15 +1803,37 @@ export function ChatView({
       />
 
       {assistantUiChatViewEnabled ? (
-        <OpenClawAssistantThread
-          messages={renderedMessages}
-          isRunning={isGenerating}
-          onSendText={(text) => wrappedSend({ text })}
-          onAbort={handleAbort}
-          onSelectTool={onSelectTool}
-          onResolveApproval={resolveExecApproval}
-          className="flex-1"
-        />
+        <>
+          <OpenClawVercelChat
+            sessionKey={sessionKey}
+            messages={renderedMessages}
+            isGenerating={isGenerating}
+            statusText={statusText}
+            onSelectTool={onSelectTool}
+            onResolveApproval={resolveExecApproval}
+          />
+
+          <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
+            {spawnedSubagents.length > 0 && (
+              <div className="mb-2">
+                <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
+              </div>
+            )}
+            <ChatBox
+              onSend={wrappedSend}
+              disabled={false}
+              isGenerating={isGenerating}
+              onAbort={handleAbort}
+              initialPrompt={composerSeed || undefined}
+              replyTo={replyTo}
+              onCancelReply={cancelReply}
+              onModelSelect={handleSessionModelSelect}
+              modelSwitching={modelSwitching}
+              historyMessages={userMessageHistory}
+              draftKey={sessionKey}
+            />
+          </div>
+        </>
       ) : (
         <>
 
