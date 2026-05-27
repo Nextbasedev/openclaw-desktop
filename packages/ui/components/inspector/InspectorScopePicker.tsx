@@ -10,6 +10,7 @@ import {
   VscFolder,
   VscFolderOpened,
   VscFolderLibrary,
+  VscGitBranch,
   VscGlobe,
   VscRefresh,
   VscSearch,
@@ -117,6 +118,12 @@ function FolderRow({
           : <VscFolder className="size-3.5 shrink-0 text-muted-foreground/70" />
         }
         <span className="min-w-0 flex-1 truncate">{node.name || "root"}</span>
+        {node.hasGit && (
+          <VscGitBranch
+            className="size-3.5 shrink-0 text-muted-foreground/55"
+            aria-label="Git repository"
+          />
+        )}
         {node.loading && <span className="text-[10px] text-muted-foreground/45">…</span>}
       </button>
       {expanded && node.children?.map((child) => (
