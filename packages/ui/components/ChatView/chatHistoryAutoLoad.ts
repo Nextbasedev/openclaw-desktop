@@ -25,7 +25,10 @@ export function shouldAutoLoadOlderHistory({
   if (!Number.isFinite(maxScrollTop) || maxScrollTop <= 0) return false
   if (scrollTop <= OLDER_HISTORY_TOP_LOAD_PX) return true
   if (scrollTop >= previousScrollTop) return false
-  const loadThreshold = maxScrollTop * (1 - OLDER_HISTORY_AUTO_LOAD_SCROLL_UP_RATIO)
+  // Preload one older page while there is still roughly 40% of the
+  // currently loaded history above the viewport. That keeps the next page
+  // ready before the user reaches the loaded-history boundary.
+  const loadThreshold = maxScrollTop * OLDER_HISTORY_AUTO_LOAD_SCROLL_UP_RATIO
   const crossedLoadThreshold = previousScrollTop > loadThreshold && scrollTop <= loadThreshold
   if (crossedLoadThreshold) return true
 

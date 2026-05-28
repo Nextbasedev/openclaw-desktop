@@ -9,16 +9,16 @@ const base = {
 }
 
 describe("shouldAutoLoadOlderHistory", () => {
-  it("loads after the user scrolls upward through 60 percent of the loaded history", () => {
-    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 3_800, scrollTop: 3_600 })).toBe(true)
+  it("preloads one older page after the user crosses 60 percent of the loaded history", () => {
+    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 5_500, scrollTop: 5_300 })).toBe(true)
   })
 
-  it("does not load too early when only 40 percent of loaded history has been scrolled upward", () => {
-    expect(shouldAutoLoadOlderHistory({ ...base, scrollTop: 5_400 })).toBe(false)
+  it("does not load too early while more than 40 percent of newer history remains below", () => {
+    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 6_300, scrollTop: 6_100 })).toBe(false)
   })
 
-  it("does not load while the user is still below the upper history threshold", () => {
-    expect(shouldAutoLoadOlderHistory({ ...base, scrollTop: 5_500 })).toBe(false)
+  it("does not load while the user is still below the preload threshold", () => {
+    expect(shouldAutoLoadOlderHistory({ ...base, scrollTop: 6_200 })).toBe(false)
   })
 
   it("does not load from programmatic scrolls without user intent", () => {
