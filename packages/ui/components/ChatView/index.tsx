@@ -72,7 +72,7 @@ import {
 } from "@/components/ui/tooltip"
 
 const AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX = 240
-const AUTO_LOAD_OLDER_SCROLL_PROGRESS = 0.6
+const AUTO_LOAD_OLDER_PRELOAD_SCREENS = 2
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 
 type StatusIconMeta = {
@@ -983,11 +983,14 @@ export function ChatView({
   )
 
   const shouldAutoLoadOlderMessages = useCallback((el: HTMLDivElement) => {
-    const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
-    if (maxScrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX) {
-      return el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
-    }
-    return el.scrollTop / maxScrollTop <= AUTO_LOAD_OLDER_SCROLL_PROGRESS
+    // Telegram Desktop preloads history by viewport-distance from the loaded
+    // edge (`kPreloadIfLessThanScreens = 2`) instead of waiting for the exact
+    // top. This keeps scrolling continuous without a visible top-loader.
+    const preloadBeforePx = Math.max(
+      AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX,
+      el.clientHeight * AUTO_LOAD_OLDER_PRELOAD_SCREENS
+    )
+    return el.scrollTop <= preloadBeforePx
   }, [])
 
   const requestOlderMessages = useCallback(async () => {
