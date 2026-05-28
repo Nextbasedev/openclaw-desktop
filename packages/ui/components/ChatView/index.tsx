@@ -1028,6 +1028,7 @@ export function ChatView({
   const needsInitialScrollRef = useRef(true)
   const loadOlderClickInFlightRef = useRef(false)
   const olderLoadAwaitingRenderRef = useRef(false)
+  const olderLoadCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastOlderLoadAtRef = useRef(0)
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
   const previousScrollTopRef = useRef(0)
@@ -1052,6 +1053,10 @@ export function ChatView({
     userScrollIntentRef.current = false
     needsInitialScrollRef.current = true
     loadOlderClickInFlightRef.current = false
+    if (olderLoadCooldownTimerRef.current) {
+      clearTimeout(olderLoadCooldownTimerRef.current)
+      olderLoadCooldownTimerRef.current = null
+    }
     lastOlderLoadAtRef.current = 0
     lastOlderLoadScrollTopRef.current = null
     previousScrollTopRef.current = 0
@@ -1240,6 +1245,7 @@ export function ChatView({
     if (!hasOlderMessages || loadingOlderMessages || loadOlderUiBusy || loadOlderClickInFlightRef.current) return
     const elapsedSinceSettledLoad = now - lastOlderLoadAtRef.current
     if (elapsedSinceSettledLoad < OLDER_HISTORY_LOAD_SETTLE_COOLDOWN_MS) {
+      const remainingMs = OLDER_HISTORY_LOAD_SETTLE_COOLDOWN_MS - elapsedSinceSettledLoad
       logChatScrollDebug({
         source: "chat",
         event: "load-older-cooldown-skip",
@@ -1249,7 +1255,18 @@ export function ChatView({
         scrollHeight: scrollContainerRef.current?.scrollHeight,
         clientHeight: scrollContainerRef.current?.clientHeight,
       })
+      if (!olderLoadCooldownTimerRef.current) {
+        olderLoadCooldownTimerRef.current = setTimeout(() => {
+          olderLoadCooldownTimerRef.current = null
+          if (!userScrollIntentRef.current) return
+          void loadOlderWithoutJump()
+        }, remainingMs)
+      }
       return
+    }
+    if (olderLoadCooldownTimerRef.current) {
+      clearTimeout(olderLoadCooldownTimerRef.current)
+      olderLoadCooldownTimerRef.current = null
     }
     loadOlderClickInFlightRef.current = true
     olderLoadAwaitingRenderRef.current = true

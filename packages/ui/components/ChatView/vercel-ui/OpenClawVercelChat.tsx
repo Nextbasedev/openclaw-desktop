@@ -206,6 +206,7 @@ export function OpenClawVercelChat({
   })
   const loadOlderInFlightRef = useRef(false)
   const olderLoadAwaitingRenderRef = useRef(false)
+  const olderLoadCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const userScrollIntentRef = useRef(false)
   const lastOlderLoadAtRef = useRef(0)
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
@@ -219,6 +220,10 @@ export function OpenClawVercelChat({
   useEffect(() => {
     userScrollIntentRef.current = false
     previousScrollTopRef.current = 0
+    if (olderLoadCooldownTimerRef.current) {
+      clearTimeout(olderLoadCooldownTimerRef.current)
+      olderLoadCooldownTimerRef.current = null
+    }
     lastOlderLoadAtRef.current = 0
     lastOlderLoadScrollTopRef.current = null
     userScrollIntentGenerationRef.current = 0
@@ -231,6 +236,7 @@ export function OpenClawVercelChat({
     if (!hasOlderMessages || isOlderLoading || loadOlderInFlightRef.current) return
     const elapsedSinceSettledLoad = now - lastOlderLoadAtRef.current
     if (elapsedSinceSettledLoad < OLDER_HISTORY_LOAD_SETTLE_COOLDOWN_MS) {
+      const remainingMs = OLDER_HISTORY_LOAD_SETTLE_COOLDOWN_MS - elapsedSinceSettledLoad
       logChatScrollDebug({
         source: "vercel-chat",
         event: "load-older-cooldown-skip",
@@ -240,7 +246,18 @@ export function OpenClawVercelChat({
         scrollHeight: containerRef.current?.scrollHeight,
         clientHeight: containerRef.current?.clientHeight,
       })
+      if (!olderLoadCooldownTimerRef.current) {
+        olderLoadCooldownTimerRef.current = setTimeout(() => {
+          olderLoadCooldownTimerRef.current = null
+          if (!userScrollIntentRef.current) return
+          void loadOlderWithoutJump()
+        }, remainingMs)
+      }
       return
+    }
+    if (olderLoadCooldownTimerRef.current) {
+      clearTimeout(olderLoadCooldownTimerRef.current)
+      olderLoadCooldownTimerRef.current = null
     }
     loadOlderInFlightRef.current = true
     olderLoadAwaitingRenderRef.current = true
