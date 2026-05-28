@@ -29,7 +29,7 @@ export type FrontendLogCategory =
 
 export type FrontendLogContext = Record<string, unknown>
 
-const MAX_ENTRIES = 1000
+const MAX_ENTRIES = 5000
 const SECRET_VALUE = "[redacted]"
 const OMITTED_VALUE = "[omitted]"
 const MAX_STRING_CHARS = 300

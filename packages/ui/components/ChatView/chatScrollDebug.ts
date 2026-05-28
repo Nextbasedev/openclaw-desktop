@@ -1,3 +1,5 @@
+import { frontendLog } from "@/lib/clientLogs"
+
 type ChatScrollDebugEvent = {
   source: "chat" | "vercel-chat"
   event: string
@@ -25,6 +27,7 @@ export function logChatScrollDebug(event: ChatScrollDebugEvent) {
     items.push(entry)
     target.__openclawChatScrollDebug = items.slice(-300)
     console.debug("[chat-scroll]", entry)
+    frontendLog("chat", `chat.scroll.${event.event}`, entry, "debug")
   } catch {
     // Debug logging must never affect chat rendering or scrolling.
   }

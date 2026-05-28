@@ -2876,7 +2876,17 @@ export function useChatMessages(
   }, [])
 
   const loadOlderMessages = useCallback(async (): Promise<boolean> => {
-    if (loadOlderInFlightRef.current || loadingOlderMessages || !hasOlderMessages) return false
+    if (loadOlderInFlightRef.current || loadingOlderMessages || !hasOlderMessages) {
+      frontendLog("chat", "chat.load-older.skip", {
+        sessionKey,
+        inFlight: loadOlderInFlightRef.current,
+        loadingOlderMessages,
+        hasOlderMessages,
+        currentCount: messagesRef.current.length,
+        oldestLoadedSeq: oldestLoadedSeqRef.current,
+      }, "debug")
+      return false
+    }
     // Use the tracked raw seq instead of the parsed/merged gatewayIndex.
     // parseChatHistory merges consecutive assistant messages and updates
     // gatewayIndex to the latest seq, which causes beforeSeq to point to
@@ -2885,12 +2895,27 @@ export function useChatMessages(
     const beforeSeq = oldestLoadedSeqRef.current ?? firstLoadedGatewayIndex(messagesRef.current)
     if (beforeSeq === null || beforeSeq <= 1) {
       setHasOlderMessages(false)
+      frontendLog("chat", "chat.load-older.exhausted-before-fetch", {
+        sessionKey,
+        beforeSeq,
+        currentCount: messagesRef.current.length,
+        oldestLoadedSeq: oldestLoadedSeqRef.current,
+      }, "debug")
       return false
     }
 
     loadOlderInFlightRef.current = true
     setLoadError(null)
     setLoadingOlderMessages(true)
+    const startedAtMs = Date.now()
+    const startingCount = messagesRef.current.length
+    frontendLog("chat", "chat.load-older.start", {
+      sessionKey,
+      beforeSeq,
+      currentCount: startingCount,
+      oldestLoadedSeq: oldestLoadedSeqRef.current,
+      limit: CHAT_OLDER_PAGE_LIMIT,
+    }, "info")
     try {
       const page = await fetchChatMessagesV2({
         sessionKey,
@@ -2941,10 +2966,17 @@ export function useChatMessages(
       )
       if (olderMessages.length === 0) {
         setHasOlderMessages(false)
+        frontendLog("chat", "chat.load-older.empty-page", {
+          sessionKey,
+          beforeSeq,
+          rawReturned: page.messages.length,
+          durationMs: Date.now() - startedAtMs,
+        }, "warn")
         return false
       }
       const currentMessages = messagesRef.current
       const merged = dedupeChatMessages([...olderMessages, ...currentMessages])
+      const addedCount = merged.length - currentMessages.length
       setMessages(merged)
       // Keep the global patch-stream session in sync with paginated history.
       // Otherwise the next non-message patch (for example chat.tool.update)
@@ -2971,7 +3003,19 @@ export function useChatMessages(
       const hasMoreOlder = page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
         (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
       setHasOlderMessages(hasMoreOlder)
-      return merged.length > currentMessages.length
+      frontendLog("chat", "chat.load-older.applied", {
+        sessionKey,
+        beforeSeq,
+        rawReturned: page.messages.length,
+        parsedReturned: olderMessages.length,
+        previousCount: currentMessages.length,
+        nextCount: merged.length,
+        addedCount,
+        hasMoreOlder,
+        oldestLoadedSeq: oldestLoadedSeqRef.current,
+        durationMs: Date.now() - startedAtMs,
+      }, "info")
+      return addedCount > 0
 
     } catch (error) {
       frontendLog("chat", "chat.load-older.fail", {

@@ -93,11 +93,18 @@ export function LogsDialog({
   )
   const [search, setSearch] = useState("")
   const [autoScroll, setAutoScroll] = useState(true)
+  const [chatTraceEnabled, setChatTraceEnabled] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setMounted(true)
+    try {
+      setChatTraceEnabled(
+        window.localStorage.getItem("openclaw.chat.render.debug") === "1" &&
+          window.localStorage.getItem("openclaw.chat.scroll.debug") === "1",
+      )
+    } catch {}
   }, [])
 
   useEffect(() => {
@@ -252,6 +259,7 @@ export function LogsDialog({
       backendError,
       sourceFilter: source,
       search: search.trim() || null,
+      chatTraceEnabled,
     }
     const diagnostics = collectDiagnostics({
       frontendEntries: frontendSnapshot,
@@ -280,7 +288,19 @@ export function LogsDialog({
     } catch {
       setCopyNotice("Debug bundle copy failed")
     }
-  }, [backend, backendError, backendPath, loadBackend, search, source])
+  }, [backend, backendError, backendPath, chatTraceEnabled, loadBackend, search, source])
+
+  const toggleChatTrace = useCallback(() => {
+    setChatTraceEnabled((prev) => {
+      const next = !prev
+      try {
+        window.localStorage.setItem("openclaw.chat.render.debug", next ? "1" : "0")
+        window.localStorage.setItem("openclaw.chat.scroll.debug", next ? "1" : "0")
+        console.info(`[OpenClaw frontend:chat] chat.trace.${next ? "enabled" : "disabled"}`)
+      } catch {}
+      return next
+    })
+  }, [])
 
   const stats = useMemo(() => {
     let errors = 0
@@ -394,6 +414,18 @@ export function LogsDialog({
                 className="w-44 rounded-md border border-white/8 bg-white/2 px-2.5 py-1 text-[12px] text-foreground placeholder:text-muted-foreground/50 focus:border-white/20 focus:outline-none"
               />
             </div>
+            <button
+              onClick={toggleChatTrace}
+              title="Enable detailed chat render/scroll diagnostics before reproducing blinking"
+              className={cn(
+                "rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer",
+                chatTraceEnabled
+                  ? "border-[#00D492]/25 bg-[#00D492]/10 text-[#00D492] hover:bg-[#00D492]/15"
+                  : "border-white/8 bg-white/2 text-muted-foreground hover:bg-white/6 hover:text-foreground",
+              )}
+            >
+              Chat trace {chatTraceEnabled ? "on" : "off"}
+            </button>
             <button
               onClick={loadBackend}
               disabled={backendLoading}

@@ -213,17 +213,51 @@ const RenderedMessageRow = memo(function RenderedMessageRow({
   }
   return <>{renderMessageRow(index, msg)}</>
 }, (prev, next) => {
-  if (prev.msg.uiId !== next.msg.uiId) return false
-  if (prev.rowSignature !== next.rowSignature) return false
-  if (prev.uiStateKey !== next.uiStateKey) return false
+  const trace = () => {
+    try { return typeof window !== "undefined" && window.localStorage.getItem("openclaw.chat.render.debug") === "1" }
+    catch { return false }
+  }
+  const logDecision = (decision: "skip" | "render", reason: string) => {
+    if (!trace()) return
+    console.debug("[chat-row-memo]", {
+      decision,
+      reason,
+      uiId: next.msg.uiId,
+      messageId: next.msg.messageId,
+      prevIndex: prev.index,
+      nextIndex: next.index,
+      prevTotal: prev.total,
+      nextTotal: next.total,
+    })
+  }
+  if (prev.msg.uiId !== next.msg.uiId) {
+    logDecision("render", "ui-id-changed")
+    return false
+  }
+  if (prev.rowSignature !== next.rowSignature) {
+    logDecision("render", "row-content-changed")
+    return false
+  }
+  if (prev.uiStateKey !== next.uiStateKey) {
+    logDecision("render", "ui-state-changed")
+    return false
+  }
 
   const prependedCount = next.total - prev.total
   if (prependedCount > 0 && next.index - prev.index === prependedCount) {
+    logDecision("skip", "history-prepend-index-shift")
     return true
   }
 
-  if (prev.index === next.index && prev.total === next.total) return true
-  if (prev.index === next.index && prev.index < prev.total - 3) return true
+  if (prev.index === next.index && prev.total === next.total) {
+    logDecision("skip", "same-position")
+    return true
+  }
+  if (prev.index === next.index && prev.index < prev.total - 3) {
+    logDecision("skip", "stable-non-tail-row")
+    return true
+  }
+  logDecision("render", "position-or-tail-changed")
   return false
 })
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
@@ -969,6 +1003,24 @@ export function ChatView({
     () => buildStableChatRows(visibleAllMessages),
     [visibleAllMessages]
   )
+  useEffect(() => {
+    frontendLog("chat", "chat.rendered-messages.changed", {
+      sessionKey,
+      sourceMessageCount: messages.length,
+      visibleMessageCount: visibleAllMessages.length,
+      renderedRowCount: renderedMessages.length,
+      firstRow: renderedMessages[0]
+        ? { uiId: renderedMessages[0].uiId, messageId: renderedMessages[0].messageId, role: renderedMessages[0].role, gatewayIndex: renderedMessages[0].gatewayIndex }
+        : null,
+      lastRow: renderedMessages.at(-1)
+        ? { uiId: renderedMessages.at(-1)?.uiId, messageId: renderedMessages.at(-1)?.messageId, role: renderedMessages.at(-1)?.role, gatewayIndex: renderedMessages.at(-1)?.gatewayIndex }
+        : null,
+      renderer: "classic-chatview",
+      virtualized: false,
+      windowId: windowIdRef.current,
+      viewGeneration: viewGenerationRef.current,
+    }, "debug")
+  }, [messages.length, renderedMessages, sessionKey, visibleAllMessages.length])
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
   const needsInitialScrollRef = useRef(true)
