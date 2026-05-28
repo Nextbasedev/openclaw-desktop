@@ -1727,10 +1727,11 @@ export function ChatView({
     ]
   )
 
+  const experimentalAssistantUiChatViewEnabled = useAssistantUiChatViewEnabled()
   // Keep the experimental Vercel/assistant-ui chat view disabled until it
   // reaches parity with the mature renderer for live pending tools, approvals,
   // subagents, and send-time scroll ownership.
-  const assistantUiChatViewEnabled = false
+  const assistantUiChatViewEnabled = false && experimentalAssistantUiChatViewEnabled
 
   if (activeSubKey && activeLiveSubagent) {
     return (

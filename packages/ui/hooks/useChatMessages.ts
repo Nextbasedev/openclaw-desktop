@@ -202,9 +202,16 @@ function messageTimelineSignature(message: ChatMessage) {
   })
 }
 
-function timelineMessageChanged(existing: ChatMessage | undefined, next: ChatMessage) {
+export function timelineMessageChanged(existing: ChatMessage | undefined, next: ChatMessage) {
   if (!existing) return true
   return messageTimelineSignature(existing) !== messageTimelineSignature(next)
+}
+
+export function shouldPreserveTimelineStoreRows(params: {
+  loadingOlderMessages: boolean
+  status: StreamStatus | null | undefined
+}) {
+  return params.loadingOlderMessages || isActiveRunStatus(params.status)
 }
 
 export function mergeOptimisticMessagesWithCanonical(
@@ -724,7 +731,10 @@ export function useChatMessages(
         // timeline. Removing absent ids in those windows makes the whole chat
         // flash/blink until the next patch/bootstrap re-adds them.
         const store = timelineStoreRef.current
-        const preserveExistingTimelineRows = loadOlderInFlightRef.current || isActiveRunStatus(statusRef.current)
+        const preserveExistingTimelineRows = shouldPreserveTimelineStoreRows({
+          loadingOlderMessages: loadOlderInFlightRef.current,
+          status: statusRef.current,
+        })
         if (!preserveExistingTimelineRows) {
           const nextIds = new Set(next.map((m) => m.messageId))
           for (const existing of store.getAllMessageIds()) {
