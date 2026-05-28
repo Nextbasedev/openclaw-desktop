@@ -11,7 +11,7 @@ import { CreateSpaceDialog } from "./CreateSpaceDialog"
 import { GlassTooltip } from "./SidebarItem"
 import { SpaceContextMenuPortal } from "./SpaceContextMenuPortal"
 import { SpaceDialogs } from "./SpaceDialogs"
-import { SpaceIconImage, spaceIconSrc } from "./SpaceIconImage"
+import { SpaceIconImage, spaceIconEmoji, spaceIconEmojiColor, spaceIconSrc } from "./SpaceIconImage"
 
 type Props = {
   spaces: Space[]
@@ -20,13 +20,14 @@ type Props = {
   onCollapsedPreviewStart?: (spaceId: string) => void
   onSpaceSwitch: (spaceId: string) => void | Promise<void>
   onSpaceNewChat: (spaceId: string) => void | Promise<void>
-  onSpaceCreate: (name?: string, iconImage?: SpaceIconImage | null) => void | Promise<void>
-  onSpaceUpdate: (spaceId: string, input: { name?: string; repoRoot?: string | null }) => unknown | Promise<unknown>
+  onSpaceCreate: (name?: string, iconImage?: SpaceIconImage | null, iconEmoji?: SpaceIconEmoji | null) => void | Promise<void>
+  onSpaceUpdate: (spaceId: string, input: { name?: string; iconEmoji?: SpaceIconEmoji | null; repoRoot?: string | null }) => unknown | Promise<unknown>
   onSpaceArchive: (spaceId: string) => void | Promise<void>
   onSpaceDelete: (spaceId: string) => void | Promise<void>
 }
 
 type SpaceIconImage = NonNullable<Space["iconImage"]>
+type SpaceIconEmoji = NonNullable<Space["iconEmoji"]>
 
 const SPACE_ICON_GRADIENTS = [
   "bg-[linear-gradient(135deg,#020618_0%,rgba(5,51,69,0.80)_50%,rgba(5,47,74,0.60)_100%)]",
@@ -95,6 +96,7 @@ export function CollapsedSpacesPopover({
   const [deleteTarget, setDeleteTarget] = useState<Space | null>(null)
   const [name, setName] = useState("New Project")
   const [iconImage, setIconImage] = useState<SpaceIconImage | null>(null)
+  const [iconEmoji, setIconEmoji] = useState<SpaceIconEmoji>({ emoji: "✨", label: "sparkles", color: "from-zinc-950 to-zinc-800" })
   const [iconError, setIconError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -164,6 +166,7 @@ export function CollapsedSpacesPopover({
     setPlusMenu((prev) => ({ ...prev, open: false }))
     setName("New Project")
     setIconImage(null)
+    setIconEmoji({ emoji: "✨", label: "sparkles", color: "from-zinc-950 to-zinc-800" })
     setIconError(null)
     setCreateOpen(true)
   }
@@ -172,7 +175,7 @@ export function CollapsedSpacesPopover({
     if (busy || !name.trim()) return
     setBusy(true)
     try {
-      await onSpaceCreate(name.trim(), iconImage)
+      await onSpaceCreate(name.trim(), iconImage, iconEmoji)
       setCreateOpen(false)
     } finally {
       setBusy(false)
@@ -183,7 +186,7 @@ export function CollapsedSpacesPopover({
     if (busy || !renameTarget || !name.trim()) return
     setBusy(true)
     try {
-      await onSpaceUpdate(renameTarget.id, { name: name.trim() })
+      await onSpaceUpdate(renameTarget.id, { name: name.trim(), iconEmoji })
       setRenameOpen(false)
       setRenameTarget(null)
     } finally {
@@ -222,6 +225,7 @@ export function CollapsedSpacesPopover({
     closeContextMenu()
     setRenameTarget(space)
     setName(space.name)
+    setIconEmoji(space.iconEmoji ?? { emoji: "✨", label: "sparkles", color: "from-zinc-950 to-zinc-800" })
     setRenameOpen(true)
   }
 
@@ -253,6 +257,7 @@ export function CollapsedSpacesPopover({
       {orderedSpaces.map((space) => {
         const active = space.id === activeSpaceId
         const hasCustomIcon = Boolean(spaceIconSrc(space))
+        const emojiIcon = spaceIconEmoji(space)
 
         return (
           <GlassTooltip key={space.id} label={space.name} disabled={tooltipsDisabled || contextMenu.open}>
@@ -281,13 +286,15 @@ export function CollapsedSpacesPopover({
                 className={cn(
                   "relative flex size-full items-center justify-center overflow-hidden rounded-[10px] bg-transparent text-[14px] font-semibold text-white/80 shadow-lg shadow-black/25 backdrop-blur-sm transition-all duration-200",
                   "after:pointer-events-none after:absolute after:inset-0 after:bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.18),transparent_36%)] after:opacity-65",
-                  !hasCustomIcon && gradientForSpace(space),
+                  emojiIcon && "bg-gradient-to-br text-[18px]",
+                  emojiIcon && spaceIconEmojiColor(space),
+                  !hasCustomIcon && !emojiIcon && gradientForSpace(space),
                   active
                     ? "text-white brightness-116 saturate-125"
                     : "group-hover:text-white group-hover:brightness-106 group-hover:saturate-120",
                 )}
               >
-                {spaceIconSrc(space) ? <SpaceIconImage space={space} /> : spaceInitial(space)}
+                {emojiIcon ? emojiIcon : spaceIconSrc(space) ? <SpaceIconImage space={space} /> : spaceInitial(space)}
               </span>
             </button>
           </GlassTooltip>
@@ -314,11 +321,13 @@ export function CollapsedSpacesPopover({
         busy={busy}
         name={name}
         iconImage={iconImage}
+        iconEmoji={iconEmoji}
         iconError={iconError}
         inputRef={inputRef}
         onOpenChange={setCreateOpen}
         onNameChange={setName}
         onIconImageChange={setIconImage}
+        onIconEmojiChange={setIconEmoji}
         onIconErrorChange={setIconError}
         onSubmit={submitCreate}
       />
@@ -326,11 +335,13 @@ export function CollapsedSpacesPopover({
       <SpaceDialogs
         busy={busy}
         name={name}
+        iconEmoji={iconEmoji}
         inputRef={inputRef}
         renameOpen={renameOpen}
         deleteOpen={deleteOpen}
         deleteTarget={deleteTarget}
         onNameChange={setName}
+        onIconEmojiChange={setIconEmoji}
         onRenameOpenChange={(open) => {
           setRenameOpen(open)
           if (!open) setRenameTarget(null)

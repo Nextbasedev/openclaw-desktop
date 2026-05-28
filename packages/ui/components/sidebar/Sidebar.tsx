@@ -45,16 +45,17 @@ type SidebarProps = {
   activeSpaceId: string | null
   onSpaceSwitch: (spaceId: string) => void | Promise<void>
   onSpaceNewChat: (spaceId: string) => void | Promise<void>
-  onSpaceCreate: (name?: string, iconImage?: SpaceIconImage | null) => void | Promise<void>
+  onSpaceCreate: (name?: string, iconImage?: SpaceIconImage | null, iconEmoji?: SpaceIconEmoji | null) => void | Promise<void>
   onSpaceUpdate: (
     spaceId: string,
-    input: { name?: string; repoRoot?: string | null }
+    input: { name?: string; iconEmoji?: SpaceIconEmoji | null; repoRoot?: string | null }
   ) => unknown | Promise<unknown>
   onSpaceArchive: (spaceId: string) => void | Promise<void>
   onSpaceDelete: (spaceId: string) => void | Promise<void>
 }
 
 type SpaceIconImage = NonNullable<Space["iconImage"]>
+type SpaceIconEmoji = NonNullable<Space["iconEmoji"]>
 
 export function Sidebar({
   className,

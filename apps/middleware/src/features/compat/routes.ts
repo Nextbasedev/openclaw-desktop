@@ -249,7 +249,7 @@ const compatState = {
 
 const DEFAULT_SPACE_ID = "space_default";
 const DEFAULT_SPACE_NAME = "My Workspace";
-const spacePatchFields = new Set(["name", "iconImage", "ImageIcon", "imageIcon", "icon_image", "repoRoot", "projectId", "sortOrder", "archived", "deleted"]);
+const spacePatchFields = new Set(["name", "iconEmoji", "icon_emoji", "iconImage", "ImageIcon", "imageIcon", "icon_image", "repoRoot", "projectId", "sortOrder", "archived", "deleted"]);
 
 const compatCollections = ["spaces", "chats", "projects", "topics", "sessions", "branches", "pins", "cronJobs", "cronRuns"] as const;
 
@@ -399,6 +399,11 @@ function sanitizeSpacePatch(input: CompatRecord) {
     delete patch.imageIcon;
     delete patch.icon_image;
   }
+  const iconEmoji = spaceIconEmojiFrom(input);
+  if (iconEmoji !== undefined) {
+    patch.iconEmoji = iconEmoji;
+    delete patch.icon_emoji;
+  }
   return patch;
 }
 
@@ -407,11 +412,20 @@ function spaceIconImageFrom(input?: CompatRecord | null) {
   return input.iconImage ?? input.ImageIcon ?? input.imageIcon ?? input.icon_image;
 }
 
+function spaceIconEmojiFrom(input?: CompatRecord | null) {
+  if (!input || typeof input !== "object") return undefined;
+  return input.iconEmoji ?? input.icon_emoji;
+}
+
 function spaceForResponse(space: CompatRecord) {
   const iconImage = spaceIconImageFrom(space);
-  const { ImageIcon: _ImageIcon, imageIcon: _imageIcon, icon_image: _icon_image, ...rest } = space;
-  if (iconImage === undefined) return rest;
-  return { ...rest, iconImage };
+  const iconEmoji = spaceIconEmojiFrom(space);
+  const { ImageIcon: _ImageIcon, imageIcon: _imageIcon, icon_image: _icon_image, icon_emoji: _icon_emoji, ...rest } = space;
+  return {
+    ...rest,
+    ...(iconImage !== undefined ? { iconImage } : {}),
+    ...(iconEmoji !== undefined ? { iconEmoji } : {}),
+  };
 }
 
 function spacesForResponse(spaces: CompatRecord[]) {
@@ -3457,9 +3471,11 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const body = (request.body ?? {}) as CompatRecord;
     const timestamp = nowIso();
     const iconImage = spaceIconImageFrom(body);
+    const iconEmoji = spaceIconEmojiFrom(body);
     const space = {
       id: id("space"),
       name: body.name || "New Space",
+      ...(iconEmoji ? { iconEmoji } : {}),
       ...(iconImage ? { iconImage } : {}),
       archived: false,
       deleted: false,
@@ -4452,9 +4468,11 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_spaces_create": {
         const timestamp = nowIso();
         const iconImage = spaceIconImageFrom(input);
+        const iconEmoji = spaceIconEmojiFrom(input);
         const space = {
           id: id("space"),
           name: input.name || "New Space",
+          ...(iconEmoji ? { iconEmoji } : {}),
           ...(iconImage ? { iconImage } : {}),
           archived: false,
           deleted: false,

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
@@ -15,6 +15,8 @@ type Props = {
 }
 
 export function GlassDialog({ open, onClose, title, description, children, className }: Props) {
+  const titleId = useId()
+  const descriptionId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   const [mounted, setMounted] = useState(false)
 
@@ -38,20 +40,22 @@ export function GlassDialog({ open, onClose, title, description, children, class
     <div
       className="glass-overlay"
       onClick={onClose}
-      role="dialog"
-      aria-modal="true"
     >
       <div
         ref={dialogRef}
         className={cn("glass-dialog", className)}
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
       >
         {/* Header */}
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="flex flex-col gap-0">
-            <h2 className="text-[18px] font-semibold leading-tight text-foreground">{title}</h2>
+            <h2 id={titleId} className="text-[18px] font-semibold leading-tight text-foreground">{title}</h2>
             {description && (
-              <p className="text-[12px] text-muted-foreground">{description}</p>
+              <p id={descriptionId} className="text-[12px] text-muted-foreground">{description}</p>
             )}
           </div>
           <button
