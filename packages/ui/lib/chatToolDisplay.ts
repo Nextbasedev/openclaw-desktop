@@ -121,21 +121,34 @@ export function groupAssistantToolCallsByMessage(messages: ChatMessage[]) {
       continue
     }
     if (message.role !== "assistant") continue
-    if (message.text.trim()) {
+    const tools = message.toolCalls ?? []
+    const hasText = message.text.trim().length > 0
+    const hasTools = tools.length > 0
+    if (hasText && hasTools && firstToolMessageId && collected.length > 0) {
+      // Reloaded canonical history can attach the same completed tool summary
+      // to the final text message after earlier tool-only rows. Keep one stack
+      // above the answer text instead of rendering a duplicate stack directly
+      // before the final response.
+      suppressed.add(message.messageId)
+      collected = mergeToolCalls(collected, tools)
+      flush()
+      continue
+    }
+    if (hasText) {
       // Assistant text is the visible boundary of a response segment. Do not
       // keep merging later tool activity into the earlier steps block, or one
       // new running tool makes the completed steps above old answers look like
       // they are loading again.
       flush()
     }
-    if (!message.toolCalls?.length) continue
+    if (!hasTools) continue
 
     if (!firstToolMessageId) {
       firstToolMessageId = message.messageId
     } else {
       suppressed.add(message.messageId)
     }
-    collected = mergeToolCalls(collected, message.toolCalls)
+    collected = mergeToolCalls(collected, tools)
   }
 
   flush()
