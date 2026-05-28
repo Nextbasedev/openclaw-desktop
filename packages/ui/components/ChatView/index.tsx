@@ -59,6 +59,7 @@ import { cn } from "@/lib/utils"
 import {
   applyTerminalToolState,
   groupAssistantToolCallsByMessage,
+  mergeActiveTurnToolCalls,
   terminalToolStateById,
 } from "@/lib/chatToolDisplay"
 import type {
@@ -1387,26 +1388,12 @@ export function ChatView({
 
   const activeTurnToolCalls = useMemo(() => {
     if (!isGenerating || latestRenderedUserIndex < 0) return []
-    const merged = new Map<string, import("./types").InlineToolCall>()
-    for (const tool of pendingTools) merged.set(tool.id, tool)
+    const activeTurnMessages = []
     for (const message of renderedMessages.slice(latestRenderedUserIndex + 1)) {
       if (message.role === "user") break
-      if (message.role !== "assistant") continue
-      for (const tool of message.toolCalls ?? []) {
-        const existing = merged.get(tool.id)
-        merged.set(tool.id, {
-          ...(existing ?? tool),
-          ...tool,
-          duration: tool.duration ?? existing?.duration,
-          startedAt: tool.startedAt ?? existing?.startedAt,
-          completedAt: tool.completedAt ?? existing?.completedAt,
-          resultText: tool.resultText ?? existing?.resultText,
-          approval: tool.approval ?? existing?.approval,
-          awaitingResult: tool.resultText ? false : (tool.awaitingResult ?? existing?.awaitingResult),
-        })
-      }
+      activeTurnMessages.push(message)
     }
-    return Array.from(merged.values())
+    return mergeActiveTurnToolCalls(activeTurnMessages, pendingTools)
   }, [isGenerating, latestRenderedUserIndex, pendingTools, renderedMessages])
 
   const spawnsByToolCallId = useMemo(() => {

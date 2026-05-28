@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { applyTerminalToolState, groupAssistantToolCallsByMessage, mergeToolCallsForDisplay, terminalToolStateById } from "./chatToolDisplay"
+import { applyTerminalToolState, groupAssistantToolCallsByMessage, mergeActiveTurnToolCalls, mergeToolCallsForDisplay, terminalToolStateById } from "./chatToolDisplay"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 describe("ChatView tool display grouping", () => {
@@ -99,6 +99,23 @@ describe("ChatView tool display grouping", () => {
     expect(grouped.has("a-final")).toBe(false)
     expect(suppressed.has("a-tools-2")).toBe(true)
     expect(suppressed.has("a-final")).toBe(true)
+  })
+
+  test("appends new pending tools after existing live turn history", () => {
+    const messages: ChatMessage[] = [
+      { messageId: "a-tools", role: "assistant", text: "", toolCalls: [
+        { id: "read", tool: "read", status: "success" },
+        { id: "write", tool: "write", status: "success" },
+      ] },
+    ]
+
+    const tools = mergeActiveTurnToolCalls(messages, [
+      { id: "exec", tool: "exec", status: "running" },
+      { id: "read", tool: "read", status: "success" },
+      { id: "write", tool: "write", status: "success" },
+    ])
+
+    expect(tools.map((tool) => tool.id)).toEqual(["read", "write", "exec"])
   })
 
   test("starts a new steps block after the next user message", () => {

@@ -55,6 +55,52 @@ export function mergeToolCallsForDisplay(
   return mergeToolCalls(base ?? [], filteredLive)
 }
 
+export function mergeActiveTurnToolCalls(
+  messages: ChatMessage[],
+  pendingTools: InlineToolCall[]
+) {
+  const merged = new Map<string, InlineToolCall>()
+
+  const add = (tool: InlineToolCall) => {
+    const existing = merged.get(tool.id)
+    if (!existing) {
+      merged.set(tool.id, tool)
+      return
+    }
+    const existingTerminal = existing.status === "success" || existing.status === "error"
+    if (existingTerminal && tool.status === "running") {
+      merged.set(tool.id, {
+        ...tool,
+        ...existing,
+        duration: existing.duration ?? tool.duration,
+        startedAt: existing.startedAt ?? tool.startedAt,
+        completedAt: existing.completedAt ?? tool.completedAt,
+        resultText: existing.resultText ?? tool.resultText,
+        approval: existing.approval ?? tool.approval,
+        awaitingResult: false,
+      })
+      return
+    }
+    merged.set(tool.id, {
+      ...existing,
+      ...tool,
+      duration: tool.duration ?? existing.duration,
+      startedAt: tool.startedAt ?? existing.startedAt,
+      completedAt: tool.completedAt ?? existing.completedAt,
+      resultText: tool.resultText ?? existing.resultText,
+      approval: tool.approval ?? existing.approval,
+      awaitingResult: tool.resultText ? false : (tool.awaitingResult ?? existing.awaitingResult),
+    })
+  }
+
+  for (const message of messages) {
+    if (message.role !== "assistant") continue
+    for (const tool of message.toolCalls ?? []) add(tool)
+  }
+  for (const tool of pendingTools) add(tool)
+  return Array.from(merged.values())
+}
+
 export function terminalToolStateById(messages: ChatMessage[], live?: InlineToolCall[]) {
   const terminal = new Map<string, InlineToolCall>()
   const add = (tool: InlineToolCall) => {
