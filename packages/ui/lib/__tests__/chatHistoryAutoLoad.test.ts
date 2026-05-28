@@ -21,6 +21,10 @@ describe("shouldAutoLoadOlderHistory", () => {
     expect(shouldAutoLoadOlderHistory({ ...base, scrollTop: 3_000, hasUserIntent: false })).toBe(false)
   })
 
+  it("does not repeatedly load while scrolling upward inside the already-crossed threshold", () => {
+    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 5_300, scrollTop: 5_200 })).toBe(false)
+  })
+
   it("does not load while scrolling downward, even inside the threshold", () => {
     expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 3_000, scrollTop: 3_200 })).toBe(false)
   })
