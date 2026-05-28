@@ -48,7 +48,7 @@ type SidebarProps = {
   onSpaceCreate: (name?: string, iconImage?: SpaceIconImage | null, iconEmoji?: SpaceIconEmoji | null) => void | Promise<void>
   onSpaceUpdate: (
     spaceId: string,
-    input: { name?: string; repoRoot?: string | null }
+    input: { name?: string; iconEmoji?: SpaceIconEmoji | null; repoRoot?: string | null }
   ) => unknown | Promise<unknown>
   onSpaceArchive: (spaceId: string) => void | Promise<void>
   onSpaceDelete: (spaceId: string) => void | Promise<void>

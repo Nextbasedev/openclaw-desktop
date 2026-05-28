@@ -40,7 +40,7 @@ type EmojiCategory = {
   emojis: SpaceIconEmoji[]
 }
 
-const EMOJI_CATEGORIES: EmojiCategory[] = [
+export const PROJECT_EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: "all",
     label: "All",
@@ -183,12 +183,12 @@ const EXTRA_ALL_EMOJIS: SpaceIconEmoji[] = [
   { emoji: "🧱", label: "brick build" }, { emoji: "⚙️", label: "gear settings" }, { emoji: "🔧", label: "wrench fix" }, { emoji: "🧰", label: "toolbox" },
 ]
 
-const ALL_EMOJIS = Array.from(
+export const ALL_PROJECT_EMOJIS = Array.from(
   new Map(
-    [...EMOJI_CATEGORIES.flatMap((category) => category.emojis), ...EXTRA_ALL_EMOJIS].map((item) => [item.emoji, item]),
+    [...PROJECT_EMOJI_CATEGORIES.flatMap((category) => category.emojis), ...EXTRA_ALL_EMOJIS].map((item) => [item.emoji, item]),
   ).values(),
 )
-const AVATAR_COLORS = [
+export const PROJECT_AVATAR_COLORS = [
   "from-violet-400 to-blue-400",
   "from-rose-400 to-orange-300",
   "from-emerald-300 to-cyan-400",
@@ -215,24 +215,24 @@ export function CreateSpaceDialog({
 }: Props) {
   const [activeCategoryId, setActiveCategoryId] = useState("all")
   const [emojiQuery, setEmojiQuery] = useState("")
-  const activeCategory = EMOJI_CATEGORIES.find((category) => category.id === activeCategoryId) ?? EMOJI_CATEGORIES[0]
+  const activeCategory = PROJECT_EMOJI_CATEGORIES.find((category) => category.id === activeCategoryId) ?? PROJECT_EMOJI_CATEGORIES[0]
   const visibleEmojis = useMemo(() => {
     const query = emojiQuery.trim().toLowerCase()
-    const source = query || activeCategory.id === "all" ? ALL_EMOJIS : activeCategory.emojis
+    const source = query || activeCategory.id === "all" ? ALL_PROJECT_EMOJIS : activeCategory.emojis
     if (!query) return source
     return source.filter((item) => `${item.emoji} ${item.label ?? ""}`.toLowerCase().includes(query))
   }, [activeCategory.emojis, activeCategory.id, emojiQuery])
-  const avatarColor = iconEmoji.color || AVATAR_COLORS[0]
+  const avatarColor = iconEmoji.color || PROJECT_AVATAR_COLORS[0]
 
   function selectEmoji(nextIcon: SpaceIconEmoji) {
     onIconImageChange(null)
     onIconErrorChange?.(null)
-    onIconEmojiChange({ ...nextIcon, color: iconEmoji.color || AVATAR_COLORS[0] })
+    onIconEmojiChange({ ...nextIcon, color: iconEmoji.color || PROJECT_AVATAR_COLORS[0] })
   }
 
   function cycleAvatarColor() {
-    const currentIndex = AVATAR_COLORS.indexOf(avatarColor)
-    const nextColor = AVATAR_COLORS[(currentIndex + 1) % AVATAR_COLORS.length] ?? AVATAR_COLORS[0]
+    const currentIndex = PROJECT_AVATAR_COLORS.indexOf(avatarColor)
+    const nextColor = PROJECT_AVATAR_COLORS[(currentIndex + 1) % PROJECT_AVATAR_COLORS.length] ?? PROJECT_AVATAR_COLORS[0]
     onIconEmojiChange({ ...iconEmoji, color: nextColor })
   }
 
@@ -294,7 +294,7 @@ export function CreateSpaceDialog({
           </p>
 
           <div className="mb-2 flex items-center gap-1.5 overflow-x-auto pb-1">
-            {EMOJI_CATEGORIES.map((category) => {
+            {PROJECT_EMOJI_CATEGORIES.map((category) => {
               const selected = category.id === activeCategoryId && !emojiQuery.trim()
               return (
                 <button

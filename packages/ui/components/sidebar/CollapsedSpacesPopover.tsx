@@ -21,7 +21,7 @@ type Props = {
   onSpaceSwitch: (spaceId: string) => void | Promise<void>
   onSpaceNewChat: (spaceId: string) => void | Promise<void>
   onSpaceCreate: (name?: string, iconImage?: SpaceIconImage | null, iconEmoji?: SpaceIconEmoji | null) => void | Promise<void>
-  onSpaceUpdate: (spaceId: string, input: { name?: string; repoRoot?: string | null }) => unknown | Promise<unknown>
+  onSpaceUpdate: (spaceId: string, input: { name?: string; iconEmoji?: SpaceIconEmoji | null; repoRoot?: string | null }) => unknown | Promise<unknown>
   onSpaceArchive: (spaceId: string) => void | Promise<void>
   onSpaceDelete: (spaceId: string) => void | Promise<void>
 }
@@ -186,7 +186,7 @@ export function CollapsedSpacesPopover({
     if (busy || !renameTarget || !name.trim()) return
     setBusy(true)
     try {
-      await onSpaceUpdate(renameTarget.id, { name: name.trim() })
+      await onSpaceUpdate(renameTarget.id, { name: name.trim(), iconEmoji })
       setRenameOpen(false)
       setRenameTarget(null)
     } finally {
@@ -225,6 +225,7 @@ export function CollapsedSpacesPopover({
     closeContextMenu()
     setRenameTarget(space)
     setName(space.name)
+    setIconEmoji(space.iconEmoji ?? { emoji: "✨", label: "sparkles", color: "from-violet-400 to-blue-400" })
     setRenameOpen(true)
   }
 
@@ -334,11 +335,13 @@ export function CollapsedSpacesPopover({
       <SpaceDialogs
         busy={busy}
         name={name}
+        iconEmoji={iconEmoji}
         inputRef={inputRef}
         renameOpen={renameOpen}
         deleteOpen={deleteOpen}
         deleteTarget={deleteTarget}
         onNameChange={setName}
+        onIconEmojiChange={setIconEmoji}
         onRenameOpenChange={(open) => {
           setRenameOpen(open)
           if (!open) setRenameTarget(null)

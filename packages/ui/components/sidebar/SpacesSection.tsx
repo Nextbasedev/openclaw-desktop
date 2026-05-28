@@ -20,7 +20,7 @@ type Props = {
   onSwitch: (spaceId: string) => void | Promise<void>
   onNewChat: (spaceId: string) => void | Promise<void>
   onCreate: (name?: string, iconImage?: SpaceIconImage | null, iconEmoji?: SpaceIconEmoji | null) => void | Promise<void>
-  onUpdate: (spaceId: string, input: { name?: string; repoRoot?: string | null }) => unknown | Promise<unknown>
+  onUpdate: (spaceId: string, input: { name?: string; iconEmoji?: SpaceIconEmoji | null; repoRoot?: string | null }) => unknown | Promise<unknown>
   onArchive: (spaceId: string) => void | Promise<void>
   onDelete: (spaceId: string) => void | Promise<void>
 }
@@ -144,7 +144,7 @@ export function SpacesSection({
     if (busy || !renameTarget || !name.trim()) return
     setBusy(true)
     try {
-      await onUpdate(renameTarget.id, { name: name.trim() })
+      await onUpdate(renameTarget.id, { name: name.trim(), iconEmoji })
       setRenameOpen(false)
       setRenameTarget(null)
     } finally {
@@ -172,6 +172,7 @@ export function SpacesSection({
     closeMenus()
     setRenameTarget(space)
     setName(space.name)
+    setIconEmoji(space.iconEmoji ?? { emoji: "✨", label: "sparkles", color: "from-violet-400 to-blue-400" })
     setRenameOpen(true)
   }
 
@@ -339,11 +340,13 @@ export function SpacesSection({
       <SpaceDialogs
         busy={busy}
         name={name}
+        iconEmoji={iconEmoji}
         inputRef={inputRef}
         renameOpen={renameOpen}
         deleteOpen={deleteOpen}
         deleteTarget={deleteTarget}
         onNameChange={setName}
+        onIconEmojiChange={setIconEmoji}
         onRenameOpenChange={(open) => {
           setRenameOpen(open)
           if (!open) setRenameTarget(null)
