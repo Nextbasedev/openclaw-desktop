@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react"
 import { createPortal } from "react-dom"
+import { motion } from "framer-motion"
 import { LuPlus } from "react-icons/lu"
 import { cn } from "@/lib/utils"
 import type { Space } from "@/types/space"
@@ -262,14 +263,20 @@ export function CollapsedSpacesPopover({
               onMouseLeave={clearPreviewTimer}
               onContextMenu={(event) => openContextMenu(event, space)}
               className={cn(
-                "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                "before:absolute before:-right-[10px] before:top-1/2 before:h-5 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-white before:opacity-0 before:shadow-[0_0_14px_rgba(255,255,255,0.45)] before:transition-all before:duration-200",
+                "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border transition-[background,box-shadow,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                 active
-                  ? "scale-[1.03] border-transparent bg-white/[0.055] shadow-[0_14px_30px_rgba(0,0,0,0.38),inset_0_1px_0_rgba(255,255,255,0.10)] before:opacity-90"
+                  ? "scale-[1.03] border-transparent bg-white/[0.055] shadow-[0_14px_30px_rgba(0,0,0,0.38),inset_0_1px_0_rgba(255,255,255,0.10)]"
                   : "border-transparent shadow-[0_10px_24px_rgba(0,0,0,0.28)] hover:scale-[1.035] hover:bg-white/[0.035] hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]",
               )}
               aria-label={`Open project ${space.name}`}
             >
+              {active && (
+                <motion.span
+                  layoutId="project-rail-active-indicator"
+                  className="absolute -right-[10px] top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-white shadow-[0_0_14px_rgba(255,255,255,0.45)]"
+                  transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.7 }}
+                />
+              )}
               <span
                 className={cn(
                   "relative flex size-full items-center justify-center overflow-hidden rounded-[10px] bg-transparent text-[14px] font-semibold text-white/80 shadow-lg shadow-black/25 backdrop-blur-sm transition-all duration-200",
