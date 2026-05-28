@@ -9,6 +9,7 @@ import { ChatSearch } from "./ChatSearch"
 import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
 import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
 import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
+import { isNearChatBottom, scrollChatToBottom, shouldStickToChatBottomAfterScroll } from "./chatAutoScroll"
 import { logChatScrollDebug } from "./chatScrollDebug"
 
 import { ThinkingBlock } from "./ThinkingBlock"
@@ -1031,6 +1032,8 @@ export function ChatView({
   const previousScrollTopRef = useRef(0)
   const userScrollIntentGenerationRef = useRef(0)
   const lastOlderLoadIntentGenerationRef = useRef(0)
+  const stickToBottomRef = useRef(true)
+  const wasGeneratingRef = useRef(false)
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const [loadOlderUiBusy, setLoadOlderUiBusy] = useState(false)
   useEffect(() => {
@@ -1053,6 +1056,8 @@ export function ChatView({
     previousScrollTopRef.current = 0
     userScrollIntentGenerationRef.current = 0
     lastOlderLoadIntentGenerationRef.current = 0
+    stickToBottomRef.current = true
+    wasGeneratingRef.current = false
     setLoadOlderUiBusy(false)
   }, [sessionKey])
 
@@ -1289,7 +1294,18 @@ export function ChatView({
       if (loadOlderUiBusy && olderLoadAwaitingRenderRef.current && userScrollIntentRef.current) {
         pendingOlderAnchorRef.current = captureMessageScrollAnchor(el)
       }
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
+      const atBottom = isNearChatBottom({
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+        thresholdPx: JUMP_TO_BOTTOM_THRESHOLD_PX,
+      })
+      stickToBottomRef.current = shouldStickToChatBottomAfterScroll({
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+        thresholdPx: JUMP_TO_BOTTOM_THRESHOLD_PX,
+      })
       setShowJumpToBottom(!atBottom)
       const hasFreshUserScrollIntent = userScrollIntentRef.current && userScrollIntentGenerationRef.current > lastOlderLoadIntentGenerationRef.current
       if (hasOlderMessages && shouldAutoLoadOlderHistory({
@@ -1310,20 +1326,42 @@ export function ChatView({
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
+    stickToBottomRef.current = true
     bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
   }, [bottomRef])
 
   const syncJumpToBottomVisibility = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    setShowJumpToBottom(
-      el.scrollHeight - el.scrollTop - el.clientHeight > JUMP_TO_BOTTOM_THRESHOLD_PX
-    )
+    const atBottom = isNearChatBottom({
+      scrollTop: el.scrollTop,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+      thresholdPx: JUMP_TO_BOTTOM_THRESHOLD_PX,
+    })
+    stickToBottomRef.current = atBottom
+    setShowJumpToBottom(!atBottom)
   }, [scrollContainerRef])
 
   useEffect(() => {
     syncJumpToBottomVisibility()
   }, [renderedMessages.length, scrollContainerRef, syncJumpToBottomVisibility])
+
+  useLayoutEffect(() => {
+    const startedGenerating = isGenerating && !wasGeneratingRef.current
+    wasGeneratingRef.current = isGenerating
+    if (startedGenerating) stickToBottomRef.current = true
+    if (isGenerating && stickToBottomRef.current) {
+      const scrollToLatest = () => {
+        const el = scrollContainerRef.current
+        if (!el) return
+        scrollChatToBottom(el)
+        setShowJumpToBottom(false)
+      }
+      scrollToLatest()
+      requestAnimationFrame(scrollToLatest)
+    }
+  }, [isGenerating, pendingTools.length, renderedMessages, scrollContainerRef])
 
   useLayoutEffect(() => {
     if (
@@ -1336,7 +1374,8 @@ export function ChatView({
       const scrollToLatest = () => {
         const el = scrollContainerRef.current
         if (!el) return
-        el.scrollTop = el.scrollHeight
+        scrollChatToBottom(el)
+        stickToBottomRef.current = true
         setShowJumpToBottom(false)
       }
       requestAnimationFrame(() => {
