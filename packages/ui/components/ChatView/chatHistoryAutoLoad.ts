@@ -20,5 +20,5 @@ export function shouldAutoLoadOlderHistory({
   if (!Number.isFinite(maxScrollTop) || maxScrollTop <= 0) return false
   if (scrollTop >= previousScrollTop) return false
   const upperThreshold = maxScrollTop * OLDER_HISTORY_AUTO_LOAD_UPPER_RATIO
-  return scrollTop <= upperThreshold
+  return previousScrollTop > upperThreshold && scrollTop <= upperThreshold
 }
