@@ -73,6 +73,7 @@ type PlusMenuState = {
 const CONTEXT_MENU_WIDTH = 184
 const CONTEXT_MENU_HEIGHT = 144
 const VIEWPORT_MARGIN = 12
+const PREVIEW_OPEN_DELAY_MS = 140
 
 export function CollapsedSpacesPopover({
   spaces,
@@ -98,6 +99,7 @@ export function CollapsedSpacesPopover({
   const inputRef = useRef<HTMLInputElement>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const plusMenuRef = useRef<HTMLDivElement>(null)
+  const previewTimerRef = useRef<number | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ open: false, x: 0, y: 0, space: null })
   const [plusMenu, setPlusMenu] = useState<PlusMenuState>({ open: false, x: 0, y: 0 })
   const orderedSpaces = useMemo(() => {
@@ -107,6 +109,12 @@ export function CollapsedSpacesPopover({
   useEffect(() => {
     if (createOpen || renameOpen) window.setTimeout(() => inputRef.current?.focus(), 40)
   }, [createOpen, renameOpen])
+
+  useEffect(() => {
+    return () => {
+      if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!contextMenu.open && !plusMenu.open) return
@@ -130,7 +138,23 @@ export function CollapsedSpacesPopover({
     }
   }, [contextMenu.open, plusMenu.open])
 
+  function clearPreviewTimer() {
+    if (previewTimerRef.current === null) return
+    window.clearTimeout(previewTimerRef.current)
+    previewTimerRef.current = null
+  }
+
+  function schedulePreview(space: Space) {
+    if (!onCollapsedPreviewStart) return
+    clearPreviewTimer()
+    previewTimerRef.current = window.setTimeout(() => {
+      onCollapsedPreviewStart(space.id)
+      previewTimerRef.current = null
+    }, PREVIEW_OPEN_DELAY_MS)
+  }
+
   function openProject(space: Space) {
+    clearPreviewTimer()
     setContextMenu((prev) => ({ ...prev, open: false, space: null }))
     void onSpaceSwitch(space.id)
   }
@@ -224,7 +248,7 @@ export function CollapsedSpacesPopover({
   }
 
   return (
-    <div className="flex flex-col items-center gap-3" aria-label="Projects">
+    <div className="flex flex-col items-center gap-3" aria-label="Projects" onMouseLeave={clearPreviewTimer}>
       {orderedSpaces.map((space) => {
         const active = space.id === activeSpaceId
         const hasCustomIcon = Boolean(spaceIconSrc(space))
@@ -234,21 +258,26 @@ export function CollapsedSpacesPopover({
             <button
               type="button"
               onClick={() => openProject(space)}
-              onMouseEnter={() => onCollapsedPreviewStart?.(space.id)}
+              onMouseEnter={() => schedulePreview(space)}
+              onMouseLeave={clearPreviewTimer}
               onContextMenu={(event) => openContextMenu(event, space)}
               className={cn(
-                "group flex size-10 cursor-pointer items-center justify-center rounded-md border transition-all duration-150 ease-in-out",
+                "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                "before:absolute before:-left-2 before:top-1/2 before:h-4 before:w-1 before:-translate-y-1/2 before:rounded-full before:bg-white before:opacity-0 before:shadow-[0_0_18px_rgba(255,255,255,0.55)] before:transition-all before:duration-200",
                 active
-                  ? "border-white shadow-[0_12px_26px_rgba(0,0,0,0.34)]"
-                  : "border-transparent shadow-[0_12px_26px_rgba(0,0,0,0.34)] hover:border-white/20",
+                  ? "scale-[1.04] border-white/55 bg-white/[0.08] shadow-[0_14px_34px_rgba(0,0,0,0.42)] before:opacity-100"
+                  : "border-transparent shadow-[0_10px_24px_rgba(0,0,0,0.30)] hover:scale-[1.04] hover:border-white/20 hover:bg-white/[0.045] hover:shadow-[0_14px_30px_rgba(0,0,0,0.38)]",
               )}
               aria-label={`Open project ${space.name}`}
             >
               <span
                 className={cn(
-                  "relative flex size-full items-center justify-center overflow-hidden rounded-md bg-transparent text-[14px] font-semibold text-white/80 shadow-lg shadow-black/30 ring-1 ring-white/[0.06] backdrop-blur-sm",
+                  "relative flex size-full items-center justify-center overflow-hidden rounded-[10px] bg-transparent text-[14px] font-semibold text-white/80 shadow-lg shadow-black/25 ring-1 ring-white/[0.07] backdrop-blur-sm transition-all duration-200",
+                  "after:pointer-events-none after:absolute after:inset-0 after:bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.22),transparent_36%)] after:opacity-70",
                   !hasCustomIcon && gradientForSpace(space),
-                  active && !hasCustomIcon && "text-white brightness-125 saturate-125 ring-white/20",
+                  active
+                    ? "text-white brightness-125 saturate-125 ring-white/25"
+                    : "group-hover:text-white group-hover:brightness-110 group-hover:saturate-125 group-hover:ring-white/18",
                 )}
               >
                 {spaceIconSrc(space) ? <SpaceIconImage space={space} /> : spaceInitial(space)}
@@ -264,7 +293,7 @@ export function CollapsedSpacesPopover({
           onClick={openCreate}
           onContextMenu={openPlusMenu}
           className={cn(
-            "flex size-10 cursor-pointer items-center justify-center rounded-md text-white/70 shadow-[0_12px_26px_rgba(0,0,0,0.34)] transition-all hover:text-white hover:brightness-110 hover:shadow-[0_12px_26px_rgba(0,0,0,0.34)]",
+            "mt-1 flex size-10 cursor-pointer items-center justify-center rounded-xl border border-dashed border-white/[0.14] text-white/55 shadow-[0_10px_24px_rgba(0,0,0,0.28)] transition-all duration-200 hover:scale-[1.04] hover:border-white/28 hover:text-white hover:brightness-110 hover:shadow-[0_14px_30px_rgba(0,0,0,0.36)]",
             NEW_SPACE_ICON_SURFACE,
           )}
           aria-label="New project"

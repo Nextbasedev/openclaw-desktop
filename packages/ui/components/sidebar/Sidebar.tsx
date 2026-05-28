@@ -193,7 +193,18 @@ export function Sidebar({
             isHiddenMobileSidebar && "hidden"
           )}
         >
-          <div className="scrollbar-hide flex w-[54px] shrink-0 flex-col items-center overflow-y-auto px-4 pb-2">
+          <div className={cn(
+            "scrollbar-hide relative flex w-[58px] shrink-0 flex-col items-center overflow-y-auto px-2.5 pb-3 pt-1",
+            "border-r border-white/[0.06] bg-black/[0.035] shadow-[inset_-1px_0_0_rgba(255,255,255,0.035)] dark:bg-black/[0.10]",
+          )}>
+            <div className="mb-3 mt-0.5 flex h-6 w-9 items-center justify-center rounded-full border border-white/[0.06] bg-white/[0.035] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]" aria-hidden="true">
+              <span className="grid grid-cols-2 gap-0.5 opacity-55">
+                <span className="size-1 rounded-full bg-current" />
+                <span className="size-1 rounded-full bg-current" />
+                <span className="size-1 rounded-full bg-current" />
+                <span className="size-1 rounded-full bg-current" />
+              </span>
+            </div>
             <CollapsedSpacesPopover
               spaces={spaces}
               activeSpaceId={activeSpaceId}
@@ -209,7 +220,7 @@ export function Sidebar({
           </div>
 
           <div
-            className="t-panel-slide min-w-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth border-l border-border/30 px-1"
+            className="t-panel-slide min-w-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth border-l border-white/[0.06] px-1 shadow-[inset_12px_0_24px_-22px_rgba(0,0,0,0.55)]"
             data-open={showExpandedContent ? "true" : "false"}
             style={{ "--panel-translate-y": "18px" } as CSSProperties}
           >
