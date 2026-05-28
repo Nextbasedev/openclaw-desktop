@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { useMemo, useState, type RefObject } from "react"
-import { LuBriefcase, LuClock3, LuHeart, LuMessageSquare, LuSearch, LuSmile, LuSparkles, LuZap } from "react-icons/lu"
+import { LuBriefcase, LuChevronLeft, LuChevronRight, LuClock3, LuGlobe, LuHeart, LuMessageSquare, LuSearch, LuSmile, LuSparkles, LuZap } from "react-icons/lu"
 import type { Space } from "@/types/space"
 
 type SpaceIconImage = NonNullable<Space["iconImage"]>
@@ -41,6 +41,12 @@ type EmojiCategory = {
 }
 
 const EMOJI_CATEGORIES: EmojiCategory[] = [
+  {
+    id: "all",
+    label: "All",
+    icon: <LuGlobe size={14} />,
+    emojis: [],
+  },
   {
     id: "recent",
     label: "Popular",
@@ -161,7 +167,38 @@ const EMOJI_CATEGORIES: EmojiCategory[] = [
   },
 ]
 
-const ALL_EMOJIS = EMOJI_CATEGORIES.flatMap((category) => category.emojis)
+const EXTRA_ALL_EMOJIS: SpaceIconEmoji[] = [
+  { emoji: "😀", label: "grin happy" }, { emoji: "😃", label: "smile happy" }, { emoji: "😄", label: "laugh happy" }, { emoji: "😁", label: "beam happy" },
+  { emoji: "😆", label: "laugh" }, { emoji: "😊", label: "warm smile" }, { emoji: "🙂", label: "smile" }, { emoji: "😉", label: "wink" },
+  { emoji: "🤔", label: "thinking" }, { emoji: "🤫", label: "quiet secret" }, { emoji: "🤯", label: "mind blown" }, { emoji: "🥰", label: "love" },
+  { emoji: "😇", label: "angel" }, { emoji: "🤓", label: "nerd smart" }, { emoji: "🧐", label: "inspect research" }, { emoji: "😴", label: "sleep rest" },
+  { emoji: "👋", label: "wave hello" }, { emoji: "👍", label: "thumbs up" }, { emoji: "👎", label: "thumbs down" }, { emoji: "✌️", label: "peace" },
+  { emoji: "🤞", label: "fingers crossed" }, { emoji: "🤟", label: "love hand" }, { emoji: "👊", label: "fist" }, { emoji: "🤘", label: "rock" },
+  { emoji: "🐶", label: "dog" }, { emoji: "🐱", label: "cat" }, { emoji: "🦊", label: "fox" }, { emoji: "🐼", label: "panda" },
+  { emoji: "🐯", label: "tiger" }, { emoji: "🦁", label: "lion" }, { emoji: "🐵", label: "monkey" }, { emoji: "🐙", label: "octopus" },
+  { emoji: "🌸", label: "flower" }, { emoji: "🌿", label: "leaf green" }, { emoji: "🌵", label: "cactus" }, { emoji: "🍀", label: "clover lucky" },
+  { emoji: "🍎", label: "apple" }, { emoji: "🍓", label: "strawberry" }, { emoji: "🍕", label: "pizza" }, { emoji: "☕", label: "coffee" },
+  { emoji: "⚽", label: "soccer" }, { emoji: "🏀", label: "basketball" }, { emoji: "🎲", label: "dice" }, { emoji: "♟️", label: "chess strategy" },
+  { emoji: "🎹", label: "piano" }, { emoji: "🎸", label: "guitar" }, { emoji: "📚", label: "books learning" }, { emoji: "🎓", label: "graduation" },
+  { emoji: "🧱", label: "brick build" }, { emoji: "⚙️", label: "gear settings" }, { emoji: "🔧", label: "wrench fix" }, { emoji: "🧰", label: "toolbox" },
+]
+
+const ALL_EMOJIS = Array.from(
+  new Map(
+    [...EMOJI_CATEGORIES.flatMap((category) => category.emojis), ...EXTRA_ALL_EMOJIS].map((item) => [item.emoji, item]),
+  ).values(),
+)
+const EMOJIS_PER_PAGE = 48
+const AVATAR_COLORS = [
+  "from-violet-400 to-blue-400",
+  "from-rose-400 to-orange-300",
+  "from-emerald-300 to-cyan-400",
+  "from-amber-300 to-pink-400",
+  "from-fuchsia-400 to-purple-500",
+  "from-sky-400 to-indigo-500",
+  "from-lime-300 to-emerald-500",
+  "from-red-400 to-yellow-300",
+]
 
 export function CreateSpaceDialog({
   open,
@@ -177,20 +214,31 @@ export function CreateSpaceDialog({
   onIconErrorChange,
   onSubmit,
 }: Props) {
-  const [activeCategoryId, setActiveCategoryId] = useState(EMOJI_CATEGORIES[0]?.id ?? "recent")
+  const [activeCategoryId, setActiveCategoryId] = useState("all")
   const [emojiQuery, setEmojiQuery] = useState("")
+  const [emojiPage, setEmojiPage] = useState(0)
   const activeCategory = EMOJI_CATEGORIES.find((category) => category.id === activeCategoryId) ?? EMOJI_CATEGORIES[0]
   const visibleEmojis = useMemo(() => {
     const query = emojiQuery.trim().toLowerCase()
-    const source = query ? ALL_EMOJIS : activeCategory.emojis
+    const source = query || activeCategory.id === "all" ? ALL_EMOJIS : activeCategory.emojis
     if (!query) return source
     return source.filter((item) => `${item.emoji} ${item.label ?? ""}`.toLowerCase().includes(query))
-  }, [activeCategory.emojis, emojiQuery])
+  }, [activeCategory.emojis, activeCategory.id, emojiQuery])
+  const pageCount = Math.max(1, Math.ceil(visibleEmojis.length / EMOJIS_PER_PAGE))
+  const safeEmojiPage = Math.min(emojiPage, pageCount - 1)
+  const pagedEmojis = visibleEmojis.slice(safeEmojiPage * EMOJIS_PER_PAGE, (safeEmojiPage + 1) * EMOJIS_PER_PAGE)
+  const avatarColor = iconEmoji.color || AVATAR_COLORS[0]
 
   function selectEmoji(nextIcon: SpaceIconEmoji) {
     onIconImageChange(null)
     onIconErrorChange?.(null)
-    onIconEmojiChange(nextIcon)
+    onIconEmojiChange({ ...nextIcon, color: iconEmoji.color || AVATAR_COLORS[0] })
+  }
+
+  function cycleAvatarColor() {
+    const currentIndex = AVATAR_COLORS.indexOf(avatarColor)
+    const nextColor = AVATAR_COLORS[(currentIndex + 1) % AVATAR_COLORS.length] ?? AVATAR_COLORS[0]
+    onIconEmojiChange({ ...iconEmoji, color: nextColor })
   }
 
   return (
@@ -218,9 +266,18 @@ export function CreateSpaceDialog({
 
         <div className="px-6 py-5">
           <div className="mb-4 flex items-center gap-3.5">
-            <div className="flex size-[52px] shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-400 to-blue-400 text-2xl shadow-[0_14px_28px_rgba(0,0,0,0.28)]">
+            <button
+              type="button"
+              onClick={cycleAvatarColor}
+              className={cn(
+                "flex size-[52px] shrink-0 cursor-pointer items-center justify-center rounded-xl bg-gradient-to-br text-2xl shadow-[0_14px_28px_rgba(0,0,0,0.28)] transition-transform hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200/50",
+                avatarColor,
+              )}
+              title="Change icon background color"
+              aria-label="Change icon background color"
+            >
               {iconEmoji.emoji}
-            </div>
+            </button>
             <div className="min-w-0 flex-1">
               <label className="mb-1 block text-[11px] font-medium text-cyan-300/80" htmlFor="space-name-input">
                 Project name
@@ -251,6 +308,7 @@ export function CreateSpaceDialog({
                   onClick={() => {
                     setActiveCategoryId(category.id)
                     setEmojiQuery("")
+                    setEmojiPage(0)
                   }}
                   className={cn(
                     "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-white/42 transition-colors hover:bg-white/[0.08] hover:text-white/70",
@@ -269,16 +327,19 @@ export function CreateSpaceDialog({
             <LuSearch size={15} strokeWidth={1.8} />
             <input
               value={emojiQuery}
-              onChange={(event) => setEmojiQuery(event.target.value)}
+              onChange={(event) => {
+                setEmojiQuery(event.target.value)
+                setEmojiPage(0)
+              }}
               placeholder="Search"
               className="min-w-0 flex-1 bg-transparent text-[13px] text-white outline-none placeholder:text-white/35"
             />
             <LuSmile size={15} strokeWidth={1.8} />
           </div>
 
-          <div className="h-[214px] overflow-y-auto pr-1">
+          <div className="h-[214px] pr-1">
             <div className="grid grid-cols-8 gap-1.5">
-              {visibleEmojis.map((item) => {
+              {pagedEmojis.map((item) => {
                 const selected = item.emoji === iconEmoji.emoji
                 return (
                   <button
@@ -300,6 +361,25 @@ export function CreateSpaceDialog({
             {visibleEmojis.length === 0 ? (
               <div className="flex h-28 items-center justify-center text-[12px] text-white/38">No emoji found</div>
             ) : null}
+          </div>
+          <div className="mt-3 flex items-center justify-between text-[11px] text-white/40">
+            <button
+              type="button"
+              onClick={() => setEmojiPage((page) => Math.max(0, page - 1))}
+              disabled={safeEmojiPage === 0}
+              className="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              <LuChevronLeft size={13} /> Prev
+            </button>
+            <span>Page {safeEmojiPage + 1} / {pageCount}</span>
+            <button
+              type="button"
+              onClick={() => setEmojiPage((page) => Math.min(pageCount - 1, page + 1))}
+              disabled={safeEmojiPage >= pageCount - 1}
+              className="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              Next <LuChevronRight size={13} />
+            </button>
           </div>
           {iconError ? <p className="mt-2 text-xs text-destructive">{iconError}</p> : null}
         </div>

@@ -9,6 +9,7 @@ export type SpaceIconImage = {
 export type SpaceIconEmoji = {
   emoji: string
   label?: string
+  color?: string
 }
 
 export type Space = {
