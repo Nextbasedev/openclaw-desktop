@@ -1056,16 +1056,27 @@ function latestUserMessageIndex(state: SessionState) {
   return -1
 }
 
-function hasAssistantAnswerAfterLatestUser(state: SessionState) {
-  const latestUserIndex = latestUserMessageIndex(state)
+function latestUserMessageIndexInMessages(messages: ChatMessage[]) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") return i
+  }
+  return -1
+}
+
+function hasAssistantAnswerAfterLatestUserMessages(messages: ChatMessage[]) {
+  const latestUserIndex = latestUserMessageIndexInMessages(messages)
   const start = latestUserIndex >= 0 ? latestUserIndex + 1 : 0
-  for (let i = state.messages.length - 1; i >= start; i--) {
-    const message = state.messages[i]
+  for (let i = messages.length - 1; i >= start; i--) {
+    const message = messages[i]
     if (message?.role !== "assistant") continue
     if (message.toolCalls?.some((tool) => tool.status === "running")) return false
     if (message.text.trim().length > 0) return true
   }
   return false
+}
+
+function hasAssistantAnswerAfterLatestUser(state: SessionState) {
+  return hasAssistantAnswerAfterLatestUserMessages(state.messages)
 }
 
 function hasVisibleToolRows(messages: ChatMessage[]) {
@@ -1723,6 +1734,7 @@ export function seedGlobalChatSession(params: {
   const incomingDropsRunningTool = state.pendingTools.some((tool) => tool.status === "running" && !incomingToolIds.has(tool.id))
   const hasNewerCursor = state.cursor > incomingCursor && state.messages.length > 0
   const incomingMayBePartial = incomingHistoryCoverage !== "full"
+  const incomingHasFinalAnswer = incomingIsTerminal && !incomingMayBePartial && hasAssistantAnswerAfterLatestUserMessages(params.messages)
   const incomingPartialDropsLocalMessages = incomingMayBePartial &&
     incomingCursor <= state.cursor &&
     state.messages.length > 0 &&
@@ -1732,7 +1744,7 @@ export function seedGlobalChatSession(params: {
     hasLiveState &&
     incomingIsTerminal &&
     (incomingDropsMessages || incomingDropsRunningTool)
-  const hadNewerLiveState = hasNewerCursor || hasSameCursorLiveState || incomingPartialDropsLocalMessages
+  const hadNewerLiveState = !incomingHasFinalAnswer && (hasNewerCursor || hasSameCursorLiveState || incomingPartialDropsLocalMessages)
   state.messages = hadNewerLiveState
     ? dedupeChatMessages([...params.messages, ...state.messages])
     : dedupeChatMessages(params.messages)
