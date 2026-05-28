@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -161,7 +161,6 @@ function settleMessageScrollAnchor(container: HTMLElement | null, anchor: Messag
     if (finished) return
     finished = true
     if (frame !== null) cancelAnimationFrame(frame)
-    restoreMessageScrollAnchor(container, anchor)
     done()
   }
 
@@ -169,9 +168,64 @@ function settleMessageScrollAnchor(container: HTMLElement | null, anchor: Messag
   frame = requestAnimationFrame(() => {
     frame = null
     restore()
+    finish()
   })
-  window.setTimeout(finish, 120)
 }
+
+function stableMessageRowSignature(message: StableChatMessage) {
+  return JSON.stringify({
+    uiId: message.uiId,
+    messageId: message.messageId,
+    role: message.role,
+    text: message.text,
+    reasoningText: message.reasoningText,
+    toolCalls: message.toolCalls?.map((tool) => [tool.id, tool.tool, tool.status, tool.awaitingResult, tool.resultText]),
+    attachments: message.attachments?.map((attachment) => [attachment.name, attachment.mimeType, attachment.size, attachment.url]),
+    embeds: message.embeds?.map((embed) => [embed.title, embed.content]),
+    isOptimistic: message.isOptimistic,
+    sendStatus: message.sendStatus,
+    gatewayIndex: message.gatewayIndex,
+    createdAt: message.createdAt,
+  })
+}
+
+type RenderedMessageRowProps = {
+  msg: StableChatMessage
+  index: number
+  total: number
+  rowSignature: string
+  uiStateKey: string
+  renderMessageRow: (index: number, msg: StableChatMessage) => ReactNode
+}
+
+const RenderedMessageRow = memo(function RenderedMessageRow({
+  msg,
+  index,
+  total,
+  renderMessageRow,
+}: RenderedMessageRowProps) {
+  if (typeof window !== "undefined") {
+    try {
+      if (window.localStorage.getItem("openclaw.chat.render.debug") === "1") {
+        console.debug("[chat-row-render]", { uiId: msg.uiId, messageId: msg.messageId, index, total })
+      }
+    } catch {}
+  }
+  return <>{renderMessageRow(index, msg)}</>
+}, (prev, next) => {
+  if (prev.msg.uiId !== next.msg.uiId) return false
+  if (prev.rowSignature !== next.rowSignature) return false
+  if (prev.uiStateKey !== next.uiStateKey) return false
+
+  const prependedCount = next.total - prev.total
+  if (prependedCount > 0 && next.index - prev.index === prependedCount) {
+    return true
+  }
+
+  if (prev.index === next.index && prev.total === next.total) return true
+  if (prev.index === next.index && prev.index < prev.total - 3) return true
+  return false
+})
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
 
 function useAssistantUiChatViewEnabled() {
@@ -1942,7 +1996,15 @@ export function ChatView({
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
           {renderedMessages.map((msg, index) => (
-            <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
+            <RenderedMessageRow
+              key={msg.uiId}
+              msg={msg}
+              index={index}
+              total={renderedMessages.length}
+              rowSignature={stableMessageRowSignature(msg)}
+              uiStateKey={`${highlightedMessageId ?? ""}:${activePopoverId ?? ""}:${isGenerating ? "1" : "0"}:${lastEditableUserId ?? ""}`}
+              renderMessageRow={renderMessageRow}
+            />
           ))}
           <div className="mx-auto max-w-[44rem] px-4 pt-1 pb-8">
             <AnimatePresence initial={false}>
