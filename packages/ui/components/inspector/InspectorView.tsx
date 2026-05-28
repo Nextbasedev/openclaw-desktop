@@ -15,10 +15,10 @@ import { inspectorScopeProjectId, inspectorScopeRenderKey } from "./inspectorSco
 export type InspectorTabId = "activity" | "workspace" | "git" | "terminal"
 
 export const INSPECTOR_TABS: Array<{ id: InspectorTabId; label: string }> = [
-  { id: "git", label: "Git" },
-  { id: "workspace", label: "Workspace" },
   { id: "activity", label: "Activity" },
   { id: "terminal", label: "Terminal" },
+  { id: "workspace", label: "Workspace" },
+  { id: "git", label: "Git" },
 ]
 
 type TerminalTab = {
