@@ -1138,7 +1138,13 @@ export function ChatView({
       clientHeight: scrollContainerRef.current?.clientHeight,
     })
     try {
-      await loadOlderMessages()
+      const addedMessages = await loadOlderMessages()
+      if (!addedMessages) {
+        pendingOlderAnchorRef.current = null
+        olderLoadAwaitingRenderRef.current = false
+        loadOlderClickInFlightRef.current = false
+        setLoadOlderUiBusy(false)
+      }
     } catch {
       pendingOlderAnchorRef.current = null
       olderLoadAwaitingRenderRef.current = false

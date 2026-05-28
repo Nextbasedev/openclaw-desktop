@@ -46,6 +46,7 @@ export type WarmChatCacheEntry = {
   sessionKey: string
   messages: ChatMessage[]
   cursor?: number
+  oldestLoadedSeq?: number | null
   runStatus?: string | null
   statusLabel?: string | null
   activeRunSummary?: WarmChatActiveRunSummary | null
@@ -67,6 +68,7 @@ type WarmChatPreviewEntry = {
   messages: ChatMessage[]
   messageCount?: number
   cursor?: number
+  oldestLoadedSeq?: number | null
   cachedAt: number
   lastAccessedAt: number
 }
@@ -268,6 +270,7 @@ function combineWarmEntries(preview: WarmChatPreviewEntry, run: WarmChatRunEntry
     sessionKey: preview.sessionKey,
     messages: preview.messages,
     cursor: run?.cursor ?? preview.cursor,
+    oldestLoadedSeq: preview.oldestLoadedSeq ?? null,
     runStatus: run?.runStatus ?? null,
     statusLabel: run?.statusLabel ?? null,
     activeRunSummary: run?.activeRunSummary ?? null,
@@ -337,6 +340,7 @@ export async function setWarmChatCache(
     sessionKey,
     messages,
     cursor: input.cursor,
+    oldestLoadedSeq: input.oldestLoadedSeq ?? null,
     messageCount: input.messageCount ?? messages.length,
     cachedAt,
     lastAccessedAt,

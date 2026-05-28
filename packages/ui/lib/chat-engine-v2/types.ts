@@ -120,6 +120,7 @@ export type CachedChatBootstrapV2 = {
   statusLabel?: string | null
   activeRun?: ActiveRunV2 | null
   historyCoverage?: HistoryCoverageV2
+  oldestLoadedSeq?: number | null
   fullMessagesIncluded?: boolean
   tools?: ToolCallProjectionV2[]
   toolCalls?: ToolCallProjectionV2[]

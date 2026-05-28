@@ -88,7 +88,7 @@ type Props = {
   statusText?: string | null
   hasOlderMessages?: boolean
   loadingOlderMessages?: boolean
-  onLoadOlderMessages?: () => Promise<void> | void
+  onLoadOlderMessages?: () => Promise<boolean> | boolean | Promise<void> | void
   onSelectTool?: (toolCallId: string) => void
   onResolveApproval?: (
     approvalId: string,
@@ -240,7 +240,13 @@ export function OpenClawVercelChat({
       clientHeight: containerRef.current?.clientHeight,
     })
     try {
-      await onLoadOlderMessages?.()
+      const addedMessages = await onLoadOlderMessages?.()
+      if (!addedMessages) {
+        pendingOlderAnchorRef.current = null
+        olderLoadAwaitingRenderRef.current = false
+        loadOlderInFlightRef.current = false
+        setLocalOlderLoading(false)
+      }
     } catch {
       pendingOlderAnchorRef.current = null
       olderLoadAwaitingRenderRef.current = false

@@ -22,4 +22,15 @@ describe("warmChatCache", () => {
     expect(cached?.entry.messages[0]?.messageId).toBe("m5")
     expect(cached?.entry.messages.at(-1)?.messageId).toBe("m64")
   })
+
+  it("persists the oldest loaded seq used by older-history pagination", async () => {
+    await setWarmChatCache("s1", {
+      messages: [{ messageId: "m10", role: "user", text: "hello" }],
+      oldestLoadedSeq: 10,
+    })
+
+    const cached = await getWarmChatCache("s1")
+
+    expect(cached?.entry.oldestLoadedSeq).toBe(10)
+  })
 })

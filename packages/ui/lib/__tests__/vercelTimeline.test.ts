@@ -40,14 +40,14 @@ describe("buildStableVercelTimeline", () => {
 
   it("does not change existing visible row ids when older history is prepended", () => {
     const current = buildStableVercelTimeline([
-      msg({ messageId: "u2", role: "user", text: "newer question" }),
-      msg({ messageId: "a2", role: "assistant", text: "newer answer" }),
+      msg({ messageId: "u2", role: "user", text: "newer question", gatewayIndex: 20 }),
+      msg({ messageId: "a2", role: "assistant", text: "newer answer", gatewayIndex: 21 }),
     ])
     const withHistory = buildStableVercelTimeline([
-      msg({ messageId: "u1", role: "user", text: "older question" }),
-      msg({ messageId: "a1", role: "assistant", text: "older answer" }),
-      msg({ messageId: "u2-final", role: "user", text: "newer question" }),
-      msg({ messageId: "a2-final", role: "assistant", text: "newer answer plus" }),
+      msg({ messageId: "u1", role: "user", text: "older question", gatewayIndex: 10 }),
+      msg({ messageId: "a1", role: "assistant", text: "older answer", gatewayIndex: 11 }),
+      msg({ messageId: "u2-final", role: "user", text: "newer question", gatewayIndex: 20 }),
+      msg({ messageId: "a2-final", role: "assistant", text: "newer answer plus", gatewayIndex: 21 }),
     ])
 
     expect(withHistory.slice(-2).map((message) => message.uiId)).toEqual(

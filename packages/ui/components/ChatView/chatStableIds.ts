@@ -103,9 +103,12 @@ export function buildStableChatRows(
       continue
     }
 
-    const assistantUiId = lastUserUiId
+    const stableAssistantSeq = typeof message.gatewayIndex === "number" && Number.isFinite(message.gatewayIndex)
+      ? `assistant-seq:${message.gatewayIndex}`
+      : null
+    const assistantUiId = stableAssistantSeq ?? (lastUserUiId
       ? `${lastUserUiId}:assistant:${options.coalesceAssistantTurns ? "turn" : assistantOrdinalInTurn}`
-      : `assistant:${textFingerprint(message)}:${message.gatewayIndex ?? message.messageId}`
+      : `assistant:${textFingerprint(message)}:${message.messageId}`)
 
     if (options.coalesceAssistantTurns) {
       activeAssistant = activeAssistant

@@ -21,6 +21,10 @@ describe("shouldAutoLoadOlderHistory", () => {
     expect(shouldAutoLoadOlderHistory({ ...base, scrollTop: 3_000, hasUserIntent: false })).toBe(false)
   })
 
+  it("loads at the very top even after reload when previousScrollTop is also top", () => {
+    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 0, scrollTop: 0 })).toBe(true)
+  })
+
   it("does not repeatedly load from tiny upward movement inside the already-crossed threshold", () => {
     expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 5_300, scrollTop: 5_200, lastLoadScrollTop: 5_400 })).toBe(false)
   })

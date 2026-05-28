@@ -707,6 +707,7 @@ export function useChatMessages(
           statusLabel: normalizeStatusLabelForStatus(statusRef.current, statusLabel),
           pendingTools: Array.from(pendingToolMapRef.current.values()),
           messageCount: next.length,
+          oldestLoadedSeq: oldestLoadedSeqRef.current,
         })
       })().catch((error) => {
         frontendLog("chat", "warm-cache.persist.fail", {
@@ -1526,6 +1527,7 @@ export function useChatMessages(
           pendingTools: seededMessages ? [] : cachedBootstrap?.tools?.map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool)) ?? [],
           messageCount: cachedBootstrap?.messageCount ?? warmMessages.length,
           historyCoverage: seededMessages ? "metadata" : isKnownEmptyBootstrap(cachedBootstrap) || cachedBootstrap?.historyCoverage === "full" ? "full" : "metadata",
+          oldestLoadedSeq: useCachedGlobal ? cachedGlobal?.oldestLoadedSeq ?? null : cachedBootstrap?.oldestLoadedSeq ?? getWarmChatCacheSync(sessionKey)?.entry.oldestLoadedSeq ?? null,
           queryClient,
         })
       }
@@ -1619,7 +1621,9 @@ export function useChatMessages(
     }
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
-    oldestLoadedSeqRef.current = null
+    oldestLoadedSeqRef.current = useCachedGlobal
+      ? cachedGlobal?.oldestLoadedSeq ?? null
+      : cachedBootstrap?.oldestLoadedSeq ?? getWarmChatCacheSync(sessionKey)?.entry.oldestLoadedSeq ?? null
     let unsubscribeStream: (() => void) | null = null
     let unsubscribeV2Stream: (() => void) | null = null
     let bootstrapSettled = false
@@ -1945,6 +1949,7 @@ export function useChatMessages(
           spawnedSubagents: canonicalSpawns,
           messageCount: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : (typeof canonicalMessageCount === "number" ? canonicalMessageCount : seedMessages.length),
           historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
+          oldestLoadedSeq: typeof bootstrapOldestSeq === "number" ? bootstrapOldestSeq : oldestLoadedSeqRef.current,
           queryClient,
         })
         const globalAfterSeed = getGlobalChatSession(sessionKey)
@@ -1965,6 +1970,7 @@ export function useChatMessages(
           messageCount: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : (typeof canonicalMessageCount === "number" ? canonicalMessageCount : displayMessages.length),
           historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
           fullMessagesIncluded: bootstrapHistoryCoverage !== "windowed",
+          oldestLoadedSeq: typeof bootstrapOldestSeq === "number" ? bootstrapOldestSeq : oldestLoadedSeqRef.current,
         }).catch((error) => {
           frontendLog("chat", "warm-cache.bootstrap-persist.fail", {
             sessionKey,
@@ -2869,8 +2875,8 @@ export function useChatMessages(
     )
   }, [])
 
-  const loadOlderMessages = useCallback(async () => {
-    if (loadOlderInFlightRef.current || loadingOlderMessages || !hasOlderMessages) return
+  const loadOlderMessages = useCallback(async (): Promise<boolean> => {
+    if (loadOlderInFlightRef.current || loadingOlderMessages || !hasOlderMessages) return false
     // Use the tracked raw seq instead of the parsed/merged gatewayIndex.
     // parseChatHistory merges consecutive assistant messages and updates
     // gatewayIndex to the latest seq, which causes beforeSeq to point to
@@ -2879,7 +2885,7 @@ export function useChatMessages(
     const beforeSeq = oldestLoadedSeqRef.current ?? firstLoadedGatewayIndex(messagesRef.current)
     if (beforeSeq === null || beforeSeq <= 1) {
       setHasOlderMessages(false)
-      return
+      return false
     }
 
     loadOlderInFlightRef.current = true
@@ -2905,7 +2911,7 @@ export function useChatMessages(
           reason: "view-generation-changed",
           extra: { beforeSeq, returnedMessageCount: page.messages.length },
         })
-        return
+        return false
       }
       logChatApplyDecision({
         windowId: windowIdRef.current,
@@ -2935,7 +2941,7 @@ export function useChatMessages(
       )
       if (olderMessages.length === 0) {
         setHasOlderMessages(false)
-        return
+        return false
       }
       const currentMessages = messagesRef.current
       const merged = dedupeChatMessages([...olderMessages, ...currentMessages])
@@ -2959,12 +2965,13 @@ export function useChatMessages(
           : existingGlobal?.historyCoverage === "full"
             ? "full"
             : "metadata",
+        oldestLoadedSeq: oldestLoadedSeqRef.current,
         queryClient,
       })
-      setHasOlderMessages(
-        page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
+      const hasMoreOlder = page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
         (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
-      )
+      setHasOlderMessages(hasMoreOlder)
+      return merged.length > currentMessages.length
 
     } catch (error) {
       frontendLog("chat", "chat.load-older.fail", {
@@ -2972,6 +2979,7 @@ export function useChatMessages(
         beforeSeq,
         error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
       }, "warn")
+      return false
     } finally {
       loadOlderInFlightRef.current = false
       setLoadingOlderMessages(false)
