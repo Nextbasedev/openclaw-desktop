@@ -156,8 +156,8 @@ function highlightString(text: string, highlightTexts: string[]) {
     parts.push(
       <mark
         key={`${nextIndex}-${matchedText}`}
-        className="rounded-sm px-1 py-0.5 font-semibold text-[#B07D68]"
-        style={{ backgroundColor: "rgba(176, 125, 104, 0.16)" }}
+        className="rounded-sm px-1 py-0.5 font-semibold !text-[#B07D68]"
+        style={{ color: "#B07D68", backgroundColor: "rgba(176, 125, 104, 0.16)" }}
       >
         {matchedText}
       </mark>,
@@ -246,8 +246,8 @@ const mdComponents = {
     }
     return (
       <code
-        className="break-words rounded-md border border-[#B07D68]/20 px-1.5 py-0.5 text-[0.85em] font-mono text-[#B07D68] [overflow-wrap:anywhere]"
-        style={{ backgroundColor: "rgba(176, 125, 104, 0.14)" }}
+        className="break-words rounded-md border border-[#B07D68]/20 px-1.5 py-0.5 text-[0.85em] font-mono !text-[#B07D68] [overflow-wrap:anywhere]"
+        style={{ color: "#B07D68", backgroundColor: "rgba(176, 125, 104, 0.14)" }}
         {...rest}
       >
         {children}
