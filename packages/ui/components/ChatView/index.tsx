@@ -6,8 +6,9 @@ import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
 import { ChatSearch } from "./ChatSearch"
+import { WorkTimelineSpine } from "./WorkTimelineSpine"
+import { buildChatRowMetadata } from "./chatRowMetadata"
 
-import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
 import { SubagentBar } from "./SubagentBar"
 import { SubagentFullChat } from "./SubagentFullChat"
@@ -1191,10 +1192,10 @@ export function ChatView({
     return null
   }, [renderedMessages])
 
-  const assistantMessages = messages.filter((m) => m.role === "assistant")
-  const lastTwoAssistantIds = new Set(
-    assistantMessages.slice(-2).map((m) => m.messageId)
-  )
+  const lastTwoAssistantIds = useMemo(() => {
+    const assistantMessages = messages.filter((m) => m.role === "assistant")
+    return new Set(assistantMessages.slice(-2).map((m) => m.messageId))
+  }, [messages])
   const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
     tools.filter(
       (t) =>
@@ -1241,6 +1242,16 @@ export function ChatView({
   const activeTurnToolIds = useMemo(
     () => new Set(activeTurnToolCalls.map((tool) => tool.id)),
     [activeTurnToolCalls]
+  )
+
+  const chatRowMetadata = useMemo(
+    () => buildChatRowMetadata({
+      messages: renderedMessages,
+      latestUserIndex: latestRenderedUserIndex,
+      isGenerating,
+      pendingToolsLength: pendingTools.length,
+    }),
+    [isGenerating, latestRenderedUserIndex, pendingTools.length, renderedMessages]
   )
 
   const spawnsByToolCallId = useMemo(() => {
@@ -1375,18 +1386,9 @@ export function ChatView({
         msg.role === "user"
       const isActivelyStreaming =
         isLast && isGenerating && msg.role === "assistant"
-      let hasLaterAssistantInSameTurn = false
-      if (msg.role === "assistant") {
-        for (const next of renderedMessages.slice(index + 1)) {
-          if (next.role === "user") break
-          if (next.role === "assistant" && next.text.trim()) {
-            hasLaterAssistantInSameTurn = true
-            break
-          }
-        }
-      }
-      const isActiveTurnAssistant =
-        msg.role === "assistant" && index > latestRenderedUserIndex
+      const rowMeta = chatRowMetadata.byMessageId.get(msg.messageId)
+      const hasLaterAssistantInSameTurn = rowMeta?.hasLaterAssistantInSameTurn ?? false
+      const isActiveTurnAssistant = rowMeta?.isActiveTurnAssistant ?? false
       const suppressAssistantActions =
         msg.role === "assistant" &&
         (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
@@ -1396,10 +1398,7 @@ export function ChatView({
         // Keep completed tools that are NOT yet in any message's toolCalls
         // (orphan tools waiting to be attached). Hide completed tools that
         // are already represented in message history to prevent duplicates.
-        const isInMessageHistory = renderedMessages.some(
-          (m) => m.role === "assistant" && m.toolCalls?.some((tc) => tc.id === t.id)
-        )
-        return !isInMessageHistory
+        return !chatRowMetadata.displayedToolIds.has(t.id)
       })
       const messageToolCalls =
         msg.role === "assistant" && suppressedToolCallMessages.has(msg.messageId)
@@ -1409,9 +1408,7 @@ export function ChatView({
         isGenerating && msg.role === "assistant" && index > latestRenderedUserIndex
           ? messageToolCalls.filter((tool) => !activeTurnToolIds.has(tool.id))
           : messageToolCalls
-      const shouldFinalizeDisplayedTools =
-        msg.role === "assistant" &&
-        (index < latestRenderedUserIndex || !isGenerating || pendingTools.length === 0)
+      const shouldFinalizeDisplayedTools = rowMeta?.shouldFinalizeDisplayedTools ?? false
       const filteredToolCalls = applyTerminalToolState(
         toolCallsWithoutSpawn(activeTurnAssistantToolCalls),
         terminalToolState,
@@ -1437,35 +1434,23 @@ export function ChatView({
           id={`message-${msg.messageId}`}
           className={`mx-auto max-w-3xl px-4 py-2.5 transition-all duration-500 ${highlightedMessageId && highlightedMessageId !== msg.messageId ? "opacity-40" : ""} ${highlightedMessageId === msg.messageId ? "rounded-lg ring-1 ring-yellow-500/40" : ""}`}
         >
-          {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
-            <div className="mb-2">
-              <SubagentCard
-                subagents={orphanAssistantSubagents}
-                onOpen={openSubagent}
-              />
-            </div>
-          )}
-          {msg.role === "assistant" && msg.reasoningText && (
-            <ThinkingBlock
-              text={msg.reasoningText}
-              defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
-            />
-          )}
           {(() => {
             const assistantHasText = msg.role === "assistant" && msg.text.trim().length > 0
-            const toolSteps = msg.role === "assistant" && filteredToolCalls && filteredToolCalls.length > 0
-              ? (
-                  <div className="mb-4 max-w-[85%]">
-                    <ToolCallSteps
-                      tools={filteredToolCalls}
-                      defaultOpen={lastTwoAssistantIds.has(msg.messageId) && !assistantHasText}
-                      onSelectTool={onSelectTool}
-                      onResolveApproval={resolveExecApproval}
-                      sessionKey={sessionKey}
-                    />
-                  </div>
-                )
-              : null
+            const workSpine = msg.role === "assistant" ? (
+              <WorkTimelineSpine
+                reasoningText={msg.reasoningText}
+                reasoningDefaultOpen={lastTwoAssistantIds.has(msg.messageId)}
+                tools={filteredToolCalls}
+                toolsDefaultOpen={lastTwoAssistantIds.has(msg.messageId) && !assistantHasText}
+                subagents={orphanAssistantSubagents}
+                liveStatus={isActiveTurnAssistant && isGenerating ? status : null}
+                liveStatusLabel={isActiveTurnAssistant && isGenerating ? statusLabel : null}
+                onSelectTool={onSelectTool}
+                onResolveApproval={resolveExecApproval}
+                onOpenSubagent={openSubagent}
+                sessionKey={sessionKey}
+              />
+            ) : null
             const bubble = (msg.role === "user" || msg.text) ? (
               <MessageBubble
                 message={msg}
@@ -1498,7 +1483,7 @@ export function ChatView({
                 }
               />
             ) : null
-            return <>{toolSteps}{bubble}</>
+            return <>{workSpine}{bubble}</>
           })()}
           {msg.role === "user" && userSubagents.length > 0 && (
             <div className="mt-3">
@@ -1523,6 +1508,8 @@ export function ChatView({
       activePopoverId,
       activeTurnToolCalls,
       activeTurnToolIds,
+      chatRowMetadata,
+      highlightedMessageId,
       askAboutSelectedText,
       deleteMessage,
       exportOneMessage,
@@ -1530,6 +1517,8 @@ export function ChatView({
       getSubagentsForMessage,
       handleEdit,
       isGenerating,
+      status,
+      statusLabel,
       lastEditableUserId,
       lastTwoAssistantIds,
       latestRenderedUserIndex,
@@ -1548,6 +1537,7 @@ export function ChatView({
       replyToMessage,
       resolveExecApproval,
       retrySend,
+      sessionKey,
       setActivePopoverId,
       subagentsByTriggerUserId,
       switchBranch,
