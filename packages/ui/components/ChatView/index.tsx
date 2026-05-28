@@ -77,6 +77,7 @@ import {
 } from "@/components/ui/tooltip"
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
+const OLDER_HISTORY_LOAD_SETTLE_COOLDOWN_MS = 1600
 
 type MessageScrollAnchor = {
   id: string
@@ -1237,8 +1238,19 @@ export function ChatView({
   const loadOlderWithoutJump = useCallback(async () => {
     const now = Date.now()
     if (!hasOlderMessages || loadingOlderMessages || loadOlderUiBusy || loadOlderClickInFlightRef.current) return
-    if (now - lastOlderLoadAtRef.current < 900) return
-    lastOlderLoadAtRef.current = now
+    const elapsedSinceSettledLoad = now - lastOlderLoadAtRef.current
+    if (elapsedSinceSettledLoad < OLDER_HISTORY_LOAD_SETTLE_COOLDOWN_MS) {
+      logChatScrollDebug({
+        source: "chat",
+        event: "load-older-cooldown-skip",
+        sessionKey,
+        deltaPx: elapsedSinceSettledLoad,
+        scrollTop: scrollContainerRef.current?.scrollTop,
+        scrollHeight: scrollContainerRef.current?.scrollHeight,
+        clientHeight: scrollContainerRef.current?.clientHeight,
+      })
+      return
+    }
     loadOlderClickInFlightRef.current = true
     olderLoadAwaitingRenderRef.current = true
     setLoadOlderUiBusy(true)
@@ -1258,12 +1270,14 @@ export function ChatView({
       if (!addedMessages) {
         pendingOlderAnchorRef.current = null
         olderLoadAwaitingRenderRef.current = false
+        lastOlderLoadAtRef.current = Date.now()
         loadOlderClickInFlightRef.current = false
         setLoadOlderUiBusy(false)
       }
     } catch {
       pendingOlderAnchorRef.current = null
       olderLoadAwaitingRenderRef.current = false
+      lastOlderLoadAtRef.current = Date.now()
       loadOlderClickInFlightRef.current = false
       setLoadOlderUiBusy(false)
     }
@@ -1282,6 +1296,7 @@ export function ChatView({
       }
       lastOlderLoadIntentGenerationRef.current = userScrollIntentGenerationRef.current
       userScrollIntentRef.current = false
+      lastOlderLoadAtRef.current = Date.now()
       loadOlderClickInFlightRef.current = false
       setLoadOlderUiBusy(false)
     })

@@ -13,6 +13,8 @@ import { useStableChatScroll } from "./useStableChatScroll"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
+const OLDER_HISTORY_LOAD_SETTLE_COOLDOWN_MS = 1600
+
 
 type VercelScrollAnchor = {
   uiId: string
@@ -227,8 +229,19 @@ export function OpenClawVercelChat({
   const loadOlderWithoutJump = useCallback(async () => {
     const now = Date.now()
     if (!hasOlderMessages || isOlderLoading || loadOlderInFlightRef.current) return
-    if (now - lastOlderLoadAtRef.current < 900) return
-    lastOlderLoadAtRef.current = now
+    const elapsedSinceSettledLoad = now - lastOlderLoadAtRef.current
+    if (elapsedSinceSettledLoad < OLDER_HISTORY_LOAD_SETTLE_COOLDOWN_MS) {
+      logChatScrollDebug({
+        source: "vercel-chat",
+        event: "load-older-cooldown-skip",
+        sessionKey,
+        deltaPx: elapsedSinceSettledLoad,
+        scrollTop: containerRef.current?.scrollTop,
+        scrollHeight: containerRef.current?.scrollHeight,
+        clientHeight: containerRef.current?.clientHeight,
+      })
+      return
+    }
     loadOlderInFlightRef.current = true
     olderLoadAwaitingRenderRef.current = true
     setLocalOlderLoading(true)
@@ -248,12 +261,14 @@ export function OpenClawVercelChat({
       if (!addedMessages) {
         pendingOlderAnchorRef.current = null
         olderLoadAwaitingRenderRef.current = false
+        lastOlderLoadAtRef.current = Date.now()
         loadOlderInFlightRef.current = false
         setLocalOlderLoading(false)
       }
     } catch {
       pendingOlderAnchorRef.current = null
       olderLoadAwaitingRenderRef.current = false
+      lastOlderLoadAtRef.current = Date.now()
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
     }
@@ -272,6 +287,7 @@ export function OpenClawVercelChat({
       }
       lastOlderLoadIntentGenerationRef.current = userScrollIntentGenerationRef.current
       userScrollIntentRef.current = false
+      lastOlderLoadAtRef.current = Date.now()
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
     })
