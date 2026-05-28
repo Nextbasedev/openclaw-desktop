@@ -19,7 +19,7 @@ export function spaceIconEmoji(space: Space): string | null {
 }
 
 export function spaceIconEmojiColor(space: Space): string {
-  return space.iconEmoji?.color || "from-violet-400 to-blue-400"
+  return space.iconEmoji?.color || "from-zinc-950 to-zinc-800"
 }
 
 export function SpaceIconImage({ space, className }: Props) {

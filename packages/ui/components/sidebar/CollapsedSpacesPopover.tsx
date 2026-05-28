@@ -96,7 +96,7 @@ export function CollapsedSpacesPopover({
   const [deleteTarget, setDeleteTarget] = useState<Space | null>(null)
   const [name, setName] = useState("New Project")
   const [iconImage, setIconImage] = useState<SpaceIconImage | null>(null)
-  const [iconEmoji, setIconEmoji] = useState<SpaceIconEmoji>({ emoji: "✨", label: "sparkles", color: "from-violet-400 to-blue-400" })
+  const [iconEmoji, setIconEmoji] = useState<SpaceIconEmoji>({ emoji: "✨", label: "sparkles", color: "from-zinc-950 to-zinc-800" })
   const [iconError, setIconError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -166,7 +166,7 @@ export function CollapsedSpacesPopover({
     setPlusMenu((prev) => ({ ...prev, open: false }))
     setName("New Project")
     setIconImage(null)
-    setIconEmoji({ emoji: "✨", label: "sparkles", color: "from-violet-400 to-blue-400" })
+    setIconEmoji({ emoji: "✨", label: "sparkles", color: "from-zinc-950 to-zinc-800" })
     setIconError(null)
     setCreateOpen(true)
   }
@@ -225,7 +225,7 @@ export function CollapsedSpacesPopover({
     closeContextMenu()
     setRenameTarget(space)
     setName(space.name)
-    setIconEmoji(space.iconEmoji ?? { emoji: "✨", label: "sparkles", color: "from-violet-400 to-blue-400" })
+    setIconEmoji(space.iconEmoji ?? { emoji: "✨", label: "sparkles", color: "from-zinc-950 to-zinc-800" })
     setRenameOpen(true)
   }
 

@@ -189,6 +189,7 @@ export const ALL_PROJECT_EMOJIS = Array.from(
   ).values(),
 )
 export const PROJECT_AVATAR_COLORS = [
+  "from-zinc-950 to-zinc-800",
   "from-violet-400 to-blue-400",
   "from-rose-400 to-orange-300",
   "from-emerald-300 to-cyan-400",
