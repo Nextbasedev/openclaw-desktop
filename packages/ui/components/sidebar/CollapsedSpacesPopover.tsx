@@ -263,10 +263,10 @@ export function CollapsedSpacesPopover({
               onContextMenu={(event) => openContextMenu(event, space)}
               className={cn(
                 "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                "before:absolute before:-left-2 before:top-1/2 before:h-4 before:w-1 before:-translate-y-1/2 before:rounded-full before:bg-white before:opacity-0 before:shadow-[0_0_18px_rgba(255,255,255,0.55)] before:transition-all before:duration-200",
+                "before:absolute before:-right-[10px] before:top-1/2 before:h-5 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-white before:opacity-0 before:shadow-[0_0_14px_rgba(255,255,255,0.45)] before:transition-all before:duration-200",
                 active
-                  ? "scale-[1.04] border-white/55 bg-white/[0.08] shadow-[0_14px_34px_rgba(0,0,0,0.42)] before:opacity-100"
-                  : "border-transparent shadow-[0_10px_24px_rgba(0,0,0,0.30)] hover:scale-[1.04] hover:border-white/20 hover:bg-white/[0.045] hover:shadow-[0_14px_30px_rgba(0,0,0,0.38)]",
+                  ? "scale-[1.03] border-white/45 bg-white/[0.07] shadow-[0_14px_30px_rgba(0,0,0,0.38)] before:opacity-90"
+                  : "border-transparent shadow-[0_10px_24px_rgba(0,0,0,0.28)] hover:scale-[1.035] hover:border-white/18 hover:bg-white/[0.04] hover:shadow-[0_14px_28px_rgba(0,0,0,0.34)]",
               )}
               aria-label={`Open project ${space.name}`}
             >
@@ -276,8 +276,8 @@ export function CollapsedSpacesPopover({
                   "after:pointer-events-none after:absolute after:inset-0 after:bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.22),transparent_36%)] after:opacity-70",
                   !hasCustomIcon && gradientForSpace(space),
                   active
-                    ? "text-white brightness-125 saturate-125 ring-white/25"
-                    : "group-hover:text-white group-hover:brightness-110 group-hover:saturate-125 group-hover:ring-white/18",
+                    ? "text-white brightness-118 saturate-125 ring-white/22"
+                    : "group-hover:text-white group-hover:brightness-108 group-hover:saturate-125 group-hover:ring-white/16",
                 )}
               >
                 {spaceIconSrc(space) ? <SpaceIconImage space={space} /> : spaceInitial(space)}
