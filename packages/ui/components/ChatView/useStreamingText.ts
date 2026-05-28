@@ -44,14 +44,30 @@ function shouldReduceMotion(): boolean {
   )
 }
 
+export function initialStreamingTextState(
+  target: string,
+  streaming?: boolean,
+  mode: "buffered" | "immediate" = "buffered",
+): { displayText: string; isRevealing: boolean } {
+  if (!streaming || mode === "immediate") {
+    return { displayText: target, isRevealing: false }
+  }
+  return { displayText: "", isRevealing: true }
+}
+
 export function useStreamingText(
   target: string,
   streaming?: boolean,
   onRevealComplete?: () => void,
   options?: { mode?: "buffered" | "immediate" },
 ): { displayText: string; isRevealing: boolean } {
-  const [display, setDisplay] = useState(() => (streaming ? "" : target))
-  const [isRevealing, setIsRevealing] = useState(Boolean(streaming))
+  const mode = options?.mode ?? "buffered"
+  const [display, setDisplay] = useState(
+    () => initialStreamingTextState(target, streaming, mode).displayText
+  )
+  const [isRevealing, setIsRevealing] = useState(
+    () => initialStreamingTextState(target, streaming, mode).isRevealing
+  )
   const rafRef = useRef<number | null>(null)
   const revealTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastFrameAtRef = useRef(0)
@@ -59,7 +75,6 @@ export function useStreamingText(
   const targetRef = useRef(target)
   const revealActiveRef = useRef(Boolean(streaming))
   const completeRef = useRef(onRevealComplete)
-  const mode = options?.mode ?? "buffered"
 
   useEffect(() => {
     completeRef.current = onRevealComplete
@@ -101,15 +116,9 @@ export function useStreamingText(
       stopAnimation()
       const changed = target !== displayRef.current
       displayRef.current = target
-      revealActiveRef.current = Boolean(canAnimate && changed)
-      commitState(target, Boolean(canAnimate && changed))
-      if (canAnimate && changed) {
-        revealTimeoutRef.current = setTimeout(() => {
-          revealActiveRef.current = false
-          setIsRevealing(false)
-          completeRef.current?.()
-        }, 180)
-      }
+      revealActiveRef.current = false
+      commitState(target, false)
+      if (streaming && changed) completeRef.current?.()
       return () => {
         cancelled = true
         stopAnimation()

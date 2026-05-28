@@ -562,7 +562,8 @@ export const MessageBubble = memo(function MessageBubble({
   } = useStreamingText(
     assistantErrorText,
     isAssistantError && Boolean(isActivelyStreaming),
-    () => onTextAnimationComplete?.(message.messageId)
+    () => onTextAnimationComplete?.(message.messageId),
+    { mode: "immediate" }
   )
   const shouldAnimateSend = isUser && message.isOptimistic
   const hideAssistantActions =
