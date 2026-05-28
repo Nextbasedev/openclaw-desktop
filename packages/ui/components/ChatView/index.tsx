@@ -1258,7 +1258,11 @@ export function ChatView({
       if (!olderLoadCooldownTimerRef.current) {
         olderLoadCooldownTimerRef.current = setTimeout(() => {
           olderLoadCooldownTimerRef.current = null
-          if (!userScrollIntentRef.current) return
+          // This timer is only armed after a real threshold-crossing scroll
+          // tried to load older history during the settle cooldown. Do not
+          // require userScrollIntentRef here: anchor settling intentionally
+          // clears it, which otherwise drops the queued step and makes older
+          // history stop until the user scrolls again.
           void loadOlderWithoutJump()
         }, remainingMs)
       }
