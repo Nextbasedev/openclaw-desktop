@@ -49,7 +49,6 @@ import { extractText } from "@/components/ChatView/utils"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
-  cleanUserMessageText,
   deduplicateRawMessages,
   extractReplyBlock,
   isTransientSlashCommandHistory,
@@ -68,6 +67,22 @@ import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity, type SessionState } from "@/lib/chat-engine-v2/store"
 import { getTimelineStore, deleteTimelineStore } from "@/lib/chat-engine-v2/timelineStore"
+import {
+  isActiveRunStatus,
+  isAuthoritativeKnownEmptyGlobal,
+  isKnownEmptyBootstrap,
+  normalizeStatusLabelForStatus,
+  selectInitialChatSnapshot,
+  streamStatusFromCanonicalRun,
+} from "@/lib/chat-runtime-v2/initialSnapshot"
+import {
+  shouldPreserveActiveReconcile,
+} from "@/lib/chat-runtime-v2/reconcile"
+
+export {
+  mergeOptimisticMessagesWithCanonical,
+  shouldPreserveActiveReconcile,
+} from "@/lib/chat-runtime-v2/reconcile"
 import { isStopSlashCommand } from "@/lib/controlSlashCommands"
 import { setSchedulerActiveSession, abortSessionRequests } from "@/lib/requestScheduler"
 import {
@@ -162,63 +177,6 @@ function duplicateUserTextDiagnostics(messages: ChatMessage[]) {
     })
   }
   return duplicates
-}
-
-function hasAssistantAnswerAfterLatestUserMessage(messages: ChatMessage[]) {
-  let latestUserIndex = -1
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role === "user") {
-      latestUserIndex = i
-      break
-    }
-  }
-  if (latestUserIndex < 0) {
-    return messages.some(
-      (message) => message.role === "assistant" && message.text.trim().length > 0
-    )
-  }
-  for (let i = latestUserIndex + 1; i < messages.length; i++) {
-    const message = messages[i]
-    if (message?.role === "assistant" && message.text.trim().length > 0) return true
-  }
-  return false
-}
-
-export function mergeOptimisticMessagesWithCanonical(
-  canonicalMessages: ChatMessage[],
-  optimisticSource: ChatMessage[] | null | undefined
-) {
-  if (!optimisticSource?.length) return canonicalMessages
-  const keptOptimistic = optimisticSource.filter(
-    (message) =>
-      message.isOptimistic &&
-      !canonicalMessages.some(
-        (canonical) =>
-          canonical.messageId === message.messageId ||
-          (message.role === "user" && canonical.role === "user" && sameUserMessage(canonical, message))
-      )
-  )
-  return keptOptimistic.length
-    ? dedupeChatMessages([...canonicalMessages, ...keptOptimistic])
-    : canonicalMessages
-}
-
-export function shouldPreserveActiveReconcile(params: {
-  currentStatus: StreamStatus | null | undefined
-  nextStatus: StreamStatus | null | undefined
-  candidateMessages: ChatMessage[]
-  runningToolCount: number
-  currentMessageCount?: number
-  freshMessageCount?: number
-}) {
-  if (!isActiveRunStatus(params.currentStatus)) return false
-  if (
-    typeof params.currentMessageCount === "number" &&
-    typeof params.freshMessageCount === "number" &&
-    params.freshMessageCount < params.currentMessageCount
-  ) return true
-  if ((params.nextStatus === "idle" || params.nextStatus === "done") && params.runningToolCount > 0) return true
-  return !hasAssistantAnswerAfterLatestUserMessage(params.candidateMessages)
 }
 
 function stableRawMessageId(raw: RawMessage): string {
@@ -366,29 +324,6 @@ async function fetchChatBranchData(sessionKey: string) {
   ).catch(() => ({ branches: [] }))
 }
 
-function isKnownEmptyBootstrap(data: ChatBootstrapData | null | undefined) {
-  if (!data) return false
-  const hasMessages = Boolean(data.messages?.length || data.history?.messages?.length)
-  if (hasMessages) return false
-  if (data.historyCoverage && data.historyCoverage !== "full") return false
-  return data.messageCount === 0 && (
-    data.fullMessagesIncluded === true ||
-    data.historyCoverage === "full" ||
-    Boolean(data.source) ||
-    Boolean(data.projectionVersion)
-  )
-}
-
-function isAuthoritativeKnownEmptyGlobal(state: SessionState | null | undefined) {
-  return Boolean(
-    state &&
-    state.historyCoverage === "full" &&
-    state.messages.length === 0 &&
-    state.messageCount === 0 &&
-    typeof state.cursor === "number"
-  )
-}
-
 async function fetchStableChatBootstrap(
   sessionKey: string
 ): Promise<ChatBootstrapData> {
@@ -419,31 +354,6 @@ async function reconcileChatHistory(
   const parsed = parseChatHistory((history.messages as RawMessage[]) || [])
   void status
   return hydrateCachedAttachments(sessionKey, parsed.messages)
-}
-
-function isActiveRunStatus(status: StreamStatus | null | undefined) {
-  return Boolean(
-    status && !["idle", "connected", "done", "error"].includes(status)
-  )
-}
-
-function normalizeStatusLabelForStatus(status: StreamStatus | null | undefined, label: string | null | undefined) {
-  if (status === "error") return label ?? null
-  return isActiveRunStatus(status) ? (label ?? null) : null
-}
-
-function streamStatusFromCanonicalRun(status: RunStatusV2 | string | null | undefined): StreamStatus {
-  if (status === "aborted") return "error"
-  if (
-    status === "idle" ||
-    status === "queued" ||
-    status === "thinking" ||
-    status === "tool_running" ||
-    status === "streaming" ||
-    status === "done" ||
-    status === "error"
-  ) return status
-  return "idle"
 }
 
 function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | null {
@@ -584,19 +494,14 @@ export function useChatMessages(
   const initialSyncWarmCache = !hasInitial && !initialGlobalMessages && !initialCachedBootstrap
     ? getWarmChatCacheSync(sessionKey)
     : null
-  const initialWarmMessages = hasInitial
-    ? initialMessages
-    : initialGlobalMessages ?? warmBootstrapMessages(undefined, initialCachedBootstrap) ?? (initialSyncWarmCache?.entry?.messages?.length ? dedupeChatMessages(initialSyncWarmCache.entry.messages) : undefined)
-  const initialKnownEmpty = !hasInitial && !initialWarmMessages && (
-    isAuthoritativeKnownEmptyGlobal(initialGlobalSession) || isKnownEmptyBootstrap(initialCachedBootstrap)
-  )
-  const initialWarmStatus = initialGlobalSession?.status ?? (
-    initialCachedBootstrap?.runStatus
-      ? streamStatusFromCanonicalRun(initialCachedBootstrap.runStatus)
-      : initialSyncWarmCache?.entry?.runStatus
-        ? streamStatusFromCanonicalRun(initialSyncWarmCache.entry.runStatus)
-        : "idle"
-  )
+  const initialSnapshot = selectInitialChatSnapshot({
+    initialMessages,
+    globalSession: initialGlobalSession,
+    cachedBootstrap: initialCachedBootstrap,
+    syncWarmCache: initialSyncWarmCache,
+  })
+  const initialWarmMessages = initialSnapshot.messages
+  const initialWarmStatus = initialSnapshot.status
   const instanceIdRef = useRef(randomId())
   const viewGenerationRef = useRef(0)
   const windowIdRef = useRef<string | null>(null)
@@ -611,21 +516,19 @@ export function useChatMessages(
     timelineStoreRef.current.applyWarmCache(initialWarmMessages, initialGlobalSession?.cursor ?? 0)
   }
   const [messages, setLocalMessages] = useState<ChatMessage[]>(
-    () => initialWarmMessages ? dedupeChatMessages(initialWarmMessages) : []
+    () => initialWarmMessages ?? []
   )
   const [messageSessionKey, setMessageSessionKey] = useState(sessionKey)
   const [status, setLocalStatus] = useState<StreamStatus>(
     () => hasInitial ? "thinking" : initialWarmStatus
   )
   const [statusLabel, setStatusLabel] = useState<string | null>(
-    () => normalizeStatusLabelForStatus(initialWarmStatus, initialGlobalSession?.statusLabel ?? initialCachedBootstrap?.statusLabel)
+    () => initialSnapshot.statusLabel
   )
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages && !initialKnownEmpty && !initialGlobalMessages)
-  const [dataSource, setDataSource] = useState<"fresh" | "warm-cache" | "syncing" | "loading">(initialWarmMessages ? "warm-cache" : "loading")
-  const [historyLoadVersion, setHistoryLoadVersion] = useState(() =>
-    initialWarmMessages?.length || initialKnownEmpty ? 1 : 0
-  )
+  const [loading, setLoading] = useState(initialSnapshot.loading)
+  const [dataSource, setDataSource] = useState<"fresh" | "warm-cache" | "syncing" | "loading">(initialSnapshot.dataSource)
+  const [historyLoadVersion, setHistoryLoadVersion] = useState(() => initialSnapshot.historyLoadVersion)
   const markHistoryLoaded = useCallback(() => {
     setHistoryLoadVersion((value) => value + 1)
   }, [])
