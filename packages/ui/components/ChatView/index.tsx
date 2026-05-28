@@ -1403,11 +1403,6 @@ export function ChatView({
     return Array.from(merged.values())
   }, [isGenerating, latestRenderedUserIndex, pendingTools, renderedMessages])
 
-  const livePendingToolIds = useMemo(
-    () => new Set(pendingTools.map((tool) => tool.id)),
-    [pendingTools]
-  )
-
   const spawnsByToolCallId = useMemo(() => {
     const map = new Map<string, SpawnedSubagent>()
     for (const sub of spawnedSubagents) {
@@ -1540,11 +1535,10 @@ export function ChatView({
         msg.role === "assistant" &&
         (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
       const filteredPending = toolCallsWithoutSpawn(activeTurnToolCalls).filter((t) => {
-        // Always show running or awaiting-approval tools
-        if (t.status === "running" || t.awaitingResult) return true
-        // Keep completed tools that are NOT yet in any message's toolCalls
-        // (orphan tools waiting to be attached). Hide completed tools that
-        // are already represented in message history to prevent duplicates.
+        // During a live turn, keep the active tool stack stable under the user
+        // message: completed tools stay in the same stack while the next tool
+        // starts, instead of jumping into separate assistant tool blocks.
+        if (isGenerating) return true
         const isInMessageHistory = renderedMessages.some(
           (m) => m.role === "assistant" && m.toolCalls?.some((tc) => tc.id === t.id)
         )
@@ -1556,7 +1550,7 @@ export function ChatView({
           : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
       const activeTurnAssistantToolCalls =
         isGenerating && msg.role === "assistant" && index > latestRenderedUserIndex
-          ? messageToolCalls.filter((tool) => !livePendingToolIds.has(tool.id))
+          ? []
           : messageToolCalls
       const shouldFinalizeDisplayedTools =
         msg.role === "assistant" &&
@@ -1687,7 +1681,6 @@ export function ChatView({
       lastEditableUserId,
       lastTwoAssistantIds,
       latestRenderedUserIndex,
-      livePendingToolIds,
       markTextAnimationComplete,
       messageActionState.pinnedIds,
       messageActionState.reactions,
