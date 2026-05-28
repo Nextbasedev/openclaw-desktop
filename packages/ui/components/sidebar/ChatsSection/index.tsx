@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence, Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { useChatsData } from "@/hooks/useChatsData"
@@ -58,31 +58,21 @@ export function ChatsSection({
     () => new Map(chats.map((chat) => [chat.id, chat])),
     [chats],
   )
-  const effectiveVisibleChatLimit = Math.min(
-    visibleChatLimit,
-    sortedChatIds.length,
-  )
-  const topChatIds = sortedChatIds.slice(0, CHAT_INITIAL_LIMIT)
   const topChatIdSet = useMemo(
     () => new Set(sortedChatIds.slice(0, CHAT_INITIAL_LIMIT)),
     [sortedChatIds],
   )
-  const visibleExtraChatIds = expandedChatIds.filter(
-    (id) => sortedChatIds.includes(id) && !topChatIdSet.has(id),
+  const visibleExtraChatIds = useMemo(
+    () => expandedChatIds
+      .filter((id) => sortedChatIds.includes(id) && !topChatIdSet.has(id))
+      .slice(0, Math.max(0, visibleChatLimit - CHAT_INITIAL_LIMIT)),
+    [expandedChatIds, sortedChatIds, topChatIdSet, visibleChatLimit],
   )
   const hiddenExtraChatIds = sortedChatIds
     .slice(CHAT_INITIAL_LIMIT)
-    .filter((id) => !expandedChatIds.includes(id))
+    .filter((id) => !visibleExtraChatIds.includes(id))
   const hasMoreChats = hiddenExtraChatIds.length > 0
   const hasExpandedChats = visibleExtraChatIds.length > 0
-
-  useEffect(() => {
-    setExpandedChatIds((prev) =>
-      prev
-        .filter((id) => sortedChatIds.includes(id) && !topChatIdSet.has(id))
-        .slice(0, Math.max(0, visibleChatLimit - CHAT_INITIAL_LIMIT)),
-    )
-  }, [sortedChatIds, topChatIdSet, visibleChatLimit])
 
   const handleShowMoreChats = () => {
     if (closeTimerRef.current !== null) {
@@ -92,10 +82,13 @@ export function ChatsSection({
 
     setExtraChatsOpen(true)
     setExpandedChatIds((current) => {
-      const currentSet = new Set(current)
-      const next = [...current]
+      const currentVisible = current.filter(
+        (id) => sortedChatIds.includes(id) && !topChatIdSet.has(id),
+      )
+      const currentSet = new Set(currentVisible)
+      const next = [...currentVisible]
       for (const id of hiddenExtraChatIds) {
-        if (next.length >= current.length + CHAT_LOAD_STEP) break
+        if (next.length >= currentVisible.length + CHAT_LOAD_STEP) break
         if (!currentSet.has(id)) next.push(id)
       }
       setVisibleChatLimit(CHAT_INITIAL_LIMIT + next.length)
