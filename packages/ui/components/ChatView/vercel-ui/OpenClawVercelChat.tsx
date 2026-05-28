@@ -60,50 +60,25 @@ function restoreVercelScrollAnchor(container: HTMLElement | null, anchor: Vercel
 function settleVercelScrollAnchor(container: HTMLElement | null, anchor: VercelScrollAnchor | null, done: () => void) {
   let finished = false
   let frame: number | null = null
-  let resizeObserver: ResizeObserver | null = null
-  let mutationObserver: MutationObserver | null = null
 
   const restore = () => {
     if (finished) return
     restoreVercelScrollAnchor(container, anchor)
   }
-  const scheduleRestore = () => {
-    if (finished || frame !== null) return
-    frame = requestAnimationFrame(() => {
-      frame = null
-      restore()
-    })
-  }
   const finish = () => {
     if (finished) return
     finished = true
     if (frame !== null) cancelAnimationFrame(frame)
-    resizeObserver?.disconnect()
-    mutationObserver?.disconnect()
     restoreVercelScrollAnchor(container, anchor)
     done()
   }
 
-  if (container && typeof ResizeObserver !== "undefined") {
-    resizeObserver = new ResizeObserver(scheduleRestore)
-    resizeObserver.observe(container)
-  }
-  if (container && typeof MutationObserver !== "undefined") {
-    mutationObserver = new MutationObserver(scheduleRestore)
-    mutationObserver.observe(container, { childList: true, subtree: true, characterData: true })
-  }
-
   restore()
-  requestAnimationFrame(() => {
+  frame = requestAnimationFrame(() => {
+    frame = null
     restore()
-    requestAnimationFrame(restore)
   })
-  window.setTimeout(restore, 80)
-  window.setTimeout(restore, 220)
-  window.setTimeout(restore, 520)
-  window.setTimeout(restore, 900)
-  window.setTimeout(restore, 1400)
-  window.setTimeout(finish, 1800)
+  window.setTimeout(finish, 120)
 }
 
 type Props = {
@@ -278,6 +253,8 @@ export function OpenClawVercelChat({
     pendingOlderAnchorRef.current = null
     olderLoadAwaitingRenderRef.current = false
     settleVercelScrollAnchor(containerRef.current, anchor, () => {
+      const container = containerRef.current
+      if (container) previousScrollTopRef.current = container.scrollTop
       userScrollIntentRef.current = false
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
@@ -332,19 +309,6 @@ export function OpenClawVercelChat({
 
       <div ref={containerRef} className="absolute inset-0 touch-pan-y overflow-y-auto overscroll-contain bg-background [overflow-anchor:none]">
         <div className="mx-auto flex min-h-full min-w-0 max-w-4xl flex-col gap-5 px-2 py-6 md:gap-7 md:px-4">
-          {hasOlderMessages && (
-            <div className="flex justify-center py-1">
-              <button
-                type="button"
-                onClick={() => void loadOlderWithoutJump()}
-                disabled={isOlderLoading}
-                className="rounded-full border border-border/50 bg-card px-3 py-1 text-xs text-muted-foreground disabled:opacity-60"
-              >
-                {isOlderLoading ? "Loading 240 earlier messages…" : "Load 240 earlier messages"}
-              </button>
-            </div>
-          )}
-
           {stableMessages.map((message) => (
             <VercelMessage
               key={message.uiId}

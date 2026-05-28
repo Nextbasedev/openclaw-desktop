@@ -151,50 +151,25 @@ function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: Messa
 function settleMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null, done: () => void) {
   let finished = false
   let frame: number | null = null
-  let resizeObserver: ResizeObserver | null = null
-  let mutationObserver: MutationObserver | null = null
 
   const restore = () => {
     if (finished) return
     restoreMessageScrollAnchor(container, anchor)
   }
-  const scheduleRestore = () => {
-    if (finished || frame !== null) return
-    frame = requestAnimationFrame(() => {
-      frame = null
-      restore()
-    })
-  }
   const finish = () => {
     if (finished) return
     finished = true
     if (frame !== null) cancelAnimationFrame(frame)
-    resizeObserver?.disconnect()
-    mutationObserver?.disconnect()
     restoreMessageScrollAnchor(container, anchor)
     done()
   }
 
-  if (container && typeof ResizeObserver !== "undefined") {
-    resizeObserver = new ResizeObserver(scheduleRestore)
-    resizeObserver.observe(container)
-  }
-  if (container && typeof MutationObserver !== "undefined") {
-    mutationObserver = new MutationObserver(scheduleRestore)
-    mutationObserver.observe(container, { childList: true, subtree: true, characterData: true })
-  }
-
   restore()
-  requestAnimationFrame(() => {
+  frame = requestAnimationFrame(() => {
+    frame = null
     restore()
-    requestAnimationFrame(restore)
   })
-  window.setTimeout(restore, 80)
-  window.setTimeout(restore, 220)
-  window.setTimeout(restore, 520)
-  window.setTimeout(restore, 900)
-  window.setTimeout(restore, 1400)
-  window.setTimeout(finish, 1800)
+  window.setTimeout(finish, 120)
 }
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
 
@@ -1176,6 +1151,8 @@ export function ChatView({
     pendingOlderAnchorRef.current = null
     olderLoadAwaitingRenderRef.current = false
     settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
+      const el = scrollContainerRef.current
+      if (el) previousScrollTopRef.current = el.scrollTop
       userScrollIntentRef.current = false
       loadOlderClickInFlightRef.current = false
       setLoadOlderUiBusy(false)
@@ -1963,20 +1940,7 @@ export function ChatView({
         className="flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
       >
         <div className="min-h-full">
-          <div className="mx-auto max-w-3xl px-4 pt-8">
-            {hasOlderMessages && (
-              <div className="mb-4 flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => void loadOlderWithoutJump()}
-                  disabled={loadingOlderMessages || loadOlderUiBusy}
-                  className="rounded-full border border-border/50 bg-card px-3 py-1 text-xs text-muted-foreground disabled:opacity-60"
-                >
-                  {loadingOlderMessages || loadOlderUiBusy ? "Loading 240 earlier messages…" : "Load 240 earlier messages"}
-                </button>
-              </div>
-            )}
-          </div>
+          <div className="mx-auto max-w-3xl px-4 pt-8" />
           {renderedMessages.map((msg, index) => (
             <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
           ))}
