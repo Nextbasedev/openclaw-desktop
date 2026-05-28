@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { useRef, type ChangeEvent, type RefObject } from "react"
-import { LuFolder, LuImagePlus, LuMessagesSquare, LuPlus, LuSparkles, LuX } from "react-icons/lu"
+import { LuImagePlus, LuPlus, LuSparkles } from "react-icons/lu"
 import type { Space } from "@/types/space"
 
 type SpaceIconImage = NonNullable<Space["iconImage"]>
@@ -118,9 +118,15 @@ export function CreateSpaceDialog({
             </div>
           </DialogHeader>
 
-          <div className="mt-5 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-            <div className="flex items-center gap-3">
-              <div className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-cyan-300 via-violet-400 to-rose-400 text-lg font-semibold text-white shadow-[0_16px_34px_-20px_rgba(0,0,0,0.85)]">
+          <div className="mt-5 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+            <div className="flex items-start gap-3">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={busy}
+                className="group relative flex size-14 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-cyan-300 via-violet-400 to-rose-400 text-lg font-semibold text-white shadow-[0_16px_34px_-20px_rgba(0,0,0,0.85)] transition-transform hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Choose project image"
+              >
                 {previewSrc ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={previewSrc} alt="Project image preview" className="size-full object-cover" />
@@ -130,10 +136,29 @@ export function CreateSpaceDialog({
                     <span className="relative">{previewInitial}</span>
                   </>
                 )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-foreground">{previewName}</p>
-                <p className="mt-0.5 text-[11.5px] text-muted-foreground">Appears in the project rail with its own chats and context.</p>
+                <span className="absolute -bottom-0.5 -right-0.5 flex size-6 items-center justify-center rounded-lg border border-white/10 bg-[var(--glass-bg)] text-foreground shadow-lg backdrop-blur-2xl">
+                  <LuPlus size={14} strokeWidth={2.2} />
+                </span>
+              </button>
+              <div className="min-w-0 flex-1 space-y-2">
+                <div>
+                  <p className="truncate text-sm font-semibold text-foreground">{previewName}</p>
+                  <p className="mt-0.5 text-[11.5px] text-muted-foreground">Appears in the project rail with separated chats and context.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[12px] font-medium text-muted-foreground" htmlFor="space-name-input">
+                    Project name
+                  </label>
+                  <input
+                    id="space-name-input"
+                    ref={inputRef}
+                    value={name}
+                    onChange={(e) => onNameChange(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && void onSubmit()}
+                    placeholder="e.g. Desktop task B"
+                    className="h-10 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-sm outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-colors placeholder:text-muted-foreground/60 focus:border-ring/40 focus:ring-2 focus:ring-ring/30"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -146,83 +171,11 @@ export function CreateSpaceDialog({
             onChange={handleIconChange}
           />
 
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={busy}
-            className={cn(
-              "mt-4 flex min-h-24 w-full cursor-pointer items-center justify-center gap-3 rounded-2xl border border-dashed border-white/10 bg-white/[0.025] px-5 py-4 text-left transition-colors",
-              "shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] hover:border-white/18 hover:bg-white/[0.04]",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
-              previewSrc && "border-solid border-white/16 bg-white/[0.035]",
-            )}
-            aria-label="Upload project image"
-          >
-            <span className="relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] shadow-[0_14px_32px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.08)]">
-              {previewSrc ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={previewSrc} alt="Project image preview" className="size-full object-cover" />
-              ) : (
-                <LuImagePlus size={24} strokeWidth={1.7} className="text-muted-foreground" />
-              )}
-              <span
-                role={previewSrc ? "button" : undefined}
-                tabIndex={previewSrc ? 0 : undefined}
-                onClick={(event) => {
-                  if (!previewSrc) return
-                  event.stopPropagation()
-                  onIconImageChange(null)
-                }}
-                onKeyDown={(event) => {
-                  if (!previewSrc || (event.key !== "Enter" && event.key !== " ")) return
-                  event.preventDefault()
-                  event.stopPropagation()
-                  onIconImageChange(null)
-                }}
-                className="absolute -bottom-0.5 -right-0.5 flex size-7 items-center justify-center rounded-xl border border-white/10 bg-[var(--glass-bg)] text-foreground shadow-lg backdrop-blur-2xl"
-                aria-label={previewSrc ? "Remove project image" : undefined}
-              >
-                {previewSrc ? <LuX size={16} strokeWidth={2.2} /> : <LuPlus size={17} strokeWidth={2.2} />}
-              </span>
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[13px] font-medium text-foreground">Project image optional</span>
-              <span className="mt-1 block text-xs text-muted-foreground">PNG, SVG, JPE, JPG, or JPEG up to 10 MB</span>
-            </span>
-          </button>
-
-          <div className="mt-4 space-y-2">
-            <label className="text-[13px] font-medium text-muted-foreground" htmlFor="space-name-input">
-              Project name
-            </label>
-            <input
-              id="space-name-input"
-              ref={inputRef}
-              value={name}
-              onChange={(e) => onNameChange(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && void onSubmit()}
-              placeholder="e.g. Desktop task B"
-              className="h-11 w-full rounded-xl border border-white/10 bg-white/[0.035] px-3 text-sm outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-colors placeholder:text-muted-foreground/60 focus:border-ring/40 focus:ring-2 focus:ring-ring/30"
-            />
-            {iconError ? <p className="text-xs text-destructive">{iconError}</p> : null}
+          <div className="mt-3 flex items-center gap-2 rounded-xl border border-white/[0.06] bg-black/[0.03] px-3 py-2 text-[11.5px] text-muted-foreground">
+            <LuImagePlus size={13} />
+            <span>Click the avatar to add an optional PNG, SVG, JPE, JPG, or JPEG image.</span>
           </div>
-
-          <div className="mt-4 grid gap-2 rounded-2xl border border-white/[0.07] bg-black/[0.035] p-3">
-            <div className="flex items-start gap-2.5">
-              <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-muted-foreground"><LuFolder size={14} /></span>
-              <div>
-                <p className="text-xs font-medium text-foreground">Separated workspace</p>
-                <p className="text-[11.5px] text-muted-foreground">Keeps chats, repo context, and settings grouped together.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2.5">
-              <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-muted-foreground"><LuMessagesSquare size={14} /></span>
-              <div>
-                <p className="text-xs font-medium text-foreground">Ready for conversations</p>
-                <p className="text-[11.5px] text-muted-foreground">You can add chats and topics after creating it.</p>
-              </div>
-            </div>
-          </div>
+          {iconError ? <p className="mt-2 text-xs text-destructive">{iconError}</p> : null}
         </div>
 
         <DialogFooter className="border-t border-white/[0.06] bg-white/[0.015] px-6 py-4">
