@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useRef, memo } from "react"
+import { useState, memo } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight, VscError } from "react-icons/vsc"
 import { LuLoader, LuShieldCheck, LuTerminal } from "react-icons/lu"
 import { ToolCallDetails, getToolDetailState } from "./ToolCallDetails"
 import type { InlineToolCall } from "./types"
+import { formatToolSummary, summarizeTools } from "./chatRowMetadata"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
@@ -222,20 +223,13 @@ export const ToolCallSteps = memo(function ToolCallSteps({
 }) {
   const total = tools.length
   const [open, setOpen] = useState(defaultOpen && total <= 1)
-  const userToggledGroupRef = useRef(false)
+  const [userToggledGroup, setUserToggledGroup] = useState(false)
   // Multi-tool runs can stream many rows in quick succession. Keeping the whole
   // group expanded while tools arrive creates large height churn in the chat
   // viewport, so only auto-open single-tool groups. If the user explicitly
   // expands a multi-tool group, preserve that choice.
-  const groupOpen = total > 1 && !userToggledGroupRef.current ? false : open
-  // If defaultOpen changes from false→true (e.g. bootstrap update), open it
-  // But never auto-close if it was already open
-  const prevDefaultOpenRef = useRef(defaultOpen)
-  if (defaultOpen && !prevDefaultOpenRef.current && total <= 1) {
-    // Parent now says this should be open — respect it
-    if (!open) setOpen(true)
-  }
-  prevDefaultOpenRef.current = defaultOpen
+  const groupOpen = total > 1 && !userToggledGroup ? false : open
+
   const [openToolId, setOpenToolId] = useState<string | null>(null)
 
   function handleToolOpenChange(id: string, nextOpen: boolean) {
@@ -245,6 +239,9 @@ export const ToolCallSteps = memo(function ToolCallSteps({
 
   const rest = total - 1
   const collapsedTop = tools[tools.length - 1]
+  const summary = summarizeTools(tools)
+  const summaryText = formatToolSummary(summary)
+  const urgentTool = summary.urgentTool
 
   if (!collapsedTop) return null
 
@@ -289,7 +286,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
         type="button"
         onClick={() => {
           onInteract?.()
-          userToggledGroupRef.current = true
+          setUserToggledGroup(true)
           setOpen((p) => !p)
         }}
         className={cn(
@@ -304,7 +301,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
         )}
         <span className="text-[12px] font-medium">Steps</span>
         <span className="text-[11px] text-muted-foreground/40">
-          {total} tool{total !== 1 ? "s" : ""} used
+          {summaryText}
         </span>
       </button>
 
@@ -336,7 +333,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
                 type="button"
                 onClick={() => {
                   onInteract?.()
-                  userToggledGroupRef.current = true
+                  setUserToggledGroup(true)
                   setOpen(false)
                 }}
                 className={cn(
@@ -356,14 +353,17 @@ export const ToolCallSteps = memo(function ToolCallSteps({
             className="relative cursor-pointer"
             onClick={() => {
               onInteract?.()
-              userToggledGroupRef.current = true
+              setUserToggledGroup(true)
               setOpen(true)
             }}
           >
             <div className="relative z-10 flex items-center gap-2.5 rounded-lg bg-card px-2.5 py-[6px]">
               <ToolIcon status={collapsedTop.status} />
               <span className="flex-1 truncate text-[12px] text-foreground/60">
-                {collapsedTop.tool}
+                {urgentTool?.tool ?? collapsedTop.tool}
+              </span>
+              <span className="hidden text-[10px] text-muted-foreground/40 sm:inline">
+                {summaryText}
               </span>
               {collapsedTop.approval && (
                 <span className="rounded-full bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300/90">
