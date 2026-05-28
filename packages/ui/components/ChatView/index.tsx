@@ -1548,6 +1548,14 @@ export function ChatView({
         msg.role === "assistant" && suppressedToolCallMessages.has(msg.messageId)
           ? []
           : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
+      const suppressLiveToolOnlyAssistantRow =
+        isGenerating &&
+        msg.role === "assistant" &&
+        index > latestRenderedUserIndex &&
+        !msg.text.trim() &&
+        !msg.reasoningText &&
+        messageToolCalls.length > 0
+      if (suppressLiveToolOnlyAssistantRow) return null
       const activeTurnAssistantToolCalls =
         isGenerating && msg.role === "assistant" && index > latestRenderedUserIndex
           ? []
@@ -1943,7 +1951,7 @@ export function ChatView({
           {renderedMessages.map((msg, index) => (
             <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
           ))}
-          <div className="mx-auto max-w-[44rem] px-4 py-3 pb-8">
+          <div className="mx-auto max-w-[44rem] px-4 pt-1 pb-8">
             <AnimatePresence initial={false}>
               {editPreview && (
                 <EditPreviewPanel
