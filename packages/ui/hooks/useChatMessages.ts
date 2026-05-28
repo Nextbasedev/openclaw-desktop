@@ -249,7 +249,7 @@ const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
 const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 160
-const CHAT_OLDER_PAGE_LIMIT = 80
+const CHAT_OLDER_PAGE_LIMIT = 400
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }

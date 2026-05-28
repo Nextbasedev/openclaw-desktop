@@ -72,6 +72,7 @@ import {
 } from "@/components/ui/tooltip"
 
 const AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX = 240
+const AUTO_LOAD_OLDER_SCROLL_PROGRESS = 0.6
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 
 type StatusIconMeta = {
@@ -799,6 +800,7 @@ export function ChatView({
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
   const isAtBottomRef = useRef(true)
+  const autoLoadOlderInFlightRef = useRef(false)
   const needsInitialScrollRef = useRef(true)
   // Reset mount timestamp on session change
   useEffect(() => {
@@ -980,6 +982,26 @@ export function ChatView({
     [sessionKey, messageActionState.reactions]
   )
 
+  const shouldAutoLoadOlderMessages = useCallback((el: HTMLDivElement) => {
+    const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
+    if (maxScrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX) {
+      return el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
+    }
+    return el.scrollTop / maxScrollTop <= AUTO_LOAD_OLDER_SCROLL_PROGRESS
+  }, [])
+
+  const requestOlderMessages = useCallback(async () => {
+    if (autoLoadOlderInFlightRef.current || loadingOlderMessages || !hasOlderMessages) return
+    autoLoadOlderInFlightRef.current = true
+    try {
+      await loadOlderMessages()
+    } finally {
+      window.setTimeout(() => {
+        autoLoadOlderInFlightRef.current = false
+      }, 250)
+    }
+  }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages])
+
   const handleScroll = useCallback(() => {
     onScroll()
     const el = scrollContainerRef.current
@@ -992,19 +1014,20 @@ export function ChatView({
         hasOlderMessages &&
         !loadingOlderMessages &&
         userScrollIntentRef.current &&
-        el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
+        shouldAutoLoadOlderMessages(el)
       ) {
-        void loadOlderMessages()
+        void requestOlderMessages()
       }
     }
     if (activePopoverId) setActivePopoverId(null)
   }, [
     activePopoverId,
     hasOlderMessages,
-    loadOlderMessages,
     loadingOlderMessages,
     onScroll,
+    requestOlderMessages,
     scrollContainerRef,
+    shouldAutoLoadOlderMessages,
   ])
 
   const jumpToLatestMessage = useCallback(() => {
@@ -1028,21 +1051,22 @@ export function ChatView({
       hasOlderMessages &&
       !loadingOlderMessages &&
       userScrollIntentRef.current &&
-      el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX &&
+      shouldAutoLoadOlderMessages(el) &&
       el.scrollHeight <= el.clientHeight + AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
     ) {
-      void loadOlderMessages()
+      void requestOlderMessages()
     }
   }, [
     hasOlderMessages,
     isGenerating,
-    loadOlderMessages,
     loadingOlderMessages,
+    requestOlderMessages,
     pendingTools,
     renderedMessages,
     scrollContainerRef,
     status,
     statusLabel,
+    shouldAutoLoadOlderMessages,
     syncJumpToBottomVisibility,
   ])
 
@@ -1735,11 +1759,6 @@ export function ChatView({
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8">
-            {loadingOlderMessages && (
-              <div className="mb-4 flex justify-center text-xs text-muted-foreground">
-                Loading earlier messages…
-              </div>
-            )}
           </div>
           {renderedMessages.map((msg, index) => (
             <div key={msg.messageId}>{renderMessageRow(index, msg)}</div>
