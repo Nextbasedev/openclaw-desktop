@@ -1,12 +1,14 @@
 "use client"
 
 import * as React from "react"
+import { AnimatePresence, motion } from "framer-motion"
 import { toast } from "react-toastify"
 import { invoke, openExternalUrl } from "@/lib/ipc"
 import { emit } from "@/lib/events"
 import { invalidateMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { getMiddlewareConnection, isOpenClawConnected, testMiddlewareConnection } from "@/lib/middleware-client"
-import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert } from "react-icons/lu"
+import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert, LuChevronDown } from "react-icons/lu"
+import { KeyboardShortcutsList } from "./KeyboardShortcutsTab"
 
 type HelpLink = {
   label: string
@@ -128,9 +130,12 @@ type V1SqliteMigrationImport = {
 }
 
 export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) {
+  const [shortcutsOpen, setShortcutsOpen] = React.useState(false)
+
   function handleClick(link: HelpLink) {
-    if (link.label === "Keyboard Shortcuts" && onShortcutsClick) {
-      onShortcutsClick()
+    if (link.label === "Keyboard Shortcuts") {
+      if (onShortcutsClick) onShortcutsClick()
+      setShortcutsOpen((open) => !open)
       return
     }
     if (link.url === "#") return
@@ -152,26 +157,54 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
         {links.map((link, idx) => {
           const Icon = link.icon
           const isExternal = link.url.startsWith("http")
+          const isShortcuts = link.label === "Keyboard Shortcuts"
           return (
-            <button
-              key={link.label}
-              type="button"
-              onClick={() => handleClick(link)}
-              className={`flex w-full cursor-pointer items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-muted/20 ${idx > 0 ? "border-t border-border/30" : ""}`}
-            >
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">
-                <Icon size={15} />
-              </span>
-              <div className="flex flex-1 flex-col gap-0.5">
-                <span className="text-[13px] font-medium text-foreground">{link.label}</span>
-                <span className="text-[11px] leading-tight text-muted-foreground">{link.description}</span>
-              </div>
-              {isExternal && (
-                <span className="text-muted-foreground/50">
-                  <LuExternalLink size={14} />
+            <div key={link.label} className={idx > 0 ? "border-t border-border/30" : undefined}>
+              <button
+                type="button"
+                onClick={() => handleClick(link)}
+                aria-expanded={isShortcuts ? shortcutsOpen : undefined}
+                className="flex w-full cursor-pointer items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-muted/20"
+              >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">
+                  <Icon size={15} />
                 </span>
+                <div className="flex flex-1 flex-col gap-0.5">
+                  <span className="text-[13px] font-medium text-foreground">{link.label}</span>
+                  <span className="text-[11px] leading-tight text-muted-foreground">{link.description}</span>
+                </div>
+                {isShortcuts ? (
+                  <motion.span
+                    animate={{ rotate: shortcutsOpen ? 180 : 0 }}
+                    transition={{ duration: 0.22, ease: "easeOut" }}
+                    className="text-muted-foreground/50"
+                  >
+                    <LuChevronDown size={15} />
+                  </motion.span>
+                ) : isExternal ? (
+                  <span className="text-muted-foreground/50">
+                    <LuExternalLink size={14} />
+                  </span>
+                ) : null}
+              </button>
+              {isShortcuts && (
+                <AnimatePresence initial={false}>
+                  {shortcutsOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 pb-4 pt-1">
+                        <KeyboardShortcutsList />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               )}
-            </button>
+            </div>
           )
         })}
       </div>

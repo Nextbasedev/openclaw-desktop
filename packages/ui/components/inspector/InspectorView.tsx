@@ -9,6 +9,8 @@ import { WorkspaceTab } from "./WorkspaceTab"
 import { GitTab, type GitTabSelection } from "./GitTab"
 import { XTerminal } from "@/components/terminal/XTerminal"
 import { Icons } from "@/components/icons"
+import type { InspectorScope } from "./inspectorScope"
+import { inspectorScopeProjectId, inspectorScopeRenderKey } from "./inspectorScope"
 
 export type InspectorTabId = "activity" | "workspace" | "git" | "terminal"
 
@@ -38,6 +40,8 @@ type InspectorViewProps = {
   activeAgentId?: string | null
   onAgentSelect?: (id: string) => void
   className?: string
+  inspectorScope?: InspectorScope
+  onInspectorScopeChange?: (scope: InspectorScope) => void
 }
 
 export function InspectorView({
@@ -54,6 +58,8 @@ export function InspectorView({
   activeAgentId,
   onAgentSelect,
   className,
+  inspectorScope,
+  onInspectorScopeChange,
 }: InspectorViewProps) {
   const tabCounterRef = useRef(1)
   const [termTabs, setTermTabs] = useState<TerminalTab[]>([
@@ -63,6 +69,16 @@ export function InspectorView({
   const [terminalHasMounted, setTerminalHasMounted] = useState(activeTab === "terminal")
   const [gitSelection, setGitSelection] = useState<GitTabSelection | null>(null)
   const termScrollRef = useRef<HTMLDivElement>(null)
+
+  // Derive effective projectId from scope when available
+  const effectiveProjectId = inspectorScope
+    ? inspectorScopeProjectId(inspectorScope)
+    : (projectId ?? null)
+
+  // Scope-aware render key for resetting tabs when scope changes
+  const scopeKey = inspectorScope
+    ? inspectorScopeRenderKey({ sessionKey, projectId, scope: inspectorScope })
+    : `${projectId ?? "global"}:${sessionKey ?? "none"}`
 
   const addTermTab = useCallback(() => {
     tabCounterRef.current += 1
@@ -102,6 +118,11 @@ export function InspectorView({
   React.useEffect(() => {
     if (activeTab === "terminal") setTerminalHasMounted(true)
   }, [activeTab])
+
+  // Reset git selection when scope changes
+  React.useEffect(() => {
+    setGitSelection(null)
+  }, [scopeKey])
 
   return (
     <div className={cn("flex h-full min-w-0 flex-col", className)}>
@@ -162,7 +183,7 @@ export function InspectorView({
       <div className="min-h-0 flex-1 overflow-clip">
         {activeTab === "activity" && (
           <ActivityTab
-            key={`${projectId ?? "global"}:${sessionKey ?? "none"}`}
+            key={scopeKey}
             sessionKey={sessionKey ?? null}
             activeAgentId={activeAgentId ?? null}
             onAgentSelect={onAgentSelect}
@@ -172,17 +193,21 @@ export function InspectorView({
         )}
         {activeTab === "workspace" && (
           <WorkspaceTab
-            key={projectId ?? "global"}
+            key={scopeKey}
             sessionKey={sessionKey ?? null}
-            projectId={projectId ?? null}
+            projectId={effectiveProjectId}
+            inspectorScope={inspectorScope}
+            onInspectorScopeChange={onInspectorScopeChange}
           />
         )}
         {activeTab === "git" && (
           <GitTab
-            key={projectId ?? "global"}
-            projectId={projectId ?? null}
+            key={scopeKey}
+            projectId={effectiveProjectId}
             selection={gitSelection}
             onSelectionChange={setGitSelection}
+            inspectorScope={inspectorScope}
+            onInspectorScopeChange={onInspectorScopeChange}
           />
         )}
         {terminalHasMounted && (
@@ -264,9 +289,9 @@ export function InspectorView({
                   }}
                 >
                   <XTerminal
-                    key={`${projectId ?? "global"}:${tab.id}`}
+                    key={`${effectiveProjectId ?? "global"}:${tab.id}`}
                     visible={activeTermId === tab.id}
-                    projectId={projectId ?? null}
+                    projectId={effectiveProjectId}
                   />
                 </div>
               ))}

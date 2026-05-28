@@ -17,6 +17,24 @@ type SpacesResponse = {
   activeSpaceId: string
 }
 
+type SpaceIconImage = NonNullable<Space["iconImage"]>
+
+type LegacySpaceIconFields = {
+  ImageIcon?: SpaceIconImage
+  imageIcon?: SpaceIconImage
+  icon_image?: SpaceIconImage
+}
+
+function spaceIconPayload(iconImage?: SpaceIconImage | null) {
+  return iconImage ? { iconImage } : {}
+}
+
+function normalizeSpaceIcon(space: Space & LegacySpaceIconFields): Space {
+  const { ImageIcon, imageIcon, icon_image, ...rest } = space
+  const iconImage = rest.iconImage ?? ImageIcon ?? imageIcon ?? icon_image
+  return iconImage ? { ...rest, iconImage } : rest
+}
+
 function upsertSpace(spaces: Space[], nextSpace: Space) {
   if (!nextSpace?.id) return spaces
   const found = spaces.some((space) => space.id === nextSpace.id)
@@ -37,9 +55,9 @@ const DEFAULT_SPACE_NAME = "My Workspace"
 
 function normalizeSpaces(spaces: Space[] = []) {
   return spaces.map((space) =>
-    space.id === DEFAULT_SPACE_ID
+    normalizeSpaceIcon(space.id === DEFAULT_SPACE_ID
       ? { ...space, name: DEFAULT_SPACE_NAME, archived: false }
-      : space,
+      : space),
   )
 }
 
@@ -54,7 +72,15 @@ export function useSpaces() {
     const normalized = normalizeSpaces(nextSpaces || [])
     const override = activeSpaceOverrideRef.current
     const overrideStillExists = Boolean(override && normalized.some((space) => space.id === override))
-    setSpaces(normalized)
+    setSpaces((prev) => {
+      const previousById = new Map(prev.map((space) => [space.id, space]))
+      return normalized.map((space) => {
+        const previous = previousById.get(space.id)
+        return !space.iconImage && previous?.iconImage
+          ? { ...space, iconImage: previous.iconImage }
+          : space
+      })
+    })
     setActiveSpaceId(
       overrideStillExists
         ? override
@@ -116,24 +142,63 @@ export function useSpaces() {
 
   useEffect(() => on("archive:changed", loadSpacesFresh), [loadSpacesFresh])
 
-  const createSpace = useCallback(async (name?: string) => {
+  const createSpace = useCallback(async (name?: string, iconImage?: SpaceIconImage | null) => {
     invalidateMiddlewareStartupBootstrap()
     const result = await invoke<{ space: Space; activeSpaceId: string }>("middleware_spaces_create", {
-      input: { name: name?.trim() || undefined },
+      input: { name: name?.trim() || undefined, ...spaceIconPayload(iconImage) },
     })
+
+    let createdSpace = normalizeSpaceIcon(result.space)
+    if (iconImage && !createdSpace.iconImage) {
+      createdSpace = { ...createdSpace, iconImage }
+      try {
+        const persisted = await invoke<SpaceMutationResponse>("middleware_spaces_update", {
+          input: { spaceId: result.space.id, ...spaceIconPayload(iconImage) },
+        })
+        if (persisted.space) {
+          const persistedSpace = normalizeSpaceIcon(persisted.space)
+          if (persistedSpace.iconImage) createdSpace = persistedSpace
+        }
+      } catch (error) {
+        console.error("[Spaces] icon persistence fallback failed", error)
+      }
+    }
+
     invalidateMiddlewareStartupBootstrap()
-    activeSpaceOverrideRef.current = result.activeSpaceId || result.space.id
-    setSpaces((prev) => upsertSpace(prev, result.space))
-    setActiveSpaceId(result.activeSpaceId || result.space.id)
-    void loadSpacesFresh().catch((error) => console.error("[Spaces] refresh after create failed", error))
-    return result.space
+    activeSpaceOverrideRef.current = result.activeSpaceId || createdSpace.id
+    setSpaces((prev) => upsertSpace(prev, createdSpace))
+    setActiveSpaceId(result.activeSpaceId || createdSpace.id)
+    const fresh = await loadSpacesFresh().catch((error) => {
+      console.error("[Spaces] refresh after create failed", error)
+      return null
+    })
+    const freshSpace = fresh?.spaces?.find((space) => space.id === createdSpace.id)
+    const normalizedFreshSpace = freshSpace ? normalizeSpaceIcon(freshSpace) : null
+    if (iconImage && !normalizedFreshSpace?.iconImage) {
+      try {
+        const persisted = await invoke<SpaceMutationResponse>("middleware_spaces_update", {
+          input: { spaceId: createdSpace.id, ...spaceIconPayload(iconImage) },
+        })
+        if (persisted.space) {
+          const persistedSpace = normalizeSpaceIcon(persisted.space)
+          if (persistedSpace.iconImage) {
+            createdSpace = persistedSpace
+            setSpaces((prev) => upsertSpace(prev, persistedSpace))
+          }
+        }
+      } catch (error) {
+        console.error("[Spaces] icon verification fallback failed", error)
+      }
+    }
+    return normalizedFreshSpace?.iconImage ? normalizedFreshSpace : createdSpace
   }, [loadSpacesFresh])
 
-  const updateSpace = useCallback(async (spaceId: string, input: { name?: string; repoRoot?: string | null; projectId?: string | null }) => {
+  const updateSpace = useCallback(async (spaceId: string, input: { name?: string; iconImage?: SpaceIconImage | null; repoRoot?: string | null; projectId?: string | null }) => {
     invalidateMiddlewareStartupBootstrap()
     const optimisticUpdatedAt = new Date().toISOString()
     const optimisticPatch = {
       ...input,
+      iconImage: input.iconImage ?? undefined,
       repoRoot: input.repoRoot ?? undefined,
       projectId: input.projectId ?? undefined,
     }
@@ -148,15 +213,15 @@ export function useSpaces() {
           : space,
       ),
     )
-    const isRenameOnly = Boolean(input.name) && input.repoRoot === undefined && input.projectId === undefined
+    const isRenameOnly = Boolean(input.name) && input.iconImage === undefined && input.repoRoot === undefined && input.projectId === undefined
     const result = isRenameOnly
       ? await renameSpace(spaceId, input.name!.trim())
       : await invoke<SpaceMutationResponse>("middleware_spaces_update", {
-          input: { spaceId, ...input },
+          input: { spaceId, ...input, ...(input.iconImage !== undefined ? spaceIconPayload(input.iconImage) : {}) },
         })
     invalidateMiddlewareStartupBootstrap()
     if (result.space) {
-      setSpaces((prev) => upsertSpace(prev, result.space as Space))
+      setSpaces((prev) => upsertSpace(prev, normalizeSpaceIcon(result.space as Space)))
     }
     const fresh = await loadSpacesFresh().catch((error) => {
       console.error("[Spaces] refresh after update failed", error)
