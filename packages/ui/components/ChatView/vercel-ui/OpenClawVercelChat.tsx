@@ -306,8 +306,11 @@ export function OpenClawVercelChat({
         previousScrollTopRef.current = container.scrollTop
         lastOlderLoadScrollTopRef.current = container.scrollTop
       }
+      // Keep user intent armed after a prepend. Continuous wheel/touch/trackpad
+      // scrolling can cross the next 60% threshold without a fresh input event
+      // after anchor restoration; clearing intent here makes the next page feel
+      // stuck. Cooldown + in-flight guards prevent automatic cascades.
       lastOlderLoadIntentGenerationRef.current = userScrollIntentGenerationRef.current
-      userScrollIntentRef.current = false
       lastOlderLoadAtRef.current = Date.now()
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
@@ -329,7 +332,7 @@ export function OpenClawVercelChat({
       if (localOlderLoading && olderLoadAwaitingRenderRef.current && userScrollIntentRef.current) {
         pendingOlderAnchorRef.current = captureVercelScrollAnchor(container)
       }
-      const hasFreshUserScrollIntent = userScrollIntentRef.current && userScrollIntentGenerationRef.current > lastOlderLoadIntentGenerationRef.current
+      const hasFreshUserScrollIntent = userScrollIntentRef.current
       if (shouldAutoLoadOlderHistory({
         scrollTop: container.scrollTop,
         scrollHeight: container.scrollHeight,

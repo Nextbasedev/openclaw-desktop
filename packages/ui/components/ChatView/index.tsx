@@ -1315,8 +1315,11 @@ export function ChatView({
         previousScrollTopRef.current = el.scrollTop
         lastOlderLoadScrollTopRef.current = el.scrollTop
       }
+      // Keep user intent armed after a prepend. Continuous wheel/touch/trackpad
+      // scrolling can cross the next 60% threshold without a fresh input event
+      // after anchor restoration; clearing intent here makes the next page feel
+      // stuck. Cooldown + in-flight guards prevent automatic cascades.
       lastOlderLoadIntentGenerationRef.current = userScrollIntentGenerationRef.current
-      userScrollIntentRef.current = false
       lastOlderLoadAtRef.current = Date.now()
       loadOlderClickInFlightRef.current = false
       setLoadOlderUiBusy(false)
@@ -1343,7 +1346,7 @@ export function ChatView({
         thresholdPx: JUMP_TO_BOTTOM_THRESHOLD_PX,
       })
       setShowJumpToBottom(!atBottom)
-      const hasFreshUserScrollIntent = userScrollIntentRef.current && userScrollIntentGenerationRef.current > lastOlderLoadIntentGenerationRef.current
+      const hasFreshUserScrollIntent = userScrollIntentRef.current
       if (hasOlderMessages && shouldAutoLoadOlderHistory({
         scrollTop: el.scrollTop,
         scrollHeight: el.scrollHeight,
