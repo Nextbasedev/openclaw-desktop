@@ -1029,6 +1029,8 @@ export function ChatView({
   const lastOlderLoadAtRef = useRef(0)
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
   const previousScrollTopRef = useRef(0)
+  const userScrollIntentGenerationRef = useRef(0)
+  const lastOlderLoadIntentGenerationRef = useRef(0)
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const [loadOlderUiBusy, setLoadOlderUiBusy] = useState(false)
   useEffect(() => {
@@ -1049,6 +1051,8 @@ export function ChatView({
     lastOlderLoadAtRef.current = 0
     lastOlderLoadScrollTopRef.current = null
     previousScrollTopRef.current = 0
+    userScrollIntentGenerationRef.current = 0
+    lastOlderLoadIntentGenerationRef.current = 0
     setLoadOlderUiBusy(false)
   }, [sessionKey])
 
@@ -1271,6 +1275,8 @@ export function ChatView({
         previousScrollTopRef.current = el.scrollTop
         lastOlderLoadScrollTopRef.current = el.scrollTop
       }
+      lastOlderLoadIntentGenerationRef.current = userScrollIntentGenerationRef.current
+      userScrollIntentRef.current = false
       loadOlderClickInFlightRef.current = false
       setLoadOlderUiBusy(false)
     })
@@ -1285,12 +1291,13 @@ export function ChatView({
       }
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
       setShowJumpToBottom(!atBottom)
+      const hasFreshUserScrollIntent = userScrollIntentRef.current && userScrollIntentGenerationRef.current > lastOlderLoadIntentGenerationRef.current
       if (hasOlderMessages && shouldAutoLoadOlderHistory({
         scrollTop: el.scrollTop,
         scrollHeight: el.scrollHeight,
         clientHeight: el.clientHeight,
         previousScrollTop: previousScrollTopRef.current,
-        hasUserIntent: userScrollIntentRef.current,
+        hasUserIntent: hasFreshUserScrollIntent,
         lastLoadScrollTop: lastOlderLoadScrollTopRef.current,
       })) {
         logChatScrollDebug({ source: "chat", event: "load-older-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
@@ -1926,12 +1933,20 @@ export function ChatView({
       className="relative flex h-full w-full flex-col overflow-hidden"
       onWheelCapture={() => {
         userScrollIntentRef.current = true
+        userScrollIntentGenerationRef.current += 1
       }}
       onTouchMoveCapture={() => {
         userScrollIntentRef.current = true
+        userScrollIntentGenerationRef.current += 1
       }}
       onPointerDownCapture={() => {
         userScrollIntentRef.current = true
+        userScrollIntentGenerationRef.current += 1
+      }}
+      onPointerMoveCapture={(event) => {
+        if (event.buttons === 0) return
+        userScrollIntentRef.current = true
+        userScrollIntentGenerationRef.current += 1
       }}
     >
       {/* Sub-header for chat actions & pins */}

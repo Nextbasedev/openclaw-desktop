@@ -574,6 +574,30 @@ function canLoadOlderThanFirstMessage(messages: ChatMessage[]) {
   return firstSeq !== null && firstSeq > 1
 }
 
+function gatewayIndexedMessageCount(messages: ChatMessage[]) {
+  return messages.reduce(
+    (count, message) => count + (typeof message.gatewayIndex === "number" && Number.isFinite(message.gatewayIndex) ? 1 : 0),
+    0
+  )
+}
+
+function shouldKeepCurrentTimelineSnapshot(current: ChatMessage[], incoming: ChatMessage[]) {
+  if (current.length === 0 || incoming.length === 0) return false
+  if (incoming.length >= current.length) return false
+
+  const currentIndexed = gatewayIndexedMessageCount(current)
+  const incomingIndexed = gatewayIndexedMessageCount(incoming)
+  if (currentIndexed > 0 && incomingIndexed < currentIndexed) return true
+
+  const currentIds = new Set(current.map((message) => message.messageId))
+  const incomingIds = new Set(incoming.map((message) => message.messageId))
+  let overlap = 0
+  for (const id of incomingIds) {
+    if (currentIds.has(id)) overlap += 1
+  }
+  return overlap > 0 && overlap === incomingIds.size
+}
+
 function attachmentLogMeta(attachments: ChatComposerSubmit["attachments"] | undefined) {
   return {
     count: attachments?.length ?? 0,
@@ -777,8 +801,22 @@ export function useChatMessages(
     const store = timelineStoreRef.current
     const unsubscribe = store.subscribe((snapshot) => {
       if (snapshot.messages.length > 0) {
-        setLocalMessages(snapshot.messages)
-        schedulePersistentMessages(snapshot.messages)
+        setLocalMessages((current) => {
+          if (shouldKeepCurrentTimelineSnapshot(current, snapshot.messages)) {
+            frontendLog("chat", "chat.timeline-snapshot.skip-regressive", {
+              sessionKey,
+              currentCount: current.length,
+              incomingCount: snapshot.messages.length,
+              currentGatewayIndexed: gatewayIndexedMessageCount(current),
+              incomingGatewayIndexed: gatewayIndexedMessageCount(snapshot.messages),
+              currentFirstGatewayIndex: firstLoadedGatewayIndex(current),
+              incomingFirstGatewayIndex: firstLoadedGatewayIndex(snapshot.messages),
+            }, "warn")
+            return current
+          }
+          schedulePersistentMessages(snapshot.messages)
+          return snapshot.messages
+        })
       }
     })
     return unsubscribe

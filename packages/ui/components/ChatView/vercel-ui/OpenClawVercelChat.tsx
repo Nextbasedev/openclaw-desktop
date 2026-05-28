@@ -208,6 +208,8 @@ export function OpenClawVercelChat({
   const lastOlderLoadAtRef = useRef(0)
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
   const previousScrollTopRef = useRef(0)
+  const userScrollIntentGenerationRef = useRef(0)
+  const lastOlderLoadIntentGenerationRef = useRef(0)
   const pendingOlderAnchorRef = useRef<VercelScrollAnchor | null>(null)
   const [localOlderLoading, setLocalOlderLoading] = useState(false)
   const isOlderLoading = loadingOlderMessages || localOlderLoading
@@ -217,6 +219,8 @@ export function OpenClawVercelChat({
     previousScrollTopRef.current = 0
     lastOlderLoadAtRef.current = 0
     lastOlderLoadScrollTopRef.current = null
+    userScrollIntentGenerationRef.current = 0
+    lastOlderLoadIntentGenerationRef.current = 0
     olderLoadAwaitingRenderRef.current = false
   }, [sessionKey])
 
@@ -266,6 +270,8 @@ export function OpenClawVercelChat({
         previousScrollTopRef.current = container.scrollTop
         lastOlderLoadScrollTopRef.current = container.scrollTop
       }
+      lastOlderLoadIntentGenerationRef.current = userScrollIntentGenerationRef.current
+      userScrollIntentRef.current = false
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
     })
@@ -276,17 +282,23 @@ export function OpenClawVercelChat({
     if (!container || !hasOlderMessages) return
     const markUserIntent = () => {
       userScrollIntentRef.current = true
+      userScrollIntentGenerationRef.current += 1
+    }
+    const markPointerMoveIntent = (event: PointerEvent) => {
+      if (event.buttons === 0) return
+      markUserIntent()
     }
     const onScroll = () => {
       if (localOlderLoading && olderLoadAwaitingRenderRef.current && userScrollIntentRef.current) {
         pendingOlderAnchorRef.current = captureVercelScrollAnchor(container)
       }
+      const hasFreshUserScrollIntent = userScrollIntentRef.current && userScrollIntentGenerationRef.current > lastOlderLoadIntentGenerationRef.current
       if (shouldAutoLoadOlderHistory({
         scrollTop: container.scrollTop,
         scrollHeight: container.scrollHeight,
         clientHeight: container.clientHeight,
         previousScrollTop: previousScrollTopRef.current,
-        hasUserIntent: userScrollIntentRef.current,
+        hasUserIntent: hasFreshUserScrollIntent,
         lastLoadScrollTop: lastOlderLoadScrollTopRef.current,
       })) {
         logChatScrollDebug({ source: "vercel-chat", event: "load-older-trigger", sessionKey, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
@@ -297,11 +309,13 @@ export function OpenClawVercelChat({
     container.addEventListener("wheel", markUserIntent, { passive: true })
     container.addEventListener("touchstart", markUserIntent, { passive: true })
     container.addEventListener("pointerdown", markUserIntent, { passive: true })
+    container.addEventListener("pointermove", markPointerMoveIntent, { passive: true })
     container.addEventListener("scroll", onScroll, { passive: true })
     return () => {
       container.removeEventListener("wheel", markUserIntent)
       container.removeEventListener("touchstart", markUserIntent)
       container.removeEventListener("pointerdown", markUserIntent)
+      container.removeEventListener("pointermove", markPointerMoveIntent)
       container.removeEventListener("scroll", onScroll)
     }
   }, [containerRef, hasOlderMessages, loadOlderWithoutJump, localOlderLoading])
