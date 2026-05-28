@@ -920,6 +920,7 @@ export function ChatView({
   const loadOlderClickInFlightRef = useRef(false)
   const olderLoadAwaitingRenderRef = useRef(false)
   const lastOlderLoadAtRef = useRef(0)
+  const lastOlderLoadScrollTopRef = useRef<number | null>(null)
   const previousScrollTopRef = useRef(0)
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const [loadOlderUiBusy, setLoadOlderUiBusy] = useState(false)
@@ -939,6 +940,7 @@ export function ChatView({
     needsInitialScrollRef.current = true
     loadOlderClickInFlightRef.current = false
     lastOlderLoadAtRef.current = 0
+    lastOlderLoadScrollTopRef.current = null
     previousScrollTopRef.current = 0
     setLoadOlderUiBusy(false)
   }, [sessionKey])
@@ -1152,7 +1154,10 @@ export function ChatView({
     olderLoadAwaitingRenderRef.current = false
     settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
       const el = scrollContainerRef.current
-      if (el) previousScrollTopRef.current = el.scrollTop
+      if (el) {
+        previousScrollTopRef.current = el.scrollTop
+        lastOlderLoadScrollTopRef.current = el.scrollTop
+      }
       userScrollIntentRef.current = false
       loadOlderClickInFlightRef.current = false
       setLoadOlderUiBusy(false)
@@ -1174,7 +1179,9 @@ export function ChatView({
         clientHeight: el.clientHeight,
         previousScrollTop: previousScrollTopRef.current,
         hasUserIntent: userScrollIntentRef.current,
+        lastLoadScrollTop: lastOlderLoadScrollTopRef.current,
       })) {
+        logChatScrollDebug({ source: "chat", event: "load-older-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
         void loadOlderWithoutJump()
       }
       previousScrollTopRef.current = el.scrollTop
