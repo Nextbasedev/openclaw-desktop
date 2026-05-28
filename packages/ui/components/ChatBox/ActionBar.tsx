@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/popover"
 import { WebSearchIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
 import type { ModelEntry } from "@/hooks/useModels"
+import { ModelLogo } from "@/components/model/ModelLogo"
 
 type ActionBarProps = {
   hasInput: boolean
@@ -155,13 +156,14 @@ export function ActionBar({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex h-8 cursor-pointer items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-all hover:text-foreground"
+              className="flex h-8 max-w-[210px] cursor-pointer items-center gap-1.5 rounded-full px-2 text-xs text-muted-foreground transition-all hover:bg-white/[0.04] hover:text-foreground"
             >
-              {modelLabel}
+              <ModelLogo model={activeModel} modelId={currentModelId} size="xs" />
+              <span className="truncate">{modelLabel}</span>
               <HugeiconsIcon icon={ArrowDown01Icon} size={12} />
             </button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="end" sideOffset={8} className="w-56 gap-0 p-1.5">
+          <PopoverContent side="top" align="end" sideOffset={8} className="w-72 gap-0 p-1.5">
             <div className="max-h-60 overflow-y-auto">
               {modelLoading && (
                 <p className="px-3 py-2 text-xs text-muted-foreground">
@@ -187,15 +189,19 @@ export function ActionBar({
                     key={`${model.provider}/${model.id}`}
                     type="button"
                     className={cn(
-                      "flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-[13px] transition-colors hover:bg-muted",
+                      "flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] transition-colors hover:bg-muted",
                       isActive
                         ? "bg-foreground/10 font-medium text-foreground"
                         : "text-muted-foreground"
                     )}
                     onClick={() => onModelSelect(model)}
                   >
-                    <span className="flex min-w-0 flex-col text-left">
-                      <span className="truncate">{model.name}</span>
+                    <ModelLogo model={model} size="sm" />
+                    <span className="flex min-w-0 flex-1 flex-col text-left">
+                      <span className="truncate text-foreground/90">{model.name}</span>
+                      <span className="truncate text-[10px] font-normal text-muted-foreground/55">
+                        {model.reasoning ? `${model.provider} · reasoning` : model.provider}
+                      </span>
                     </span>
                     {isActive && (
                       <HugeiconsIcon icon={Tick02Icon} size={14} className="shrink-0 text-white" />
