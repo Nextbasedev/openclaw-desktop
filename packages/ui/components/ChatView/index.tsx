@@ -1834,6 +1834,9 @@ export function ChatView({
       onTouchMoveCapture={() => {
         userScrollIntentRef.current = true
       }}
+      onPointerDownCapture={() => {
+        userScrollIntentRef.current = true
+      }}
     >
       {/* Sub-header for chat actions & pins */}
       <div className="z-40 flex h-9 shrink-0 items-center justify-between bg-background/70 px-4 backdrop-blur-[2px]">

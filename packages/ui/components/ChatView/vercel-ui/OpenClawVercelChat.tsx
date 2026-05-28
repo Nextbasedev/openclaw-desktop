@@ -297,10 +297,12 @@ export function OpenClawVercelChat({
     }
     container.addEventListener("wheel", markUserIntent, { passive: true })
     container.addEventListener("touchstart", markUserIntent, { passive: true })
+    container.addEventListener("pointerdown", markUserIntent, { passive: true })
     container.addEventListener("scroll", onScroll, { passive: true })
     return () => {
       container.removeEventListener("wheel", markUserIntent)
       container.removeEventListener("touchstart", markUserIntent)
+      container.removeEventListener("pointerdown", markUserIntent)
       container.removeEventListener("scroll", onScroll)
     }
   }, [containerRef, hasOlderMessages, loadOlderWithoutJump])

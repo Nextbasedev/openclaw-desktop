@@ -1,4 +1,4 @@
-export const OLDER_HISTORY_AUTO_LOAD_UPPER_RATIO = 0.4
+export const OLDER_HISTORY_AUTO_LOAD_UPPER_RATIO = 0.6
 
 type OlderHistoryAutoLoadInput = {
   scrollTop: number

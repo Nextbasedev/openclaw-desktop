@@ -9,12 +9,12 @@ const base = {
 }
 
 describe("shouldAutoLoadOlderHistory", () => {
-  it("loads when the user scrolls upward into the upper 40 percent of loaded history", () => {
-    expect(shouldAutoLoadOlderHistory({ ...base, scrollTop: 3_600 })).toBe(true)
+  it("loads when the user scrolls upward into the upper 60 percent of loaded history", () => {
+    expect(shouldAutoLoadOlderHistory({ ...base, scrollTop: 5_400 })).toBe(true)
   })
 
   it("does not load while the user is still below the upper history threshold", () => {
-    expect(shouldAutoLoadOlderHistory({ ...base, scrollTop: 3_700 })).toBe(false)
+    expect(shouldAutoLoadOlderHistory({ ...base, scrollTop: 5_500 })).toBe(false)
   })
 
   it("does not load from programmatic scrolls without user intent", () => {
