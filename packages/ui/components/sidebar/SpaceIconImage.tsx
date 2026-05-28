@@ -18,6 +18,10 @@ export function spaceIconEmoji(space: Space): string | null {
   return space.iconEmoji?.emoji || null
 }
 
+export function spaceIconEmojiColor(space: Space): string {
+  return space.iconEmoji?.color || "from-violet-400 to-blue-400"
+}
+
 export function SpaceIconImage({ space, className }: Props) {
   const src = spaceIconSrc(space)
   if (!src) return null

@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 import type { MouseEvent } from "react"
 import type { Space } from "@/types/space"
 import { SpaceActionsMenu } from "./SpaceActionsMenu"
-import { SpaceIconImage, spaceIconEmoji, spaceIconSrc } from "./SpaceIconImage"
+import { SpaceIconImage, spaceIconEmoji, spaceIconEmojiColor, spaceIconSrc } from "./SpaceIconImage"
 
 const MENU_SPRING = {
   type: "spring" as const,
@@ -58,7 +58,7 @@ export function SpacesOverflowMenu({
             className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-md border-0 px-2.5 py-2 text-left shadow-none outline-none transition-colors hover:bg-white/[0.08] focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
           >
             {spaceIconEmoji(space) ? (
-              <span className="flex size-4 shrink-0 items-center justify-center text-[12px]">
+              <span className={cn("flex size-4 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[12px]", spaceIconEmojiColor(space))}>
                 {spaceIconEmoji(space)}
               </span>
             ) : spaceIconSrc(space) ? (

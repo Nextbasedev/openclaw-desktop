@@ -11,7 +11,7 @@ import { CreateSpaceDialog } from "./CreateSpaceDialog"
 import { GlassTooltip } from "./SidebarItem"
 import { SpaceContextMenuPortal } from "./SpaceContextMenuPortal"
 import { SpaceDialogs } from "./SpaceDialogs"
-import { SpaceIconImage, spaceIconEmoji, spaceIconSrc } from "./SpaceIconImage"
+import { SpaceIconImage, spaceIconEmoji, spaceIconEmojiColor, spaceIconSrc } from "./SpaceIconImage"
 
 type Props = {
   spaces: Space[]
@@ -285,6 +285,8 @@ export function CollapsedSpacesPopover({
                 className={cn(
                   "relative flex size-full items-center justify-center overflow-hidden rounded-[10px] bg-transparent text-[14px] font-semibold text-white/80 shadow-lg shadow-black/25 backdrop-blur-sm transition-all duration-200",
                   "after:pointer-events-none after:absolute after:inset-0 after:bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.18),transparent_36%)] after:opacity-65",
+                  emojiIcon && "bg-gradient-to-br text-[18px]",
+                  emojiIcon && spaceIconEmojiColor(space),
                   !hasCustomIcon && !emojiIcon && gradientForSpace(space),
                   active
                     ? "text-white brightness-116 saturate-125"

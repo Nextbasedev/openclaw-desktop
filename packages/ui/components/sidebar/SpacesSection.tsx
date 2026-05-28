@@ -12,7 +12,7 @@ import { SpaceDialogs } from "./SpaceDialogs"
 import { SpacesOverflowMenu } from "./SpacesOverflowMenu"
 import { SpaceContextMenuPortal } from "./SpaceContextMenuPortal"
 import { CreateSpaceDialog } from "./CreateSpaceDialog"
-import { SpaceIconImage, spaceIconEmoji, spaceIconSrc } from "./SpaceIconImage"
+import { SpaceIconImage, spaceIconEmoji, spaceIconEmojiColor, spaceIconSrc } from "./SpaceIconImage"
 
 type Props = {
   spaces: Space[]
@@ -227,10 +227,11 @@ export function SpacesSection({
                     {spaceIconEmoji(space) ? (
                       <span
                         className={cn(
-                          "flex items-center justify-center rounded-full text-[10px] transition-all duration-200 ease-out",
+                          "flex items-center justify-center rounded-full bg-gradient-to-br text-[10px] transition-all duration-200 ease-out",
                           space.id === activeSpace?.id
                             ? "size-4 opacity-100"
                             : "size-3 opacity-70 group-hover:size-3.5 group-hover:opacity-95",
+                          spaceIconEmojiColor(space),
                         )}
                       >
                         {spaceIconEmoji(space)}
