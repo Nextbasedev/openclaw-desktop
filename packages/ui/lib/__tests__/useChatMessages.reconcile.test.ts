@@ -51,6 +51,17 @@ describe("chat reconcile active-state guards", () => {
     })).toBe(false)
   })
 
+  test("allows terminal reconcile with final answer even when fresh history has fewer rows", () => {
+    expect(shouldPreserveActiveReconcile({
+      currentStatus: "thinking",
+      nextStatus: "done",
+      candidateMessages: [user(), assistant("final answer")],
+      runningToolCount: 0,
+      currentMessageCount: 5,
+      freshMessageCount: 2,
+    })).toBe(false)
+  })
+
   test("keeps a newly sent optimistic user message when canonical bootstrap is still empty", () => {
     expect(mergeOptimisticMessagesWithCanonical([], [optimisticUser("long task")])).toMatchObject([
       { role: "user", text: "long task", isOptimistic: true },

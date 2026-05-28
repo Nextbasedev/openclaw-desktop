@@ -242,13 +242,15 @@ export function shouldPreserveActiveReconcile(params: {
   freshMessageCount?: number
 }) {
   if (!isActiveRunStatus(params.currentStatus)) return false
+  const hasFreshAssistantAnswer = hasAssistantAnswerAfterLatestUserMessage(params.candidateMessages)
   if (
     typeof params.currentMessageCount === "number" &&
     typeof params.freshMessageCount === "number" &&
-    params.freshMessageCount < params.currentMessageCount
+    params.freshMessageCount < params.currentMessageCount &&
+    !(params.nextStatus === "done" && params.runningToolCount === 0 && hasFreshAssistantAnswer)
   ) return true
   if ((params.nextStatus === "idle" || params.nextStatus === "done") && params.runningToolCount > 0) return true
-  return !hasAssistantAnswerAfterLatestUserMessage(params.candidateMessages)
+  return !hasFreshAssistantAnswer
 }
 
 function stableRawMessageId(raw: RawMessage): string {
