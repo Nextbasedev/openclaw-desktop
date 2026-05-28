@@ -11,6 +11,8 @@ import {
   type FileState, type GitFile, type GitContextResponse, type BranchesResponse,
   STATE_CONFIG, parseStatusLine, parseCommitLine, parseGitShow, type FileDiff, type DiffLine, type GitDiffResponse,
 } from "./git-helpers"
+import type { InspectorScope } from "./inspectorScope"
+import { InspectorScopePicker } from "./InspectorScopePicker"
 
 const GIT_TAB_SELECTION_STORAGE_KEY = "openclaw.gitTab.selectedProject.v1"
 
@@ -353,9 +355,11 @@ type GitTabProps = {
   projectId: string | null
   selection?: GitTabSelection | null
   onSelectionChange?: (selection: GitTabSelection) => void
+  inspectorScope?: InspectorScope
+  onInspectorScopeChange?: (scope: InspectorScope) => void
 }
 
-export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps) {
+export function GitTab({ projectId, selection, onSelectionChange, inspectorScope, onInspectorScopeChange }: GitTabProps) {
   const persistedSelectionRef = useRef<GitTabSelection | null>(null)
   if (persistedSelectionRef.current === null) {
     persistedSelectionRef.current = readPersistedGitTabSelection()
@@ -460,6 +464,17 @@ export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps)
     finally { setSwitching(false) }
   }, [effectiveProjectId, effectiveRepoPath, switching, load])
 
+  const handleDisconnectRepo = useCallback(async () => {
+    setContext(null)
+    setBranches(null)
+    if (effectiveProjectId) {
+      await invoke("middleware_projects_update", { input: { projectId: effectiveProjectId, repoRoot: null } })
+      await loadGitTarget(effectiveProjectId, null)
+      return
+    }
+    updateSelection({ projectId: null, repo: null })
+  }, [effectiveProjectId, loadGitTarget, updateSelection])
+
   const handleRepoSelect = useCallback(async (repo: { name: string; path: string }) => {
     setRepoPickerOpen(false)
     setContext(null)
@@ -476,11 +491,12 @@ export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps)
       })
 
       if (effectiveProjectId) {
+        // Only update repoRoot — never overwrite workspaceRoot.
+        // Workspace folder was chosen first; Git is optional metadata on top.
         await invoke("middleware_projects_update", {
           input: {
             projectId: effectiveProjectId,
             repoRoot: repo.path,
-            workspaceRoot: repo.path,
           },
         })
         await loadGitTarget(effectiveProjectId, null)
@@ -493,16 +509,27 @@ export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps)
     } catch { /* ignore */ }
   }, [effectiveProjectId, loadGitTarget, updateSelection])
 
+  // Show picker when direct chat has no scope selected
+  if (inspectorScope?.kind === "unset") {
+    return (
+      <InspectorScopePicker
+        title="Choose Git scope for this chat"
+        description="Git uses the same chat scope as Workspace. Pick any folder; Git metadata is optional."
+        onSelectScope={(scope) => onInspectorScopeChange?.(scope)}
+      />
+    )
+  }
+
   if (!effectiveProjectId && !activeSelection.repo) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-4">
         <VscSourceControl className="size-8 text-muted-foreground/20" />
         <div className="text-center">
           <p className="text-[13px] font-medium text-foreground/80">
-            No project selected
+            No repository connected
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground/60">
-            Use the same repository picker to load git branches, changes, and commits.
+            Connect a Git repository for this chat. Workspace remains unchanged.
           </p>
         </div>
         <button
@@ -510,7 +537,7 @@ export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps)
           onClick={() => setRepoPickerOpen(true)}
           className="glass-btn-primary px-4 py-1.5 text-[12px]"
         >
-          Select a Project
+          Connect Repository
         </button>
         <RepoPickerDialog
           open={repoPickerOpen}
@@ -532,7 +559,7 @@ export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps)
         <div className="text-center">
           <p className="text-[13px] font-medium text-foreground/80">No repository connected</p>
           <p className="mt-1 text-[11px] text-muted-foreground/50">
-            Connect a git repository to see branches, changes, and commits.
+            Connect a Git repository. This updates repoRoot only, not the workspace folder.
           </p>
         </div>
         <button
@@ -622,7 +649,14 @@ export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps)
             onClick={() => setRepoPickerOpen(true)}
             className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
           >
-            Change
+            Change repository
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDisconnectRepo()}
+            className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
+          >
+            Disconnect
           </button>
           <button
             type="button"

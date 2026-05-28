@@ -10,6 +10,8 @@ import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
+import type { InspectorScope } from "@/components/inspector/inspectorScope"
+import { effectiveInspectorScope, readStoredInspectorScope, writeStoredInspectorScope } from "@/components/inspector/inspectorScope"
 import { SkillPage } from "@/components/SkillPage"
 import { SettingsDashboard, type SettingSection } from "@/components/settings/SettingsDashboard"
 import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
@@ -465,8 +467,6 @@ function AppShell({
   const appContextMenuRef = useRef<HTMLDivElement>(null)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [sidebarPreviewOpen, setSidebarPreviewOpen] = useState(false)
-  const [sidebarPreviewClosing, setSidebarPreviewClosing] = useState(false)
-  const sidebarPreviewCloseTimerRef = useRef<number | null>(null)
   const [sidebarPreviewSpaceId, setSidebarPreviewSpaceId] = useState<string | null>(null)
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH)
   const [splitRatio, setSplitRatio] = useState(0.5)
@@ -502,7 +502,7 @@ function AppShell({
       ? "chat"
       : activeTab
   const fullScreenInspectorOpen = activeTab === "inspector"
-  const renderedSidebarWidth = sidebarPreviewOpen || sidebarPreviewClosing ? SIDEBAR_DEFAULT : sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED
+  const renderedSidebarWidth = sidebarPreviewOpen ? SIDEBAR_DEFAULT : sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED
 
   const prevTabRef = useRef("chat")
   const lastSettingsTabRef = useRef(activeTab)
@@ -701,6 +701,7 @@ function AppShell({
   const [composerError, setComposerError] = useState<string | null>(null)
   const [focusedToolCallId, setFocusedToolCallId] = useState<string | null>(null)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
+  const [inspectorScope, setInspectorScope] = useState<InspectorScope>({ kind: "global" })
   const isResizing = useRef(false)
   const isSplitResizing = useRef(false)
   const mainContentRef = useRef<HTMLElement | null>(null)
@@ -1040,6 +1041,31 @@ function AppShell({
     setActiveAgentId(agentId ?? "root")
   }, [inspectorOpen])
 
+  // ── Inspector scope: project chats use project scope; normal chats default to Global Workspace ──
+  useEffect(() => {
+    if (activeTopic?.projectId) {
+      // Project/topic chat: scope is always the project
+      setInspectorScope({ kind: "project", projectId: activeTopic.projectId })
+    } else if (activeSessionKey) {
+      // Normal chats are connected to the shared default workspace by default.
+      // If this chat explicitly picked a project/folder before, keep that stored scope.
+      const stored = readStoredInspectorScope(activeSessionKey)
+      setInspectorScope(stored.kind === "unset" ? { kind: "global" } : stored)
+    } else {
+      setInspectorScope({ kind: "global" })
+    }
+  }, [activeSessionKey, activeTopic?.projectId])
+
+  const computedInspectorScope = effectiveInspectorScope(activeTopic?.projectId ?? null, inspectorScope)
+
+  const handleInspectorScopeChange = useCallback((scope: InspectorScope) => {
+    setInspectorScope(scope)
+    // Persist for direct chats
+    if (activeSessionKey && !activeTopic?.projectId) {
+      writeStoredInspectorScope(activeSessionKey, scope)
+    }
+  }, [activeSessionKey, activeTopic?.projectId])
+
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const setChatModePersisted = useCallback((mode: "simple" | "mission") => {
     setChatMode(mode)
@@ -1057,32 +1083,16 @@ function AppShell({
       setTerminalActive(true)
     }
   }, [inspectorOpen, terminalActive])
-  const clearSidebarPreviewCloseTimer = useCallback(() => {
-    if (sidebarPreviewCloseTimerRef.current === null) return
-    window.clearTimeout(sidebarPreviewCloseTimerRef.current)
-    sidebarPreviewCloseTimerRef.current = null
+  const closeSidebarPreview = useCallback(() => {
+    setSidebarPreviewOpen(false)
+    setSidebarPreviewSpaceId(null)
   }, [])
 
-  const closeSidebarPreview = useCallback(() => {
-    clearSidebarPreviewCloseTimer()
-    setSidebarPreviewOpen(false)
-    setSidebarPreviewSpaceId(null)
-    setSidebarPreviewClosing(true)
-    sidebarPreviewCloseTimerRef.current = window.setTimeout(() => {
-      setSidebarPreviewClosing(false)
-      sidebarPreviewCloseTimerRef.current = null
-    }, 350)
-  }, [clearSidebarPreviewCloseTimer])
-
-  useEffect(() => clearSidebarPreviewCloseTimer, [clearSidebarPreviewCloseTimer])
-
   const toggleSidebar = useCallback(() => {
-    clearSidebarPreviewCloseTimer()
     setSidebarPreviewOpen(false)
-    setSidebarPreviewClosing(false)
     setSidebarPreviewSpaceId(null)
     setSidebarOpen((prev) => !prev)
-  }, [clearSidebarPreviewCloseTimer])
+  }, [])
   const closeSidebar = useCallback(() => {
     closeSidebarPreview()
     setSidebarOpen(false)
@@ -2706,8 +2716,6 @@ function AppShell({
           onClose={closeSidebar}
           onPreviewOpen={(spaceId) => {
             if (sidebarOpen) return
-            clearSidebarPreviewCloseTimer()
-            setSidebarPreviewClosing(false)
             setSidebarPreviewSpaceId(spaceId)
             setSidebarPreviewOpen(true)
           }}
@@ -2893,6 +2901,8 @@ function AppShell({
           projectId={activeTopic?.projectId ?? null}
           activeAgentId={activeAgentId}
           onAgentSelect={setActiveAgentId}
+          inspectorScope={computedInspectorScope}
+          onInspectorScopeChange={handleInspectorScopeChange}
         />
       </div>
 
@@ -2913,6 +2923,8 @@ function AppShell({
           projectId={activeTopic?.projectId ?? null}
           activeAgentId={activeAgentId}
           onAgentSelect={setActiveAgentId}
+          inspectorScope={computedInspectorScope}
+          onInspectorScopeChange={handleInspectorScopeChange}
         />
       )}
 
@@ -3155,6 +3167,8 @@ function FullScreenInspectorOverlay({
   projectId,
   activeAgentId,
   onAgentSelect,
+  inspectorScope,
+  onInspectorScopeChange,
 }: {
   open: boolean
   activeTab: InspectorTabId
@@ -3166,6 +3180,8 @@ function FullScreenInspectorOverlay({
   projectId: string | null
   activeAgentId: string | null
   onAgentSelect: (id: string) => void
+  inspectorScope?: InspectorScope
+  onInspectorScopeChange?: (scope: InspectorScope) => void
 }) {
   const [collapsedScale, setCollapsedScale] = useState(0.35)
 
@@ -3205,6 +3221,8 @@ function FullScreenInspectorOverlay({
         projectId={projectId}
         activeAgentId={activeAgentId}
         onAgentSelect={onAgentSelect}
+        inspectorScope={inspectorScope}
+        onInspectorScopeChange={onInspectorScopeChange}
         className="h-full"
       />
     </div>
