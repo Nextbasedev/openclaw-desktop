@@ -1397,9 +1397,9 @@ export function ChatView({
     return Array.from(merged.values())
   }, [isGenerating, latestRenderedUserIndex, pendingTools, renderedMessages])
 
-  const activeTurnToolIds = useMemo(
-    () => new Set(activeTurnToolCalls.map((tool) => tool.id)),
-    [activeTurnToolCalls]
+  const livePendingToolIds = useMemo(
+    () => new Set(pendingTools.map((tool) => tool.id)),
+    [pendingTools]
   )
 
   const spawnsByToolCallId = useMemo(() => {
@@ -1550,7 +1550,7 @@ export function ChatView({
           : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
       const activeTurnAssistantToolCalls =
         isGenerating && msg.role === "assistant" && index > latestRenderedUserIndex
-          ? messageToolCalls.filter((tool) => !activeTurnToolIds.has(tool.id))
+          ? messageToolCalls.filter((tool) => !livePendingToolIds.has(tool.id))
           : messageToolCalls
       const shouldFinalizeDisplayedTools =
         msg.role === "assistant" &&
@@ -1671,7 +1671,6 @@ export function ChatView({
     [
       activePopoverId,
       activeTurnToolCalls,
-      activeTurnToolIds,
       askAboutSelectedText,
       deleteMessage,
       exportOneMessage,
@@ -1682,6 +1681,7 @@ export function ChatView({
       lastEditableUserId,
       lastTwoAssistantIds,
       latestRenderedUserIndex,
+      livePendingToolIds,
       markTextAnimationComplete,
       messageActionState.pinnedIds,
       messageActionState.reactions,
@@ -1944,7 +1944,7 @@ export function ChatView({
           {renderedMessages.map((msg, index) => (
             <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
           ))}
-          <div className="mx-auto max-w-3xl px-4 pb-8">
+          <div className="mx-auto max-w-[44rem] px-4 py-3 pb-8">
             <AnimatePresence initial={false}>
               {editPreview && (
                 <EditPreviewPanel
@@ -1954,7 +1954,7 @@ export function ChatView({
                 />
               )}
             </AnimatePresence>
-            <div className="mt-4 flex h-[21px] items-center pl-1">
+            <div className="mt-1 flex h-[21px] items-center">
               {statusText && (
                 <>
                   <ProcessStatusIcon tool={liveTool?.tool} />
