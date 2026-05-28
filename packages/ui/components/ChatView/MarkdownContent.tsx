@@ -156,7 +156,8 @@ function highlightString(text: string, highlightTexts: string[]) {
     parts.push(
       <mark
         key={`${nextIndex}-${matchedText}`}
-        className="rounded-sm bg-blue-400/15 px-1 py-0.5 font-semibold text-sky-50"
+        className="rounded-sm px-1 py-0.5 font-semibold text-[#B07D68]"
+        style={{ backgroundColor: "rgba(176, 125, 104, 0.16)" }}
       >
         {matchedText}
       </mark>,
@@ -243,7 +244,15 @@ const mdComponents = {
       if (match?.[1] === "mermaid") return <MermaidBlock code={text} />
       return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
     }
-    return <code className="break-words rounded-md border border-border/50 bg-muted/50 px-1.5 py-0.5 text-[0.85em] font-mono text-foreground [overflow-wrap:anywhere]" {...rest}>{children}</code>
+    return (
+      <code
+        className="break-words rounded-md border border-[#B07D68]/20 px-1.5 py-0.5 text-[0.85em] font-mono text-[#B07D68] [overflow-wrap:anywhere]"
+        style={{ backgroundColor: "rgba(176, 125, 104, 0.14)" }}
+        {...rest}
+      >
+        {children}
+      </code>
+    )
   },
   table({ children }: { children?: React.ReactNode }) {
     return (<div className="my-2 max-w-full overflow-hidden rounded-lg border border-border/50"><div className="max-w-full overflow-x-auto"><table className="w-full border-separate border-spacing-0 text-[13px]">{children}</table></div></div>)
