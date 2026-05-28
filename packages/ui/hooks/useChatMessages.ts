@@ -184,6 +184,36 @@ function hasAssistantAnswerAfterLatestUserMessage(messages: ChatMessage[]) {
   return false
 }
 
+function messageTimelineSignature(message: ChatMessage) {
+  return JSON.stringify({
+    role: message.role,
+    text: message.text,
+    reasoningText: message.reasoningText,
+    toolCalls: message.toolCalls,
+    embeds: message.embeds,
+    attachments: message.attachments,
+    sendStatus: message.sendStatus,
+    sendError: message.sendError,
+    isOptimistic: message.isOptimistic,
+    gatewayIndex: message.gatewayIndex,
+    createdAt: message.createdAt,
+    usage: message.usage,
+    stopReason: message.stopReason,
+  })
+}
+
+export function timelineMessageChanged(existing: ChatMessage | undefined, next: ChatMessage) {
+  if (!existing) return true
+  return messageTimelineSignature(existing) !== messageTimelineSignature(next)
+}
+
+export function shouldPreserveTimelineStoreRows(params: {
+  loadingOlderMessages: boolean
+  status: StreamStatus | null | undefined
+}) {
+  return params.loadingOlderMessages || isActiveRunStatus(params.status)
+}
+
 export function mergeOptimisticMessagesWithCanonical(
   canonicalMessages: ChatMessage[],
   optimisticSource: ChatMessage[] | null | undefined
@@ -695,17 +725,26 @@ export function useChatMessages(
         )
         schedulePersistentMessages(next)
         updateCachedBootstrapMessages(queryClient, sessionKey, next)
-        // Write-through to timeline store — store dedupes and batches
+        // Write-through to timeline store — store dedupes and batches.
+        // Older-page loads and active runs can temporarily hold partial local
+        // snapshots while live patch-stream rows still exist in the global
+        // timeline. Removing absent ids in those windows makes the whole chat
+        // flash/blink until the next patch/bootstrap re-adds them.
         const store = timelineStoreRef.current
-        const nextIds = new Set(next.map((m) => m.messageId))
-        // Remove stale entries (e.g. optimistic messages replaced by confirmed)
-        for (const existing of store.getAllMessageIds()) {
-          if (!nextIds.has(existing)) {
-            store.removeMessage(existing, v2CursorRef.current)
+        const preserveExistingTimelineRows = shouldPreserveTimelineStoreRows({
+          loadingOlderMessages: loadOlderInFlightRef.current,
+          status: statusRef.current,
+        })
+        if (!preserveExistingTimelineRows) {
+          const nextIds = new Set(next.map((m) => m.messageId))
+          for (const existing of store.getAllMessageIds()) {
+            if (!nextIds.has(existing)) {
+              store.removeMessage(existing, v2CursorRef.current)
+            }
           }
         }
         for (const msg of next) {
-          if (!store.getMessage(msg.messageId) || store.getMessage(msg.messageId)?.text !== msg.text) {
+          if (timelineMessageChanged(store.getMessage(msg.messageId), msg)) {
             store.applyPatchMessage(msg, v2CursorRef.current)
           }
         }
