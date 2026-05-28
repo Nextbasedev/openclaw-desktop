@@ -130,7 +130,7 @@ function VercelMessage({
 
   return (
     <div
-      className="group/message w-full scroll-mt-6"
+      className="group/message w-full scroll-mt-6 [contain:layout_paint_style]"
       data-vercel-chat-message-row="true"
       data-ui-id={message.uiId}
       data-role={message.role}

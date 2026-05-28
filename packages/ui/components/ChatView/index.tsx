@@ -1749,7 +1749,7 @@ export function ChatView({
           data-chat-message-row="true"
           data-ui-id={msg.uiId}
           className={cn(
-            "mx-auto max-w-[44rem] px-4 py-3",
+            "mx-auto max-w-[44rem] px-4 py-3 [contain:layout_paint_style]",
             highlightedMessageId && highlightedMessageId !== msg.messageId && "opacity-40",
             highlightedMessageId === msg.messageId && "rounded-lg ring-1 ring-yellow-500/40"
           )}
