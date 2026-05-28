@@ -260,7 +260,6 @@ export function OpenClawVercelChat({
         previousScrollTopRef.current = container.scrollTop
         lastOlderLoadScrollTopRef.current = container.scrollTop
       }
-      userScrollIntentRef.current = false
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
     })

@@ -1158,7 +1158,6 @@ export function ChatView({
         previousScrollTopRef.current = el.scrollTop
         lastOlderLoadScrollTopRef.current = el.scrollTop
       }
-      userScrollIntentRef.current = false
       loadOlderClickInFlightRef.current = false
       setLoadOlderUiBusy(false)
     })
