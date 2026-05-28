@@ -265,19 +265,19 @@ export function CollapsedSpacesPopover({
                 "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                 "before:absolute before:-right-[10px] before:top-1/2 before:h-5 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-white before:opacity-0 before:shadow-[0_0_14px_rgba(255,255,255,0.45)] before:transition-all before:duration-200",
                 active
-                  ? "scale-[1.03] border-transparent bg-white/[0.06] shadow-[0_14px_30px_rgba(0,0,0,0.38),inset_0_0_0_1px_rgba(255,255,255,0.22),inset_0_1px_0_rgba(255,255,255,0.16)] before:opacity-90"
-                  : "border-transparent shadow-[0_10px_24px_rgba(0,0,0,0.28)] hover:scale-[1.035] hover:border-white/14 hover:bg-white/[0.04] hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_0_0_1px_rgba(255,255,255,0.10)]",
+                  ? "scale-[1.03] border-transparent bg-white/[0.055] shadow-[0_14px_30px_rgba(0,0,0,0.38),inset_0_1px_0_rgba(255,255,255,0.10)] before:opacity-90"
+                  : "border-transparent shadow-[0_10px_24px_rgba(0,0,0,0.28)] hover:scale-[1.035] hover:bg-white/[0.035] hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]",
               )}
               aria-label={`Open project ${space.name}`}
             >
               <span
                 className={cn(
-                  "relative flex size-full items-center justify-center overflow-hidden rounded-[10px] bg-transparent text-[14px] font-semibold text-white/80 shadow-lg shadow-black/25 ring-1 ring-white/[0.07] backdrop-blur-sm transition-all duration-200",
-                  "after:pointer-events-none after:absolute after:inset-0 after:bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.22),transparent_36%)] after:opacity-70",
+                  "relative flex size-full items-center justify-center overflow-hidden rounded-[10px] bg-transparent text-[14px] font-semibold text-white/80 shadow-lg shadow-black/25 backdrop-blur-sm transition-all duration-200",
+                  "after:pointer-events-none after:absolute after:inset-0 after:bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.18),transparent_36%)] after:opacity-65",
                   !hasCustomIcon && gradientForSpace(space),
                   active
-                    ? "text-white brightness-118 saturate-125 ring-white/14"
-                    : "group-hover:text-white group-hover:brightness-108 group-hover:saturate-125 group-hover:ring-white/16",
+                    ? "text-white brightness-116 saturate-125"
+                    : "group-hover:text-white group-hover:brightness-106 group-hover:saturate-120",
                 )}
               >
                 {spaceIconSrc(space) ? <SpaceIconImage space={space} /> : spaceInitial(space)}
