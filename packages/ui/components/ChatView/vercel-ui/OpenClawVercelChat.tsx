@@ -101,7 +101,9 @@ function settleVercelScrollAnchor(container: HTMLElement | null, anchor: VercelS
   window.setTimeout(restore, 80)
   window.setTimeout(restore, 220)
   window.setTimeout(restore, 520)
-  window.setTimeout(finish, 900)
+  window.setTimeout(restore, 900)
+  window.setTimeout(restore, 1400)
+  window.setTimeout(finish, 1800)
 }
 
 type Props = {
@@ -226,6 +228,7 @@ export function OpenClawVercelChat({
     contentKey,
   })
   const loadOlderInFlightRef = useRef(false)
+  const olderLoadAwaitingRenderRef = useRef(false)
   const userScrollIntentRef = useRef(false)
   const lastOlderLoadAtRef = useRef(0)
   const previousScrollTopRef = useRef(0)
@@ -237,6 +240,7 @@ export function OpenClawVercelChat({
     userScrollIntentRef.current = false
     previousScrollTopRef.current = 0
     lastOlderLoadAtRef.current = 0
+    olderLoadAwaitingRenderRef.current = false
   }, [sessionKey])
 
   const loadOlderWithoutJump = useCallback(async () => {
@@ -245,6 +249,7 @@ export function OpenClawVercelChat({
     if (now - lastOlderLoadAtRef.current < 900) return
     lastOlderLoadAtRef.current = now
     loadOlderInFlightRef.current = true
+    olderLoadAwaitingRenderRef.current = true
     setLocalOlderLoading(true)
     pendingOlderAnchorRef.current = captureVercelScrollAnchor(containerRef.current)
     logChatScrollDebug({
@@ -261,6 +266,7 @@ export function OpenClawVercelChat({
       await onLoadOlderMessages?.()
     } catch {
       pendingOlderAnchorRef.current = null
+      olderLoadAwaitingRenderRef.current = false
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
     }
@@ -270,6 +276,7 @@ export function OpenClawVercelChat({
     const anchor = pendingOlderAnchorRef.current
     if (!anchor) return
     pendingOlderAnchorRef.current = null
+    olderLoadAwaitingRenderRef.current = false
     settleVercelScrollAnchor(containerRef.current, anchor, () => {
       userScrollIntentRef.current = false
       loadOlderInFlightRef.current = false
@@ -284,6 +291,9 @@ export function OpenClawVercelChat({
       userScrollIntentRef.current = true
     }
     const onScroll = () => {
+      if (localOlderLoading && olderLoadAwaitingRenderRef.current && userScrollIntentRef.current) {
+        pendingOlderAnchorRef.current = captureVercelScrollAnchor(container)
+      }
       if (shouldAutoLoadOlderHistory({
         scrollTop: container.scrollTop,
         scrollHeight: container.scrollHeight,
@@ -305,7 +315,7 @@ export function OpenClawVercelChat({
       container.removeEventListener("pointerdown", markUserIntent)
       container.removeEventListener("scroll", onScroll)
     }
-  }, [containerRef, hasOlderMessages, loadOlderWithoutJump])
+  }, [containerRef, hasOlderMessages, loadOlderWithoutJump, localOlderLoading])
   const lastMessage = stableMessages.at(-1)
   const showThinking = isGenerating && lastMessage?.role === "user"
 
