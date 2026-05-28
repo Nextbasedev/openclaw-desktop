@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { useMemo, useState, type RefObject } from "react"
-import { LuBriefcase, LuChevronLeft, LuChevronRight, LuClock3, LuGlobe, LuHeart, LuMessageSquare, LuSearch, LuSmile, LuSparkles, LuZap } from "react-icons/lu"
+import { LuBriefcase, LuClock3, LuGlobe, LuHeart, LuMessageSquare, LuSearch, LuSmile, LuSparkles, LuZap } from "react-icons/lu"
 import type { Space } from "@/types/space"
 
 type SpaceIconImage = NonNullable<Space["iconImage"]>
@@ -188,7 +188,6 @@ const ALL_EMOJIS = Array.from(
     [...EMOJI_CATEGORIES.flatMap((category) => category.emojis), ...EXTRA_ALL_EMOJIS].map((item) => [item.emoji, item]),
   ).values(),
 )
-const EMOJIS_PER_PAGE = 48
 const AVATAR_COLORS = [
   "from-violet-400 to-blue-400",
   "from-rose-400 to-orange-300",
@@ -216,7 +215,6 @@ export function CreateSpaceDialog({
 }: Props) {
   const [activeCategoryId, setActiveCategoryId] = useState("all")
   const [emojiQuery, setEmojiQuery] = useState("")
-  const [emojiPage, setEmojiPage] = useState(0)
   const activeCategory = EMOJI_CATEGORIES.find((category) => category.id === activeCategoryId) ?? EMOJI_CATEGORIES[0]
   const visibleEmojis = useMemo(() => {
     const query = emojiQuery.trim().toLowerCase()
@@ -224,9 +222,6 @@ export function CreateSpaceDialog({
     if (!query) return source
     return source.filter((item) => `${item.emoji} ${item.label ?? ""}`.toLowerCase().includes(query))
   }, [activeCategory.emojis, activeCategory.id, emojiQuery])
-  const pageCount = Math.max(1, Math.ceil(visibleEmojis.length / EMOJIS_PER_PAGE))
-  const safeEmojiPage = Math.min(emojiPage, pageCount - 1)
-  const pagedEmojis = visibleEmojis.slice(safeEmojiPage * EMOJIS_PER_PAGE, (safeEmojiPage + 1) * EMOJIS_PER_PAGE)
   const avatarColor = iconEmoji.color || AVATAR_COLORS[0]
 
   function selectEmoji(nextIcon: SpaceIconEmoji) {
@@ -308,7 +303,6 @@ export function CreateSpaceDialog({
                   onClick={() => {
                     setActiveCategoryId(category.id)
                     setEmojiQuery("")
-                    setEmojiPage(0)
                   }}
                   className={cn(
                     "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-white/42 transition-colors hover:bg-white/[0.08] hover:text-white/70",
@@ -329,7 +323,6 @@ export function CreateSpaceDialog({
               value={emojiQuery}
               onChange={(event) => {
                 setEmojiQuery(event.target.value)
-                setEmojiPage(0)
               }}
               placeholder="Search"
               className="min-w-0 flex-1 bg-transparent text-[13px] text-white outline-none placeholder:text-white/35"
@@ -337,9 +330,9 @@ export function CreateSpaceDialog({
             <LuSmile size={15} strokeWidth={1.8} />
           </div>
 
-          <div className="h-[214px] pr-1">
+          <div className="h-[214px] overflow-y-auto pr-1">
             <div className="grid grid-cols-8 gap-1.5">
-              {pagedEmojis.map((item) => {
+              {visibleEmojis.map((item) => {
                 const selected = item.emoji === iconEmoji.emoji
                 return (
                   <button
@@ -361,25 +354,6 @@ export function CreateSpaceDialog({
             {visibleEmojis.length === 0 ? (
               <div className="flex h-28 items-center justify-center text-[12px] text-white/38">No emoji found</div>
             ) : null}
-          </div>
-          <div className="mt-3 flex items-center justify-between text-[11px] text-white/40">
-            <button
-              type="button"
-              onClick={() => setEmojiPage((page) => Math.max(0, page - 1))}
-              disabled={safeEmojiPage === 0}
-              className="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-35"
-            >
-              <LuChevronLeft size={13} /> Prev
-            </button>
-            <span>Page {safeEmojiPage + 1} / {pageCount}</span>
-            <button
-              type="button"
-              onClick={() => setEmojiPage((page) => Math.min(pageCount - 1, page + 1))}
-              disabled={safeEmojiPage >= pageCount - 1}
-              className="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-35"
-            >
-              Next <LuChevronRight size={13} />
-            </button>
           </div>
           {iconError ? <p className="mt-2 text-xs text-destructive">{iconError}</p> : null}
         </div>
