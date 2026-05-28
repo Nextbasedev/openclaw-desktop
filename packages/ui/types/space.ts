@@ -6,9 +6,15 @@ export type SpaceIconImage = {
   size: number
 }
 
+export type SpaceIconEmoji = {
+  emoji: string
+  label?: string
+}
+
 export type Space = {
   id: string
   name: string
+  iconEmoji?: SpaceIconEmoji
   iconImage?: SpaceIconImage
   repoRoot?: string
   projectId?: string

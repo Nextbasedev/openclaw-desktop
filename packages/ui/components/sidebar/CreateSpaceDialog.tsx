@@ -10,90 +10,60 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import { useRef, type ChangeEvent, type RefObject } from "react"
-import { LuMessageSquare, LuPanelLeft, LuPlus, LuSparkles } from "react-icons/lu"
+import type { RefObject } from "react"
+import { LuMessageSquare, LuPanelLeft, LuSparkles } from "react-icons/lu"
 import type { Space } from "@/types/space"
 
 type SpaceIconImage = NonNullable<Space["iconImage"]>
+type SpaceIconEmoji = NonNullable<Space["iconEmoji"]>
 
 type Props = {
   open: boolean
   busy: boolean
   name: string
   iconImage: SpaceIconImage | null
+  iconEmoji: SpaceIconEmoji
   iconError?: string | null
   inputRef: RefObject<HTMLInputElement | null>
   onOpenChange: (open: boolean) => void
   onNameChange: (value: string) => void
   onIconImageChange: (value: SpaceIconImage | null) => void
+  onIconEmojiChange: (value: SpaceIconEmoji) => void
   onIconErrorChange?: (value: string | null) => void
   onSubmit: () => void | Promise<void>
 }
 
-const MAX_ICON_BYTES = 10 * 1024 * 1024
-const ALLOWED_ICON_EXTENSIONS = new Set(["png", "svg", "jpe", "jpeg", "jpg"])
-const ALLOWED_ICON_MIME_TYPES = new Set(["image/png", "image/svg+xml", "image/jpeg"])
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ""
-  const chunkSize = 0x8000
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
-  }
-  return btoa(binary)
-}
-
-function iconExtension(filename: string): string {
-  return filename.toLowerCase().split(".").pop() ?? ""
-}
-
-async function toSpaceIconImage(file: File): Promise<SpaceIconImage> {
-  const extension = iconExtension(file.name)
-  const mimeType = file.type || (extension === "svg" ? "image/svg+xml" : extension === "png" ? "image/png" : "image/jpeg")
-  if (!ALLOWED_ICON_EXTENSIONS.has(extension) || !ALLOWED_ICON_MIME_TYPES.has(mimeType)) {
-    throw new Error("Please choose a PNG, SVG, JPE, JPG, or JPEG image.")
-  }
-  if (file.size > MAX_ICON_BYTES) throw new Error("Image must be 10 MB or smaller.")
-
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  return {
-    name: file.name,
-    mimeType,
-    content: bytesToBase64(bytes),
-    encoding: "base64",
-    size: file.size,
-  }
-}
+const PROJECT_EMOJIS: SpaceIconEmoji[] = [
+  { emoji: "✨", label: "sparkles" },
+  { emoji: "🚀", label: "rocket" },
+  { emoji: "💼", label: "briefcase" },
+  { emoji: "🎨", label: "art" },
+  { emoji: "📣", label: "marketing" },
+  { emoji: "⚡", label: "energy" },
+  { emoji: "🧠", label: "brain" },
+  { emoji: "🛠️", label: "tools" },
+]
 
 export function CreateSpaceDialog({
   open,
   busy,
   name,
-  iconImage,
+  iconEmoji,
   iconError,
   inputRef,
   onOpenChange,
   onNameChange,
   onIconImageChange,
+  onIconEmojiChange,
   onIconErrorChange,
   onSubmit,
 }: Props) {
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const previewSrc = iconImage ? `data:${iconImage.mimeType};base64,${iconImage.content}` : null
   const previewName = name.trim() || "New Project"
-  const previewInitial = previewName.slice(0, 1).toUpperCase()
 
-  async function handleIconChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    event.target.value = ""
-    if (!file) return
-
-    try {
-      onIconErrorChange?.(null)
-      onIconImageChange(await toSpaceIconImage(file))
-    } catch (error) {
-      onIconErrorChange?.(error instanceof Error ? error.message : "Could not read image.")
-    }
+  function selectEmoji(nextIcon: SpaceIconEmoji) {
+    onIconImageChange(null)
+    onIconErrorChange?.(null)
+    onIconEmojiChange(nextIcon)
   }
 
   return (
@@ -121,37 +91,14 @@ export function CreateSpaceDialog({
 
         <div className="px-6 py-5">
           <div className="mb-5 flex items-center gap-3.5">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={busy}
-              className="group relative flex size-[52px] shrink-0 cursor-pointer items-center justify-center overflow-visible rounded-xl bg-gradient-to-br from-violet-400 to-blue-400 text-xl font-semibold text-white shadow-[0_14px_28px_rgba(0,0,0,0.28)] transition-transform hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
-              title="Click to change image"
-              aria-label="Choose project image"
-            >
-              {previewSrc ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={previewSrc} alt="Project image preview" className="size-full rounded-xl object-cover" />
-              ) : (
-                <span>{previewInitial}</span>
-              )}
-              <span className="absolute -bottom-1 -right-1 flex size-[18px] items-center justify-center rounded-full border border-white/15 bg-[#1a1a1a] text-white/60">
-                <LuPlus size={10} strokeWidth={2.2} />
-              </span>
-            </button>
+            <div className="flex size-[52px] shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-400 to-blue-400 text-2xl shadow-[0_14px_28px_rgba(0,0,0,0.28)]">
+              {iconEmoji.emoji}
+            </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-[13px] font-medium text-white">{previewName}</p>
-              <p className="mt-0.5 text-[11px] text-white/40">Click the avatar to add a custom image</p>
+              <p className="mt-0.5 text-[11px] text-white/40">Pick an emoji for the project rail</p>
             </div>
           </div>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".png,.svg,.jpe,.jpg,.jpeg,image/png,image/svg+xml,image/jpeg"
-            className="hidden"
-            onChange={handleIconChange}
-          />
 
           <div className="mb-4">
             <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.04em] text-white/45" htmlFor="space-name-input">
@@ -166,6 +113,32 @@ export function CreateSpaceDialog({
               placeholder="e.g. Q3 Marketing campaign"
               className="h-10 w-full rounded-lg border border-white/[0.12] bg-white/[0.05] px-3 text-[13px] text-white outline-none transition-colors placeholder:text-white/30 focus:border-white/22 focus:ring-2 focus:ring-white/10"
             />
+          </div>
+
+          <div className="mb-4">
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.04em] text-white/45">Project emoji</p>
+            <div className="grid grid-cols-8 gap-1.5">
+              {PROJECT_EMOJIS.map((item) => {
+                const selected = item.emoji === iconEmoji.emoji
+                return (
+                  <button
+                    key={`${item.emoji}-${item.label}`}
+                    type="button"
+                    onClick={() => selectEmoji(item)}
+                    className={cn(
+                      "flex size-9 cursor-pointer items-center justify-center rounded-lg border text-lg transition-all",
+                      selected
+                        ? "border-white/24 bg-white/14 shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
+                        : "border-white/[0.07] bg-white/[0.04] hover:border-white/16 hover:bg-white/[0.08]",
+                    )}
+                    aria-label={`Use ${item.label} emoji`}
+                    aria-pressed={selected}
+                  >
+                    {item.emoji}
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2">

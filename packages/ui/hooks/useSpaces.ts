@@ -18,21 +18,28 @@ type SpacesResponse = {
 }
 
 type SpaceIconImage = NonNullable<Space["iconImage"]>
+type SpaceIconEmoji = NonNullable<Space["iconEmoji"]>
 
 type LegacySpaceIconFields = {
   ImageIcon?: SpaceIconImage
   imageIcon?: SpaceIconImage
   icon_image?: SpaceIconImage
+  icon_emoji?: SpaceIconEmoji
 }
 
 function spaceIconPayload(iconImage?: SpaceIconImage | null) {
   return iconImage ? { iconImage } : {}
 }
 
+function spaceEmojiPayload(iconEmoji?: SpaceIconEmoji | null) {
+  return iconEmoji ? { iconEmoji } : {}
+}
+
 function normalizeSpaceIcon(space: Space & LegacySpaceIconFields): Space {
-  const { ImageIcon, imageIcon, icon_image, ...rest } = space
+  const { ImageIcon, imageIcon, icon_image, icon_emoji, ...rest } = space
   const iconImage = rest.iconImage ?? ImageIcon ?? imageIcon ?? icon_image
-  return iconImage ? { ...rest, iconImage } : rest
+  const iconEmoji = rest.iconEmoji ?? icon_emoji
+  return { ...rest, ...(iconEmoji ? { iconEmoji } : {}), ...(iconImage ? { iconImage } : {}) }
 }
 
 function upsertSpace(spaces: Space[], nextSpace: Space) {
@@ -76,8 +83,8 @@ export function useSpaces() {
       const previousById = new Map(prev.map((space) => [space.id, space]))
       return normalized.map((space) => {
         const previous = previousById.get(space.id)
-        return !space.iconImage && previous?.iconImage
-          ? { ...space, iconImage: previous.iconImage }
+        return (!space.iconImage && previous?.iconImage) || (!space.iconEmoji && previous?.iconEmoji)
+          ? { ...space, iconImage: space.iconImage ?? previous?.iconImage, iconEmoji: space.iconEmoji ?? previous?.iconEmoji }
           : space
       })
     })
@@ -142,18 +149,19 @@ export function useSpaces() {
 
   useEffect(() => on("archive:changed", loadSpacesFresh), [loadSpacesFresh])
 
-  const createSpace = useCallback(async (name?: string, iconImage?: SpaceIconImage | null) => {
+  const createSpace = useCallback(async (name?: string, iconImage?: SpaceIconImage | null, iconEmoji?: SpaceIconEmoji | null) => {
     invalidateMiddlewareStartupBootstrap()
     const result = await invoke<{ space: Space; activeSpaceId: string }>("middleware_spaces_create", {
-      input: { name: name?.trim() || undefined, ...spaceIconPayload(iconImage) },
+      input: { name: name?.trim() || undefined, ...spaceIconPayload(iconImage), ...spaceEmojiPayload(iconEmoji) },
     })
 
     let createdSpace = normalizeSpaceIcon(result.space)
+    if (iconEmoji && !createdSpace.iconEmoji) createdSpace = { ...createdSpace, iconEmoji }
     if (iconImage && !createdSpace.iconImage) {
       createdSpace = { ...createdSpace, iconImage }
       try {
         const persisted = await invoke<SpaceMutationResponse>("middleware_spaces_update", {
-          input: { spaceId: result.space.id, ...spaceIconPayload(iconImage) },
+          input: { spaceId: result.space.id, ...spaceIconPayload(iconImage), ...spaceEmojiPayload(iconEmoji) },
         })
         if (persisted.space) {
           const persistedSpace = normalizeSpaceIcon(persisted.space)
@@ -174,14 +182,14 @@ export function useSpaces() {
     })
     const freshSpace = fresh?.spaces?.find((space) => space.id === createdSpace.id)
     const normalizedFreshSpace = freshSpace ? normalizeSpaceIcon(freshSpace) : null
-    if (iconImage && !normalizedFreshSpace?.iconImage) {
+    if ((iconImage && !normalizedFreshSpace?.iconImage) || (iconEmoji && !normalizedFreshSpace?.iconEmoji)) {
       try {
         const persisted = await invoke<SpaceMutationResponse>("middleware_spaces_update", {
-          input: { spaceId: createdSpace.id, ...spaceIconPayload(iconImage) },
+          input: { spaceId: createdSpace.id, ...spaceIconPayload(iconImage), ...spaceEmojiPayload(iconEmoji) },
         })
         if (persisted.space) {
           const persistedSpace = normalizeSpaceIcon(persisted.space)
-          if (persistedSpace.iconImage) {
+          if (persistedSpace.iconImage || persistedSpace.iconEmoji) {
             createdSpace = persistedSpace
             setSpaces((prev) => upsertSpace(prev, persistedSpace))
           }
@@ -190,15 +198,16 @@ export function useSpaces() {
         console.error("[Spaces] icon verification fallback failed", error)
       }
     }
-    return normalizedFreshSpace?.iconImage ? normalizedFreshSpace : createdSpace
+    return normalizedFreshSpace?.iconImage || normalizedFreshSpace?.iconEmoji ? normalizedFreshSpace : createdSpace
   }, [loadSpacesFresh])
 
-  const updateSpace = useCallback(async (spaceId: string, input: { name?: string; iconImage?: SpaceIconImage | null; repoRoot?: string | null; projectId?: string | null }) => {
+  const updateSpace = useCallback(async (spaceId: string, input: { name?: string; iconImage?: SpaceIconImage | null; iconEmoji?: SpaceIconEmoji | null; repoRoot?: string | null; projectId?: string | null }) => {
     invalidateMiddlewareStartupBootstrap()
     const optimisticUpdatedAt = new Date().toISOString()
     const optimisticPatch = {
       ...input,
       iconImage: input.iconImage ?? undefined,
+      iconEmoji: input.iconEmoji ?? undefined,
       repoRoot: input.repoRoot ?? undefined,
       projectId: input.projectId ?? undefined,
     }
@@ -213,11 +222,11 @@ export function useSpaces() {
           : space,
       ),
     )
-    const isRenameOnly = Boolean(input.name) && input.iconImage === undefined && input.repoRoot === undefined && input.projectId === undefined
+    const isRenameOnly = Boolean(input.name) && input.iconImage === undefined && input.iconEmoji === undefined && input.repoRoot === undefined && input.projectId === undefined
     const result = isRenameOnly
       ? await renameSpace(spaceId, input.name!.trim())
       : await invoke<SpaceMutationResponse>("middleware_spaces_update", {
-          input: { spaceId, ...input, ...(input.iconImage !== undefined ? spaceIconPayload(input.iconImage) : {}) },
+          input: { spaceId, ...input, ...(input.iconImage !== undefined ? spaceIconPayload(input.iconImage) : {}), ...(input.iconEmoji !== undefined ? spaceEmojiPayload(input.iconEmoji) : {}) },
         })
     invalidateMiddlewareStartupBootstrap()
     if (result.space) {

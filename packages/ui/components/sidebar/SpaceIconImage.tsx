@@ -14,6 +14,10 @@ export function spaceIconSrc(space: Space): string | null {
   return `data:${image.mimeType};base64,${image.content}`
 }
 
+export function spaceIconEmoji(space: Space): string | null {
+  return space.iconEmoji?.emoji || null
+}
+
 export function SpaceIconImage({ space, className }: Props) {
   const src = spaceIconSrc(space)
   if (!src) return null

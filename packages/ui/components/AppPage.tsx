@@ -1714,8 +1714,8 @@ function AppShell({
     handleNewChat()
   }, [activeSpaceId, handleNewChat, handleSpaceSwitch])
 
-  const handleSpaceCreate = useCallback(async (name?: string, iconImage?: NonNullable<import("@/types/space").Space["iconImage"]> | null) => {
-    const space = await createSpace(name, iconImage)
+  const handleSpaceCreate = useCallback(async (name?: string, iconImage?: NonNullable<import("@/types/space").Space["iconImage"]> | null, iconEmoji?: NonNullable<import("@/types/space").Space["iconEmoji"]> | null) => {
+    const space = await createSpace(name, iconImage, iconEmoji)
     await handleSpaceSwitch(space.id)
   }, [createSpace, handleSpaceSwitch])
 
