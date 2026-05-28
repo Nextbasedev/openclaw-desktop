@@ -330,7 +330,7 @@ export function CreateSpaceDialog({
             <LuSmile size={15} strokeWidth={1.8} />
           </div>
 
-          <div className="h-[214px] overflow-y-auto pr-1">
+          <div className="h-[214px] overflow-y-auto px-1 py-0.5">
             <div className="grid grid-cols-8 gap-1.5">
               {visibleEmojis.map((item) => {
                 const selected = item.emoji === iconEmoji.emoji
