@@ -9,8 +9,12 @@ const base = {
 }
 
 describe("shouldAutoLoadOlderHistory", () => {
-  it("loads when the user scrolls upward into the upper 60 percent of loaded history", () => {
-    expect(shouldAutoLoadOlderHistory({ ...base, scrollTop: 5_400 })).toBe(true)
+  it("loads after the user scrolls upward through 60 percent of the loaded history", () => {
+    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 3_800, scrollTop: 3_600 })).toBe(true)
+  })
+
+  it("does not load too early when only 40 percent of loaded history has been scrolled upward", () => {
+    expect(shouldAutoLoadOlderHistory({ ...base, scrollTop: 5_400 })).toBe(false)
   })
 
   it("does not load while the user is still below the upper history threshold", () => {
@@ -26,11 +30,11 @@ describe("shouldAutoLoadOlderHistory", () => {
   })
 
   it("does not repeatedly load from tiny upward movement inside the already-crossed threshold", () => {
-    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 5_300, scrollTop: 5_200, lastLoadScrollTop: 5_400 })).toBe(false)
+    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 3_500, scrollTop: 3_400, lastLoadScrollTop: 3_600 })).toBe(false)
   })
 
   it("loads again inside the threshold after meaningful continued upward scroll from the previous load", () => {
-    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 4_900, scrollTop: 4_700, lastLoadScrollTop: 5_400 })).toBe(true)
+    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 3_100, scrollTop: 2_900, lastLoadScrollTop: 3_600 })).toBe(true)
   })
 
   it("does not load while scrolling downward, even inside the threshold", () => {
