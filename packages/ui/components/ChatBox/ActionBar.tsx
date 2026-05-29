@@ -99,7 +99,7 @@ export function ActionBar({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/12 bg-white/[0.06] text-foreground/88 shadow-[0_10px_30px_-18px_rgba(0,0,0,0.85),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl transition-all hover:border-white/18 hover:bg-white/[0.1] hover:text-foreground"
+              className="flex size-9 shrink-0 cursor-pointer appearance-none items-center justify-center rounded-full border border-white/12 bg-white/[0.06] text-foreground/80 shadow-[0_10px_30px_-18px_rgba(0,0,0,0.85),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl transition-all hover:border-white/18 hover:bg-white/[0.1] hover:text-foreground [-webkit-appearance:none]"
               aria-label="Add"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={19} />
