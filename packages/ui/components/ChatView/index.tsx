@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import type { ReactNode } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -10,6 +11,7 @@ import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
 import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
 import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
 import { logChatScrollDebug } from "./chatScrollDebug"
+import { useVirtualChatRows } from "./useVirtualChatRows"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
@@ -75,6 +77,7 @@ import {
 } from "@/components/ui/tooltip"
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
+const VIRTUAL_CHAT_ROW_THRESHOLD = 80
 
 type MessageScrollAnchor = {
   id: string
@@ -188,6 +191,71 @@ function settleMessageScrollAnchor(container: HTMLElement | null, anchor: Messag
   timeouts.push(window.setTimeout(restore, 80))
   timeouts.push(window.setTimeout(restore, 180))
   timeouts.push(window.setTimeout(finish, 360))
+}
+
+function stableMessageRowSignature(message: StableChatMessage) {
+  return JSON.stringify({
+    uiId: message.uiId,
+    messageId: message.messageId,
+    role: message.role,
+    text: message.text,
+    reasoningText: message.reasoningText,
+    toolCalls: message.toolCalls?.map((tool) => [tool.id, tool.tool, tool.status, tool.awaitingResult, tool.resultText]),
+    attachments: message.attachments?.map((attachment) => [attachment.name, attachment.mimeType, attachment.size, attachment.url]),
+    embeds: message.embeds?.map((embed) => [embed.title, embed.content]),
+    isOptimistic: message.isOptimistic,
+    sendStatus: message.sendStatus,
+    gatewayIndex: message.gatewayIndex,
+    createdAt: message.createdAt,
+  })
+}
+
+type RenderedMessageRowProps = {
+  msg: StableChatMessage
+  index: number
+  total: number
+  rowSignature: string
+  uiStateKey: string
+  renderMessageRow: (index: number, msg: StableChatMessage) => ReactNode
+}
+
+const RenderedMessageRow = memo(function RenderedMessageRow({
+  msg,
+  index,
+  total,
+  renderMessageRow,
+}: RenderedMessageRowProps) {
+  if (typeof window !== "undefined") {
+    try {
+      if (window.localStorage.getItem("openclaw.chat.render.debug") === "1") {
+        console.debug("[chat-row-render]", { uiId: msg.uiId, messageId: msg.messageId, index, total })
+      }
+    } catch {}
+  }
+  return <>{renderMessageRow(index, msg)}</>
+}, (prev, next) => {
+  if (prev.msg.uiId !== next.msg.uiId) return false
+  if (prev.rowSignature !== next.rowSignature) return false
+  if (prev.uiStateKey !== next.uiStateKey) return false
+
+  const prependedCount = next.total - prev.total
+  if (prependedCount > 0 && next.index - prev.index === prependedCount) return true
+  if (prev.index === next.index && prev.total === next.total) return true
+  if (prev.index === next.index && prev.index < prev.total - 3) return true
+  return false
+})
+
+function estimateChatRowHeight(message?: ChatMessage) {
+  if (!message) return 96
+  const textLength = message.text?.length ?? 0
+  const explicitLines = message.text ? message.text.split("\n").length : 1
+  const wrappedLines = Math.ceil(textLength / 88)
+  const textLines = Math.max(explicitLines, wrappedLines, 1)
+  const toolHeight = message.toolCalls?.length ? Math.min(520, 76 + message.toolCalls.length * 54) : 0
+  const reasoningHeight = message.reasoningText ? Math.min(360, 70 + Math.ceil(message.reasoningText.length / 120) * 22) : 0
+  const attachmentHeight = message.attachments?.length ? 96 : 0
+  const bubbleHeight = message.role === "user" ? 58 + textLines * 20 : 64 + textLines * 22
+  return Math.max(72, bubbleHeight + toolHeight + reasoningHeight + attachmentHeight)
 }
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
 
@@ -935,6 +1003,33 @@ export function ChatView({
     () => buildStableChatRows(visibleAllMessages),
     [visibleAllMessages]
   )
+  const [pendingOlderAnchorUiId, setPendingOlderAnchorUiId] = useState<string | null>(null)
+  const pendingOlderAnchorIndex = useMemo(
+    () => pendingOlderAnchorUiId
+      ? renderedMessages.findIndex((message) => message.uiId === pendingOlderAnchorUiId)
+      : -1,
+    [pendingOlderAnchorUiId, renderedMessages]
+  )
+  const virtualExtraIndexes = useMemo(
+    () => pendingOlderAnchorIndex >= 0 ? [pendingOlderAnchorIndex] : [],
+    [pendingOlderAnchorIndex]
+  )
+  const getVirtualChatRowKey = useCallback(
+    (index: number) => renderedMessages[index]?.uiId ?? renderedMessages[index]?.messageId ?? `message-${index}`,
+    [renderedMessages]
+  )
+  const estimateVirtualChatRowSize = useCallback(
+    (index: number) => estimateChatRowHeight(renderedMessages[index]),
+    [renderedMessages]
+  )
+  const virtualChatRows = useVirtualChatRows({
+    count: renderedMessages.length,
+    enabled: renderedMessages.length > VIRTUAL_CHAT_ROW_THRESHOLD,
+    scrollContainerRef,
+    getItemKey: getVirtualChatRowKey,
+    estimateSize: estimateVirtualChatRowSize,
+    extraIndexes: virtualExtraIndexes,
+  })
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
   const needsInitialScrollRef = useRef(true)
@@ -962,6 +1057,7 @@ export function ChatView({
     lastOlderLoadAtRef.current = 0
     lastOlderLoadScrollTopRef.current = null
     previousScrollTopRef.current = 0
+    setPendingOlderAnchorUiId(null)
   }, [sessionKey])
 
   const latestRenderedUserIndex = useMemo(() => {
@@ -1145,6 +1241,7 @@ export function ChatView({
     loadOlderClickInFlightRef.current = true
     olderLoadAwaitingRenderRef.current = true
     pendingOlderAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
+    setPendingOlderAnchorUiId(pendingOlderAnchorRef.current?.uiId || null)
     logChatScrollDebug({
       source: "chat",
       event: "load-older-start",
@@ -1159,6 +1256,7 @@ export function ChatView({
       await loadOlderMessages()
     } catch {
       pendingOlderAnchorRef.current = null
+      setPendingOlderAnchorUiId(null)
       olderLoadAwaitingRenderRef.current = false
       loadOlderClickInFlightRef.current = false
     }
@@ -1176,6 +1274,7 @@ export function ChatView({
         lastOlderLoadScrollTopRef.current = el.scrollTop
       }
       loadOlderClickInFlightRef.current = false
+      setPendingOlderAnchorUiId(null)
     })
   }, [renderedMessages.length, scrollContainerRef])
 
@@ -1504,10 +1603,14 @@ export function ChatView({
   const scrollToRenderedMessage = useCallback((messageId: string, _seq?: number) => {
     void _seq
     const target = document.getElementById(`message-${messageId}`)
-    if (!target) return false
-    target.scrollIntoView({ behavior: "auto", block: "center" })
-    return true
-  }, [])
+    if (target) {
+      target.scrollIntoView({ behavior: "auto", block: "center" })
+      return true
+    }
+    const virtualIndex = renderedMessages.findIndex((message) => message.messageId === messageId)
+    if (virtualIndex < 0) return false
+    return virtualChatRows.scrollToIndex(virtualIndex, "center")
+  }, [renderedMessages, virtualChatRows])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -1962,9 +2065,47 @@ export function ChatView({
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
-          {renderedMessages.map((msg, index) => (
-            <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
-          ))}
+          {virtualChatRows.enabled ? (
+            <div
+              className="relative w-full"
+              style={{ height: virtualChatRows.totalSize }}
+              aria-label={`Virtualized chat timeline showing messages ${virtualChatRows.startIndex + 1}-${virtualChatRows.endIndex} of ${renderedMessages.length}`}
+            >
+              {virtualChatRows.rows.map((row) => {
+                const msg = renderedMessages[row.index]
+                if (!msg) return null
+                return (
+                  <div
+                    key={row.key}
+                    ref={virtualChatRows.measureElement(row.index)}
+                    className="absolute left-0 right-0 top-0"
+                    style={{ transform: `translateY(${row.start}px)` }}
+                  >
+                    <RenderedMessageRow
+                      msg={msg}
+                      index={row.index}
+                      total={renderedMessages.length}
+                      rowSignature={stableMessageRowSignature(msg)}
+                      uiStateKey={`${highlightedMessageId ?? ""}:${activePopoverId ?? ""}:${isGenerating ? "1" : "0"}:${lastEditableUserId ?? ""}`}
+                      renderMessageRow={renderMessageRow}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            renderedMessages.map((msg, index) => (
+              <RenderedMessageRow
+                key={msg.uiId}
+                msg={msg}
+                index={index}
+                total={renderedMessages.length}
+                rowSignature={stableMessageRowSignature(msg)}
+                uiStateKey={`${highlightedMessageId ?? ""}:${activePopoverId ?? ""}:${isGenerating ? "1" : "0"}:${lastEditableUserId ?? ""}`}
+                renderMessageRow={renderMessageRow}
+              />
+            ))
+          )}
           <div className="mx-auto max-w-[44rem] px-4 pt-1 pb-8">
             <AnimatePresence initial={false}>
               {editPreview && (
