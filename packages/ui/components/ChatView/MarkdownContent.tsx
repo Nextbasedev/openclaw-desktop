@@ -243,7 +243,7 @@ const mdComponents = {
       if (match?.[1] === "mermaid") return <MermaidBlock code={text} />
       return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
     }
-    return <code className="break-words rounded-md border border-border/50 bg-muted/50 px-1.5 py-0.5 text-[0.85em] font-mono text-foreground [overflow-wrap:anywhere]" {...rest}>{children}</code>
+    return <code className="break-words rounded-md border border-[#d4d4d4] bg-[#f3f3f3] px-1.5 py-0.5 text-[0.85em] font-mono text-[#a31515] [overflow-wrap:anywhere] dark:border-[#3c3c3c]/55 dark:bg-[#1e1e1e] dark:text-[#ce9178]" {...rest}>{children}</code>
   },
   table({ children }: { children?: React.ReactNode }) {
     return (<div className="my-2 max-w-full overflow-hidden rounded-lg border border-border/50"><div className="max-w-full overflow-x-auto"><table className="w-full border-separate border-spacing-0 text-[13px]">{children}</table></div></div>)
