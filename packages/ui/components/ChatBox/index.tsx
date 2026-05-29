@@ -682,7 +682,7 @@ export function ChatBox({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[44rem] px-2 sm:px-4">
+    <div className="mx-auto w-full max-w-3xl px-2 sm:px-4">
       <input
         ref={fileInputRef}
         type="file"
@@ -696,10 +696,9 @@ export function ChatBox({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         className={cn(
-          "relative z-10 flex flex-col rounded-[24px] border border-border/55 bg-background/95 p-[10px] shadow-[0_12px_34px_-28px_rgba(0,0,0,0.72)] backdrop-blur-2xl transition-all",
-          isFocused && "border-ring/75 ring-2 ring-ring/20",
+          "relative z-10 flex flex-col rounded-[24px] bg-white/[0.04] shadow-[0_12px_34px_-28px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-2xl transition-all",
           glowOnMount && "chatbox-glow",
-          isDragOver && "border-ring border-dashed bg-accent/50 ring-2 ring-primary/20"
+          isDragOver && "ring-2 ring-primary/20"
         )}
       >
         {isDragOver && (
@@ -761,7 +760,7 @@ export function ChatBox({
               />
             )}
         </AnimatePresence>
-        <div className="flex w-full flex-col gap-2">
+        <div className="flex w-full flex-col pt-3">
           <textarea
             ref={textareaRef}
             value={input}
@@ -870,11 +869,11 @@ export function ChatBox({
             rows={1}
             disabled={isComposerDisabled}
             className={cn(
-              "w-full resize-none bg-transparent px-1.5 py-1 text-[15px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/70 disabled:opacity-50",
+              "w-full resize-none bg-transparent px-3 py-1 text-[15.5px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-50",
               isSlashCommandInput &&
                 "text-[15px] font-[family:var(--font-jetbrains-mono)]"
             )}
-            style={{ minHeight: "44px", maxHeight: "250px" }}
+            style={{ minHeight: "68px", maxHeight: "250px" }}
             autoFocus
           />
 
