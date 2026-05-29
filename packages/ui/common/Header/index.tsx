@@ -55,6 +55,7 @@ type HeaderProps = {
   ) => void
   onNewChat?: (groupId?: "group-1" | "group-2") => void
   showSplitButton?: boolean
+  workspaceControls?: boolean
   splitActive?: boolean
   splitRatio?: number
   onToggleSplit?: () => void
