@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { shouldAutoLoadOlderHistory, shouldPreloadOlderHistoryAtRest } from "@/components/ChatView/chatHistoryAutoLoad"
+import { shouldAutoLoadOlderHistory } from "@/components/ChatView/chatHistoryAutoLoad"
 
 const base = {
   scrollHeight: 10_000,
@@ -35,13 +35,5 @@ describe("shouldAutoLoadOlderHistory", () => {
 
   it("does not load if the container is not scrollable", () => {
     expect(shouldAutoLoadOlderHistory({ ...base, scrollHeight: 900, clientHeight: 1_000, scrollTop: 0 })).toBe(false)
-  })
-
-  it("can continue preloading at rest when the user remains near the top after a page loads", () => {
-    expect(shouldPreloadOlderHistoryAtRest({ ...base, scrollTop: 1_200 })).toBe(true)
-  })
-
-  it("does not continue preloading at rest when the prepend moved the user away from the top window", () => {
-    expect(shouldPreloadOlderHistoryAtRest({ ...base, scrollTop: 3_200 })).toBe(false)
   })
 })
