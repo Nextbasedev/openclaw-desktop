@@ -58,12 +58,11 @@ type SpaceMutationResponse = {
 }
 
 const DEFAULT_SPACE_ID = "space_default"
-const DEFAULT_SPACE_NAME = "My Workspace"
 
 function normalizeSpaces(spaces: Space[] = []) {
   return spaces.map((space) =>
     normalizeSpaceIcon(space.id === DEFAULT_SPACE_ID
-      ? { ...space, name: DEFAULT_SPACE_NAME, archived: false }
+      ? { ...space, archived: false }
       : space),
   )
 }

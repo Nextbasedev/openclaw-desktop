@@ -696,6 +696,15 @@ describe("middleware app", () => {
     const createdSpace = await app.inject({ method: "POST", url: "/api/spaces", payload: { name: "New Project" } });
     const activeSpaceId = createdSpace.json().activeSpaceId;
     await app.inject({ method: "PATCH", url: "/api/spaces/space_default", payload: { name: "Smoke Job", text: "hello", sessionKey: "agent:main:smoke" } });
+    await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_spaces_update",
+      payload: {
+        spaceId: "space_default",
+        name: "Renamed Workspace",
+        iconEmoji: { emoji: "🦊", label: "fox", color: "from-orange-500 to-amber-700" },
+      },
+    });
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
 
     expect(bootstrap.statusCode).toBe(200);
@@ -707,7 +716,11 @@ describe("middleware app", () => {
       expect.objectContaining({ sessionKey: "agent:main:desktop:orphan-before-space" }),
     ]));
     expect(bootstrap.json().spaces).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "space_default", name: "My Workspace" }),
+      expect.objectContaining({
+        id: "space_default",
+        name: "Renamed Workspace",
+        iconEmoji: { emoji: "🦊", label: "fox", color: "from-orange-500 to-amber-700" },
+      }),
     ]));
     expect(bootstrap.json().spaces.find((space: { id?: string }) => space.id === "space_default")).not.toHaveProperty("text");
 
