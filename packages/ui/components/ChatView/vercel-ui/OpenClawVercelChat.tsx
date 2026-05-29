@@ -237,7 +237,7 @@ export function OpenClawVercelChat({
     loadOlderInFlightRef.current = true
     olderLoadAwaitingRenderRef.current = true
     setLocalOlderLoading(true)
-    pendingOlderAnchorRef.current = pendingOlderAnchorRef.current ?? captureVercelScrollAnchor(containerRef.current)
+    pendingOlderAnchorRef.current = captureVercelScrollAnchor(containerRef.current)
     logChatScrollDebug({
       source: "vercel-chat",
       event: "load-older-start",
@@ -280,7 +280,6 @@ export function OpenClawVercelChat({
           clientHeight: nextContainer.clientHeight,
           hasUserIntent: userScrollIntentRef.current,
         })) return
-        pendingOlderAnchorRef.current = anchor
         void loadOlderWithoutJump()
       }, 920)
     })
