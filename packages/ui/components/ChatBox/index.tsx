@@ -682,7 +682,7 @@ export function ChatBox({
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-2 sm:px-4">
+    <div className="mx-auto w-full max-w-[44rem] px-4">
       <input
         ref={fileInputRef}
         type="file"
