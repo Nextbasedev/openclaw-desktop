@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react"
+import { useRef, useCallback, useState } from "react"
 import type { Terminal } from "@xterm/xterm"
 import { invoke, openEventStream } from "@/lib/ipc"
 import { getMiddlewareConnection } from "@/lib/middleware-client"
@@ -44,8 +44,14 @@ export function usePty(
   const wsRef = useRef<WebSocket | null>(null)
   const closeStreamRef = useRef<(() => void) | null>(null)
   const writeQueueRef = useRef<string[]>([])
+  const [status, setStatusState] = useState<PtyStatus>("idle")
+  const [statusMessage, setStatusMessage] = useState<string | undefined>()
+  const [cwd, setCwd] = useState<string | null>(null)
+  const [ptyId, setPtyId] = useState<string | null>(null)
 
   const setStatus = useCallback((status: PtyStatus, message?: string) => {
+    setStatusState(status)
+    setStatusMessage(message)
     onStatus?.(status, message)
   }, [onStatus])
 
@@ -85,12 +91,14 @@ export function usePty(
     closeStreamRef.current?.()
     closeStreamRef.current = null
     writeQueueRef.current = []
+    setPtyId(null)
     if (ptyIdRef.current) {
       const id = ptyIdRef.current
       ptyIdRef.current = null
       invoke("middleware_pty_kill", { input: { ptyId: id } }).catch(() => {})
     }
-  }, [])
+    setStatus("idle")
+  }, [setStatus])
 
   const spawn = useCallback(
     async (rows: number, cols: number, signal: { aborted: boolean }) => {
@@ -109,6 +117,8 @@ export function usePty(
       }
 
       ptyIdRef.current = result.ptyId
+      setPtyId(result.ptyId)
+      setCwd(result.cwd || null)
       const wsUrl = middlewareWsUrl(result.websocketUrl)
       if (wsUrl) {
         const ws = new WebSocket(wsUrl)
@@ -178,5 +188,5 @@ export function usePty(
     })
   }, [])
 
-  return { spawn, write, resize, cleanup }
+  return { spawn, write, resize, cleanup, status, statusMessage, cwd, ptyId }
 }

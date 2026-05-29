@@ -21,7 +21,14 @@ export type RemoteWorkspaceCapabilities = {
   canDeleteEntry: boolean
 }
 
+/**
+ * workspaceBasePath(null)  → real global workspace (/api/workspace)
+ * workspaceBasePath(undefined) → legacy: falls back to localStorage activeProjectId
+ * workspaceBasePath("project_x") → project-scoped workspace
+ */
 function workspaceBasePath(projectId?: string | null): string {
+  // Explicit null means "global workspace" — no localStorage fallback
+  if (projectId === null) return "/api/workspace"
   const id = projectId ?? (typeof window !== "undefined" ? localStorage.getItem("openclaw.activeProjectId") : null)
   return id ? `/api/projects/${id}/workspace` : "/api/workspace"
 }

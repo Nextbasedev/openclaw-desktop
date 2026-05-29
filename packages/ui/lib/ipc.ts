@@ -204,7 +204,7 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_spaces_rename":
       return withCommandFallback(() => middlewareFetch<T>(`/api/spaces/${input.spaceId}/rename`, { method: "POST", body: JSON.stringify(input) }))
     case "middleware_spaces_update":
-      return commandEndpoint()
+      return withCommandFallback(() => middlewareFetch<T>(`/api/spaces/${input.spaceId}`, { method: "PATCH", body: JSON.stringify(input) }))
     case "middleware_spaces_archive":
       return commandEndpoint()
     case "middleware_spaces_switch":

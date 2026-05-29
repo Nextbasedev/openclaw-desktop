@@ -377,6 +377,13 @@ export function Header({
 
       {/* Right: action icons — absolute so they don't shrink the tab area */}
       <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-[#151515] pl-2", showWindowControls ? "pr-0" : "pr-3")}>
+        {minimal && (
+          <HeaderUtilityActions
+            onOpenLogs={onOpenLogs}
+            onOpenSettings={onOpenSettings}
+          />
+        )}
+
         {!minimal && (
           <>
             {/* Split view button hidden per product request.
@@ -459,30 +466,12 @@ export function Header({
               </button>
             </HeaderActionTooltip>
 
-            <HeaderActionTooltip label="Open logs">
-              <button
-                type="button"
-                aria-label="Open logs"
-                onClick={onOpenLogs}
-                className={cn(
-                  "mx-1 flex items-center gap-1.5 rounded-md border border-border/40 px-2 py-1 text-[11px]",
-                  "cursor-pointer transition-colors",
-                  "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <VscOutput className="size-3.5" />
-                Logs
-              </button>
-            </HeaderActionTooltip>
-
-            <NotificationPopover
-              onViewAll={onOpenNotifications}
+            <HeaderUtilityActions
+              onOpenLogs={onOpenLogs}
+              onOpenNotifications={onOpenNotifications}
               onNavigateToChat={onNavigateToChat}
-            />
-            <HeaderIconButton
-              icon={Icons.Settings}
-              label="Settings"
-              onClick={onOpenSettings}
+              onOpenSettings={onOpenSettings}
+              showNotifications
             />
           </>
         )}
@@ -492,6 +481,56 @@ export function Header({
         )}
       </div>
     </header>
+  )
+}
+
+
+function HeaderUtilityActions({
+  onOpenLogs,
+  onOpenNotifications,
+  onNavigateToChat,
+  onOpenSettings,
+  showNotifications = false,
+}: {
+  onOpenLogs?: () => void
+  onOpenNotifications?: () => void
+  onNavigateToChat?: (
+    chat: ActiveChat,
+  ) => void | boolean | Promise<void | boolean>
+  onOpenSettings?: () => void
+  showNotifications?: boolean
+}) {
+  return (
+    <>
+      <HeaderActionTooltip label="Open logs">
+        <button
+          type="button"
+          aria-label="Open logs"
+          onClick={onOpenLogs}
+          className={cn(
+            "mx-1 flex items-center gap-1.5 rounded-md border border-border/40 px-2 py-1 text-[11px]",
+            "cursor-pointer transition-colors",
+            "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <VscOutput className="size-3.5" />
+          Logs
+        </button>
+      </HeaderActionTooltip>
+
+      {showNotifications && (
+        <NotificationPopover
+          onViewAll={onOpenNotifications}
+          onNavigateToChat={onNavigateToChat}
+        />
+      )}
+
+      <HeaderIconButton
+        icon={Icons.Settings}
+        label="Settings"
+        onClick={onOpenSettings}
+      />
+    </>
   )
 }
 

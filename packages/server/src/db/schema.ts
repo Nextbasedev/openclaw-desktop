@@ -116,6 +116,7 @@ export function initDb(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS spaces (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      icon_image_json TEXT,
       repo_root TEXT,
       project_id TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
@@ -226,6 +227,11 @@ export function initDb(db: Database.Database): void {
   `);
 
   const migrations: Array<{ table: string; column: string; sql: string }> = [
+    {
+      table: "spaces",
+      column: "icon_image_json",
+      sql: "ALTER TABLE spaces ADD COLUMN icon_image_json TEXT",
+    },
     {
       table: "projects",
       column: "remotes_json",

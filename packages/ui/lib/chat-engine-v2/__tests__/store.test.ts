@@ -40,7 +40,7 @@ function stubLocalStorage(data: Record<string, string> = {}) {
 }
 
 describe("global V2 chat engine store", () => {
-  test("focused window stream can replay from session-safe cursor below persisted global cursor", async () => {
+  test("focused window stream does not rewind below persisted global cursor", async () => {
     stubLocalStorage({ "openclaw:patchCursor:default": "1000" })
     seedGlobalChatSession({
       sessionKey: "focused-session",
@@ -56,10 +56,10 @@ describe("global V2 chat engine store", () => {
     })
 
     const { openPatchStreamV2 } = await import("../client")
-    expect(vi.mocked(openPatchStreamV2)).toHaveBeenCalledWith(900, expect.any(Function))
+    expect(vi.mocked(openPatchStreamV2)).toHaveBeenCalledWith(1000, expect.any(Function))
   })
 
-  test("focused replay cursor can lower even when another session has newer local state", async () => {
+  test("focused replay cursor cannot lower when another session has newer local state", async () => {
     stubLocalStorage({ "openclaw:patchCursor:default": "1000" })
     seedGlobalChatSession({
       sessionKey: "other-session",
@@ -75,7 +75,7 @@ describe("global V2 chat engine store", () => {
     })
 
     const { openPatchStreamV2 } = await import("../client")
-    expect(vi.mocked(openPatchStreamV2)).toHaveBeenCalledWith(900, expect.any(Function))
+    expect(vi.mocked(openPatchStreamV2)).toHaveBeenCalledWith(1000, expect.any(Function))
   })
 
   test("metadata-only bootstrap replay is not authoritative empty history", () => {
