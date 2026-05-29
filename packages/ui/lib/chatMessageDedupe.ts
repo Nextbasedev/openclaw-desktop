@@ -140,14 +140,18 @@ function sameOptimisticUserTurn(a: ChatMessage, b: ChatMessage) {
   if (aOptimistic && bOptimistic) return Boolean(a.messageId && a.messageId === b.messageId)
   if (!aOptimistic && !bOptimistic) return false
 
+  const optimisticWasAlreadyVisible = aOptimistic && !bOptimistic
   const optimistic = aOptimistic ? a : b
   const canonical = aOptimistic ? b : a
   const optimisticTime = parsedMessageTime(optimistic)
   const canonicalTime = parsedMessageTime(canonical)
 
-  // A canonical echo should be at/after the optimistic send. If the matching
-  // canonical row is older than the optimistic row, it is a previous repeated
-  // user message and must not absorb the new optimistic message.
+  // A canonical echo normally arrives at/after the optimistic send. In the
+  // desktop app the canonical timestamp can be produced by Gateway/middleware
+  // while the optimistic timestamp is browser-local, so small clock/ordering
+  // skew used to leave both rows visible as duplicate user messages. Keep the
+  // guard against intentionally repeated messages, but allow a bounded reverse
+  // skew for the same optimistic turn.
   if (optimisticTime !== null && canonicalTime !== null) {
     const hasAttachmentEcho = Boolean(
       optimistic.attachments?.length ||
@@ -156,9 +160,11 @@ function sameOptimisticUserTurn(a: ChatMessage, b: ChatMessage) {
       ATTACHMENT_PLACEHOLDER_RE.test(canonical.text)
     )
     ATTACHMENT_PLACEHOLDER_RE.lastIndex = 0
-    if (hasAttachmentEcho) return Math.abs(canonicalTime - optimisticTime) <= 5 * 60 * 1000
-    if (canonicalTime + 1000 < optimisticTime) return false
-    return canonicalTime - optimisticTime <= 5 * 60 * 1000
+    const maxForwardMs = hasAttachmentEcho ? 5 * 60 * 1000 : 5 * 60 * 1000
+    const maxReverseSkewMs = hasAttachmentEcho ? 5 * 60 * 1000 : 30 * 1000
+    const delta = canonicalTime - optimisticTime
+    if (delta < 0) return (hasAttachmentEcho || optimisticWasAlreadyVisible) && Math.abs(delta) <= maxReverseSkewMs
+    return delta <= maxForwardMs
   }
 
   // Without ordering metadata, text-only optimistic matching is too broad for
@@ -200,14 +206,25 @@ function isAssistantPrefixUpdate(shorter: string, longer: string) {
   return nextChar === "" || /[\s.,!?;:)'"`\]}]/.test(nextChar)
 }
 
-export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
+export function isLiveAssistantEcho(message: ChatMessage) {
+  return message.messageId?.startsWith("live:run:") && message.role === "assistant"
+}
+
+function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "assistant" || b.role !== "assistant") return false
+  const aText = collapseRepeatedAssistantText(a.text)
+  const bText = collapseRepeatedAssistantText(b.text)
+
+  // A persisted websocket/live assistant row can arrive after the canonical
+  // Gateway final message with a synthetic local seq/gatewayIndex. Treat exact
+  // live echoes as the same assistant turn even when those synthetic indexes
+  // drift, otherwise rapid tab/reload flows show the final answer twice.
+  if ((isLiveAssistantEcho(a) || isLiveAssistantEcho(b)) && aText && aText === bText) return true
+
   if (hasDifferentGatewayIndex(a, b)) return false
   if (isAssistantErrorLike(a) && isAssistantErrorLike(b)) {
     return a.messageId === b.messageId || hasSameGatewayIndex(a, b)
   }
-  const aText = collapseRepeatedAssistantText(a.text)
-  const bText = collapseRepeatedAssistantText(b.text)
   if (a.messageId === b.messageId) return true
   if (hasOverlappingToolCalls(a, b)) return true
   if (!aText || !bText) return false
@@ -414,7 +431,7 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
       continue
     }
 
-    const lastUserIndex = message.role === "assistant"
+    const lastUserIndex = message.role === "assistant" && !isLiveAssistantEcho(message)
       ? result.map((existing) => existing.role).lastIndexOf("user")
       : -1
     const assistantIndex = result.findIndex((existing, index) =>
@@ -422,10 +439,13 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
     )
     if (assistantIndex >= 0) {
       const existing = result[assistantIndex]
-      const preferred =
-        message.text.trim().length >= existing.text.trim().length
-          ? message
-          : existing
+      const preferred = isLiveAssistantEcho(existing) && !isLiveAssistantEcho(message)
+        ? message
+        : isLiveAssistantEcho(message) && !isLiveAssistantEcho(existing)
+          ? existing
+          : message.text.trim().length >= existing.text.trim().length
+            ? message
+            : existing
       result[assistantIndex] = {
         ...existing,
         ...preferred,

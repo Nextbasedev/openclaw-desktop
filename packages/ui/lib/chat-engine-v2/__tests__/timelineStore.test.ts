@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import { ChatTimelineStore, getTimelineStore, deleteTimelineStore, clearAllTimelineStores } from "../timelineStore"
+import { parseChatHistory } from "../../chatHistoryParser"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 function msg(id: string, text: string, seq: number, role: "user" | "assistant" = "assistant"): ChatMessage {
@@ -71,6 +72,29 @@ describe("ChatTimelineStore", () => {
       store.flushSync()
       expect(store.getSnapshot().messageCount).toBe(50)
     })
+
+    it("orders confirmed user before assistant when projected seq drifted but gateway seq is correct", () => {
+      const parsed = parseChatHistory([
+        {
+          role: "assistant",
+          text: "WEBWRIGHT_CHAT_123",
+          __openclaw: { id: "assistant-final", seq: 2, gatewaySeq: 2 },
+        },
+        {
+          role: "user",
+          text: "WEBWRIGHT_CHAT_123 long message",
+          __openclaw: { id: "user-confirmed", seq: 3, gatewaySeq: 1 },
+        },
+      ])
+
+      store.applyBootstrap(parsed.messages, 20)
+      store.flushSync()
+
+      expect(store.getSnapshot().messages.map((message) => `${message.role}:${message.text}`)).toEqual([
+        "user:WEBWRIGHT_CHAT_123 long message",
+        "assistant:WEBWRIGHT_CHAT_123",
+      ])
+    })
   })
 
   describe("patches", () => {
@@ -89,6 +113,25 @@ describe("ChatTimelineStore", () => {
       store.applyPatchMessage(msg("m1", "final", 1), 11)
       store.flushSync()
       expect(store.getSnapshot().messages[0].text).toBe("final")
+    })
+
+    it("replaces matching optimistic user when canonical patch has a different id", () => {
+      store.applyOptimistic({
+        ...msg("optimistic-user", "check this", 0, "user"),
+        createdAt: "2026-05-29T16:25:30.000Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+      })
+      store.flushSync()
+      store.applyPatchMessage({
+        ...msg("gateway-user", "check this", 4, "user"),
+        createdAt: "2026-05-29T16:25:10.000Z",
+      }, 11)
+      store.flushSync()
+
+      const snap = store.getSnapshot()
+      expect(snap.messages.map((message) => message.messageId)).toEqual(["gateway-user"])
+      expect(snap.messages.some((message) => message.isOptimistic)).toBe(false)
     })
 
     it("removes message via patch", () => {

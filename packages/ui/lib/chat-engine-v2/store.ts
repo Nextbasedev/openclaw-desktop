@@ -108,15 +108,17 @@ function isMeaningfulSpawnLabel(label: string) {
 function spawnDedupeKey(spawn: SpawnedSubagent) {
   const label = normalizedSpawnText(spawn.label)
   const task = normalizedSpawnText(spawn.task)
-  // The same requested child can be represented by several transient
-  // sessions_spawn tool ids as live assistant/message patches are replayed.
-  // For user-visible background agents, prefer the explicit requested label
-  // over transient tool ids or prompt text. Real bundles showed the same
-  // `ui-automation` child repeated with slightly different task wording, so
-  // label+task still over-counted.
-  if (isMeaningfulSpawnLabel(spawn.label)) return `label:${label}`
-  if (task) return `task:${task}`
+  // Once middleware has linked a real child session, the session key is the
+  // only safe identity. Multiple intentional children can share a label/task
+  // (for example several Kimi workers), and label-first dedupe collapsed their
+  // count into one visible sub-agent.
   if (spawn.sessionKey) return `session:${spawn.sessionKey}`
+  // Before a child session is linked, replay can represent the same requested
+  // child with several transient tool ids. Keep the old label/task fallback for
+  // that pending-only window to avoid duplicate placeholders during backlog
+  // recovery.
+  if (isMeaningfulSpawnLabel(spawn.label)) return `pending-label:${label}`
+  if (task) return `pending-task:${task}`
   return `tool:${spawn.toolCallId}`
 }
 
@@ -201,7 +203,7 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
       v2Cursor: cursor,
       runStatus: state.status,
       statusLabel: state.statusLabel,
-      activeRun: cached.activeRun ?? null,
+      activeRun: ACTIVE_STATUSES.has(state.status) ? (cached.activeRun ?? null) : null,
       tools,
       toolCalls: tools,
       history: {
@@ -1788,16 +1790,17 @@ export function seedGlobalChatSession(params: {
     hasLiveState &&
     incomingIsTerminal &&
     (incomingDropsMessages || incomingDropsRunningTool)
-  const hadNewerLiveState = hasNewerCursor || hasSameCursorLiveState || incomingPartialDropsLocalMessages
-  state.messages = hadNewerLiveState
+  const shouldPreserveLocalMessages = hasNewerCursor || hasSameCursorLiveState || incomingPartialDropsLocalMessages
+  const shouldPreserveLocalActivity = hasNewerCursor || (hasSameCursorLiveState && !incomingMayBePartial) || (incomingPartialDropsLocalMessages && !incomingIsTerminal)
+  state.messages = shouldPreserveLocalMessages
     ? dedupeChatMessages([...params.messages, ...state.messages])
     : dedupeChatMessages(params.messages)
   state.cursor = Math.max(state.cursor, incomingCursor)
-  if (!hadNewerLiveState || incomingHistoryCoverage === "full") {
+  if (!shouldPreserveLocalMessages || incomingHistoryCoverage === "full") {
     state.historyCoverage = incomingHistoryCoverage
     state.messageCount = incomingMessageCount
   }
-  if (params.status && !hadNewerLiveState) {
+  if (params.status && !shouldPreserveLocalActivity) {
     const wasActive = ACTIVE_STATUSES.has(state.status)
     state.status = params.status
     const now = Date.now()
@@ -1806,7 +1809,7 @@ export function seedGlobalChatSession(params: {
       : 0
     if (ACTIVE_STATUSES.has(params.status)) state.lastPatchAtMs = now
   }
-  if (!hadNewerLiveState) {
+  if (!shouldPreserveLocalActivity) {
     if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
     if (params.status) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
     if (params.status) state.deferredDoneUntilAssistant = false
@@ -1822,7 +1825,8 @@ export function seedGlobalChatSession(params: {
     authoritativeMessageCount: state.messageCount,
     cursor: state.cursor,
     incomingCursor,
-    preservedNewerLiveState: hadNewerLiveState,
+    preservedNewerLiveState: shouldPreserveLocalActivity,
+    preservedLocalMessages: shouldPreserveLocalMessages,
     status: state.status,
     pendingToolCount: state.pendingTools.length,
     spawnedSubagentCount: state.spawnedSubagents.length,

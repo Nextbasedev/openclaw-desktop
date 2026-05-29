@@ -26,7 +26,10 @@ export function legacySessionStatusFromRunStatus(status: BootstrapRunStatus): st
 
 export function runStatusLabel(status: BootstrapRunStatus, run: ProjectedRun | null, legacyLabel: unknown): string | null {
   if (run?.statusLabel) return run.statusLabel;
-  if (typeof legacyLabel === "string" && legacyLabel.trim()) return legacyLabel;
+  // Legacy session rows can retain "Thinking" after the canonical run has
+  // already finalized. Do not let that stale label resurrect active-looking UI
+  // for terminal bootstraps/duplicate tabs.
+  if (["queued", "thinking", "streaming", "tool_running", "error"].includes(status) && typeof legacyLabel === "string" && legacyLabel.trim()) return legacyLabel;
   if (["queued", "thinking"].includes(status)) return "Thinking";
   if (status === "streaming") return "Streaming";
   return null;
@@ -127,9 +130,7 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
     ? context.runs.listToolCalls(params.sessionKey, latestRun.runId)
     : context.runs.listToolCalls(params.sessionKey)
   ).map(toolCallProjection);
-  const sessionStatus = typeof params.sessionData.status === "string"
-    ? params.sessionData.status
-    : legacySessionStatusFromRunStatus(runStatus);
+  const sessionStatus = legacySessionStatusFromRunStatus(runStatus);
 
   return {
     ok: true,

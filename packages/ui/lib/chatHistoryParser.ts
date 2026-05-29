@@ -138,6 +138,34 @@ function openclawSeq(raw: RawHistoryMessage) {
     : undefined
 }
 
+function gatewaySeq(raw: RawHistoryMessage) {
+  const seq = raw.__openclaw?.gatewaySeq
+  return typeof seq === "number" && Number.isFinite(seq) && seq > 0
+    ? Math.floor(seq)
+    : undefined
+}
+
+function inferGatewayOrderBase(raw: RawHistoryMessage[]) {
+  let base: number | undefined
+  for (const item of raw) {
+    const seq = openclawSeq(item)
+    const gateway = gatewaySeq(item)
+    if (seq === undefined || gateway === undefined) continue
+    const diff = seq - gateway
+    if (diff < 0) continue
+    base = base === undefined ? diff : Math.min(base, diff)
+  }
+  return base
+}
+
+function messageOrderSeq(raw: RawHistoryMessage, gatewayOrderBase: number | undefined) {
+  const gateway = gatewaySeq(raw)
+  if (gateway !== undefined && gatewayOrderBase !== undefined) {
+    return gatewayOrderBase + gateway
+  }
+  return openclawSeq(raw)
+}
+
 function messageId(raw: RawHistoryMessage) {
   const openclawId = raw.__openclaw?.id
   if (typeof openclawId === "string" && openclawId.trim()) return openclawId
@@ -706,6 +734,7 @@ export function deduplicateRawMessages(
 
 export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
   const deduped = deduplicateRawMessages(raw)
+  const gatewayOrderBase = inferGatewayOrderBase(deduped)
   const messages: ChatMessage[] = []
   const subagents: SpawnedSubagent[] = []
   let pendingToolCalls: InlineToolCall[] = []
@@ -751,7 +780,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           stopReason: item.stopReason,
           isOptimistic: Boolean(item.isOptimistic || item.__clientOptimistic),
           replyTo: reply?.replyTo,
-          gatewayIndex: openclawSeq(item),
+          gatewayIndex: messageOrderSeq(item, gatewayOrderBase),
           attachments,
         })
       }
@@ -822,7 +851,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           last.model = item.model ?? last.model
           last.usage = item.usage ?? last.usage
           last.stopReason = item.stopReason ?? last.stopReason
-          last.gatewayIndex = openclawSeq(item) ?? last.gatewayIndex
+          last.gatewayIndex = messageOrderSeq(item, gatewayOrderBase) ?? last.gatewayIndex
         } else {
           messages.push({
             messageId: messageId(item),
@@ -835,7 +864,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
             reasoningText: reasoningText || undefined,
             toolCalls:
               pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
-            gatewayIndex: openclawSeq(item),
+            gatewayIndex: messageOrderSeq(item, gatewayOrderBase),
           })
         }
         assistantMergeBlockedByUserBoundary = false

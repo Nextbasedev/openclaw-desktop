@@ -874,6 +874,62 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")?.pendingTools).toEqual([])
   })
 
+  test("terminal windowed bootstrap clears stale active status while preserving newer local messages", () => {
+    seedGlobalChatSession({
+      sessionKey: "imported-chat",
+      cursor: 42,
+      status: "thinking",
+      statusLabel: "Thinking",
+      messages: [
+        { messageId: "old", role: "user", text: "older imported text" },
+        { messageId: "marker", role: "user", text: "WEBWRIGHT_IMPORTED_LONG newest marker" },
+      ],
+      pendingTools: [{ id: "stale-tool", tool: "exec", status: "running" }],
+      messageCount: 539,
+      historyCoverage: "windowed",
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "imported-chat",
+      cursor: 42,
+      status: "done",
+      statusLabel: null,
+      messages: [{ messageId: "old", role: "user", text: "older imported text" }],
+      pendingTools: [],
+      messageCount: 539,
+      historyCoverage: "windowed",
+    })
+
+    const state = getGlobalChatSession("imported-chat")
+    expect(state).toMatchObject({ status: "done", statusLabel: null, pendingTools: [] })
+    expect(state?.messages.some((message) => message.text?.includes("WEBWRIGHT_IMPORTED_LONG"))).toBe(true)
+  })
+
+  test("older terminal bootstrap does not clear genuinely newer live activity", () => {
+    seedGlobalChatSession({
+      sessionKey: "live-chat",
+      cursor: 50,
+      status: "thinking",
+      statusLabel: "Thinking",
+      messages: [{ messageId: "live", role: "user", text: "new live turn" }],
+      pendingTools: [{ id: "live-tool", tool: "exec", status: "running" }],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "live-chat",
+      cursor: 40,
+      status: "done",
+      statusLabel: null,
+      messages: [{ messageId: "old", role: "assistant", text: "older canonical answer" }],
+      pendingTools: [],
+      historyCoverage: "windowed",
+    })
+
+    const state = getGlobalChatSession("live-chat")
+    expect(state).toMatchObject({ status: "thinking", statusLabel: "Thinking" })
+    expect(state?.pendingTools).toMatchObject([{ id: "live-tool", status: "running" }])
+  })
+
   test("treats canonical result phase as successful even without explicit status", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
@@ -1965,7 +2021,7 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
-  test("dedupes repeated sessions_spawn patches for the same requested child", () => {
+  test("keeps distinct linked sessions_spawn children even when labels repeat", () => {
     for (const [cursor, toolCallId, childSessionKey] of [
       [1, "spawn-ui-1", "agent:main:subagent:ui-1"],
       [2, "spawn-flow-1", "agent:main:subagent:flow-1"],
@@ -2000,16 +2056,20 @@ describe("global V2 chat engine store", () => {
       })
     }
 
-    expect(getGlobalChatSession("s1")?.spawnedSubagents).toHaveLength(2)
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toHaveLength(6)
     expect(getGlobalChatSession("s1")?.spawnedSubagents).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ label: "ui-automation", status: "working" }),
-        expect.objectContaining({ label: "agentic-workflow", status: "working" }),
+        expect.objectContaining({ label: "ui-automation", sessionKey: "agent:main:subagent:ui-1", status: "working" }),
+        expect.objectContaining({ label: "ui-automation", sessionKey: "agent:main:subagent:ui-2", status: "working" }),
+        expect.objectContaining({ label: "ui-automation", sessionKey: "agent:main:subagent:ui-3", status: "working" }),
+        expect.objectContaining({ label: "agentic-workflow", sessionKey: "agent:main:subagent:flow-1", status: "working" }),
+        expect.objectContaining({ label: "agentic-workflow", sessionKey: "agent:main:subagent:flow-2", status: "working" }),
+        expect.objectContaining({ label: "agentic-workflow", sessionKey: "agent:main:subagent:flow-3", status: "working" }),
       ]),
     )
   })
 
-  test("deduped repeated spawn can still complete the selected linked child", () => {
+  test("same linked child can still complete without collapsing sibling sessions", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
       messages: [],
@@ -2033,9 +2093,12 @@ describe("global V2 chat engine store", () => {
       ],
     })
 
-    expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
-      { label: "ui-automation", status: "working", sessionKey: "agent:main:subagent:ui-1" },
-    ])
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "ui-automation", status: "working", sessionKey: "agent:main:subagent:ui-1" }),
+        expect.objectContaining({ label: "ui-automation", status: "completed", sessionKey: "agent:main:subagent:ui-2" }),
+      ]),
+    )
 
     seedGlobalChatSession({
       sessionKey: "s1",
@@ -2065,7 +2128,7 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
-  test("dedupes same explicit label even when repeated task wording differs", () => {
+  test("keeps same explicit label separate after different child sessions are linked", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
       messages: [],
@@ -2075,9 +2138,28 @@ describe("global V2 chat engine store", () => {
       ],
     })
 
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toHaveLength(2)
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "ui-automation", status: "working", sessionKey: "agent:main:subagent:a" }),
+        expect.objectContaining({ label: "ui-automation", status: "working", sessionKey: "agent:main:subagent:b" }),
+      ]),
+    )
+  })
+
+  test("dedupes repeated pending spawn placeholders before child sessions link", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [],
+      spawnedSubagents: [
+        { id: "spawn:a", label: "ui-automation", task: "Stand by for UI automation work", status: "spawning", toolCallId: "a", sessionKey: null },
+        { id: "spawn:b", label: "ui-automation", task: "Prepare to handle browser/UI automation work", status: "spawning", toolCallId: "b", sessionKey: null },
+      ],
+    })
+
     expect(getGlobalChatSession("s1")?.spawnedSubagents).toHaveLength(1)
     expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
-      { label: "ui-automation", status: "working" },
+      { label: "ui-automation", status: "spawning" },
     ])
   })
 

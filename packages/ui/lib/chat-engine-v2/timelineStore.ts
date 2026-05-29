@@ -72,7 +72,7 @@ export class ChatTimelineStore {
     // Re-add optimistic messages not yet in bootstrap
     for (const opt of optimistic) {
       const confirmedByBootstrap = Array.from(this.messageMap.values()).some((canonical) =>
-        sameUserMessage(canonical, opt)
+        sameUserMessage(opt, canonical)
       )
       if (!this.messageMap.has(opt.messageId) && !confirmedByBootstrap) {
         this.messageMap.set(opt.messageId, opt)
@@ -90,6 +90,18 @@ export class ChatTimelineStore {
    * Highest priority — always applies on top of existing data.
    */
   applyPatchMessage(message: ChatMessage, cursor: number) {
+    if (message.role === "user" && !message.isOptimistic) {
+      for (const existing of this.messageMap.values()) {
+        if (
+          existing.messageId !== message.messageId &&
+          existing.role === "user" &&
+          existing.isOptimistic &&
+          sameUserMessage(existing, message)
+        ) {
+          this.messageMap.delete(existing.messageId)
+        }
+      }
+    }
     this.messageMap.set(message.messageId, message)
     this.cursor = Math.max(this.cursor, cursor)
     this.messageCount = Math.max(this.messageCount, this.messageMap.size)

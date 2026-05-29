@@ -226,7 +226,7 @@ export function mergeOptimisticMessagesWithCanonical(
       !canonicalMessages.some(
         (canonical) =>
           canonical.messageId === message.messageId ||
-          (message.role === "user" && canonical.role === "user" && sameUserMessage(canonical, message))
+          (message.role === "user" && canonical.role === "user" && sameUserMessage(message, canonical))
       )
   )
   return keptOptimistic.length
@@ -978,7 +978,7 @@ export function useChatMessages(
               (message) =>
                 message.isOptimistic &&
                 !freshIds.has(message.messageId) &&
-                !freshMessages.some((fresh) => sameUserMessage(fresh, message))
+                !freshMessages.some((fresh) => sameUserMessage(message, fresh))
             )
             return dedupeChatMessages([...freshMessages, ...keptOptimistic])
           })

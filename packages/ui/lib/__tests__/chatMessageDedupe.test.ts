@@ -91,6 +91,65 @@ describe("dedupeChatMessages", () => {
     expect(messages).toHaveLength(2)
   })
 
+  it("collapses stale live assistant echo after canonical final answer even when persisted seq drifted", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "canonical-final",
+        role: "assistant",
+        text: "WEBWRIGHT_RAPID_B_7_1780075022",
+        gatewayIndex: 2,
+        model: "gpt-5.5",
+      },
+      {
+        messageId: "confirmed-user",
+        role: "user",
+        text: "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first may run. Reply marker only.",
+        gatewayIndex: 1,
+      },
+      {
+        messageId: "live:run:desktop-v2:agent:main:desktop:mpr6pk0y-ipzg9g:run-id:assistant",
+        role: "assistant",
+        text: "WEBWRIGHT_RAPID_B_7_1780075022",
+        gatewayIndex: 5,
+      },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual([
+      "confirmed-user",
+      "canonical-final",
+    ])
+  })
+
+  it("merges optimistic user echo when gateway timestamp is slightly earlier than browser send", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "optimistic-1",
+        role: "user",
+        text: "check this",
+        createdAt: "2026-05-29T16:25:30.000Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+      },
+      {
+        messageId: "gateway-1",
+        role: "user",
+        text: "check this",
+        createdAt: "2026-05-29T16:25:10.000Z",
+        gatewayIndex: 4,
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({
+      messageId: "gateway-1",
+      role: "user",
+      text: "check this",
+      gatewayIndex: 4,
+      isOptimistic: false,
+      sendStatus: undefined,
+    })
+  })
+
   it("keeps newly sent timestamped messages below restored untimed history", () => {
     const messages = dedupeChatMessages([
       { messageId: "u-old", role: "user", text: "previous question" },

@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import { openDatabase } from "../src/db/connection.js";
 import { readSchemaVersion } from "../src/db/migrate.js";
 import { normalizeHistoryMessages } from "../src/features/chat/message-normalizer.js";
+import { runStatusLabel } from "../src/features/chat/projection.js";
 import { MessageRepository } from "../src/features/chat/repo.messages.js";
 import { RunRepository } from "../src/features/chat/repo.runs.js";
 
@@ -238,6 +239,46 @@ describe("SQLite projection", () => {
       "user:generate 100 words content",
     ]);
     db.close();
+  });
+
+  test("confirming optimistic user keeps newer imported-chat optimistic row when gateway seq is older", () => {
+    const db = openDatabase({ databasePath: testDbPath("confirm-user-imported-newer") });
+    const repo = new MessageRepository(db);
+    const segment = repo.ensureActiveSegment({ sessionKey: "s1", sessionId: "gateway-session" });
+    repo.upsertMessages(normalizeHistoryMessages("s1", [
+      { role: "user", text: "archived/imported history", __openclaw: { id: "archived-100", seq: 100 } },
+    ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+    repo.insertOptimisticMessage({
+      sessionKey: "s1",
+      openclawSeq: 101,
+      messageId: "client-newest",
+      role: "user",
+      data: { role: "user", text: "WEBWRIGHT_IMPORTED_LONG newest marker", __clientOptimistic: true, __openclaw: { id: "client-newest" } },
+      updatedAtMs: 100,
+    });
+    const [gatewayUser] = normalizeHistoryMessages("s1", [
+      { role: "user", text: "WEBWRIGHT_IMPORTED_LONG newest marker", __openclaw: { id: "gateway-newest", seq: 3 } },
+    ], 200);
+
+    const confirmed = repo.confirmOptimisticUser("s1", "client-newest", gatewayUser!);
+    repo.upsertMessages(normalizeHistoryMessages("s1", [
+      { role: "assistant", text: "late old history", __openclaw: { id: "assistant-old", seq: 4 } },
+    ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+
+    expect(confirmed).toMatchObject({ messageId: "client-newest", openclawSeq: 101 });
+    expect(repo.findMessageById("s1", "client-newest")).toMatchObject({
+      openclawSeq: 101,
+      role: "user",
+      data: { text: "WEBWRIGHT_IMPORTED_LONG newest marker", __clientOptimistic: false },
+    });
+    expect(repo.listMessages("s1", { limit: 1, latest: true })[0]).toMatchObject({ messageId: "client-newest", openclawSeq: 101 });
+    db.close();
+  });
+
+  test("terminal bootstrap labels ignore stale legacy thinking label", () => {
+    expect(runStatusLabel("done", { runId: "r1", sessionKey: "s1", clientMessageId: null, idempotencyKey: null, gatewayRunId: null, status: "done", statusLabel: null, startedAtMs: 1, updatedAtMs: 2, finishedAtMs: 2, error: null }, "Thinking")).toBeNull();
+    expect(runStatusLabel("aborted", null, "Thinking")).toBeNull();
+    expect(runStatusLabel("thinking", null, "Thinking")).toBe("Thinking");
   });
 
   test("confirming optimistic user with empty gateway echo preserves optimistic display text", () => {

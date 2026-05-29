@@ -488,6 +488,16 @@ export class MessageRepository {
     const sessionId = existing.session_id ?? gatewayMessage.sessionId ?? activeSegment?.sessionId ?? null;
     const gatewaySeq = gatewayMessage.gatewaySeq ?? gatewayMessage.openclawSeq;
     const projectedGatewaySeq = segmentId && activeSegment?.segmentId === segmentId ? activeSegment.baseSeq + gatewaySeq : null;
+    // Imported/archived Telegram chats can have a large local openclaw_seq
+    // window while Gateway history for the newly-sent turn reports a much
+    // smaller gateway seq. Moving the optimistic user backwards into that old
+    // range lets later history upserts overwrite the newest user message, so
+    // duplicate/reloaded tabs miss the newest marker. Only move the optimistic
+    // row when the projected gateway position is actually ahead of the local
+    // optimistic append position.
+    const confirmedOpenclawSeq = projectedGatewaySeq !== null && projectedGatewaySeq > existing.openclaw_seq
+      ? projectedGatewaySeq
+      : existing.openclaw_seq;
 
     const deleteGatewayDuplicate = this.db.prepare(`
       DELETE FROM v2_messages
@@ -504,7 +514,7 @@ export class MessageRepository {
     `);
     const updateOptimistic = this.db.prepare(`
       UPDATE v2_messages
-      SET openclaw_seq = COALESCE(@projectedGatewaySeq, openclaw_seq),
+      SET openclaw_seq = @confirmedOpenclawSeq,
           segment_id = COALESCE(@segmentId, segment_id),
           session_id = COALESCE(@sessionId, session_id),
           gateway_seq = COALESCE(@gatewaySeq, gateway_seq),
@@ -538,7 +548,7 @@ export class MessageRepository {
       segmentId,
       sessionId,
       gatewaySeq,
-      openclawSeq: projectedGatewaySeq ?? existing.openclaw_seq,
+      openclawSeq: confirmedOpenclawSeq,
       messageId: optimisticId,
       data,
       updatedAtMs: gatewayMessage.updatedAtMs,
@@ -547,7 +557,7 @@ export class MessageRepository {
       if (gatewayMessage.messageId && gatewayMessage.messageId !== optimisticId) {
         deleteGatewayDuplicate.run({ sessionKey, gatewayMessageId: gatewayMessage.messageId, segmentId });
       }
-      if (projectedGatewaySeq !== null) {
+      if (projectedGatewaySeq !== null && projectedGatewaySeq === confirmedOpenclawSeq) {
         deleteProjectedDuplicate.run({ sessionKey, segmentId, projectedGatewaySeq, optimisticId });
       }
       updateOptimistic.run({
@@ -556,7 +566,7 @@ export class MessageRepository {
         segmentId,
         sessionId,
         gatewaySeq,
-        projectedGatewaySeq,
+        confirmedOpenclawSeq,
         role: confirmed.role,
         dataJson: toJson(confirmed.data),
         updatedAtMs: confirmed.updatedAtMs,
