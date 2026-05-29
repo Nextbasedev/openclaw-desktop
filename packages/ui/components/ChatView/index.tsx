@@ -1131,7 +1131,7 @@ export function ChatView({
     loadOlderClickInFlightRef.current = true
     olderLoadAwaitingRenderRef.current = true
     setLoadOlderUiBusy(true)
-    pendingOlderAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
+    pendingOlderAnchorRef.current = pendingOlderAnchorRef.current ?? captureMessageScrollAnchor(scrollContainerRef.current)
     logChatScrollDebug({
       source: "chat",
       event: "load-older-start",
@@ -1174,6 +1174,7 @@ export function ChatView({
           clientHeight: nextEl.clientHeight,
           hasUserIntent: userScrollIntentRef.current,
         })) return
+        pendingOlderAnchorRef.current = anchor
         void loadOlderWithoutJump()
       }, 920)
     })
