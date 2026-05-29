@@ -25,6 +25,7 @@ const STALE_BOOTSTRAP_RUN_MS = 2 * 60 * 1000;
 const STALE_BOOTSTRAP_TOOL_MS = 30 * 60 * 1000;
 const LOCAL_FIRST_FRESH_MS = 30_000;
 const LOCAL_FIRST_SQLITE_MAX_AGE_MS = 5 * 60 * 1000;
+const LOCAL_FIRST_BACKGROUND_SYNC_MIN_AGE_MS = 2 * 60 * 1000;
 const localFirstBootstrapTimestamps = new Map<string, number>();
 const localFirstSqliteBlocked = new Set<string>();
 
@@ -1199,31 +1200,47 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         cursor,
         durationMs: elapsedMs(bootstrapStartedAtMs),
       });
-      // Background sync from Gateway (fire-and-forget)
-      void (async () => {
-        try {
-          const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
-            sessionKey: parsed.data.sessionKey,
-            ...(parsed.data.limit ? { limit: parsed.data.limit } : {}),
-          });
-          const sk = history.sessionKey ?? parsed.data.sessionKey;
-          const msgs = history.messages ?? [];
-          const normalized = normalizeHistoryMessages(sk, msgs);
-          const segment = context.messages.ensureActiveSegment({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null });
-          context.messages.upsertSession({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, data: { ...sessionData, ...(history.status ? { status: history.status } : {}) } });
-          const proj = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-          if (proj.upserted > 0) {
-            const newEvent = context.messages.appendProjectionEvent({ sessionKey: sk, eventType: "chat.bootstrap", payload: { sessionKey: sk, messageCount: serialized.length + proj.upserted, lastSeq: context.messages.nextMessageSeq(sk) - 1, backgroundRefresh: true } });
-            context.patchBus.broadcast({ cursor: newEvent.cursor, type: newEvent.eventType, sessionKey: sk, payload: newEvent.payload, createdAtMs: newEvent.createdAtMs });
-            log.info("bootstrap.background-sync.changed", { sessionKey: sk, upserted: proj.upserted, cursor: newEvent.cursor });
-          } else {
-            log.info("bootstrap.background-sync.unchanged", { sessionKey: sk });
+      // Background Gateway sync is intentionally throttled. When Gateway is
+      // connected, live patches keep SQLite current; firing chat.history for
+      // every local-first bootstrap caused desktop startup / space switches to
+      // queue dozens of Gateway calls and made the app feel frozen.
+      const localAgeMs = localSession ? nowMs() - localSession.updatedAtMs : Number.POSITIVE_INFINITY;
+      const shouldBackgroundSync =
+        !inMemoryFresh &&
+        gatewayConnected &&
+        localAgeMs > LOCAL_FIRST_BACKGROUND_SYNC_MIN_AGE_MS;
+      if (shouldBackgroundSync) {
+        void (async () => {
+          try {
+            const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
+              sessionKey: parsed.data.sessionKey,
+              ...(parsed.data.limit ? { limit: parsed.data.limit } : {}),
+            });
+            const sk = history.sessionKey ?? parsed.data.sessionKey;
+            const msgs = history.messages ?? [];
+            const normalized = normalizeHistoryMessages(sk, msgs);
+            const segment = context.messages.ensureActiveSegment({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null });
+            context.messages.upsertSession({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, data: { ...sessionData, ...(history.status ? { status: history.status } : {}) } });
+            const proj = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+            if (proj.upserted > 0) {
+              const newEvent = context.messages.appendProjectionEvent({ sessionKey: sk, eventType: "chat.bootstrap", payload: { sessionKey: sk, messageCount: serialized.length + proj.upserted, lastSeq: context.messages.nextMessageSeq(sk) - 1, backgroundRefresh: true } });
+              context.patchBus.broadcast({ cursor: newEvent.cursor, type: newEvent.eventType, sessionKey: sk, payload: newEvent.payload, createdAtMs: newEvent.createdAtMs });
+              log.info("bootstrap.background-sync.changed", { sessionKey: sk, upserted: proj.upserted, cursor: newEvent.cursor });
+            } else {
+              log.info("bootstrap.background-sync.unchanged", { sessionKey: sk });
+            }
+            localFirstBootstrapTimestamps.set(sk, Date.now());
+          } catch (error) {
+            log.warn("bootstrap.background-sync.fail", { sessionKey: parsed.data.sessionKey, error: errorMeta(error) });
           }
-          localFirstBootstrapTimestamps.set(sk, Date.now());
-        } catch (error) {
-          log.warn("bootstrap.background-sync.fail", { sessionKey: parsed.data.sessionKey, error: errorMeta(error) });
-        }
-      })();
+        })();
+      } else {
+        log.info("bootstrap.background-sync.skip", {
+          sessionKey: parsed.data.sessionKey,
+          reason: inMemoryFresh ? "in-memory-fresh" : gatewayConnected ? "sqlite-recent" : "gateway-disconnected",
+          sqliteAgeMs: Number.isFinite(localAgeMs) ? localAgeMs : null,
+        });
+      }
       void context.chatLive.ensureSessionSubscribed(parsed.data.sessionKey).catch(() => {});
       const totalMessages = context.messages.countMessages(parsed.data.sessionKey);
       const oldestSeq = serialized.length > 0 ? (localMessages[0]?.openclawSeq ?? null) : null;

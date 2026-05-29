@@ -353,10 +353,10 @@ export function ChatRow({
       }}
       className={cn(
         "group/row relative flex min-w-0 items-center rounded-md",
-        !chat.pendingFork && "cursor-grab active:cursor-grabbing",
+        !chat.pendingFork && "cursor-pointer active:cursor-grabbing",
       )}
       style={{ position: "relative", zIndex: 1, boxShadow: "none" }}
-      whileDrag={{ zIndex: 40, scale: 1.015, boxShadow: "none" }}
+      whileDrag={{ zIndex: 40, scale: 1.015, boxShadow: "none", cursor: "grabbing" }}
       onContextMenu={handleContextMenu}
     >
       {rowContent}

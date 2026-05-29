@@ -87,16 +87,16 @@ function CodeBlock({ language, children }: { language?: string; children: string
   const plainTextColor = isDark ? "#d4d4d4" : "#1f1f1f"
 
   return (
-    <div className="group/code relative my-2 max-w-full min-w-0 overflow-hidden rounded-xl border border-[#d4d4d4] bg-[#ffffff] dark:border-[#3c3c3c]/70 dark:bg-[#1e1e1e]">
-      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#d4d4d4] bg-[#f3f3f3] px-4 py-2 dark:border-[#3c3c3c]/70 dark:bg-[#252526]">
-        <span className="flex items-center gap-2 text-[12px] font-medium text-foreground/60">
+    <div className="group/code relative my-2.5 max-w-full min-w-0 overflow-hidden rounded-lg border border-border/50 bg-muted/30">
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/50 bg-muted/50 px-3 py-1.5">
+        <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
           <LanguageIcon lang={language} className="size-4" />
           {displayLang}
         </span>
         <CopyBtn text={code} />
       </div>
       {language ? (
-        <div className="max-w-full overflow-x-auto rounded-b-xl px-4 py-4">
+        <div className="max-w-full overflow-x-auto rounded-b-lg px-3 py-3">
           <SyntaxHighlighter
             style={syntaxStyle}
             language={language}
@@ -105,7 +105,7 @@ function CodeBlock({ language, children }: { language?: string; children: string
               background: "transparent",
               margin: 0,
               padding: "4px 0",
-              fontSize: "13px",
+              fontSize: "12px",
               minWidth: 0,
               color: plainTextColor,
             }}
@@ -115,9 +115,9 @@ function CodeBlock({ language, children }: { language?: string; children: string
           </SyntaxHighlighter>
         </div>
       ) : (
-        <div className="max-w-full overflow-x-auto rounded-b-xl px-4 py-4">
+        <div className="max-w-full overflow-x-auto rounded-b-lg px-3 py-3">
           <pre
-            className="min-w-0 whitespace-pre font-mono text-[13px] leading-[1.6]"
+            className="min-w-0 whitespace-pre font-mono text-xs leading-relaxed"
             style={{ color: plainTextColor }}
           >
             {code}
@@ -223,7 +223,7 @@ function MarkdownParagraph({
   return (
     <Tag
       className={cn(
-        "my-2.5 break-words leading-[1.75] [overflow-wrap:anywhere] first:mt-0 last:mb-0",
+        "my-2.5 break-words leading-normal [overflow-wrap:anywhere] first:mt-0 last:mb-0",
         isChatErrorLine(plainText) ? "text-red-300" : "text-foreground/85"
       )}
     >
@@ -243,10 +243,10 @@ const mdComponents = {
       if (match?.[1] === "mermaid") return <MermaidBlock code={text} />
       return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
     }
-    return <code className="break-words rounded-md border border-[#d4d4d4] bg-[#f3f3f3] px-1.5 py-0.5 text-[0.85em] font-mono text-[#a31515] [overflow-wrap:anywhere] dark:border-[#3c3c3c]/55 dark:bg-[#1e1e1e] dark:text-[#ce9178]" {...rest}>{children}</code>
+    return <code className="break-words rounded-md border border-border/50 bg-muted/50 px-1.5 py-0.5 text-[0.85em] font-mono text-foreground [overflow-wrap:anywhere]" {...rest}>{children}</code>
   },
   table({ children }: { children?: React.ReactNode }) {
-    return (<div className="my-3 max-w-full overflow-hidden rounded-xl border border-border/25 bg-foreground/2"><div className="max-w-full overflow-x-auto"><table className="w-full border-collapse text-[13px]">{children}</table></div></div>)
+    return (<div className="my-2 max-w-full overflow-hidden rounded-lg border border-border/50"><div className="max-w-full overflow-x-auto"><table className="w-full border-separate border-spacing-0 text-[13px]">{children}</table></div></div>)
   },
   thead({ children }: { children?: React.ReactNode }) { return <thead className="border-b border-border/30 bg-foreground/5">{children}</thead> },
   tr({ children }: { children?: React.ReactNode }) { return <tr className="border-b border-border/10 last:border-0 transition-colors hover:bg-foreground/2">{children}</tr> },
@@ -367,6 +367,7 @@ export function MarkdownContent({
   streaming,
   highlightTexts,
   onRevealComplete,
+  revealMode = "immediate",
 }: {
   text: string
   className?: string
@@ -374,12 +375,13 @@ export function MarkdownContent({
   streaming?: boolean
   highlightTexts?: string[]
   onRevealComplete?: () => void
+  revealMode?: "buffered" | "immediate"
 }) {
   const { displayText, isRevealing } = useStreamingText(
     text,
     streaming,
     onRevealComplete,
-    { mode: "immediate" },
+    { mode: revealMode },
   )
   const parts = useMemo(
     () => splitTextAndEmbeds(displayText, embeds),

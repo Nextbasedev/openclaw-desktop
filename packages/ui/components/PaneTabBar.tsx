@@ -33,9 +33,12 @@ export function PaneTabBar({
   onFocus,
 }: Props) {
   const [dragOver, setDragOver] = useState(false)
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
 
   const handleDragStart = useCallback(
     (e: React.DragEvent, tabId: string) => {
+      setDraggingTabId(tabId)
+      document.body.style.cursor = "grabbing"
       e.dataTransfer.setData("text/tab-id", tabId)
       e.dataTransfer.setData("text/source-group", groupId)
       e.dataTransfer.effectAllowed = "move"
@@ -53,10 +56,16 @@ export function PaneTabBar({
     setDragOver(false)
   }, [])
 
+  const finishDrag = useCallback(() => {
+    setDraggingTabId(null)
+    document.body.style.cursor = ""
+  }, [])
+
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
       setDragOver(false)
+      finishDrag()
       const tabId = e.dataTransfer.getData("text/tab-id")
       const sourceGroup = e.dataTransfer.getData(
         "text/source-group",
@@ -65,7 +74,7 @@ export function PaneTabBar({
         onMoveTab(tabId, sourceGroup, groupId)
       }
     },
-    [groupId, onMoveTab],
+    [finishDrag, groupId, onMoveTab],
   )
 
   return (
@@ -96,9 +105,11 @@ export function PaneTabBar({
                 draggable
                 aria-label={tabLabel}
                 onDragStart={(e) => handleDragStart(e, tab.id)}
+                onDragEnd={finishDrag}
                 onClick={() => onSelectTab(groupId, tab.id)}
                 className={cn(
                   "group relative flex h-[34px] w-42 shrink-0 items-center gap-1 border-x border-t px-3 pb-[7px] pt-[7px] text-left transition-[background-color,border-color,box-shadow] duration-200",
+                  draggingTabId === tab.id ? "cursor-grabbing" : "cursor-pointer",
                   isActive
                     ? "z-10 -mb-px rounded-t-lg border-border/50 bg-background"
                     : "rounded-t-lg border-transparent bg-transparent text-foreground/65 hover:bg-foreground/[0.045] dark:text-white/68 dark:hover:bg-white/[0.05]",

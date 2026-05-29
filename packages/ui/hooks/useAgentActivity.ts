@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
 import { frontendLog } from "@/lib/clientLogs"
 import { subscribeChatStream } from "@/lib/chatStream"
-import { fetchChatBootstrapV2, type ToolCallProjectionV2 } from "@/lib/chat-engine-v2/client"
 import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { getCachedChatSessionMessages } from "@/lib/chatSessionStore"
 import { cleanUserMessageText } from "@/lib/chatHistoryParser"
@@ -24,17 +23,23 @@ import {
   extractSubagentSessionKey,
   extractSubagentSessionKeys,
 } from "@/lib/subagentSession"
-import {
-  isActiveSubagent,
-  type SubagentLifecycleStatus,
-} from "@/lib/subagentLifecycle"
+type ActivityHistoryResponse = { messages: RawHistoryMessage[] }
+const ACTIVITY_HISTORY_CACHE_MS = 30_000
+const activityHistoryCache = new Map<string, { expiresAt: number; promise: Promise<ActivityHistoryResponse> }>()
 
-type ChildHistoryPhase = SubagentLifecycleStatus | null
-
-function activityPhaseFromLifecycle(status: SubagentLifecycleStatus) {
-  if (status === "failed") return "error"
-  if (status === "completed") return "done"
-  return "start"
+function cachedActivityHistory(sessionKey: string) {
+  const now = Date.now()
+  const cached = activityHistoryCache.get(sessionKey)
+  if (cached && cached.expiresAt > now) return cached.promise
+  const promise = invoke<ActivityHistoryResponse>(
+    "middleware_chat_history",
+    { input: { sessionKey, timeoutMs: 8_000 } },
+  ).catch((error) => {
+    activityHistoryCache.delete(sessionKey)
+    throw error
+  })
+  activityHistoryCache.set(sessionKey, { expiresAt: now + ACTIVITY_HISTORY_CACHE_MS, promise })
+  return promise
 }
 
 function liveTurnForSession(sessionKey: string | null): { messageId: string; messagePreview?: string } {
@@ -55,17 +60,6 @@ function liveTurnMessageId(existing: string | undefined, liveId: string) {
 
 function liveTurnPreview(existing: string | undefined, livePreview: string | undefined) {
   return !existing || existing === "Live / ungrouped tools" ? livePreview : existing
-}
-
-function hasYieldTool(messages: RawHistoryMessage[]): boolean {
-  return messages.some((message) => {
-    if (!Array.isArray(message.content)) return false
-    return message.content.some(
-      (block) =>
-        (block.type === "toolCall" || block.type === "tool_use") &&
-        block.name === "sessions_yield",
-    )
-  })
 }
 
 function formatSafeToolDuration(startedAt?: number) {
@@ -141,34 +135,6 @@ function activityCallFromInlineTool(
   }
 }
 
-function activityCallFromProjectionTool(tool: ToolCallProjectionV2): ToolCall | null {
-  const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
-    ? tool.toolCallId
-    : typeof tool.id === "string" && tool.id.trim()
-      ? tool.id
-      : null
-  if (!id) return null
-  const phase = typeof tool.phase === "string" ? tool.phase : ""
-  const status: ToolCall["status"] = tool.status === "error" || phase === "error" || phase === "failed"
-    ? "error"
-    : tool.status === "success" || phase === "result" || phase === "done" || phase === "complete" || phase === "completed" || phase === "success"
-      ? "success"
-      : "running"
-  const output = liveToolResultText(tool.resultMeta)
-  const awaitingOutput = tool.awaitingResult === true && !output
-  return {
-    id,
-    tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
-    status,
-    input: activityInputFromInline(tool.argsMeta),
-    output: output || undefined,
-    awaitingOutput,
-    startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
-    completedAt: typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
-    messageId: typeof tool.messageId === "string" ? tool.messageId : undefined,
-  }
-}
-
 function isLiveStreamStatus(status: string | null | undefined) {
   return status === "thinking" || status === "tool_running" || status === "streaming"
 }
@@ -190,30 +156,6 @@ function finalizeInlineToolForCompletedChild(tool: InlineToolCall): InlineToolCa
     status: "success",
     duration: tool.duration ?? formatSafeToolDuration(tool.startedAt),
   }
-}
-
-function hasAssistantOutput(messages: RawHistoryMessage[]): boolean {
-  return messages.some((message) => {
-    if (message.role !== "assistant") return false
-    if (typeof message.text === "string" && message.text.trim()) return true
-    if (typeof message.content === "string" && message.content.trim()) return true
-    if (!Array.isArray(message.content)) return false
-    return message.content.some((block) => {
-      if (block.type && block.type !== "text") return false
-      const text = block.text ?? block.content ?? ""
-      return typeof text === "string" && text.trim().length > 0
-    })
-  })
-}
-
-function inferChildHistoryPhase(
-  messages: RawHistoryMessage[],
-  calls: ToolCall[],
-): ChildHistoryPhase {
-  if (hasYieldTool(messages) || hasAssistantOutput(messages)) return "completed"
-  if (calls.some((call) => call.status === "error")) return "failed"
-  if (calls.some((call) => call.status === "running")) return "working"
-  return null
 }
 
 function isBackendRunningStatus(status: unknown) {
@@ -285,67 +227,6 @@ export function useAgentActivity(sessionKey: string | null) {
     if (clearStreamStatus) setStreamStatus(null)
     setHistoryLoaded(false)
   }, [])
-
-  const fetchSubagentHistory = useCallback(
-    async (subKey: string, agentId: string) => {
-      subagentHistoryRequestCountRef.current += 1
-      try {
-        const bootstrap = await fetchChatBootstrapV2(subKey)
-        const subMessages = (bootstrap.messages ?? []) as RawHistoryMessage[]
-        const subParsed = parseHistoryToolCalls(subMessages)
-        const callsById = new Map(subParsed.calls.map((call) => [call.id, call]))
-        const projectionTools = (bootstrap.toolCalls ?? bootstrap.tools ?? [])
-        for (const projectedTool of projectionTools) {
-          const call = activityCallFromProjectionTool(projectedTool)
-          if (!call) continue
-          const existing = callsById.get(call.id)
-          callsById.set(call.id, mergeActivityCall(existing, call))
-        }
-        const combinedCalls = Array.from(callsById.values())
-        const phase = inferChildHistoryPhase(
-          subMessages,
-          combinedCalls,
-        )
-        let changed = false
-        for (const rawCall of combinedCalls) {
-          const call = phase === "completed" ? finalizeActivityCall(rawCall) : rawCall
-          const key = activityCallKey(subKey, call.id)
-          const existing = callMapRef.current.get(key)
-          call.subagentOf = agentId
-          const merged = mergeActivityCall(existing, call)
-          if (JSON.stringify(existing) !== JSON.stringify(merged)) {
-            callMapRef.current.set(key, merged)
-            changed = true
-          }
-        }
-        if (phase) {
-          const currentAgent = agentsRef.current.get(agentId)
-          agentsRef.current.set(agentId, {
-            ...(currentAgent ?? {
-              runId: agentId,
-              label: `sub-${agentId.slice(-6)}`,
-            }),
-            phase: activityPhaseFromLifecycle(phase),
-            sessionKey: subKey,
-          })
-          changed = true
-        } else {
-          const currentAgent = agentsRef.current.get(agentId)
-          if (currentAgent && currentAgent.sessionKey !== subKey) {
-            agentsRef.current.set(agentId, {
-              ...currentAgent,
-              sessionKey: subKey,
-            })
-            changed = true
-          }
-        }
-        if (changed) syncState()
-        return phase
-      } catch {}
-      return null
-    },
-    [syncState],
-  )
 
   const attachSubagentSession = useCallback((
     agentId: string,
@@ -653,12 +534,7 @@ export function useAgentActivity(sessionKey: string | null) {
     async function loadHistory() {
       try {
         historyRequestCountRef.current += 1
-        const history = await invoke<{
-          messages: RawHistoryMessage[]
-        }>(
-          "middleware_chat_history",
-          { input: { sessionKey, timeoutMs: 8_000 } },
-        )
+        const history = await cachedActivityHistory(activeSessionKey)
         if (cancelledRef.current) return
         const parsed = parseHistoryToolCalls(
           history.messages ?? [],
@@ -681,25 +557,24 @@ export function useAgentActivity(sessionKey: string | null) {
         syncState()
         setHistoryLoaded(true)
 
-        const subFetches = Array.from(
-          parsed.subagentSessionKeys.entries(),
-        )
-        void Promise.allSettled(
-          subFetches.map(async ([subKey, agentId]) => {
-            if (cancelledRef.current) return
-            const currentAgent = agentsRef.current.get(agentId)
-            if (currentAgent) {
-              agentsRef.current.set(agentId, {
-                ...currentAgent,
-                sessionKey: subKey,
-              })
-            }
-            subKeyToAgentRef.current.set(subKey, agentId)
-            await fetchSubagentHistory(subKey, agentId)
-          }),
-        ).then(() => {
-          if (!cancelledRef.current) syncState()
-        })
+        let linkedSubagents = false
+        for (const [subKey, agentId] of parsed.subagentSessionKeys.entries()) {
+          if (cancelledRef.current) return
+          const currentAgent = agentsRef.current.get(agentId)
+          if (currentAgent) {
+            agentsRef.current.set(agentId, {
+              ...currentAgent,
+              sessionKey: subKey,
+            })
+          }
+          subKeyToAgentRef.current.set(subKey, agentId)
+          linkedSubagents = true
+        }
+        if (linkedSubagents) syncState()
+        // Do not eagerly fetch every subagent transcript when Activity opens.
+        // Parent/global state already gives us badges, status, and parent tool
+        // data; full child transcripts are large and should load only when the
+        // user selects a specific subagent panel.
       } catch {
         if (!cancelledRef.current) setHistoryLoaded(true)
       }
@@ -856,7 +731,6 @@ export function useAgentActivity(sessionKey: string | null) {
   }, [
     sessionKey,
     syncState,
-    fetchSubagentHistory,
     resetVisibleState,
   ])
 

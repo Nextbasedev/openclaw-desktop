@@ -46,6 +46,7 @@ import type {
   EditPreviewState,
 } from "@/components/ChatView/types"
 import { extractText } from "@/components/ChatView/utils"
+import { parseHistoryToolCalls } from "@/components/inspector/activity-types"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
@@ -184,6 +185,36 @@ function hasAssistantAnswerAfterLatestUserMessage(messages: ChatMessage[]) {
   return false
 }
 
+function messageTimelineSignature(message: ChatMessage) {
+  return JSON.stringify({
+    role: message.role,
+    text: message.text,
+    reasoningText: message.reasoningText,
+    toolCalls: message.toolCalls,
+    embeds: message.embeds,
+    attachments: message.attachments,
+    sendStatus: message.sendStatus,
+    sendError: message.sendError,
+    isOptimistic: message.isOptimistic,
+    gatewayIndex: message.gatewayIndex,
+    createdAt: message.createdAt,
+    usage: message.usage,
+    stopReason: message.stopReason,
+  })
+}
+
+export function timelineMessageChanged(existing: ChatMessage | undefined, next: ChatMessage) {
+  if (!existing) return true
+  return messageTimelineSignature(existing) !== messageTimelineSignature(next)
+}
+
+export function shouldPreserveTimelineStoreRows(params: {
+  loadingOlderMessages: boolean
+  status: StreamStatus | null | undefined
+}) {
+  return params.loadingOlderMessages || isActiveRunStatus(params.status)
+}
+
 export function mergeOptimisticMessagesWithCanonical(
   canonicalMessages: ChatMessage[],
   optimisticSource: ChatMessage[] | null | undefined
@@ -291,7 +322,7 @@ const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
 const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 160
-const CHAT_OLDER_PAGE_LIMIT = 80
+const CHAT_OLDER_PAGE_LIMIT = 240
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -485,6 +516,37 @@ function subagentFromCanonicalTool(tool: InlineToolCall): SpawnedSubagent | null
   }
 }
 
+function enrichCanonicalSubagentsFromHistory(
+  spawns: SpawnedSubagent[],
+  rawMessages: RawMessage[],
+  runStatus: string | null | undefined,
+): SpawnedSubagent[] {
+  if (spawns.length === 0 || rawMessages.length === 0) return spawns
+  const parsed = parseHistoryToolCalls(rawMessages)
+  if (parsed.agents.size === 0 && parsed.subagentSessionKeys.size === 0) return spawns
+  const sessionByAgentId = new Map<string, string>()
+  for (const [sessionKey, agentId] of parsed.subagentSessionKeys.entries()) {
+    sessionByAgentId.set(agentId, sessionKey)
+  }
+  return spawns.map((spawn) => {
+    const agent = parsed.agents.get(spawn.id)
+    const sessionKey = agent?.sessionKey ?? sessionByAgentId.get(spawn.id) ?? spawn.sessionKey ?? null
+    const terminalParent = runStatus === "done" || runStatus === "error"
+    const status: SpawnedSubagent["status"] = agent?.phase === "error" || spawn.status === "failed" || runStatus === "error"
+      ? "failed"
+      : agent?.phase === "done" || (terminalParent && sessionKey)
+        ? "completed"
+        : sessionKey
+          ? "working"
+          : spawn.status
+    return {
+      ...spawn,
+      sessionKey,
+      status,
+    }
+  })
+}
+
 function hydrateCachedAttachments(sessionKey: string, messages: ChatMessage[]) {
   return messages.map((message) => {
     const attachments = mergeAttachmentsWithCache(
@@ -635,6 +697,7 @@ export function useChatMessages(
   // independent of parseChatHistory's merged gatewayIndex which can drift
   // forward during assistant message merging and break pagination.
   const oldestLoadedSeqRef = useRef<number | null>(null)
+  const loadOlderInFlightRef = useRef(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
@@ -694,17 +757,26 @@ export function useChatMessages(
         )
         schedulePersistentMessages(next)
         updateCachedBootstrapMessages(queryClient, sessionKey, next)
-        // Write-through to timeline store — store dedupes and batches
+        // Write-through to timeline store — store dedupes and batches.
+        // Older-page loads and active runs can temporarily hold partial local
+        // snapshots while live patch-stream rows still exist in the global
+        // timeline. Removing absent ids in those windows makes the whole chat
+        // flash/blink until the next patch/bootstrap re-adds them.
         const store = timelineStoreRef.current
-        const nextIds = new Set(next.map((m) => m.messageId))
-        // Remove stale entries (e.g. optimistic messages replaced by confirmed)
-        for (const existing of store.getAllMessageIds()) {
-          if (!nextIds.has(existing)) {
-            store.removeMessage(existing, v2CursorRef.current)
+        const preserveExistingTimelineRows = shouldPreserveTimelineStoreRows({
+          loadingOlderMessages: loadOlderInFlightRef.current,
+          status: statusRef.current,
+        })
+        if (!preserveExistingTimelineRows) {
+          const nextIds = new Set(next.map((m) => m.messageId))
+          for (const existing of store.getAllMessageIds()) {
+            if (!nextIds.has(existing)) {
+              store.removeMessage(existing, v2CursorRef.current)
+            }
           }
         }
         for (const msg of next) {
-          if (!store.getMessage(msg.messageId) || store.getMessage(msg.messageId)?.text !== msg.text) {
+          if (timelineMessageChanged(store.getMessage(msg.messageId), msg)) {
             store.applyPatchMessage(msg, v2CursorRef.current)
           }
         }
@@ -778,9 +850,7 @@ export function useChatMessages(
   const bottomRef = useRef<HTMLDivElement>(null)
   const seenIds = useRef(new Set<string>())
   const isAtBottomRef = useRef(true)
-  const scrollFrameRef = useRef<number | null>(null)
-  const programmaticScrollUntilRef = useRef(0)
-  const lastSmoothScrollAtRef = useRef(0)
+
   const lastStreamEventAtRef = useRef(Date.now())
   const activeReconcileInFlightRef = useRef(false)
   const messagesRef = useRef<ChatMessage[]>(
@@ -822,56 +892,24 @@ export function useChatMessages(
   const onScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    if (Date.now() < programmaticScrollUntilRef.current) return
-    isAtBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
   }, [])
 
-  const scrollToBottom = useCallback((smooth = false) => {
+  const scrollToBottom = useCallback((_smooth = false) => {
+    void _smooth
     if (!isAtBottomRef.current) return
-    if (scrollFrameRef.current !== null) {
-      cancelAnimationFrame(scrollFrameRef.current)
-    }
-    const scroll = () => {
-      const el = scrollContainerRef.current
-      if (!el) return
-      const now = Date.now()
-      const allowSmooth = smooth && now - lastSmoothScrollAtRef.current > 180
-      if (allowSmooth) lastSmoothScrollAtRef.current = now
-      programmaticScrollUntilRef.current = now + (allowSmooth ? 350 : 80)
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: allowSmooth ? "smooth" : "auto",
-      })
-      isAtBottomRef.current = true
-      scrollFrameRef.current = null
-    }
-    scrollFrameRef.current = requestAnimationFrame(scroll)
+    const el = scrollContainerRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    isAtBottomRef.current = true
   }, [])
 
-  const forceScrollToBottom = useCallback((smooth = false) => {
+  const forceScrollToBottom = useCallback((_smooth = false) => {
+    void _smooth
     isAtBottomRef.current = true
-    if (scrollFrameRef.current !== null) {
-      cancelAnimationFrame(scrollFrameRef.current)
-    }
-    const scroll = () => {
-      const el = scrollContainerRef.current
-      if (!el) return
-      programmaticScrollUntilRef.current = Date.now() + (smooth ? 350 : 80)
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: smooth ? "smooth" : "auto",
-      })
-      isAtBottomRef.current = true
-      scrollFrameRef.current = null
-    }
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      if (smooth) {
-        scrollFrameRef.current = requestAnimationFrame(scroll)
-        return
-      }
-      scroll()
-    })
+    const el = scrollContainerRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
   }, [])
 
   const reconcileActiveRun = useCallback(async () => {
@@ -961,14 +999,6 @@ export function useChatMessages(
       activeReconcileInFlightRef.current = false
     }
   }, [queryClient, sessionKey])
-
-  useEffect(() => {
-    return () => {
-      if (scrollFrameRef.current !== null) {
-        cancelAnimationFrame(scrollFrameRef.current)
-      }
-    }
-  }, [])
 
   const flushToolsToLastAssistant = useCallback(() => {
     const tools = Array.from(pendingToolMapRef.current.values())
@@ -1919,7 +1949,11 @@ export function useChatMessages(
         if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
         const canonicalMessages = dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory(rawBootstrapMessages).messages))
         const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
-        const canonicalSpawns = inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn))
+        const canonicalSpawns = enrichCanonicalSubagentsFromHistory(
+          inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn)),
+          rawBootstrapMessages,
+          runStatus,
+        )
         pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
         spawnMapRef.current = new Map(canonicalSpawns.map((spawn) => [spawn.toolCallId, spawn]))
         const canonicalStatus = streamStatusFromCanonicalRun(runStatus)
@@ -2872,7 +2906,7 @@ export function useChatMessages(
   }, [])
 
   const loadOlderMessages = useCallback(async () => {
-    if (loadingOlderMessages || !hasOlderMessages) return
+    if (loadOlderInFlightRef.current || loadingOlderMessages || !hasOlderMessages) return
     // Use the tracked raw seq instead of the parsed/merged gatewayIndex.
     // parseChatHistory merges consecutive assistant messages and updates
     // gatewayIndex to the latest seq, which causes beforeSeq to point to
@@ -2884,9 +2918,8 @@ export function useChatMessages(
       return
     }
 
-    const el = scrollContainerRef.current
-    const previousScrollHeight = el?.scrollHeight ?? 0
-    const previousScrollTop = el?.scrollTop ?? 0
+    loadOlderInFlightRef.current = true
+    setLoadError(null)
     setLoadingOlderMessages(true)
     try {
       const page = await fetchChatMessagesV2({
@@ -2968,12 +3001,7 @@ export function useChatMessages(
         page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
         (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
       )
-      requestAnimationFrame(() => {
-        const nextEl = scrollContainerRef.current
-        if (!nextEl) return
-        const delta = nextEl.scrollHeight - previousScrollHeight
-        nextEl.scrollTop = previousScrollTop + Math.max(0, delta)
-      })
+
     } catch (error) {
       frontendLog("chat", "chat.load-older.fail", {
         sessionKey,
@@ -2981,6 +3009,7 @@ export function useChatMessages(
         error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
       }, "warn")
     } finally {
+      loadOlderInFlightRef.current = false
       setLoadingOlderMessages(false)
     }
   }, [hasOlderMessages, loadingOlderMessages, queryClient, sessionKey, setMessages, statusLabel])

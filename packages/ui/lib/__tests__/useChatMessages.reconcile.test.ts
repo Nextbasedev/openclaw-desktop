@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile } from "../../hooks/useChatMessages"
+import { mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 const user = (text = "question"): ChatMessage => ({ messageId: `u-${text}`, role: "user", text })
@@ -57,12 +57,33 @@ describe("chat reconcile active-state guards", () => {
     ])
   })
 
-  test("drops optimistic user message once canonical has the same user text", () => {
+  test("drops optimistic user message once canonical has the same user text and matching send time", () => {
+    const sentAt = "2026-05-28T04:59:00.000Z"
     expect(mergeOptimisticMessagesWithCanonical(
-      [{ ...user("long task"), messageId: "canonical-user" }],
-      [optimisticUser("long task")]
+      [{ ...user("long task"), messageId: "canonical-user", createdAt: sentAt }],
+      [{ ...optimisticUser("long task"), createdAt: sentAt }]
     )).toMatchObject([
       { messageId: "canonical-user", role: "user", text: "long task" },
     ])
+  })
+
+  test("preserves timeline rows during active streaming/tool states and older loads", () => {
+    expect(shouldPreserveTimelineStoreRows({ loadingOlderMessages: false, status: "thinking" })).toBe(true)
+    expect(shouldPreserveTimelineStoreRows({ loadingOlderMessages: false, status: "tool_running" })).toBe(true)
+    expect(shouldPreserveTimelineStoreRows({ loadingOlderMessages: true, status: "done" })).toBe(true)
+    expect(shouldPreserveTimelineStoreRows({ loadingOlderMessages: false, status: "done" })).toBe(false)
+  })
+
+  test("detects live tool/status changes even when assistant text is unchanged", () => {
+    const base = {
+      messageId: "a-tool",
+      role: "assistant" as const,
+      text: "",
+      toolCalls: [{ id: "tc-1", tool: "exec", status: "running" as const }],
+    }
+    expect(timelineMessageChanged(base, {
+      ...base,
+      toolCalls: [{ id: "tc-1", tool: "exec", status: "success" as const, resultText: "ok" }],
+    })).toBe(true)
   })
 })

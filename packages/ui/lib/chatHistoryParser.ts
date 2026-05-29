@@ -666,6 +666,13 @@ export function isTransientSlashCommandHistory(
   return !isSlashCommandMessage(visible.at(-2))
 }
 
+function rawMessageIdentity(raw: RawHistoryMessage): string | null {
+  const seq = openclawSeq(raw)
+  if (typeof seq === "number") return `seq:${seq}`
+  const id = raw.__openclaw?.id ?? raw.id ?? raw.messageId
+  return typeof id === "string" && id.trim() ? `id:${id}` : null
+}
+
 export function deduplicateRawMessages(
   raw: RawHistoryMessage[]
 ): RawHistoryMessage[] {
@@ -680,7 +687,17 @@ export function deduplicateRawMessages(
     const prev = result[result.length - 1]
     if (prev && prev.role === item.role) {
       const prevText = prev.text || extractText(prev.content)
-      if (prevText.trim() && prevText.trim() === currText) continue
+      const prevIdentity = rawMessageIdentity(prev)
+      const currIdentity = rawMessageIdentity(item)
+      if (
+        prevIdentity &&
+        currIdentity &&
+        prevIdentity === currIdentity &&
+        prevText.trim() &&
+        prevText.trim() === currText
+      ) {
+        continue
+      }
     }
     result.push(item)
   }
