@@ -25,6 +25,10 @@ describe("shouldAutoLoadOlderHistory", () => {
     expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 2_500, scrollTop: 2_450, lastLoadScrollTop: 2_600 })).toBe(false)
   })
 
+  it("loads the next page when the user crosses into the oldest 30 percent again", () => {
+    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 2_900, scrollTop: 2_600, lastLoadScrollTop: 5_200 })).toBe(true)
+  })
+
   it("loads again after meaningful continued upward scroll from the previous load", () => {
     expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 2_000, scrollTop: 1_700, lastLoadScrollTop: 2_600 })).toBe(true)
   })

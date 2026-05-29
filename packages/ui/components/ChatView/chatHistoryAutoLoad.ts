@@ -31,6 +31,9 @@ export function shouldAutoLoadOlderHistory({
   const threshold = olderHistoryLoadThreshold(scrollHeight, clientHeight)
   if (threshold === null || scrollTop > threshold) return false
 
+  const crossedIntoLoadZone = previousScrollTop > threshold && scrollTop <= threshold
+  if (crossedIntoLoadZone) return true
+
   if (typeof lastLoadScrollTop !== "number" || !Number.isFinite(lastLoadScrollTop)) {
     return true
   }
