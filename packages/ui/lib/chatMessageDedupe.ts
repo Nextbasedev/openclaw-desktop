@@ -207,7 +207,7 @@ function isAssistantPrefixUpdate(shorter: string, longer: string) {
 }
 
 export function isLiveAssistantEcho(message: ChatMessage) {
-  return message.messageId?.startsWith("live:run:") && message.role === "assistant"
+  return message.role === "assistant" && /^live:.+:assistant$/.test(message.messageId ?? "")
 }
 
 function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {

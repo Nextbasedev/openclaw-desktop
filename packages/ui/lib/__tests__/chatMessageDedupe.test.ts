@@ -120,6 +120,34 @@ describe("dedupeChatMessages", () => {
     ])
   })
 
+  it("collapses live uuid assistant echo after canonical final answer", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "confirmed-user",
+        role: "user",
+        text: "hi",
+        gatewayIndex: 70,
+      },
+      {
+        messageId: "canonical-final",
+        role: "assistant",
+        text: "hello",
+        gatewayIndex: 71,
+      },
+      {
+        messageId: "live:a17f2ddd-e496-4517-aef8-f8904e2f73a7:assistant",
+        role: "assistant",
+        text: "hello",
+        gatewayIndex: 77,
+      },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual([
+      "confirmed-user",
+      "canonical-final",
+    ])
+  })
+
   it("merges optimistic user echo when gateway timestamp is slightly earlier than browser send", () => {
     const messages = dedupeChatMessages([
       {
