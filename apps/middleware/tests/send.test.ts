@@ -381,6 +381,7 @@ describe("chat send routes", () => {
     for (const listener of listeners) {
       listener({ type: "event", event: "chat.delta", payload: { data: { key: "s1", runId: "gateway-run-1", content: [{ type: "text", text: "Hello Krish 👋" }] } } });
       listener({ type: "event", event: "chat.delta", payload: { data: { key: "s1", runId: "gateway-run-1", content: [{ type: "text", text: "Hello Krish 👋" }] } } });
+      listener({ type: "event", event: "chat.delta", payload: { data: { key: "s1", runId: "gateway-run-1", content: [{ type: "text", text: "Hello Krish 👋Hello Krish 👋" }] } } });
       listener({ type: "event", event: "chat.delta", payload: { data: { key: "s1", runId: "gateway-run-1", content: [{ type: "text", text: "Hello Krish 👋 here." }] } } });
     }
 

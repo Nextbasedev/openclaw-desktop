@@ -812,15 +812,28 @@ export class ChatLiveIngest {
   }
 
   private mergeLiveAssistantText(previous: string, incoming: string, isFullText: boolean) {
-    if (!previous || isFullText) return incoming;
-    if (!incoming || incoming === previous) return previous;
-    if (incoming.startsWith(previous)) return incoming;
-    if (previous.endsWith(incoming)) return previous;
-    const max = Math.min(previous.length, incoming.length);
+    const collapsedIncoming = this.collapseRepeatedLiveText(incoming);
+    if (!previous || isFullText) return collapsedIncoming;
+    if (!collapsedIncoming || collapsedIncoming === previous) return previous;
+    if (collapsedIncoming.startsWith(`${previous}${previous}`)) return collapsedIncoming.slice(previous.length);
+    if (collapsedIncoming.startsWith(previous)) return collapsedIncoming;
+    if (previous.endsWith(collapsedIncoming)) return previous;
+    const max = Math.min(previous.length, collapsedIncoming.length);
     for (let length = max; length >= 4; length--) {
-      if (previous.slice(-length) === incoming.slice(0, length)) return `${previous}${incoming.slice(length)}`;
+      if (previous.slice(-length) === collapsedIncoming.slice(0, length)) return `${previous}${collapsedIncoming.slice(length)}`;
     }
-    return `${previous}${incoming}`;
+    return `${previous}${collapsedIncoming}`;
+  }
+
+  private collapseRepeatedLiveText(value: string) {
+    let text = value;
+    while (text.length > 0 && text.length % 2 === 0) {
+      const half = text.length / 2;
+      const left = text.slice(0, half);
+      if (left !== text.slice(half)) break;
+      text = left;
+    }
+    return text;
   }
 
   private broadcastLiveAssistantText(sessionKey: string, run: ProjectedRun, payload: Record<string, unknown>) {
