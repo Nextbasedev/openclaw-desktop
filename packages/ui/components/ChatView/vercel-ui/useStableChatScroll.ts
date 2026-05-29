@@ -8,9 +8,10 @@ type StableChatScrollOptions = {
   sessionKey: string
   firstMessageKey: string | null
   contentKey: string
+  suppressAutoScroll?: boolean
 }
 
-export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey }: StableChatScrollOptions) {
+export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey, suppressAutoScroll = false }: StableChatScrollOptions) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const endRef = useRef<HTMLDivElement | null>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
@@ -63,16 +64,18 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey }:
       isAtBottomRef.current = true
     }
 
-    if (!didInitialBottomRef.current && firstMessageKey) {
-      didInitialBottomRef.current = true
-      requestAnimationFrame(settleAtBottom)
-    } else if (isAtBottomRef.current) {
-      container.scrollTop = nextScrollHeight
+    if (!suppressAutoScroll) {
+      if (!didInitialBottomRef.current && firstMessageKey) {
+        didInitialBottomRef.current = true
+        requestAnimationFrame(settleAtBottom)
+      } else if (isAtBottomRef.current) {
+        container.scrollTop = nextScrollHeight
+      }
     }
 
     previousFirstMessageKeyRef.current = firstMessageKey
     previousScrollHeightRef.current = container.scrollHeight
-  }, [contentKey, firstMessageKey, sessionKey, settleAtBottom])
+  }, [contentKey, firstMessageKey, sessionKey, settleAtBottom, suppressAutoScroll])
 
   useEffect(() => {
     const container = containerRef.current

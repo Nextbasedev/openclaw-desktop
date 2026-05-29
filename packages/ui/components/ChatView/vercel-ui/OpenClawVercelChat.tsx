@@ -16,6 +16,7 @@ type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
 type VercelScrollAnchor = {
   uiId: string
+  messageId: string
   top: number
   previousScrollHeight: number
   previousScrollTop: number
@@ -34,6 +35,7 @@ function captureVercelScrollAnchor(container: HTMLElement | null): VercelScrollA
     }) ?? rows.find((row) => row.getBoundingClientRect().bottom > containerTop + 1)
   return {
     uiId: visibleRow?.dataset.uiId ?? "",
+    messageId: visibleRow?.dataset.messageId ?? "",
     top: visibleRow?.getBoundingClientRect().top ?? containerTop,
     previousScrollHeight: container.scrollHeight,
     previousScrollTop: container.scrollTop,
@@ -42,13 +44,14 @@ function captureVercelScrollAnchor(container: HTMLElement | null): VercelScrollA
 
 function restoreVercelScrollAnchor(container: HTMLElement | null, anchor: VercelScrollAnchor | null) {
   if (!container || !anchor) return
-  if (anchor.uiId) {
-    const row = Array.from(container.querySelectorAll<HTMLElement>("[data-vercel-chat-message-row='true']"))
-      .find((item) => item.dataset.uiId === anchor.uiId)
+  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-vercel-chat-message-row='true']"))
+  if (anchor.uiId || anchor.messageId) {
+    const row = rows.find((item) => item.dataset.uiId === anchor.uiId) ??
+      rows.find((item) => item.dataset.messageId === anchor.messageId)
     if (row) {
       const deltaPx = row.getBoundingClientRect().top - anchor.top
       container.scrollTop += deltaPx
-      logChatScrollDebug({ source: "vercel-chat", event: "restore-anchor-row", anchorId: anchor.uiId, anchorTop: anchor.top, deltaPx, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
+      logChatScrollDebug({ source: "vercel-chat", event: "restore-anchor-row", anchorId: anchor.uiId || anchor.messageId, anchorTop: anchor.top, deltaPx, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
       return
     }
   }
@@ -195,13 +198,6 @@ export function OpenClawVercelChat({
   onResolveApproval,
 }: Props) {
   const stableMessages = useMemo(() => buildStableVercelTimeline(messages), [messages])
-  const firstMessageKey = stableMessages[0]?.uiId ?? null
-  const contentKey = stableMessages.map((message) => `${message.uiId}:${message.text.length}:${message.toolCalls?.length ?? 0}`).join("|")
-  const { containerRef, endRef, isAtBottom, scrollToBottom } = useStableChatScroll({
-    sessionKey,
-    firstMessageKey,
-    contentKey,
-  })
   const loadOlderInFlightRef = useRef(false)
   const olderLoadAwaitingRenderRef = useRef(false)
   const userScrollIntentRef = useRef(false)
@@ -211,6 +207,14 @@ export function OpenClawVercelChat({
   const pendingOlderAnchorRef = useRef<VercelScrollAnchor | null>(null)
   const [localOlderLoading, setLocalOlderLoading] = useState(false)
   const isOlderLoading = loadingOlderMessages || localOlderLoading
+  const firstMessageKey = stableMessages[0]?.uiId ?? null
+  const contentKey = stableMessages.map((message) => `${message.uiId}:${message.text.length}:${message.toolCalls?.length ?? 0}`).join("|")
+  const { containerRef, endRef, isAtBottom, scrollToBottom } = useStableChatScroll({
+    sessionKey,
+    firstMessageKey,
+    contentKey,
+    suppressAutoScroll: isOlderLoading,
+  })
 
   useEffect(() => {
     userScrollIntentRef.current = false
