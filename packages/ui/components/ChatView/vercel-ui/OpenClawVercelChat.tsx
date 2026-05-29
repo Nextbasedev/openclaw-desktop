@@ -315,7 +315,7 @@ export function OpenClawVercelChat({
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
     })
-  }, [containerRef, stableMessages.length])
+  }, [containerRef, stableMessages])
 
   useEffect(() => {
     const container = containerRef.current

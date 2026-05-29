@@ -26,7 +26,7 @@ vi.mock("react", () => ({
   useEffect: vi.fn(),
   useCallback: vi.fn((fn: unknown) => fn),
   useMemo: vi.fn((fn: () => unknown) => fn()),
-  useRef: vi.fn(() => ({ current: null })),
+  useRef: vi.fn((initial: unknown) => ({ current: initial })),
 }))
 
 vi.mock("@/lib/ipc", () => ({ invoke: mocks.invoke }))

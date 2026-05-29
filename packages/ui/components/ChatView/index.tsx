@@ -11,6 +11,7 @@ import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
 import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
 import { isNearChatBottom, scrollChatToBottom, shouldStickToChatBottomAfterScroll } from "./chatAutoScroll"
 import { logChatScrollDebug } from "./chatScrollDebug"
+import { useVirtualChatRows } from "./useVirtualChatRows"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
@@ -78,6 +79,7 @@ import {
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 const OLDER_HISTORY_LOAD_SETTLE_COOLDOWN_MS = 1600
+const VIRTUAL_CHAT_ROW_THRESHOLD = 12
 
 type MessageScrollAnchor = {
   id: string
@@ -154,6 +156,7 @@ function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: Messa
 function settleMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null, done: () => void) {
   let finished = false
   let frame: number | null = null
+  let timer: number | null = null
 
   const restore = () => {
     if (finished) return
@@ -163,6 +166,8 @@ function settleMessageScrollAnchor(container: HTMLElement | null, anchor: Messag
     if (finished) return
     finished = true
     if (frame !== null) cancelAnimationFrame(frame)
+    if (timer !== null) window.clearTimeout(timer)
+    restoreMessageScrollAnchor(container, anchor)
     done()
   }
 
@@ -170,8 +175,12 @@ function settleMessageScrollAnchor(container: HTMLElement | null, anchor: Messag
   frame = requestAnimationFrame(() => {
     frame = null
     restore()
-    finish()
   })
+  // Markdown, syntax highlighting, images, and tool cards can change row
+  // heights shortly after the first layout frame. Keep the anchor pinned until
+  // that settle window passes; otherwise older-history prepends visibly blink
+  // or jump and can leave the loader stuck above the viewport.
+  timer = window.setTimeout(finish, 120)
 }
 
 function stableMessageRowSignature(message: StableChatMessage) {
@@ -397,6 +406,19 @@ function cleanSubagentReply(text: string) {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
+}
+
+function estimateChatRowHeight(message?: ChatMessage) {
+  if (!message) return 96
+  const textLength = message.text?.length ?? 0
+  const explicitLines = message.text ? message.text.split("\n").length : 1
+  const wrappedLines = Math.ceil(textLength / 88)
+  const textLines = Math.max(explicitLines, wrappedLines, 1)
+  const toolHeight = message.toolCalls?.length ? Math.min(520, 76 + message.toolCalls.length * 54) : 0
+  const reasoningHeight = message.reasoningText ? Math.min(360, 70 + Math.ceil(message.reasoningText.length / 120) * 22) : 0
+  const attachmentHeight = message.attachments?.length ? 96 : 0
+  const bubbleHeight = message.role === "user" ? 58 + textLines * 20 : 64 + textLines * 22
+  return Math.max(72, bubbleHeight + toolHeight + reasoningHeight + attachmentHeight)
 }
 
 function PreviewResponseCard({
@@ -1005,6 +1027,19 @@ export function ChatView({
     () => buildStableChatRows(visibleAllMessages),
     [visibleAllMessages]
   )
+  const virtualChatRows = useVirtualChatRows({
+    count: renderedMessages.length,
+    enabled: renderedMessages.length > VIRTUAL_CHAT_ROW_THRESHOLD,
+    scrollContainerRef,
+    getItemKey: useCallback(
+      (index: number) => renderedMessages[index]?.uiId ?? renderedMessages[index]?.messageId ?? `message-${index}`,
+      [renderedMessages]
+    ),
+    estimateSize: useCallback(
+      (index: number) => estimateChatRowHeight(renderedMessages[index]),
+      [renderedMessages]
+    ),
+  })
   useEffect(() => {
     frontendLog("chat", "chat.rendered-messages.changed", {
       sessionKey,
@@ -1018,11 +1053,13 @@ export function ChatView({
         ? { uiId: renderedMessages.at(-1)?.uiId, messageId: renderedMessages.at(-1)?.messageId, role: renderedMessages.at(-1)?.role, gatewayIndex: renderedMessages.at(-1)?.gatewayIndex }
         : null,
       renderer: "classic-chatview",
-      virtualized: false,
+      virtualized: virtualChatRows.enabled,
+      virtualStartIndex: virtualChatRows.startIndex,
+      virtualEndIndex: virtualChatRows.endIndex,
       windowId: windowIdRef.current,
       viewGeneration: viewGenerationRef.current,
     }, "debug")
-  }, [messages.length, renderedMessages, sessionKey, visibleAllMessages.length])
+  }, [messages.length, renderedMessages, sessionKey, virtualChatRows.enabled, virtualChatRows.endIndex, virtualChatRows.startIndex, visibleAllMessages.length])
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
   const needsInitialScrollRef = useRef(true)
@@ -1324,7 +1361,7 @@ export function ChatView({
       loadOlderClickInFlightRef.current = false
       setLoadOlderUiBusy(false)
     })
-  }, [renderedMessages.length, scrollContainerRef])
+  }, [renderedMessages, scrollContainerRef])
 
   const handleScroll = useCallback(() => {
     onScroll()
@@ -1675,10 +1712,20 @@ export function ChatView({
   const scrollToRenderedMessage = useCallback((messageId: string, _seq?: number) => {
     void _seq
     const target = document.getElementById(`message-${messageId}`)
-    if (!target) return false
-    target.scrollIntoView({ behavior: "auto", block: "center" })
-    return true
-  }, [])
+    if (target) {
+      target.scrollIntoView({ behavior: "auto", block: "center" })
+      return true
+    }
+    const loadedIndex = renderedMessages.findIndex((message) => message.messageId === messageId)
+    if (loadedIndex >= 0 && virtualChatRows.enabled) {
+      virtualChatRows.scrollToIndex(loadedIndex, "center")
+      window.setTimeout(() => {
+        document.getElementById(`message-${messageId}`)?.scrollIntoView({ behavior: "auto", block: "center" })
+      }, 120)
+      return true
+    }
+    return false
+  }, [renderedMessages, virtualChatRows])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -2140,17 +2187,47 @@ export function ChatView({
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
-          {renderedMessages.map((msg, index) => (
-            <RenderedMessageRow
-              key={msg.uiId}
-              msg={msg}
-              index={index}
-              total={renderedMessages.length}
-              rowSignature={stableMessageRowSignature(msg)}
-              uiStateKey={`${highlightedMessageId ?? ""}:${activePopoverId ?? ""}:${isGenerating ? "1" : "0"}:${lastEditableUserId ?? ""}`}
-              renderMessageRow={renderMessageRow}
-            />
-          ))}
+          {virtualChatRows.enabled ? (
+            <div
+              className="relative w-full"
+              style={{ height: virtualChatRows.totalSize }}
+              aria-label={`Virtualized chat timeline showing messages ${virtualChatRows.startIndex + 1}-${virtualChatRows.endIndex} of ${renderedMessages.length}`}
+            >
+              {virtualChatRows.rows.map((row) => {
+                const msg = renderedMessages[row.index]
+                if (!msg) return null
+                return (
+                  <div
+                    key={row.key}
+                    ref={virtualChatRows.measureElement(row.index)}
+                    className="absolute left-0 right-0 top-0"
+                    style={{ transform: `translateY(${row.start}px)` }}
+                  >
+                    <RenderedMessageRow
+                      msg={msg}
+                      index={row.index}
+                      total={renderedMessages.length}
+                      rowSignature={stableMessageRowSignature(msg)}
+                      uiStateKey={`${highlightedMessageId ?? ""}:${activePopoverId ?? ""}:${isGenerating ? "1" : "0"}:${lastEditableUserId ?? ""}`}
+                      renderMessageRow={renderMessageRow}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            renderedMessages.map((msg, index) => (
+              <RenderedMessageRow
+                key={msg.uiId}
+                msg={msg}
+                index={index}
+                total={renderedMessages.length}
+                rowSignature={stableMessageRowSignature(msg)}
+                uiStateKey={`${highlightedMessageId ?? ""}:${activePopoverId ?? ""}:${isGenerating ? "1" : "0"}:${lastEditableUserId ?? ""}`}
+                renderMessageRow={renderMessageRow}
+              />
+            ))
+          )}
           <div className="mx-auto max-w-[44rem] px-4 pt-1 pb-8">
             <AnimatePresence initial={false}>
               {editPreview && (

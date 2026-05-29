@@ -13,7 +13,8 @@ vi.mock("react", () => ({
     return [
       initial,
       (value: unknown) => {
-        mocks.stateSets[slot].push(value)
+        const previous = mocks.stateSets[slot].at(-1)
+        mocks.stateSets[slot].push(typeof value === "function" ? (value as (prev: unknown) => unknown)(previous) : value)
       },
     ]
   }),
@@ -21,6 +22,7 @@ vi.mock("react", () => ({
     mocks.effects.push(fn)
   }),
   useCallback: vi.fn((fn: unknown) => fn),
+  useRef: vi.fn((initial: unknown) => ({ current: initial })),
 }))
 
 vi.mock("@/lib/ipc", () => ({ invoke: mocks.invoke }))
