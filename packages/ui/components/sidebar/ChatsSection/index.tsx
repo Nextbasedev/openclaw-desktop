@@ -108,13 +108,12 @@ export function ChatsSection({
   return (
     <>
       <div>
-        <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2 px-2.5">
+        <div className="mb-1.5 flex items-center justify-between px-2.5">
           {collapsible ? (
             <button
               type="button"
               onClick={() => setIsOpen((prev) => !prev)}
-              title={sectionLabel}
-              className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-foreground"
+              className="flex cursor-pointer items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-foreground"
             >
               <motion.span
                 animate={{ rotate: isOpen ? 0 : -90 }}
@@ -123,13 +122,10 @@ export function ChatsSection({
               >
                 <Icons.ChevronDown size={12} />
               </motion.span>
-              <span className="min-w-0 truncate">{sectionLabel}</span>
+              {sectionLabel}
             </button>
           ) : (
-            <span
-              title={sectionLabel}
-              className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-widest text-foreground"
-            >
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-foreground">
               {sectionLabel}
             </span>
           )}
@@ -137,7 +133,7 @@ export function ChatsSection({
             type="button"
             onClick={onNewChat}
             title="New chat"
-            className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/50 transition-colors hover:text-foreground"
+            className="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-muted-foreground/50 transition-colors hover:text-foreground"
           >
             <Icons.Plus size={13} strokeWidth={2} />
           </button>
@@ -160,7 +156,7 @@ export function ChatsSection({
                     className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border/30 px-2.5 py-2 text-left text-[12px] text-muted-foreground/40 transition-colors hover:border-border/50 hover:text-muted-foreground"
                   >
                     <Icons.Plus size={12} strokeWidth={1.5} />
-                    <span className="whitespace-nowrap">Start your first chat</span>
+                    <span>Start your first chat</span>
                   </button>
                 )}
 

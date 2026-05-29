@@ -1691,27 +1691,14 @@ export function ensureGlobalChatEngine(
     replayFromCursor > 0 &&
     replayFromCursor < globalCursor
   ) {
-    // The websocket cursor is global across all sessions. Rewinding it for one
-    // focused old chat replays unrelated old tool/subagent patches and can
-    // resurrect stale activity UI. Keep the stream cursor monotonic and recover
-    // the focused session through its scoped bootstrap path instead.
-    frontendLog("stream", "global-chat-engine.replay-cursor.scoped-recovery", {
+    frontendLog("stream", "global-chat-engine.replay-cursor.lowered", {
       sessionKey: options?.sessionKey ?? null,
-      globalCursor,
-      requestedCursor: replayFromCursor,
+      fromCursor: globalCursor,
+      toCursor: replayFromCursor,
       restoredCursor,
       reason: options?.reason ?? "session-safe-replay",
     }, "info")
-    if (typeof window !== "undefined" && options?.sessionKey) {
-      window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
-        detail: {
-          sessionKey: options.sessionKey,
-          reason: "focused-session-behind-global-cursor",
-          cursor: replayFromCursor,
-          globalCursor,
-        },
-      }))
-    }
+    globalCursor = replayFromCursor
   }
 
   frontendLog("stream", "global-chat-engine.connect.start", {

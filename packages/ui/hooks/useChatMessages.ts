@@ -46,7 +46,6 @@ import type {
   EditPreviewState,
 } from "@/components/ChatView/types"
 import { extractText } from "@/components/ChatView/utils"
-import { parseHistoryToolCalls } from "@/components/inspector/activity-types"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
@@ -516,37 +515,6 @@ function subagentFromCanonicalTool(tool: InlineToolCall): SpawnedSubagent | null
     status: tool.status === "error" ? "failed" : childSessionKey ? "working" : "spawning",
     toolCallId: tool.id,
   }
-}
-
-function enrichCanonicalSubagentsFromHistory(
-  spawns: SpawnedSubagent[],
-  rawMessages: RawMessage[],
-  runStatus: string | null | undefined,
-): SpawnedSubagent[] {
-  if (spawns.length === 0 || rawMessages.length === 0) return spawns
-  const parsed = parseHistoryToolCalls(rawMessages)
-  if (parsed.agents.size === 0 && parsed.subagentSessionKeys.size === 0) return spawns
-  const sessionByAgentId = new Map<string, string>()
-  for (const [sessionKey, agentId] of parsed.subagentSessionKeys.entries()) {
-    sessionByAgentId.set(agentId, sessionKey)
-  }
-  return spawns.map((spawn) => {
-    const agent = parsed.agents.get(spawn.id)
-    const sessionKey = agent?.sessionKey ?? sessionByAgentId.get(spawn.id) ?? spawn.sessionKey ?? null
-    const terminalParent = runStatus === "done" || runStatus === "error"
-    const status: SpawnedSubagent["status"] = agent?.phase === "error" || spawn.status === "failed" || runStatus === "error"
-      ? "failed"
-      : agent?.phase === "done" || (terminalParent && sessionKey)
-        ? "completed"
-        : sessionKey
-          ? "working"
-          : spawn.status
-    return {
-      ...spawn,
-      sessionKey,
-      status,
-    }
-  })
 }
 
 function hydrateCachedAttachments(sessionKey: string, messages: ChatMessage[]) {
@@ -1993,11 +1961,7 @@ export function useChatMessages(
         if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
         const canonicalMessages = dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory(rawBootstrapMessages).messages))
         const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
-        const canonicalSpawns = enrichCanonicalSubagentsFromHistory(
-          inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn)),
-          rawBootstrapMessages,
-          runStatus,
-        )
+        const canonicalSpawns = inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn))
         pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
         spawnMapRef.current = new Map(canonicalSpawns.map((spawn) => [spawn.toolCallId, spawn]))
         const canonicalStatus = streamStatusFromCanonicalRun(runStatus)

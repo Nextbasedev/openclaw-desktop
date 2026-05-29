@@ -4,7 +4,6 @@ import * as React from "react"
 import { useState, useRef, useCallback, useEffect, type CSSProperties } from "react"
 import { cn } from "@/lib/utils"
 import { InspectorView, type InspectorTabId } from "./InspectorView"
-import type { InspectorScope } from "./inspectorScope"
 
 function getResponsiveDefaults() {
   if (typeof window === "undefined") return { min: 480, max: 860, default: 480 }
@@ -28,11 +27,9 @@ interface InspectorPanelProps {
   projectId?: string | null
   activeAgentId?: string | null
   onAgentSelect?: (id: string) => void
-  inspectorScope?: InspectorScope
-  onInspectorScopeChange?: (scope: InspectorScope) => void
 }
 
-export function InspectorPanel({ open, onClose, onOpenFullWindow, onWidthChange, terminalActive, onTerminalActiveChange, sessionKey, focusedToolCallId, onClearFocusedToolCall, projectId, activeAgentId, onAgentSelect, inspectorScope, onInspectorScopeChange }: InspectorPanelProps) {
+export function InspectorPanel({ open, onClose, onOpenFullWindow, onWidthChange, terminalActive, onTerminalActiveChange, sessionKey, focusedToolCallId, onClearFocusedToolCall, projectId, activeAgentId, onAgentSelect }: InspectorPanelProps) {
   const [activeTab, setActiveTab] = useState<InspectorTabId>("activity")
   const responsiveDefaults = getResponsiveDefaults()
   const responsiveRef = useRef(responsiveDefaults)
@@ -133,8 +130,6 @@ export function InspectorPanel({ open, onClose, onOpenFullWindow, onWidthChange,
           projectId={projectId}
           activeAgentId={activeAgentId}
           onAgentSelect={onAgentSelect}
-          inspectorScope={inspectorScope}
-          onInspectorScopeChange={onInspectorScopeChange}
         />
       </div>
 

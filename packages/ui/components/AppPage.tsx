@@ -1,7 +1,7 @@
 "use client"
 
 import { randomId } from "@/lib/id"
-import { useState, useCallback, useRef, useEffect, useReducer, type MouseEvent as ReactMouseEvent } from "react"
+import { useState, useCallback, useRef, useEffect, useReducer } from "react"
 import { invoke } from "@/lib/ipc"
 import { Header } from "@/common/Header"
 import { Sidebar, DEFAULT_DRAGGABLE_ITEMS } from "@/components/sidebar"
@@ -10,8 +10,6 @@ import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
-import type { InspectorScope } from "@/components/inspector/inspectorScope"
-import { effectiveInspectorScope, readStoredInspectorScope, writeStoredInspectorScope } from "@/components/inspector/inspectorScope"
 import { SkillPage } from "@/components/SkillPage"
 import { SettingsDashboard, type SettingSection } from "@/components/settings/SettingsDashboard"
 import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
@@ -57,11 +55,9 @@ import {
   type SessionData,
 } from "@/lib/editorGroups"
 import { EditorGroupsContainer } from "@/components/EditorGroupsContainer"
-import { AppContextMenu } from "@/components/AppContextMenu"
 
 type SettingsSection = SettingSection
 type EditorGroupId = "group-1" | "group-2"
-type SpaceSwitchOptions = { openSidebar?: boolean }
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
 const INSPECTOR_ROUTE_TABS = new Set<InspectorTabId>([
@@ -223,14 +219,11 @@ function focusedChatWindowParams() {
   }
 }
 
-const SIDEBAR_MIN = 240
+const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
-const SIDEBAR_DEFAULT = 240
+const SIDEBAR_DEFAULT = 220
 const SIDEBAR_COLLAPSED = 56
 const INSPECTOR_DEFAULT_WIDTH = 460
-const APP_CONTEXT_MENU_WIDTH = 176
-const APP_CONTEXT_MENU_HEIGHT = 44
-const APP_CONTEXT_MENU_MARGIN = 12
 
 export default function Page() {
   const useNativeWindowChrome = shouldUseNativeWindowChrome()
@@ -463,11 +456,7 @@ function AppShell({
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
   const [chatMode, setChatMode] = useState<"simple" | "mission">("simple")
-  const [appContextMenu, setAppContextMenu] = useState({ open: false, x: 0, y: 0 })
-  const appContextMenuRef = useRef<HTMLDivElement>(null)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
-  const [sidebarPreviewOpen, setSidebarPreviewOpen] = useState(false)
-  const [sidebarPreviewSpaceId, setSidebarPreviewSpaceId] = useState<string | null>(null)
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH)
   const [splitRatio, setSplitRatio] = useState(0.5)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
@@ -502,7 +491,6 @@ function AppShell({
       ? "chat"
       : activeTab
   const fullScreenInspectorOpen = activeTab === "inspector"
-  const renderedSidebarWidth = sidebarPreviewOpen ? SIDEBAR_DEFAULT : sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED
 
   const prevTabRef = useRef("chat")
   const lastSettingsTabRef = useRef(activeTab)
@@ -518,6 +506,7 @@ function AppShell({
     deleteSpace,
     loading: spacesLoading,
   } = useSpaces()
+
   useEffect(() => {
     try {
       if (activeSpace?.projectId) localStorage.setItem("openclaw.activeProjectId", activeSpace.projectId)
@@ -703,7 +692,6 @@ function AppShell({
   const [composerError, setComposerError] = useState<string | null>(null)
   const [focusedToolCallId, setFocusedToolCallId] = useState<string | null>(null)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
-  const [inspectorScope, setInspectorScope] = useState<InspectorScope>({ kind: "global" })
   const isResizing = useRef(false)
   const isSplitResizing = useRef(false)
   const mainContentRef = useRef<HTMLElement | null>(null)
@@ -756,16 +744,10 @@ function AppShell({
       setPendingPrompt(null)
       setComposerError(null)
       setFocusedToolCallId(null)
-      const hasSavedMiddleware = Boolean(localStorage.getItem("openclaw.middleware.url")?.trim())
-      setConnectAutoOpenEnabled(!hasSavedMiddleware)
-      setSidebarOpen(hasSavedMiddleware)
-      setInspectorOpen(false)
-      setTerminalActive(false)
-      setActiveTab(hasSavedMiddleware ? "chat" : "connect")
+      setActiveTab("chat")
       setChatRefreshTrigger((n) => n + 1)
       try { localStorage.removeItem("openclaw.activeProjectId") } catch {}
-      const nextRoute = hasSavedMiddleware ? "/" : "/connect"
-      if (getRoutePath() !== nextRoute) window.history.replaceState(null, "", routeUrl(nextRoute))
+      if (getRoutePath() !== "/") window.history.replaceState(null, "", routeUrl("/"))
       emit("sidebar:refresh")
     }
     window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
@@ -1043,31 +1025,6 @@ function AppShell({
     setActiveAgentId(agentId ?? "root")
   }, [inspectorOpen])
 
-  // ── Inspector scope: project chats use project scope; normal chats default to Global Workspace ──
-  useEffect(() => {
-    if (activeTopic?.projectId) {
-      // Project/topic chat: scope is always the project
-      setInspectorScope({ kind: "project", projectId: activeTopic.projectId })
-    } else if (activeSessionKey) {
-      // Normal chats are connected to the shared default workspace by default.
-      // If this chat explicitly picked a project/folder before, keep that stored scope.
-      const stored = readStoredInspectorScope(activeSessionKey)
-      setInspectorScope(stored.kind === "unset" ? { kind: "global" } : stored)
-    } else {
-      setInspectorScope({ kind: "global" })
-    }
-  }, [activeSessionKey, activeTopic?.projectId])
-
-  const computedInspectorScope = effectiveInspectorScope(activeTopic?.projectId ?? null, inspectorScope)
-
-  const handleInspectorScopeChange = useCallback((scope: InspectorScope) => {
-    setInspectorScope(scope)
-    // Persist for direct chats
-    if (activeSessionKey && !activeTopic?.projectId) {
-      writeStoredInspectorScope(activeSessionKey, scope)
-    }
-  }, [activeSessionKey, activeTopic?.projectId])
-
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const setChatModePersisted = useCallback((mode: "simple" | "mission") => {
     setChatMode(mode)
@@ -1085,20 +1042,8 @@ function AppShell({
       setTerminalActive(true)
     }
   }, [inspectorOpen, terminalActive])
-  const closeSidebarPreview = useCallback(() => {
-    setSidebarPreviewOpen(false)
-    setSidebarPreviewSpaceId(null)
-  }, [])
-
-  const toggleSidebar = useCallback(() => {
-    setSidebarPreviewOpen(false)
-    setSidebarPreviewSpaceId(null)
-    setSidebarOpen((prev) => !prev)
-  }, [])
-  const closeSidebar = useCallback(() => {
-    closeSidebarPreview()
-    setSidebarOpen(false)
-  }, [closeSidebarPreview])
+  const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
+  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
   const openSettings = useCallback((section: SettingsSection = "usage") => {
     setConnectAutoOpenEnabled(false)
@@ -1235,7 +1180,6 @@ function AppShell({
 
   const handleResizeStart = useCallback(() => {
     if (!sidebarOpen) return
-    setSidebarPreviewOpen(false)
     isResizing.current = true
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
@@ -1251,15 +1195,7 @@ function AppShell({
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
       if (isResizing.current) {
-        if (e.clientX < SIDEBAR_MIN) {
-          setSidebarOpen(false)
-          setSidebarPreviewOpen(false)
-          isResizing.current = false
-          document.body.style.cursor = ""
-          document.body.style.userSelect = ""
-          return
-        }
-        const newWidth = Math.min(SIDEBAR_MAX, e.clientX)
+        const newWidth = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX))
         setSidebarWidth(newWidth)
       }
       if (isSplitResizing.current) {
@@ -1649,11 +1585,7 @@ function AppShell({
     window.history.pushState(null, "", routeUrl("/"))
   }, [clearConversationState, editorGroups.focusedGroupId])
 
-  const handleSpaceSwitch = useCallback(async (spaceId: string, options: SpaceSwitchOptions = {}) => {
-    const openSidebar = options.openSidebar ?? true
-    setSidebarPreviewOpen(!openSidebar)
-    setSidebarPreviewSpaceId(openSidebar ? null : spaceId)
-    if (openSidebar) setSidebarOpen(true)
+  const handleSpaceSwitch = useCallback(async (spaceId: string) => {
     if (spaceId === activeSpaceId) return
     if (activeSpaceId) {
       const route = parseRoute(getRoutePath())
@@ -1730,8 +1662,8 @@ function AppShell({
     handleNewChat()
   }, [activeSpaceId, handleNewChat, handleSpaceSwitch])
 
-  const handleSpaceCreate = useCallback(async (name?: string, iconImage?: NonNullable<import("@/types/space").Space["iconImage"]> | null, iconEmoji?: NonNullable<import("@/types/space").Space["iconEmoji"]> | null) => {
-    const space = await createSpace(name, iconImage, iconEmoji)
+  const handleSpaceCreate = useCallback(async (name?: string) => {
+    const space = await createSpace(name)
     await handleSpaceSwitch(space.id)
   }, [createSpace, handleSpaceSwitch])
 
@@ -2636,68 +2568,8 @@ function AppShell({
     onResetOnboarding()
   }, [onDeleteAccount, onResetOnboarding])
 
-  const closeAppContextMenu = useCallback(() => {
-    setAppContextMenu((prev) => ({ ...prev, open: false }))
-  }, [])
-
-  const handleAppContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    const target = event.target as HTMLElement | null
-    if (target?.closest("input, textarea, [contenteditable='true']")) return
-
-    event.preventDefault()
-    const maxX = Math.max(APP_CONTEXT_MENU_MARGIN, window.innerWidth - APP_CONTEXT_MENU_WIDTH - APP_CONTEXT_MENU_MARGIN)
-    const maxY = Math.max(APP_CONTEXT_MENU_MARGIN, window.innerHeight - APP_CONTEXT_MENU_HEIGHT - APP_CONTEXT_MENU_MARGIN)
-    setAppContextMenu({
-      open: true,
-      x: Math.min(Math.max(event.clientX, APP_CONTEXT_MENU_MARGIN), maxX),
-      y: Math.min(Math.max(event.clientY, APP_CONTEXT_MENU_MARGIN), maxY),
-    })
-  }, [])
-
-  const hasSavedMiddlewareConnection = typeof window !== "undefined" && Boolean(localStorage.getItem("openclaw.middleware.url")?.trim())
-  const connectionScreenActive = effectiveActiveTab === "connect" || (effectiveActiveTab === "settings" && settingsSection === "connect" && !hasSavedMiddlewareConnection)
-
-  if (connectionScreenActive) {
-    return (
-      <div
-        className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
-        onContextMenu={handleAppContextMenu}
-      >
-        <Header
-          minimal
-          inspectorOpen={false}
-          terminalOpen={false}
-          sidebarOpen={false}
-          sidebarReservedWidth={0}
-          editorGroups={null}
-          workspaceControls={false}
-          onOpenSettings={openSettings}
-          onOpenLogs={openLogs}
-          useNativeWindowChrome={useNativeWindowChrome}
-        />
-
-        <main className="min-h-0 flex-1 overflow-hidden">
-          <ConnectPage />
-        </main>
-
-        <LogsDialog open={logsOpen} onClose={closeLogs} />
-        <AppContextMenu
-          menuRef={appContextMenuRef}
-          open={appContextMenu.open}
-          x={appContextMenu.x}
-          y={appContextMenu.y}
-          onClose={closeAppContextMenu}
-          onReload={() => window.location.reload()}
-        />
-      </div>
-    )
-  }
-
   return (
-    <div
-      className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
-      onContextMenu={handleAppContextMenu}
-    >
+    <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
       <Header
         inspectorOpen={inspectorOpen}
         onToggleInspector={toggleInspector}
@@ -2705,7 +2577,7 @@ function AppShell({
         onToggleTerminal={toggleTerminal}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
-        sidebarReservedWidth={renderedSidebarWidth}
+        sidebarReservedWidth={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
         editorGroups={effectiveActiveTab === "chat" ? editorGroups : null}
         onSelectChatTab={effectiveActiveTab === "chat" ? handleEditorTabSelect : undefined}
         onCloseChatTab={effectiveActiveTab === "chat" ? handleEditorTabClose : undefined}
@@ -2725,17 +2597,9 @@ function AppShell({
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
-          width={renderedSidebarWidth}
+          width={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
           collapsed={!sidebarOpen}
-          previewExpanded={sidebarPreviewOpen}
-          previewSpaceId={sidebarPreviewSpaceId}
           onClose={closeSidebar}
-          onPreviewOpen={(spaceId) => {
-            if (sidebarOpen) return
-            setSidebarPreviewSpaceId(spaceId)
-            setSidebarPreviewOpen(true)
-          }}
-          onPreviewClose={closeSidebarPreview}
           onResizeStart={handleResizeStart}
           activeTab={effectiveActiveTab}
           onTabChange={handleTabChange}
@@ -2917,8 +2781,6 @@ function AppShell({
           projectId={activeTopic?.projectId ?? null}
           activeAgentId={activeAgentId}
           onAgentSelect={setActiveAgentId}
-          inspectorScope={computedInspectorScope}
-          onInspectorScopeChange={handleInspectorScopeChange}
         />
       </div>
 
@@ -2933,14 +2795,12 @@ function AppShell({
           activeTab={fullWindowInspectorTab}
           onTabChange={handleInspectorTabChange}
           onClose={handleSettingsBack}
-          leftOffset={renderedSidebarWidth}
+          leftOffset={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
           collapsedWidth={inspectorWidth}
           sessionKey={activeSessionKey}
           projectId={activeTopic?.projectId ?? null}
           activeAgentId={activeAgentId}
           onAgentSelect={setActiveAgentId}
-          inspectorScope={computedInspectorScope}
-          onInspectorScopeChange={handleInspectorScopeChange}
         />
       )}
 
@@ -2975,14 +2835,6 @@ function AppShell({
       />
 
       <LogsDialog open={logsOpen} onClose={closeLogs} />
-      <AppContextMenu
-        menuRef={appContextMenuRef}
-        open={appContextMenu.open}
-        x={appContextMenu.x}
-        y={appContextMenu.y}
-        onClose={closeAppContextMenu}
-        onReload={() => window.location.reload()}
-      />
     </div>
   )
 }
@@ -3056,10 +2908,7 @@ function MainContent({
 }) {
   if (activeTab === "settings") {
     return (
-      <div
-        className="flex h-full w-full"
-        style={{ background: "#1d1d20" }}
-      >
+      <div className="flex h-full w-full">
         <SettingsDashboard
           key={`settings:${settingsSection}`}
           onBack={onSettingsBack}
@@ -3183,8 +3032,6 @@ function FullScreenInspectorOverlay({
   projectId,
   activeAgentId,
   onAgentSelect,
-  inspectorScope,
-  onInspectorScopeChange,
 }: {
   open: boolean
   activeTab: InspectorTabId
@@ -3196,8 +3043,6 @@ function FullScreenInspectorOverlay({
   projectId: string | null
   activeAgentId: string | null
   onAgentSelect: (id: string) => void
-  inspectorScope?: InspectorScope
-  onInspectorScopeChange?: (scope: InspectorScope) => void
 }) {
   const [collapsedScale, setCollapsedScale] = useState(0.35)
 
@@ -3237,8 +3082,6 @@ function FullScreenInspectorOverlay({
         projectId={projectId}
         activeAgentId={activeAgentId}
         onAgentSelect={onAgentSelect}
-        inspectorScope={inspectorScope}
-        onInspectorScopeChange={onInspectorScopeChange}
         className="h-full"
       />
     </div>

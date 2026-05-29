@@ -9,16 +9,14 @@ import { WorkspaceTab } from "./WorkspaceTab"
 import { GitTab, type GitTabSelection } from "./GitTab"
 import { XTerminal } from "@/components/terminal/XTerminal"
 import { Icons } from "@/components/icons"
-import type { InspectorScope } from "./inspectorScope"
-import { inspectorScopeProjectId, inspectorScopeRenderKey } from "./inspectorScope"
 
 export type InspectorTabId = "activity" | "workspace" | "git" | "terminal"
 
 export const INSPECTOR_TABS: Array<{ id: InspectorTabId; label: string }> = [
+  { id: "git", label: "Git" },
+  { id: "workspace", label: "Workspace" },
   { id: "activity", label: "Activity" },
   { id: "terminal", label: "Terminal" },
-  { id: "workspace", label: "Workspace" },
-  { id: "git", label: "Git" },
 ]
 
 type TerminalTab = {
@@ -40,8 +38,6 @@ type InspectorViewProps = {
   activeAgentId?: string | null
   onAgentSelect?: (id: string) => void
   className?: string
-  inspectorScope?: InspectorScope
-  onInspectorScopeChange?: (scope: InspectorScope) => void
 }
 
 export function InspectorView({
@@ -58,8 +54,6 @@ export function InspectorView({
   activeAgentId,
   onAgentSelect,
   className,
-  inspectorScope,
-  onInspectorScopeChange,
 }: InspectorViewProps) {
   const tabCounterRef = useRef(1)
   const [termTabs, setTermTabs] = useState<TerminalTab[]>([
@@ -69,16 +63,6 @@ export function InspectorView({
   const [terminalHasMounted, setTerminalHasMounted] = useState(activeTab === "terminal")
   const [gitSelection, setGitSelection] = useState<GitTabSelection | null>(null)
   const termScrollRef = useRef<HTMLDivElement>(null)
-
-  // Derive effective projectId from scope when available
-  const effectiveProjectId = inspectorScope
-    ? inspectorScopeProjectId(inspectorScope)
-    : (projectId ?? null)
-
-  // Scope-aware render key for resetting tabs when scope changes
-  const scopeKey = inspectorScope
-    ? inspectorScopeRenderKey({ sessionKey, projectId, scope: inspectorScope })
-    : `${projectId ?? "global"}:${sessionKey ?? "none"}`
 
   const addTermTab = useCallback(() => {
     tabCounterRef.current += 1
@@ -118,11 +102,6 @@ export function InspectorView({
   React.useEffect(() => {
     if (activeTab === "terminal") setTerminalHasMounted(true)
   }, [activeTab])
-
-  // Reset git selection when scope changes
-  React.useEffect(() => {
-    setGitSelection(null)
-  }, [scopeKey])
 
   return (
     <div className={cn("flex h-full min-w-0 flex-col", className)}>
@@ -183,7 +162,7 @@ export function InspectorView({
       <div className="min-h-0 flex-1 overflow-clip">
         {activeTab === "activity" && (
           <ActivityTab
-            key={scopeKey}
+            key={`${projectId ?? "global"}:${sessionKey ?? "none"}`}
             sessionKey={sessionKey ?? null}
             activeAgentId={activeAgentId ?? null}
             onAgentSelect={onAgentSelect}
@@ -193,21 +172,17 @@ export function InspectorView({
         )}
         {activeTab === "workspace" && (
           <WorkspaceTab
-            key={scopeKey}
+            key={projectId ?? "global"}
             sessionKey={sessionKey ?? null}
-            projectId={effectiveProjectId}
-            inspectorScope={inspectorScope}
-            onInspectorScopeChange={onInspectorScopeChange}
+            projectId={projectId ?? null}
           />
         )}
         {activeTab === "git" && (
           <GitTab
-            key={scopeKey}
-            projectId={effectiveProjectId}
+            key={projectId ?? "global"}
+            projectId={projectId ?? null}
             selection={gitSelection}
             onSelectionChange={setGitSelection}
-            inspectorScope={inspectorScope}
-            onInspectorScopeChange={onInspectorScopeChange}
           />
         )}
         {terminalHasMounted && (
@@ -289,9 +264,9 @@ export function InspectorView({
                   }}
                 >
                   <XTerminal
-                    key={`${effectiveProjectId ?? "global"}:${tab.id}`}
+                    key={`${projectId ?? "global"}:${tab.id}`}
                     visible={activeTermId === tab.id}
-                    projectId={effectiveProjectId}
+                    projectId={projectId ?? null}
                   />
                 </div>
               ))}

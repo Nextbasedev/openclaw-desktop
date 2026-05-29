@@ -126,12 +126,9 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
     const client = { id, socket, connectedAtMs: Date.now(), lastSentCursor: afterCursor };
     context.patchBus.addClient(client);
     log.info("stream.connect", { clientId: id, afterCursor });
-    // Do not subscribe every recent session on stream connect. The desktop can
-    // easily have 80-100 recent chats; subscribing all of them makes Gateway
-    // fan out every agent/chat event into middleware ingest work and creates a
-    // visible UI stall during startup / space switches. Active ChatView mounts
-    // and sends subscribe their own session explicitly, which is the only live
-    // stream the foreground UI needs.
+    void context.chatLive.ensureRecentSessionsSubscribed(100)
+      .then((result) => log.info("stream.recent-subscriptions.ready", { clientId: id, ...result }))
+      .catch((error) => log.warn("stream.recent-subscriptions.fail", { clientId: id, error: error instanceof Error ? error.message : String(error) }));
     const replay = listPatchesAfter(context, afterCursor, 1001);
     const replayHasMore = replay.length > 1000;
     // If the browser cursor is too far behind, a partial replay is worse than

@@ -12,21 +12,17 @@ import { SpaceDialogs } from "./SpaceDialogs"
 import { SpacesOverflowMenu } from "./SpacesOverflowMenu"
 import { SpaceContextMenuPortal } from "./SpaceContextMenuPortal"
 import { CreateSpaceDialog } from "./CreateSpaceDialog"
-import { SpaceIconImage, spaceIconEmoji, spaceIconEmojiColor, spaceIconSrc } from "./SpaceIconImage"
 
 type Props = {
   spaces: Space[]
   activeSpaceId: string | null
   onSwitch: (spaceId: string) => void | Promise<void>
   onNewChat: (spaceId: string) => void | Promise<void>
-  onCreate: (name?: string, iconImage?: SpaceIconImage | null, iconEmoji?: SpaceIconEmoji | null) => void | Promise<void>
-  onUpdate: (spaceId: string, input: { name?: string; iconEmoji?: SpaceIconEmoji | null; repoRoot?: string | null }) => unknown | Promise<unknown>
+  onCreate: (name?: string) => void | Promise<void>
+  onUpdate: (spaceId: string, input: { name?: string; repoRoot?: string | null }) => unknown | Promise<unknown>
   onArchive: (spaceId: string) => void | Promise<void>
   onDelete: (spaceId: string) => void | Promise<void>
 }
-
-type SpaceIconImage = NonNullable<Space["iconImage"]>
-type SpaceIconEmoji = NonNullable<Space["iconEmoji"]>
 
 const DOT_GRADIENTS = [
   "from-cyan-300 via-sky-400 to-violet-500",
@@ -83,9 +79,6 @@ export function SpacesSection({
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Space | null>(null)
   const [name, setName] = useState("New Project")
-  const [iconImage, setIconImage] = useState<SpaceIconImage | null>(null)
-  const [iconEmoji, setIconEmoji] = useState<SpaceIconEmoji>({ emoji: "✨", label: "sparkles", color: "from-zinc-950 to-zinc-800" })
-  const [iconError, setIconError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
@@ -123,9 +116,6 @@ export function SpacesSection({
 
   function openCreate() {
     setName("New Project")
-    setIconImage(null)
-    setIconEmoji({ emoji: "✨", label: "sparkles", color: "from-zinc-950 to-zinc-800" })
-    setIconError(null)
     setCreateOpen(true)
   }
 
@@ -133,7 +123,7 @@ export function SpacesSection({
     if (busy || !name.trim()) return
     setBusy(true)
     try {
-      await onCreate(name.trim(), iconImage, iconEmoji)
+      await onCreate(name.trim())
       setCreateOpen(false)
     } finally {
       setBusy(false)
@@ -144,7 +134,7 @@ export function SpacesSection({
     if (busy || !renameTarget || !name.trim()) return
     setBusy(true)
     try {
-      await onUpdate(renameTarget.id, { name: name.trim(), iconEmoji })
+      await onUpdate(renameTarget.id, { name: name.trim() })
       setRenameOpen(false)
       setRenameTarget(null)
     } finally {
@@ -172,7 +162,6 @@ export function SpacesSection({
     closeMenus()
     setRenameTarget(space)
     setName(space.name)
-    setIconEmoji(space.iconEmoji ?? { emoji: "✨", label: "sparkles", color: "from-zinc-950 to-zinc-800" })
     setRenameOpen(true)
   }
 
@@ -225,40 +214,15 @@ export function SpacesSection({
                     aria-label={`Switch to project ${space.name}`}
                     className="group flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
                   >
-                    {spaceIconEmoji(space) ? (
-                      <span
-                        className={cn(
-                          "flex items-center justify-center rounded-full bg-gradient-to-br text-[10px] transition-all duration-200 ease-out",
-                          space.id === activeSpace?.id
-                            ? "size-4 opacity-100"
-                            : "size-3 opacity-70 group-hover:size-3.5 group-hover:opacity-95",
-                          spaceIconEmojiColor(space),
-                        )}
-                      >
-                        {spaceIconEmoji(space)}
-                      </span>
-                    ) : spaceIconSrc(space) ? (
-                      <span
-                        className={cn(
-                          "overflow-hidden rounded-full shadow-[0_0_0_1px_rgba(255,255,255,0.12)] transition-all duration-200 ease-out",
-                          space.id === activeSpace?.id
-                            ? "size-4 opacity-100 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_18px_rgba(103,232,249,0.36)]"
-                            : "size-2.5 opacity-70 group-hover:size-3 group-hover:opacity-95",
-                        )}
-                      >
-                        <SpaceIconImage space={space} />
-                      </span>
-                    ) : (
-                      <span
-                        className={cn(
-                          "rounded-full bg-gradient-to-br shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-all duration-200 ease-out",
-                          space.id === activeSpace?.id
-                            ? "size-3.5 opacity-100 shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_18px_rgba(103,232,249,0.42)]"
-                            : "size-2 opacity-55 group-hover:size-2.75 group-hover:opacity-90",
-                          gradientForSpace(space),
-                        )}
-                      />
-                    )}
+                    <span
+                      className={cn(
+                        "rounded-full bg-gradient-to-br shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-all duration-200 ease-out",
+                        space.id === activeSpace?.id
+                          ? "size-3.5 opacity-100 shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_18px_rgba(103,232,249,0.42)]"
+                          : "size-2 opacity-55 group-hover:size-2.75 group-hover:opacity-90",
+                        gradientForSpace(space),
+                      )}
+                    />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="top" sideOffset={8} showArrow={false}>
@@ -325,28 +289,20 @@ export function SpacesSection({
         open={createOpen}
         busy={busy}
         name={name}
-        iconImage={iconImage}
-        iconEmoji={iconEmoji}
-        iconError={iconError}
         inputRef={inputRef}
         onOpenChange={setCreateOpen}
         onNameChange={setName}
-        onIconImageChange={setIconImage}
-        onIconEmojiChange={setIconEmoji}
-        onIconErrorChange={setIconError}
         onSubmit={submitCreate}
       />
 
       <SpaceDialogs
         busy={busy}
         name={name}
-        iconEmoji={iconEmoji}
         inputRef={inputRef}
         renameOpen={renameOpen}
         deleteOpen={deleteOpen}
         deleteTarget={deleteTarget}
         onNameChange={setName}
-        onIconEmojiChange={setIconEmoji}
         onRenameOpenChange={(open) => {
           setRenameOpen(open)
           if (!open) setRenameTarget(null)

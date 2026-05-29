@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils"
 import { LuCheck, LuSearch } from "react-icons/lu"
 import { GlassDialog } from "@/components/ui/GlassDialog"
 import { useModels, isActiveModel } from "@/hooks/useModels"
-import { ModelLogo } from "@/components/model/ModelLogo"
 
 type Props = {
   open: boolean
@@ -49,13 +48,6 @@ export function ModelSelector({ open, onOpenChange }: Props) {
 
   const currentModel = models.find((m) => isActiveModel(current, m))
   const label = currentModel?.name ?? current ?? "Select model"
-  const currentDisplayModel = currentModel ?? (current
-    ? {
-        id: current.includes("/") ? current.split(/\/(.+)/)[1] : current,
-        name: current.includes("/") ? current.split(/\/(.+)/)[1] : current,
-        provider: current.includes("/") ? current.split(/\/(.+)/)[0] : "custom",
-      }
-    : null)
 
   const unique = models.filter(
     (m, i, arr) =>
@@ -79,27 +71,7 @@ export function ModelSelector({ open, onOpenChange }: Props) {
       onClose={() => onOpenChange(false)}
       title="Switch Model"
       description={`Current: ${label}`}
-      className="w-[min(520px,calc(100vw-32px))]"
     >
-      <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.045] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-        <div className="flex items-center gap-3">
-          <ModelLogo model={currentDisplayModel} modelId={current} size="md" />
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground/55">
-              Active model
-            </p>
-            <p className="truncate text-[14px] font-semibold text-foreground">
-              {label}
-            </p>
-            {currentDisplayModel && (
-              <p className="truncate text-[11px] text-muted-foreground/55">
-                {currentDisplayModel.provider}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
       <div className="mb-3">
         <div className="relative">
           <LuSearch
@@ -112,7 +84,7 @@ export function ModelSelector({ open, onOpenChange }: Props) {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search models..."
             className={cn(
-              "h-9 w-full rounded-xl border pl-8 pr-3",
+              "h-8 w-full rounded-lg border pl-8 pr-3",
               "border-[var(--glass-input-border)] bg-[var(--glass-input-bg)]",
               "text-[12px] text-foreground outline-none",
               "placeholder:text-muted-foreground/40 focus:border-foreground/15",
@@ -152,35 +124,29 @@ export function ModelSelector({ open, onOpenChange }: Props) {
                 handleSelect(`${model.provider}/${model.id}`)
               }
               className={cn(
-                "flex w-full cursor-pointer items-center gap-3 rounded-xl border px-2.5 py-2.5 text-left",
-                "transition-all disabled:cursor-not-allowed",
+                "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left",
+                "transition-colors disabled:cursor-not-allowed",
                 saving && "opacity-50",
                 active
-                  ? "border-white/14 bg-foreground/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                  : "border-transparent text-foreground/80 hover:border-white/8 hover:bg-foreground/5 hover:text-foreground",
+                  ? "bg-foreground/8 text-foreground"
+                  : "text-foreground/80 hover:bg-foreground/5 hover:text-foreground",
               )}
             >
-              <ModelLogo model={model} size="sm" />
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <span className="truncate text-[13px] font-medium">
                     {model.name}
                   </span>
                 </div>
-                <div className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground/55">
-                  <span className="truncate">{model.provider}</span>
-                  {model.reasoning && (
-                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-muted-foreground/65">
-                      reasoning
-                    </span>
-                  )}
-                </div>
+                <span className="text-[10px] text-muted-foreground/50">
+                  {model.reasoning ? "reasoning" : model.provider}
+                </span>
               </div>
               {active && (
-                <span className="flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/[0.08] px-2 py-1 text-[10px] font-medium text-foreground">
-                  <LuCheck size={12} />
-                  Active
-                </span>
+                <LuCheck
+                  size={14}
+                  className="shrink-0 text-white"
+                />
               )}
             </button>
           )
