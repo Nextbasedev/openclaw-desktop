@@ -944,6 +944,12 @@ export function ChatView({
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
   const previousScrollTopRef = useRef(0)
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
+  const olderAutoLoadBlockedUntilRef = useRef(0)
+
+  useEffect(() => {
+    olderAutoLoadBlockedUntilRef.current = Date.now() + 1500
+  }, [isGenerating])
+
   useEffect(() => {
     if (typeof window === "undefined") return
     const previous = window.history.scrollRestoration
@@ -1140,6 +1146,7 @@ export function ChatView({
   const loadOlderWithoutJump = useCallback(async () => {
     const now = Date.now()
     if (!hasOlderMessages || loadingOlderMessages || loadOlderClickInFlightRef.current) return
+    if (isGenerating || now < olderAutoLoadBlockedUntilRef.current) return
     if (now - lastOlderLoadAtRef.current < 900) return
     lastOlderLoadAtRef.current = now
     loadOlderClickInFlightRef.current = true
@@ -1162,7 +1169,7 @@ export function ChatView({
       olderLoadAwaitingRenderRef.current = false
       loadOlderClickInFlightRef.current = false
     }
-  }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey])
+  }, [hasOlderMessages, isGenerating, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey])
 
   useLayoutEffect(() => {
     const anchor = pendingOlderAnchorRef.current
@@ -1185,7 +1192,8 @@ export function ChatView({
     if (el) {
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
       setShowJumpToBottom(!atBottom)
-      if (hasOlderMessages && shouldAutoLoadOlderHistory({
+      const canAutoLoadOlder = !isGenerating && Date.now() >= olderAutoLoadBlockedUntilRef.current
+      if (hasOlderMessages && canAutoLoadOlder && shouldAutoLoadOlderHistory({
         scrollTop: el.scrollTop,
         scrollHeight: el.scrollHeight,
         clientHeight: el.clientHeight,
@@ -1199,7 +1207,7 @@ export function ChatView({
       previousScrollTopRef.current = el.scrollTop
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, hasOlderMessages, loadOlderWithoutJump, onScroll, scrollContainerRef])
+  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
@@ -1843,9 +1851,6 @@ export function ChatView({
         userScrollIntentRef.current = true
       }}
       onTouchMoveCapture={() => {
-        userScrollIntentRef.current = true
-      }}
-      onPointerDownCapture={() => {
         userScrollIntentRef.current = true
       }}
     >

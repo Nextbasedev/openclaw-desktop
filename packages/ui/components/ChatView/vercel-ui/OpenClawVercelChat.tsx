@@ -219,6 +219,7 @@ export function OpenClawVercelChat({
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
   const previousScrollTopRef = useRef(0)
   const pendingOlderAnchorRef = useRef<VercelScrollAnchor | null>(null)
+  const olderAutoLoadBlockedUntilRef = useRef(0)
   const [localOlderLoading, setLocalOlderLoading] = useState(false)
   const isOlderLoading = loadingOlderMessages || localOlderLoading
   const firstMessageKey = stableMessages[0]?.uiId ?? null
@@ -231,6 +232,10 @@ export function OpenClawVercelChat({
   })
 
   useEffect(() => {
+    olderAutoLoadBlockedUntilRef.current = Date.now() + 1500
+  }, [isGenerating])
+
+  useEffect(() => {
     userScrollIntentRef.current = false
     previousScrollTopRef.current = 0
     lastOlderLoadAtRef.current = 0
@@ -241,6 +246,7 @@ export function OpenClawVercelChat({
   const loadOlderWithoutJump = useCallback(async () => {
     const now = Date.now()
     if (!hasOlderMessages || isOlderLoading || loadOlderInFlightRef.current) return
+    if (isGenerating || now < olderAutoLoadBlockedUntilRef.current) return
     if (now - lastOlderLoadAtRef.current < 900) return
     lastOlderLoadAtRef.current = now
     loadOlderInFlightRef.current = true
@@ -265,7 +271,7 @@ export function OpenClawVercelChat({
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
     }
-  }, [containerRef, hasOlderMessages, isOlderLoading, onLoadOlderMessages, sessionKey])
+  }, [containerRef, hasOlderMessages, isGenerating, isOlderLoading, onLoadOlderMessages, sessionKey])
 
   useLayoutEffect(() => {
     const anchor = pendingOlderAnchorRef.current
@@ -290,7 +296,8 @@ export function OpenClawVercelChat({
       userScrollIntentRef.current = true
     }
     const onScroll = () => {
-      if (shouldAutoLoadOlderHistory({
+      const canAutoLoadOlder = !isGenerating && Date.now() >= olderAutoLoadBlockedUntilRef.current
+      if (canAutoLoadOlder && shouldAutoLoadOlderHistory({
         scrollTop: container.scrollTop,
         scrollHeight: container.scrollHeight,
         clientHeight: container.clientHeight,
@@ -305,15 +312,13 @@ export function OpenClawVercelChat({
     }
     container.addEventListener("wheel", markUserIntent, { passive: true })
     container.addEventListener("touchstart", markUserIntent, { passive: true })
-    container.addEventListener("pointerdown", markUserIntent, { passive: true })
     container.addEventListener("scroll", onScroll, { passive: true })
     return () => {
       container.removeEventListener("wheel", markUserIntent)
       container.removeEventListener("touchstart", markUserIntent)
-      container.removeEventListener("pointerdown", markUserIntent)
       container.removeEventListener("scroll", onScroll)
     }
-  }, [containerRef, hasOlderMessages, loadOlderWithoutJump, localOlderLoading])
+  }, [containerRef, hasOlderMessages, isGenerating, loadOlderWithoutJump, localOlderLoading])
   const lastMessage = stableMessages.at(-1)
   const showThinking = isGenerating && lastMessage?.role === "user"
 
