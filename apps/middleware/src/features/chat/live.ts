@@ -75,7 +75,14 @@ function textFromLiveValue(value: unknown): string | null {
     value.output,
     value.response,
     value.value,
-  ) ?? textFromLiveValue(value.data) ?? textFromLiveValue(value.chunk);
+  ) ??
+    textFromLiveValue(value.content) ??
+    textFromLiveValue(value.message) ??
+    textFromLiveValue(value.output) ??
+    textFromLiveValue(value.response) ??
+    textFromLiveValue(value.value) ??
+    textFromLiveValue(value.data) ??
+    textFromLiveValue(value.chunk);
 }
 
 export class ChatLiveIngest {

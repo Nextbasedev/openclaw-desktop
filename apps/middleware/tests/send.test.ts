@@ -351,10 +351,11 @@ describe("chat send routes", () => {
     for (const listener of listeners) {
       listener({ type: "event", event: "chat.delta", payload: { data: { key: "s1", runId: "gateway-run-1", message: { delta: "Hel" } } } });
       listener({ type: "event", event: "chat.delta", payload: { data: { key: "s1", runId: "gateway-run-1", chunk: { text: "lo" } } } });
+      listener({ type: "event", event: "chat.delta", payload: { data: { key: "s1", runId: "gateway-run-1", content: [{ type: "text", text: "!" }] } } });
     }
 
     const textPatches = patches.filter((patch) => patch.type === "chat.message.upsert" && patch.payload?.semanticType === "chat.assistant.delta");
-    expect(textPatches.map((patch) => (patch.payload?.message as { text?: string } | undefined)?.text)).toEqual(["Hel", "Hello"]);
+    expect(textPatches.map((patch) => (patch.payload?.message as { text?: string } | undefined)?.text)).toEqual(["Hel", "Hello", "Hello!"]);
     await app.close();
   });
 
