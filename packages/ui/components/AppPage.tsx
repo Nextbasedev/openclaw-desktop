@@ -2418,6 +2418,15 @@ function AppShell({
         }
       }
       if (!sessionKey) throw new Error("New chat did not return a sessionKey")
+      seedGlobalChatSession({
+        sessionKey,
+        messages: optimisticMessages,
+        cursor: 0,
+        status: "thinking",
+        statusLabel: "Thinking",
+        historyCoverage: "metadata",
+        messageCount: optimisticMessages.length,
+      })
 
       const createdChat = { id: result.chat.id, name: fallbackName, sessionKey }
       const sessionData = { chat: createdChat, sessionKey, title: fallbackName }
