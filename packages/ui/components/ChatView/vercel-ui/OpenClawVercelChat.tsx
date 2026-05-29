@@ -63,25 +63,39 @@ function restoreVercelScrollAnchor(container: HTMLElement | null, anchor: Vercel
 function settleVercelScrollAnchor(container: HTMLElement | null, anchor: VercelScrollAnchor | null, done: () => void) {
   let finished = false
   let frame: number | null = null
+  let observer: ResizeObserver | null = null
+  const timeouts: number[] = []
 
   const restore = () => {
     if (finished) return
     restoreVercelScrollAnchor(container, anchor)
   }
+  const scheduleRestore = () => {
+    if (finished || frame !== null) return
+    frame = requestAnimationFrame(() => {
+      frame = null
+      restore()
+    })
+  }
   const finish = () => {
     if (finished) return
     finished = true
     if (frame !== null) cancelAnimationFrame(frame)
+    for (const timeout of timeouts) window.clearTimeout(timeout)
+    observer?.disconnect()
     restoreVercelScrollAnchor(container, anchor)
     done()
   }
 
   restore()
-  frame = requestAnimationFrame(() => {
-    frame = null
-    restore()
-  })
-  window.setTimeout(finish, 120)
+  scheduleRestore()
+  if (container && typeof ResizeObserver !== "undefined") {
+    observer = new ResizeObserver(scheduleRestore)
+    observer.observe(container)
+  }
+  timeouts.push(window.setTimeout(restore, 80))
+  timeouts.push(window.setTimeout(restore, 180))
+  timeouts.push(window.setTimeout(finish, 360))
 }
 
 type Props = {

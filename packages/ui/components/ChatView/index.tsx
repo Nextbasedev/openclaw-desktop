@@ -155,25 +155,39 @@ function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: Messa
 function settleMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null, done: () => void) {
   let finished = false
   let frame: number | null = null
+  let observer: ResizeObserver | null = null
+  const timeouts: number[] = []
 
   const restore = () => {
     if (finished) return
     restoreMessageScrollAnchor(container, anchor)
   }
+  const scheduleRestore = () => {
+    if (finished || frame !== null) return
+    frame = requestAnimationFrame(() => {
+      frame = null
+      restore()
+    })
+  }
   const finish = () => {
     if (finished) return
     finished = true
     if (frame !== null) cancelAnimationFrame(frame)
+    for (const timeout of timeouts) window.clearTimeout(timeout)
+    observer?.disconnect()
     restoreMessageScrollAnchor(container, anchor)
     done()
   }
 
   restore()
-  frame = requestAnimationFrame(() => {
-    frame = null
-    restore()
-  })
-  window.setTimeout(finish, 120)
+  scheduleRestore()
+  if (container && typeof ResizeObserver !== "undefined") {
+    observer = new ResizeObserver(scheduleRestore)
+    observer.observe(container)
+  }
+  timeouts.push(window.setTimeout(restore, 80))
+  timeouts.push(window.setTimeout(restore, 180))
+  timeouts.push(window.setTimeout(finish, 360))
 }
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
 
@@ -930,7 +944,6 @@ export function ChatView({
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
   const previousScrollTopRef = useRef(0)
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
-  const [loadOlderUiBusy, setLoadOlderUiBusy] = useState(false)
   useEffect(() => {
     if (typeof window === "undefined") return
     const previous = window.history.scrollRestoration
@@ -949,7 +962,6 @@ export function ChatView({
     lastOlderLoadAtRef.current = 0
     lastOlderLoadScrollTopRef.current = null
     previousScrollTopRef.current = 0
-    setLoadOlderUiBusy(false)
   }, [sessionKey])
 
   const latestRenderedUserIndex = useMemo(() => {
@@ -1127,12 +1139,11 @@ export function ChatView({
 
   const loadOlderWithoutJump = useCallback(async () => {
     const now = Date.now()
-    if (!hasOlderMessages || loadingOlderMessages || loadOlderUiBusy || loadOlderClickInFlightRef.current) return
+    if (!hasOlderMessages || loadingOlderMessages || loadOlderClickInFlightRef.current) return
     if (now - lastOlderLoadAtRef.current < 900) return
     lastOlderLoadAtRef.current = now
     loadOlderClickInFlightRef.current = true
     olderLoadAwaitingRenderRef.current = true
-    setLoadOlderUiBusy(true)
     pendingOlderAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
     logChatScrollDebug({
       source: "chat",
@@ -1150,9 +1161,8 @@ export function ChatView({
       pendingOlderAnchorRef.current = null
       olderLoadAwaitingRenderRef.current = false
       loadOlderClickInFlightRef.current = false
-      setLoadOlderUiBusy(false)
     }
-  }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, loadOlderUiBusy, scrollContainerRef, sessionKey])
+  }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey])
 
   useLayoutEffect(() => {
     const anchor = pendingOlderAnchorRef.current
@@ -1166,7 +1176,6 @@ export function ChatView({
         lastOlderLoadScrollTopRef.current = el.scrollTop
       }
       loadOlderClickInFlightRef.current = false
-      setLoadOlderUiBusy(false)
     })
   }, [renderedMessages.length, scrollContainerRef])
 
@@ -1190,7 +1199,7 @@ export function ChatView({
       previousScrollTopRef.current = el.scrollTop
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, hasOlderMessages, loadOlderUiBusy, loadOlderWithoutJump, onScroll, scrollContainerRef])
+  }, [activePopoverId, hasOlderMessages, loadOlderWithoutJump, onScroll, scrollContainerRef])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
