@@ -1,11 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import type { ReactNode } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
 import { ChatSearch } from "./ChatSearch"
+import { useVirtualChatRows } from "./useVirtualChatRows"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
@@ -72,6 +74,107 @@ import {
 
 const AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX = 240
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
+const VIRTUAL_CHAT_ROW_THRESHOLD = 12
+
+
+function stableMessageRowSignature(message: ChatMessage) {
+  return JSON.stringify({
+    messageId: message.messageId,
+    role: message.role,
+    text: message.text,
+    reasoningText: message.reasoningText,
+    toolCalls: message.toolCalls?.map((tool) => [tool.id, tool.tool, tool.status, tool.awaitingResult, tool.resultText]),
+    attachments: message.attachments?.map((attachment) => [attachment.name, attachment.mimeType, attachment.size, attachment.url]),
+    embeds: message.embeds?.map((embed) => [embed.title, embed.content]),
+    isOptimistic: message.isOptimistic,
+    sendStatus: message.sendStatus,
+    gatewayIndex: message.gatewayIndex,
+    createdAt: message.createdAt,
+  })
+}
+
+type RenderedMessageRowProps = {
+  msg: ChatMessage
+  index: number
+  total: number
+  rowSignature: string
+  uiStateKey: string
+  renderMessageRow: (index: number, msg: ChatMessage) => ReactNode
+}
+
+const RenderedMessageRow = memo(function RenderedMessageRow({
+  msg,
+  index,
+  total,
+  renderMessageRow,
+}: RenderedMessageRowProps) {
+  if (typeof window !== "undefined") {
+    try {
+      if (window.localStorage.getItem("openclaw.chat.render.debug") === "1") {
+        console.debug("[chat-row-render]", { messageId: msg.messageId, index, total })
+      }
+    } catch {}
+  }
+  return <>{renderMessageRow(index, msg)}</>
+}, (prev, next) => {
+  const trace = () => {
+    try { return typeof window !== "undefined" && window.localStorage.getItem("openclaw.chat.render.debug") === "1" }
+    catch { return false }
+  }
+  const logDecision = (decision: "skip" | "render", reason: string) => {
+    if (!trace()) return
+    console.debug("[chat-row-memo]", {
+      decision,
+      reason,
+      messageId: next.msg.messageId,
+      prevIndex: prev.index,
+      nextIndex: next.index,
+      prevTotal: prev.total,
+      nextTotal: next.total,
+    })
+  }
+  if (prev.msg.messageId !== next.msg.messageId) {
+    logDecision("render", "message-id-changed")
+    return false
+  }
+  if (prev.rowSignature !== next.rowSignature) {
+    logDecision("render", "row-content-changed")
+    return false
+  }
+  if (prev.uiStateKey !== next.uiStateKey) {
+    logDecision("render", "ui-state-changed")
+    return false
+  }
+
+  const prependedCount = next.total - prev.total
+  if (prependedCount > 0 && next.index - prev.index === prependedCount) {
+    logDecision("skip", "history-prepend-index-shift")
+    return true
+  }
+  if (prev.index === next.index && prev.total === next.total) {
+    logDecision("skip", "same-position")
+    return true
+  }
+  if (prev.index === next.index && prev.index < prev.total - 3) {
+    logDecision("skip", "stable-non-tail-row")
+    return true
+  }
+  logDecision("render", "position-or-tail-changed")
+  return false
+})
+
+function estimateChatRowHeight(message?: ChatMessage) {
+  if (!message) return 96
+  const textLength = message.text?.length ?? 0
+  const explicitLines = message.text ? message.text.split("\n").length : 1
+  const wrappedLines = Math.ceil(textLength / 88)
+  const textLines = Math.max(explicitLines, wrappedLines, 1)
+  const toolHeight = message.toolCalls?.length ? Math.min(520, 76 + message.toolCalls.length * 54) : 0
+  const reasoningHeight = message.reasoningText ? Math.min(360, 70 + Math.ceil(message.reasoningText.length / 120) * 22) : 0
+  const attachmentHeight = message.attachments?.length ? 96 : 0
+  const bubbleHeight = message.role === "user" ? 58 + textLines * 20 : 64 + textLines * 22
+  return Math.max(72, bubbleHeight + toolHeight + reasoningHeight + attachmentHeight)
+}
 
 type StatusIconMeta = {
   icon: IconType
@@ -795,6 +898,39 @@ export function ChatView({
     [messages, messageActionState]
   )
   const renderedMessages = visibleAllMessages
+  const virtualChatRows = useVirtualChatRows({
+    count: renderedMessages.length,
+    enabled: renderedMessages.length > VIRTUAL_CHAT_ROW_THRESHOLD,
+    scrollContainerRef,
+    getItemKey: useCallback(
+      (index: number) => renderedMessages[index]?.messageId ?? `message-${index}`,
+      [renderedMessages]
+    ),
+    estimateSize: useCallback(
+      (index: number) => estimateChatRowHeight(renderedMessages[index]),
+      [renderedMessages]
+    ),
+  })
+  useEffect(() => {
+    frontendLog("chat", "chat.rendered-messages.changed", {
+      sessionKey,
+      sourceMessageCount: messages.length,
+      visibleMessageCount: visibleAllMessages.length,
+      renderedRowCount: renderedMessages.length,
+      firstRow: renderedMessages[0]
+        ? { messageId: renderedMessages[0].messageId, role: renderedMessages[0].role, gatewayIndex: renderedMessages[0].gatewayIndex }
+        : null,
+      lastRow: renderedMessages.at(-1)
+        ? { messageId: renderedMessages.at(-1)?.messageId, role: renderedMessages.at(-1)?.role, gatewayIndex: renderedMessages.at(-1)?.gatewayIndex }
+        : null,
+      renderer: "classic-chatview",
+      virtualized: virtualChatRows.enabled,
+      virtualStartIndex: virtualChatRows.startIndex,
+      virtualEndIndex: virtualChatRows.endIndex,
+      windowId: windowIdRef.current,
+      viewGeneration: viewGenerationRef.current,
+    }, "debug")
+  }, [messages.length, renderedMessages, sessionKey, virtualChatRows.enabled, virtualChatRows.endIndex, virtualChatRows.startIndex, visibleAllMessages.length])
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
   const isAtBottomRef = useRef(true)
@@ -1334,6 +1470,8 @@ export function ChatView({
       target.scrollIntoView({ behavior: "smooth", block: "center" })
       return true
     }
+    const virtualIndex = renderedMessages.findIndex((message) => message.messageId === messageId)
+    if (virtualIndex >= 0) return virtualChatRows.scrollToIndex(virtualIndex, "center")
     // Message not loaded yet — load older messages until we reach it
     if (seq && seq > 0 && hasOlderMessages) {
       void (async () => {
@@ -1350,7 +1488,7 @@ export function ChatView({
       })()
     }
     return false
-  }, [hasOlderMessages, loadOlderMessages])
+  }, [hasOlderMessages, loadOlderMessages, renderedMessages, virtualChatRows])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -1751,9 +1889,47 @@ export function ChatView({
               </div>
             )}
           </div>
-          {renderedMessages.map((msg, index) => (
-            <div key={msg.messageId}>{renderMessageRow(index, msg)}</div>
-          ))}
+          {virtualChatRows.enabled ? (
+            <div
+              className="relative w-full"
+              style={{ height: virtualChatRows.totalSize }}
+              aria-label={`Virtualized chat timeline showing messages ${virtualChatRows.startIndex + 1}-${virtualChatRows.endIndex} of ${renderedMessages.length}`}
+            >
+              {virtualChatRows.rows.map((row) => {
+                const msg = renderedMessages[row.index]
+                if (!msg) return null
+                return (
+                  <div
+                    key={row.key}
+                    ref={virtualChatRows.measureElement(row.index)}
+                    className="absolute left-0 right-0 top-0"
+                    style={{ transform: `translateY(${row.start}px)` }}
+                  >
+                    <RenderedMessageRow
+                      msg={msg}
+                      index={row.index}
+                      total={renderedMessages.length}
+                      rowSignature={stableMessageRowSignature(msg)}
+                      uiStateKey={`${highlightedMessageId ?? ""}:${activePopoverId ?? ""}:${isGenerating ? "1" : "0"}:${lastEditableUserId ?? ""}`}
+                      renderMessageRow={renderMessageRow}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            renderedMessages.map((msg, index) => (
+              <RenderedMessageRow
+                key={msg.messageId}
+                msg={msg}
+                index={index}
+                total={renderedMessages.length}
+                rowSignature={stableMessageRowSignature(msg)}
+                uiStateKey={`${highlightedMessageId ?? ""}:${activePopoverId ?? ""}:${isGenerating ? "1" : "0"}:${lastEditableUserId ?? ""}`}
+                renderMessageRow={renderMessageRow}
+              />
+            ))
+          )}
           <div className="mx-auto max-w-3xl px-4 pb-8">
             <AnimatePresence initial={false}>
               {editPreview && (
