@@ -8,6 +8,7 @@ import { ToolCallSteps } from "./ToolCallSteps"
 import { ChatSearch } from "./ChatSearch"
 import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
 import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
+import { dedupeSpawnedSubagents } from "@/lib/chat-engine-v2/store"
 import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
 import { logChatScrollDebug } from "./chatScrollDebug"
 
@@ -1442,7 +1443,7 @@ export function ChatView({
           if (sub) matched.push(sub)
         }
       }
-      return matched
+      return dedupeSpawnedSubagents(matched)
     },
     [spawnsByToolCallId]
   )
@@ -1470,17 +1471,17 @@ export function ChatView({
 
       if (nearestUserId) {
         const existing = byTriggerUserId.get(nearestUserId) ?? []
-        byTriggerUserId.set(nearestUserId, [
+        byTriggerUserId.set(nearestUserId, dedupeSpawnedSubagents([
           ...existing,
           ...msgSubagents,
-        ])
+        ]))
       } else {
-        orphanByAssistantId.set(msg.messageId, msgSubagents)
+        orphanByAssistantId.set(msg.messageId, dedupeSpawnedSubagents(msgSubagents))
       }
     }
 
     const latestUserSubagents = latestUserMessageId
-      ? (byTriggerUserId.get(latestUserMessageId) ?? [])
+      ? dedupeSpawnedSubagents(byTriggerUserId.get(latestUserMessageId) ?? [])
       : []
     return {
       subagentsByTriggerUserId: byTriggerUserId,

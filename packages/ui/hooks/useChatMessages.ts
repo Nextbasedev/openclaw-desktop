@@ -1822,9 +1822,10 @@ export function useChatMessages(
             if (cancelled || viewGenerationRef.current !== viewGeneration) return
             v2CursorRef.current = state.cursor
             pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
-            spawnMapRef.current = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
+            const dedupedSpawns = dedupeSpawnedSubagents(state.spawnedSubagents)
+            spawnMapRef.current = new Map(dedupedSpawns.map((spawn) => [spawn.toolCallId, spawn]))
             setLocalPendingTools(state.pendingTools)
-            setLocalSpawnedSubagents(state.spawnedSubagents)
+            setLocalSpawnedSubagents(dedupedSpawns)
             const nextStatusLabel = normalizeStatusLabelForStatus(state.status, state.statusLabel)
             setStatus(state.status)
             setStatusLabel(nextStatusLabel)
@@ -2087,9 +2088,10 @@ export function useChatMessages(
             }
             v2CursorRef.current = state.cursor
             pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
-            spawnMapRef.current = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
+            const dedupedSpawns = dedupeSpawnedSubagents(state.spawnedSubagents)
+            spawnMapRef.current = new Map(dedupedSpawns.map((spawn) => [spawn.toolCallId, spawn]))
             setLocalPendingTools(state.pendingTools)
-            setLocalSpawnedSubagents(state.spawnedSubagents)
+            setLocalSpawnedSubagents(dedupedSpawns)
             const nextStatusLabel = normalizeStatusLabelForStatus(state.status, state.statusLabel)
             setStatus(state.status)
             setStatusLabel(nextStatusLabel)

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import {
   isActiveSubagent,
@@ -28,6 +28,10 @@ function statusLabel(sub: SpawnedSubagent) {
   return subagentStatusLabel(sub.status)
 }
 
+function subagentRenderKey(sub: SpawnedSubagent) {
+  return sub.id || (sub.toolCallId ? `spawn:${sub.toolCallId}` : sub.sessionKey ?? sub.label)
+}
+
 function ShimmerBar() {
   return (
     <div className="absolute inset-0 overflow-hidden rounded-xl">
@@ -47,7 +51,23 @@ export function SubagentBar({
   const [contentHeight, setContentHeight] = useState(0)
   const contentRef = useRef<HTMLDivElement | null>(null)
 
-  const activeCount = subagents.filter((s) => isActiveSubagent(s.status)).length
+  const visibleSubagents = useMemo(() => {
+    const byKey = new Map<string, SpawnedSubagent>()
+    for (const sub of subagents) {
+      const key = subagentRenderKey(sub)
+      const existing = byKey.get(key)
+      if (
+        !existing ||
+        (!existing.sessionKey && sub.sessionKey) ||
+        (!isActiveSubagent(existing.status) && isActiveSubagent(sub.status))
+      ) {
+        byKey.set(key, sub)
+      }
+    }
+    return Array.from(byKey.values())
+  }, [subagents])
+
+  const activeCount = visibleSubagents.filter((s) => isActiveSubagent(s.status)).length
   const hasActive = activeCount > 0
 
   useEffect(() => {
@@ -65,9 +85,9 @@ export function SubagentBar({
       observer.disconnect()
       window.removeEventListener("resize", updateHeight)
     }
-  }, [subagents])
+  }, [visibleSubagents])
 
-  if (subagents.length === 0) return null
+  if (visibleSubagents.length === 0) return null
 
   return (
     <div
@@ -99,7 +119,7 @@ export function SubagentBar({
             )}
           />
           <span className="flex-1 text-left text-[12px] font-medium text-foreground/80">
-            {subagents.length} background agent{subagents.length !== 1 ? "s" : ""}
+            {visibleSubagents.length} background agent{visibleSubagents.length !== 1 ? "s" : ""}
             {hasActive && (
               <span className="ml-1 text-muted-foreground/50">
                 ({activeCount} active)
@@ -129,9 +149,9 @@ export function SubagentBar({
                 : "-translate-y-1 border-t border-transparent opacity-0",
             )}
           >
-              {subagents.map((sub) => (
+              {visibleSubagents.map((sub) => (
                 <div
-                  key={sub.id}
+                  key={subagentRenderKey(sub)}
                   className="flex items-center gap-2.5 rounded-lg px-3 py-2 transition-colors hover:bg-foreground/[0.03]"
                 >
                   <StatusDot status={sub.status} />
