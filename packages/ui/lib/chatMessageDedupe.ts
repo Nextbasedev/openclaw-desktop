@@ -356,7 +356,7 @@ function roleOrder(message: ChatMessage) {
 }
 
 export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage[] {
-  return messages
+  const sorted = messages
     .map((message, index) => ({ message, index }))
     .sort((a, b) => {
       // Optimistic follow-up messages are intentionally appended into the
@@ -397,6 +397,42 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
       return a.index - b.index
     })
     .map((item) => item.message)
+  return pairConsecutiveUserAssistantBursts(sorted)
+}
+
+function pairConsecutiveUserAssistantBursts(messages: ChatMessage[]): ChatMessage[] {
+  const result: ChatMessage[] = []
+  for (let i = 0; i < messages.length;) {
+    const users: ChatMessage[] = []
+    let cursor = i
+    while (messages[cursor]?.role === "user") {
+      users.push(messages[cursor])
+      cursor++
+    }
+    if (users.length <= 1) {
+      result.push(messages[i])
+      i++
+      continue
+    }
+
+    const assistants: ChatMessage[] = []
+    while (messages[cursor]?.role === "assistant") {
+      assistants.push(messages[cursor])
+      cursor++
+    }
+    if (assistants.length < users.length) {
+      result.push(...users, ...assistants)
+      i = cursor
+      continue
+    }
+
+    for (let offset = 0; offset < users.length; offset++) {
+      result.push(users[offset], assistants[offset])
+    }
+    result.push(...assistants.slice(users.length))
+    i = cursor
+  }
+  return result
 }
 
 export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {

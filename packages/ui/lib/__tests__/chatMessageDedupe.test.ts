@@ -91,6 +91,26 @@ describe("dedupeChatMessages", () => {
     expect(messages).toHaveLength(2)
   })
 
+  it("pairs consecutive user turns with consecutive assistant replies", () => {
+    const messages = dedupeChatMessages([
+      { messageId: "u1", role: "user", text: "hii", gatewayIndex: 1 },
+      { messageId: "a1", role: "assistant", text: "Hi, I'm here.", gatewayIndex: 2 },
+      { messageId: "u2", role: "user", text: "how are you", gatewayIndex: 3 },
+      { messageId: "u3", role: "user", text: "hii", gatewayIndex: 4 },
+      { messageId: "a2", role: "assistant", text: "I'm good — how are you?", gatewayIndex: 5 },
+      { messageId: "a3", role: "assistant", text: "What are we working on?", gatewayIndex: 6 },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual([
+      "u1",
+      "a1",
+      "u2",
+      "a2",
+      "u3",
+      "a3",
+    ])
+  })
+
   it("collapses stale live assistant echo after canonical final answer even when persisted seq drifted", () => {
     const messages = dedupeChatMessages([
       {
