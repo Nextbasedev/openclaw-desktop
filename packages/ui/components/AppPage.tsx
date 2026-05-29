@@ -2358,24 +2358,49 @@ function AppShell({
       activeSpaceId,
     })
     if (quickSending || !text) return
-    if (!(await checkGatewayOrRedirect())) return
     routeRequestRef.current += 1
     setComposerError(null)
     setQuickSending(true)
+
+    const targetGroupId = editorGroups.focusedGroupId
+    const fallbackName = fallbackChatNameFromText(text)
+    const optimisticId = randomId()
+    let sessionKey = `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    const optimisticMessages: OptimisticMsg[] = [{
+      messageId: optimisticId,
+      role: "user",
+      text,
+      createdAt: new Date().toISOString(),
+      isOptimistic: true,
+      attachments: payload.attachments?.map((a) => ({
+        name: a.name,
+        mimeType: a.mimeType,
+        content: a.content,
+        size: a.size,
+      })),
+    }]
+    const pendingChat = { id: `pending:${optimisticId}`, name: fallbackName, sessionKey }
+    setPendingPrompt(null)
+    setInitialMessages(optimisticMessages)
+    setActiveTab("chat")
+    setActiveTopic(null)
+    setActiveChat(pendingChat)
+    setActiveSessionKey(sessionKey)
+    setActiveSessionTitle(fallbackName)
+
     try {
-      const targetGroupId = editorGroups.focusedGroupId
-      const fallbackName = fallbackChatNameFromText(text)
+      if (!(await checkGatewayOrRedirect())) throw new Error("Middleware connection is not available")
       const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
         "middleware_chats_create",
-        { input: { name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
+        { input: { name: fallbackName, spaceId: activeSpaceId, agentId: "main", sessionKey } },
       )
-      let sessionKey = sessionKeyFromResponse(result)
+      sessionKey = sessionKeyFromResponse(result) ?? sessionKey
       if (!sessionKey) {
         const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
           "middleware_sessions_create",
           { input: { agentId: "main", label: fallbackName, spaceId: activeSpaceId ?? undefined } },
         )
-        sessionKey = sessionKeyFromResponse(sessionResult)
+        sessionKey = sessionKeyFromResponse(sessionResult) ?? sessionKey
         if (sessionKey) {
           await invoke("middleware_chats_attach_session", {
             input: { chatId: result.chat.id, sessionKey, spaceId: activeSpaceId ?? undefined },
@@ -2384,24 +2409,6 @@ function AppShell({
       }
       if (!sessionKey) throw new Error("New chat did not return a sessionKey")
 
-      const optimisticId = randomId()
-      const optimisticMessages: OptimisticMsg[] = [{
-        messageId: optimisticId,
-        role: "user",
-        text,
-        createdAt: new Date().toISOString(),
-        isOptimistic: true,
-        attachments: payload.attachments?.map((a) => ({
-          name: a.name,
-          mimeType: a.mimeType,
-          content: a.content,
-          size: a.size,
-        })),
-      }]
-      setPendingPrompt(null)
-      setInitialMessages(optimisticMessages)
-      setActiveTab("chat")
-      setActiveTopic(null)
       const createdChat = { id: result.chat.id, name: fallbackName, sessionKey }
       const sessionData = { chat: createdChat, sessionKey, title: fallbackName }
       resolvedChatCacheRef.current.set(result.chat.id, sessionData)
