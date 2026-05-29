@@ -379,6 +379,7 @@ export function Header({
       <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-[#151515] pl-2", showWindowControls ? "pr-0" : "pr-3")}>
         {!minimal && (
           <>
+            {/* Split view button hidden per product request.
             {showSplitButton && (
               <button
                 type="button"
@@ -400,6 +401,7 @@ export function Header({
                 <VscSplitHorizontal className="size-4" />
               </button>
             )}
+            */}
 
             <HeaderActionTooltip
               label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
