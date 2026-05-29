@@ -1410,6 +1410,42 @@ function payloadMessageCount(payload: PatchPayloadV2 | null) {
     : null
 }
 
+function isToolOnlyPatch(frame: PatchFrame) {
+  const payload = patchPayload(frame)
+  return Boolean(payload?.toolCall) && !payload?.message
+}
+
+function visualStateSignature(state: SessionState) {
+  return JSON.stringify({
+    status: state.status,
+    statusLabel: state.statusLabel,
+    messageCount: state.messageCount,
+    historyCoverage: state.historyCoverage,
+    messages: state.messages.map((message) => ({
+      id: message.messageId,
+      role: message.role,
+      text: message.text,
+      toolCalls: (message.toolCalls ?? []).map((tool) => ({
+        id: tool.id,
+        status: tool.status,
+        resultText: tool.resultText,
+        awaitingResult: tool.awaitingResult,
+      })),
+    })),
+    pendingTools: state.pendingTools.map((tool) => ({
+      id: tool.id,
+      status: tool.status,
+      resultText: tool.resultText,
+      awaitingResult: tool.awaitingResult,
+    })),
+    spawnedSubagents: state.spawnedSubagents.map((spawn) => ({
+      toolCallId: spawn.toolCallId,
+      sessionKey: spawn.sessionKey,
+      status: spawn.status,
+    })),
+  })
+}
+
 function applyHistoryCoverageFromPatch(state: SessionState, frame: PatchFrame, payload: PatchPayloadV2 | null) {
   const hasMessagePayload = Boolean(payload?.message)
   const messageCount = payloadMessageCount(payload)
@@ -1512,6 +1548,9 @@ function handlePatch(frame: PatchFrame) {
     }, "debug")
     return
   }
+  const toolOnlyBeforeSignature = isToolOnlyPatch(frame)
+    ? visualStateSignature(state)
+    : null
   const previousStatus = state.status
   const payload = patchPayload(frame)
   const patchStatus = statusFromPatch(frame)
@@ -1606,6 +1645,15 @@ function handlePatch(frame: PatchFrame) {
       sessionKey,
       ...loadingFactorSummary(state, frame.patch.type),
     }, "info")
+  }
+  if (toolOnlyBeforeSignature && visualStateSignature(state) === toolOnlyBeforeSignature) {
+    frontendLog("stream", "global-chat-session.tool-patch-noop-skip", {
+      sessionKey,
+      patchCursor: frame.patch.cursor,
+      patchType: frame.patch.type,
+      cursor: state.cursor,
+    }, "debug")
+    return
   }
   // When middleware finishes importing archived transcripts in the background,
   // it broadcasts a chat.bootstrap patch with backgroundArchiveImport:true.

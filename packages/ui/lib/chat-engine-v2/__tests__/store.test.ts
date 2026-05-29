@@ -2597,6 +2597,42 @@ describe("global V2 chat engine store", () => {
     ]))
   })
 
+  test("does not notify subscribers for no-op running tool replays after terminal tool is visible", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "done",
+      messages: [
+        { messageId: "u1", role: "user", text: "run" },
+        { messageId: "a1", role: "assistant", text: "Done answer", toolCalls: [{ id: "tool-1", tool: "exec", status: "success", resultText: "ok" }] },
+      ],
+      pendingTools: [],
+    })
+    const listener = vi.fn()
+    const unsubscribe = subscribeGlobalChatSession("s1", listener)
+    listener.mockClear()
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.tool.update",
+        sessionKey: "s1",
+        createdAtMs: 11,
+        payload: {
+          semanticType: "chat.tool.update",
+          runStatus: "done",
+          statusLabel: null,
+          toolCall: { toolCallId: "tool-1", name: "exec", status: "running", phase: "update" },
+        },
+      },
+    })
+
+    expect(listener).not.toHaveBeenCalled()
+    expect(getGlobalChatSession("s1")?.cursor).toBe(11)
+    unsubscribe()
+  })
+
   test("does not merge a new assistant response into a previous gateway-indexed answer", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
