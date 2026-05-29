@@ -2349,12 +2349,10 @@ function AppShell({
     try {
       const targetGroupId = editorGroups.focusedGroupId
       const fallbackName = fallbackChatNameFromText(text)
-      invalidateChatListCache(activeSpaceId)
       const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
         "middleware_chats_create",
         { input: { name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
       )
-      invalidateChatListCache(activeSpaceId)
       let sessionKey = sessionKeyFromResponse(result)
       if (!sessionKey) {
         const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
@@ -2363,15 +2361,12 @@ function AppShell({
         )
         sessionKey = sessionKeyFromResponse(sessionResult)
         if (sessionKey) {
-          invalidateChatListCache(activeSpaceId)
           await invoke("middleware_chats_attach_session", {
             input: { chatId: result.chat.id, sessionKey, spaceId: activeSpaceId ?? undefined },
           })
-          invalidateChatListCache(activeSpaceId)
         }
       }
       if (!sessionKey) throw new Error("New chat did not return a sessionKey")
-      await applyDraftModelToSession(sessionKey, "new-chat:draft")
 
       const optimisticId = randomId()
       const optimisticMessages: OptimisticMsg[] = [{
@@ -2407,8 +2402,8 @@ function AppShell({
         groupId: targetGroupId,
         sessionData,
       })
-      setChatRefreshTrigger((n) => n + 1)
       window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
+      await applyDraftModelToSession(sessionKey, "new-chat:draft")
       frontendLog("composer", "quick-send.dispatch", {
         chatId: result.chat.id,
         sessionKey,
@@ -2423,6 +2418,8 @@ function AppShell({
         clientMessageId: optimisticId,
       })
       frontendLog("composer", "quick-send.sent", { chatId: result.chat.id, sessionKey })
+      invalidateChatListCache(activeSpaceId)
+      setChatRefreshTrigger((n) => n + 1)
       void (async () => {
         try {
           const { name } = await invoke<{ name: string }>(
@@ -2505,7 +2502,6 @@ function AppShell({
       )
       const sessionKey = sessionKeyFromResponse(sessionResult)
       if (!sessionKey) throw new Error("New topic session did not return a sessionKey")
-      await applyDraftModelToSession(sessionKey, `topic:${activeTopic.projectId}:${activeTopic.id}:draft`)
       const optimisticId = randomId()
       const optimisticMessages: OptimisticMsg[] = [{
         messageId: optimisticId,
@@ -2525,6 +2521,7 @@ function AppShell({
       setActiveSessionKey(sessionKey)
       setActiveSessionTitle(activeTopic.name)
 
+      await applyDraftModelToSession(sessionKey, `topic:${activeTopic.projectId}:${activeTopic.id}:draft`)
       frontendLog("composer", "topic-quick-send.dispatch", {
         topicId: activeTopic.id,
         sessionKey,

@@ -882,8 +882,6 @@ export function ChatView({
         messages.length === 0 &&
         Boolean(onFirstMessageSent)
       emit("chat:activity", { sessionKey })
-      const sent = await handleSend(payload)
-      if (sent === false) return
       if (shouldNotifyFirstSend && onFirstMessageSent) {
         firstFiredRef.current = true
         onFirstMessageSent(payload.text)
@@ -893,6 +891,11 @@ export function ChatView({
       )
       setReplyTo(null)
       setComposerSeed("")
+      const sent = await handleSend(payload)
+      if (sent === false) {
+        firstFiredRef.current = false
+        return
+      }
     },
     [handleSend, messages.length, modelSwitching, onFirstMessageSent, sessionKey]
   )
