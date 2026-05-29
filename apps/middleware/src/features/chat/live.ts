@@ -811,12 +811,24 @@ export class ChatLiveIngest {
       textFromLiveValue(payload.chunk);
   }
 
+  private mergeLiveAssistantText(previous: string, incoming: string, isFullText: boolean) {
+    if (!previous || isFullText) return incoming;
+    if (!incoming || incoming === previous) return previous;
+    if (incoming.startsWith(previous)) return incoming;
+    if (previous.endsWith(incoming)) return previous;
+    const max = Math.min(previous.length, incoming.length);
+    for (let length = max; length >= 4; length--) {
+      if (previous.slice(-length) === incoming.slice(0, length)) return `${previous}${incoming.slice(length)}`;
+    }
+    return `${previous}${incoming}`;
+  }
+
   private broadcastLiveAssistantText(sessionKey: string, run: ProjectedRun, payload: Record<string, unknown>) {
     const hasText = typeof payload.text === "string";
     const incoming = hasText ? payload.text as string : this.extractLiveAssistantText(payload);
     if (typeof incoming !== "string") return;
     const previous = this.liveAssistantText.get(run.runId) ?? "";
-    const next = hasText ? incoming : `${previous}${incoming}`;
+    const next = this.mergeLiveAssistantText(previous, incoming, hasText);
     if (!next || next === previous) return;
     this.liveAssistantText.set(run.runId, next);
     const messageId = `live:${run.runId}:assistant`;

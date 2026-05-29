@@ -178,6 +178,46 @@ describe("applyChatPatch", () => {
     })
   })
 
+  test("replaces live assistant delta row with final assistant message for the same run", () => {
+    const live = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.delta",
+          runId: "run-1",
+          messageId: "live:run-1:assistant",
+          message: { role: "assistant", text: "Hello Krish 👋", __openclaw: { id: "live:run-1:assistant", runId: "run-1" } },
+        },
+        createdAtMs: 1,
+      },
+    })
+    const final = applyChatPatch(live, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.final",
+          runId: "run-1",
+          messageId: "assistant-final-1",
+          messageSeq: 2,
+          message: { role: "assistant", text: "Hello Krish 👋 here.", __openclaw: { id: "assistant-final-1", seq: 2 } },
+        },
+        createdAtMs: 2,
+      },
+    })
+    expect(final.messages).toHaveLength(1)
+    expect(final.messages[0]).toMatchObject({
+      messageId: "assistant-final-1",
+      role: "assistant",
+      text: "Hello Krish 👋 here.",
+    })
+  })
+
   test("marks V2 send patches as optimistic so later gateway user echoes dedupe", () => {
     const optimistic = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",

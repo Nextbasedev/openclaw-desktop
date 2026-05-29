@@ -222,6 +222,17 @@ function preserveOptimisticUserDisplayFromBlankConfirmation(
   })
 }
 
+function liveAssistantIdForFinal(payload: PatchPayloadV2 | null, incoming: ChatMessage[]) {
+  const runId = typeof payload?.runId === "string" && payload.runId.trim() ? payload.runId : null
+  if (!runId) return null
+  const hasFinalAssistant = incoming.some((message) =>
+    message.role === "assistant" &&
+    message.text.trim() &&
+    message.messageId !== `live:${runId}:assistant`
+  )
+  return hasFinalAssistant ? `live:${runId}:assistant` : null
+}
+
 function synthesizeBlankUserConfirmation(
   state: ApplyPatchState,
   parsed: ChatMessage[],
@@ -320,9 +331,11 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
     return { ...state, cursor: frame.patch.cursor }
   }
   const normalizedHasUser = normalized.some((item) => item.role === "user")
+  const liveAssistantId = liveAssistantIdForFinal(payload, normalized)
   const idsToReplace = new Set([
     optimisticId,
     normalizedHasUser ? canonicalMessageId : null,
+    liveAssistantId,
     ...matchingUserIdsAtGatewayIndex(state, normalized, messageSeq),
     ...matchingOptimisticUserIdsByText(state, normalized, messageSeq),
   ].filter((id): id is string => Boolean(id)))
