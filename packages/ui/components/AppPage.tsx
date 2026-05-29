@@ -33,6 +33,7 @@ import { loadWorkspaceLayoutSnapshot, loadWorkspaceLayoutSnapshotSync, saveWorks
 import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace } from "@/lib/chatListCache"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
+import { seedGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
@@ -2380,8 +2381,17 @@ function AppShell({
       })),
     }]
     const pendingChat = { id: `pending:${optimisticId}`, name: fallbackName, sessionKey }
+    seedGlobalChatSession({
+      sessionKey,
+      messages: optimisticMessages,
+      cursor: 0,
+      status: "thinking",
+      statusLabel: "Thinking",
+      historyCoverage: "metadata",
+      messageCount: optimisticMessages.length,
+    })
     setPendingPrompt(null)
-    setInitialMessages(optimisticMessages)
+    setInitialMessages(undefined)
     setActiveTab("chat")
     setActiveTopic(null)
     setActiveChat(pendingChat)
@@ -2540,8 +2550,17 @@ function AppShell({
           size: a.size,
         })),
       }]
+      seedGlobalChatSession({
+        sessionKey,
+        messages: optimisticMessages,
+        cursor: 0,
+        status: "thinking",
+        statusLabel: "Thinking",
+        historyCoverage: "metadata",
+        messageCount: optimisticMessages.length,
+      })
       setPendingPrompt(null)
-      setInitialMessages(optimisticMessages)
+      setInitialMessages(undefined)
       setActiveSessionKey(sessionKey)
       setActiveSessionTitle(activeTopic.name)
 
