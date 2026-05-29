@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react"
-import { Reorder } from "framer-motion"
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react"
+import { motion } from "framer-motion"
 import {
   VscAdd,
   VscClose,
@@ -24,6 +24,8 @@ import { dedupeRequest } from "@/lib/requestDedupe"
 import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import type { ActiveChat } from "@/types/chat"
 import type { EditorTab, EditorGroupsState } from "@/lib/editorGroups"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 
 type VersionInfo = {
   version: string
@@ -123,8 +125,9 @@ export function Header({
   const [nodeVersion, setNodeVersion] = useState<string | null>(null)
   const rightClusterRef = useRef<HTMLDivElement>(null)
   const [rightClusterWidth, setRightClusterWidth] = useState(0)
+  const [dragOverGroupId, setDragOverGroupId] = useState<"group-1" | "group-2" | null>(null)
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
-  const suppressDragSelectRef = useRef<{ tabId: string; until: number } | null>(null)
+  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -165,36 +168,6 @@ export function Header({
 
   const hasVisibleTabs = Boolean(editorGroups?.groups.some((g) => g.tabs.length > 0))
   const isSplitTabs = (editorGroups?.groups.length ?? 0) > 1
-
-  useEffect(() => {
-    if (!draggingTabId) return
-    const previousCursor = document.body.style.cursor
-    document.body.style.cursor = "grabbing"
-    return () => {
-      document.body.style.cursor = previousCursor
-    }
-  }, [draggingTabId])
-
-  const handleTabReorder = useCallback((
-    groupId: "group-1" | "group-2",
-    currentTabs: EditorTab[],
-    nextTabIds: string[],
-  ) => {
-    if (!onMoveChatTab) return
-    const currentTabIds = currentTabs.map((tab) => tab.id)
-    if (currentTabIds.length !== nextTabIds.length) return
-    if (currentTabIds.every((id, index) => id === nextTabIds[index])) return
-
-    const movedTabId =
-      draggingTabId && nextTabIds.includes(draggingTabId)
-        ? draggingTabId
-        : nextTabIds.find((id, index) => currentTabIds[index] !== id)
-
-    if (!movedTabId) return
-    const targetIndex = nextTabIds.indexOf(movedTabId)
-    if (targetIndex < 0 || currentTabIds[targetIndex] === movedTabId) return
-    onMoveChatTab(movedTabId, groupId, groupId, targetIndex)
-  }, [draggingTabId, onMoveChatTab])
 
   const handleHeaderMouseDown = async (event: MouseEvent<HTMLElement>) => {
     if (!isTauri || useNativeWindowChrome || event.button !== 0) return
@@ -283,14 +256,30 @@ export function Header({
                     ? { paddingRight: rightClusterWidth + 12 }
                     : undefined
                 }
+                onDragOver={(event) => {
+                  if (!onMoveChatTab) return
+                  const tabId = event.dataTransfer.types.includes("text/tab-id")
+                  if (!tabId) return
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = "move"
+                  setDragOverGroupId(group.id)
+                }}
+                onDragLeave={() => {
+                  if (dragOverGroupId === group.id) setDragOverGroupId(null)
+                }}
+                onDrop={(event) => {
+                  if (!onMoveChatTab) return
+                  event.preventDefault()
+                  const tabId = event.dataTransfer.getData("text/tab-id")
+                  const sourceGroupId = event.dataTransfer.getData("text/source-group") as "group-1" | "group-2"
+                  setDragOverGroupId(null)
+                  setDragOverTabId(null)
+                  setDraggingTabId(null)
+                  if (!tabId || !sourceGroupId || sourceGroupId === group.id) return
+                  onMoveChatTab(tabId, sourceGroupId, group.id)
+                }}
               >
-                <Reorder.Group
-                  axis="x"
-                  values={visibleTabs.map((tab) => tab.id)}
-                  onReorder={(nextTabIds) =>
-                    handleTabReorder(group.id, visibleTabs, nextTabIds)
-                  }
-                  as="div"
+                <div
                   onWheel={(event) => {
                     const target = event.currentTarget
                     if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
@@ -306,51 +295,71 @@ export function Header({
                       : "px-0",
                   )}
                 >
-                  {visibleTabs.map((tab) => (
-                    <Reorder.Item
+                  {visibleTabs.map((tab, tabIndex) => (
+                    <motion.div
                       key={tab.id}
-                      value={tab.id}
-                      as="div"
                       layout="position"
-                      transition={{ layout: { type: "spring", stiffness: 420, damping: 34, mass: 0.85 } }}
-                      className={cn(
-                        "shrink-0 cursor-pointer",
-                        draggingTabId === tab.id && "cursor-grabbing",
-                      )}
-                      style={{
-                        position: "relative",
-                        zIndex: draggingTabId === tab.id ? 60 : group.activeTabId === tab.id ? 30 : 10,
-                        cursor: draggingTabId === tab.id ? "grabbing" : "pointer",
-                      }}
-                      whileDrag={{ zIndex: 60, scale: 1.015, cursor: "grabbing" }}
-                      onDragStart={() => {
-                        suppressDragSelectRef.current = { tabId: tab.id, until: Number.POSITIVE_INFINITY }
-                        setDraggingTabId(tab.id)
-                      }}
-                      onDragEnd={() => {
-                        suppressDragSelectRef.current = { tabId: tab.id, until: Date.now() + 250 }
-                        setDraggingTabId(null)
-                      }}
+                      transition={{ layout: { type: "tween", duration: 0.16, ease: [0.2, 0, 0, 1] } }}
+                      className="shrink-0"
+                      style={{ position: "relative", zIndex: draggingTabId === tab.id ? 60 : group.activeTabId === tab.id ? 30 : 10 }}
                     >
                       <HeaderTab
                         tab={tab}
                         isActive={group.activeTabId === tab.id}
                         isFocusedGroup={isFocusedGroup}
                         isDragging={draggingTabId === tab.id}
-                        onSelect={() => {
-                          const suppressed = suppressDragSelectRef.current
-                          if (suppressed?.tabId === tab.id && Date.now() <= suppressed.until) return
-                          suppressDragSelectRef.current = null
-                          onSelectChatTab?.(group.id, tab.id)
-                        }}
+                        isDragTarget={dragOverTabId === tab.id}
+                        onSelect={() => onSelectChatTab?.(group.id, tab.id)}
                         onClose={() => onCloseChatTab?.(tab.id)}
                         onOpenWindow={
                           tab.kind === "chat"
                             ? () => onOpenChatTabWindow?.(tab)
                             : undefined
                         }
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData("text/tab-id", tab.id)
+                          event.dataTransfer.setData("text/source-group", group.id)
+                          event.dataTransfer.effectAllowed = "move"
+                          setDraggingTabId(tab.id)
+                        }}
+                        onDragOver={(event) => {
+                          if (!onMoveChatTab) return
+                          if (!event.dataTransfer.types.includes("text/tab-id")) return
+                          event.preventDefault()
+                          event.dataTransfer.dropEffect = "move"
+                          setDragOverGroupId(group.id)
+                          setDragOverTabId(tab.id)
+                        }}
+                        onDrop={(event) => {
+                          if (!onMoveChatTab) return
+                          event.preventDefault()
+                          event.stopPropagation()
+                          const tabId = event.dataTransfer.getData("text/tab-id")
+                          const sourceGroupId = event.dataTransfer.getData("text/source-group") as "group-1" | "group-2"
+                          setDraggingTabId(null)
+                          setDragOverGroupId(null)
+                          setDragOverTabId(null)
+                          if (!tabId || !sourceGroupId || tabId === tab.id) return
+
+                          const rect = event.currentTarget.getBoundingClientRect()
+                          const droppedAfterTarget = event.clientX > rect.left + rect.width / 2
+                          const rawTargetIndex = tabIndex + (droppedAfterTarget ? 1 : 0)
+                          const sourceIndex = sourceGroupId === group.id
+                            ? visibleTabs.findIndex((item) => item.id === tabId)
+                            : -1
+                          const targetIndex = sourceIndex >= 0 && sourceIndex < rawTargetIndex
+                            ? rawTargetIndex - 1
+                            : rawTargetIndex
+
+                          onMoveChatTab(tabId, sourceGroupId, group.id, targetIndex)
+                        }}
+                        onDragEnd={() => {
+                          setDraggingTabId(null)
+                          setDragOverGroupId(null)
+                          setDragOverTabId(null)
+                        }}
                       />
-                    </Reorder.Item>
+                    </motion.div>
                   ))}
                   {onNewChat && !hasDraftTab && (
                     <button
@@ -366,7 +375,7 @@ export function Header({
                       <VscAdd className="size-3.5" />
                     </button>
                   )}
-                </Reorder.Group>
+                </div>
               </div>
             )
           })}
@@ -377,6 +386,13 @@ export function Header({
 
       {/* Right: action icons — absolute so they don't shrink the tab area */}
       <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-[#151515] pl-2", showWindowControls ? "pr-0" : "pr-3")}>
+        {minimal && (
+          <HeaderUtilityActions
+            onOpenLogs={onOpenLogs}
+            onOpenSettings={onOpenSettings}
+          />
+        )}
+
         {!minimal && (
           <>
             {showSplitButton && (
@@ -457,30 +473,12 @@ export function Header({
               </button>
             </HeaderActionTooltip>
 
-            <HeaderActionTooltip label="Open logs">
-              <button
-                type="button"
-                aria-label="Open logs"
-                onClick={onOpenLogs}
-                className={cn(
-                  "mx-1 flex items-center gap-1.5 rounded-md border border-border/40 px-2 py-1 text-[11px]",
-                  "cursor-pointer transition-colors",
-                  "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <VscOutput className="size-3.5" />
-                Logs
-              </button>
-            </HeaderActionTooltip>
-
-            <NotificationPopover
-              onViewAll={onOpenNotifications}
+            <HeaderUtilityActions
+              onOpenLogs={onOpenLogs}
+              onOpenNotifications={onOpenNotifications}
               onNavigateToChat={onNavigateToChat}
-            />
-            <HeaderIconButton
-              icon={Icons.Settings}
-              label="Settings"
-              onClick={onOpenSettings}
+              onOpenSettings={onOpenSettings}
+              showNotifications
             />
           </>
         )}
@@ -490,6 +488,56 @@ export function Header({
         )}
       </div>
     </header>
+  )
+}
+
+
+function HeaderUtilityActions({
+  onOpenLogs,
+  onOpenNotifications,
+  onNavigateToChat,
+  onOpenSettings,
+  showNotifications = false,
+}: {
+  onOpenLogs?: () => void
+  onOpenNotifications?: () => void
+  onNavigateToChat?: (
+    chat: ActiveChat,
+  ) => void | boolean | Promise<void | boolean>
+  onOpenSettings?: () => void
+  showNotifications?: boolean
+}) {
+  return (
+    <>
+      <HeaderActionTooltip label="Open logs">
+        <button
+          type="button"
+          aria-label="Open logs"
+          onClick={onOpenLogs}
+          className={cn(
+            "mx-1 flex items-center gap-1.5 rounded-md border border-border/40 px-2 py-1 text-[11px]",
+            "cursor-pointer transition-colors",
+            "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <VscOutput className="size-3.5" />
+          Logs
+        </button>
+      </HeaderActionTooltip>
+
+      {showNotifications && (
+        <NotificationPopover
+          onViewAll={onOpenNotifications}
+          onNavigateToChat={onNavigateToChat}
+        />
+      )}
+
+      <HeaderIconButton
+        icon={Icons.Settings}
+        label="Settings"
+        onClick={onOpenSettings}
+      />
+    </>
   )
 }
 
@@ -532,9 +580,23 @@ function HeaderActionTooltip({
   children: ReactNode
 }) {
   return (
-    <span className="contents" title={label} aria-label={label}>
-      {children}
-    </span>
+    <Tooltip delayDuration={250}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        align="center"
+        sideOffset={8}
+        collisionPadding={12}
+        showArrow={false}
+        className={cn(
+          GLASS_POPOVER,
+          "max-w-[420px] whitespace-normal break-words border-transparent bg-[var(--glass-bg)] px-3 py-1.5 text-[12px] font-medium text-foreground",
+          "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.09),0_10px_30px_rgba(0,0,0,0.32)]",
+        )}
+      >
+        <span className="block whitespace-normal break-words">{label}</span>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -543,17 +605,27 @@ function HeaderTab({
   isActive,
   isFocusedGroup = true,
   isDragging = false,
+  isDragTarget = false,
   onSelect,
   onClose,
   onOpenWindow,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   tab: EditorTab
   isActive: boolean
   isFocusedGroup?: boolean
   isDragging?: boolean
+  isDragTarget?: boolean
   onSelect: () => void
   onClose: () => void
   onOpenWindow?: () => void
+  onDragStart?: (event: DragEvent<HTMLElement>) => void
+  onDragOver?: (event: DragEvent<HTMLElement>) => void
+  onDrop?: (event: DragEvent<HTMLElement>) => void
+  onDragEnd?: () => void
 }) {
   const activeAndFocused = isActive && isFocusedGroup
   const tabLabel = `${tab.subtitle} / ${tab.title}`
@@ -570,6 +642,11 @@ function HeaderTab({
     <div
       role="button"
       tabIndex={0}
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       onDoubleClick={(event) => {
         if (tab.kind !== "chat") return
         event.preventDefault()
@@ -584,8 +661,9 @@ function HeaderTab({
         }
       }}
       className={cn(
-        "group relative mb-0 flex h-[35px] w-46 shrink-0 cursor-pointer items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200",
-        isDragging && "cursor-grabbing opacity-45",
+        "group relative mb-0 flex h-[35px] w-46 shrink-0 cursor-grab items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200 active:cursor-grabbing",
+        isDragging && "opacity-45",
+        isDragTarget && !isDragging && "-translate-y-px ring-1 ring-inset ring-white/15",
         activeAndFocused
           ? "z-20 overflow-visible border-transparent bg-background text-foreground shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
           : isActive
@@ -746,12 +824,24 @@ function HeaderTooltip({
   label: string
   children: ReactNode
 }) {
-  // Keep tab labels on the native title tooltip. The Radix tooltip portal can
-  // enter an update loop when mounted inside Framer Motion's Reorder.Item while
-  // tabs are remeasured/reordered.
   return (
-    <div className="shrink-0" title={label} aria-label={label}>
-      {children}
-    </div>
+    <Tooltip delayDuration={250}>
+      <TooltipTrigger asChild>
+        <div className="shrink-0">{children}</div>
+      </TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        align="center"
+        sideOffset={8}
+        collisionPadding={12}
+        showArrow={false}
+        className={cn(
+          "max-w-[min(420px,calc(100vw-24px))] rounded-md border border-white/[0.08] bg-[#1B1B1D]/88 px-2.5 py-1 text-[12px] font-medium text-foreground backdrop-blur-xl",
+          "shadow-[0_8px_24px_rgba(0,0,0,0.28)]",
+        )}
+      >
+        <span className="block break-words whitespace-normal">{label}</span>
+      </TooltipContent>
+    </Tooltip>
   )
 }

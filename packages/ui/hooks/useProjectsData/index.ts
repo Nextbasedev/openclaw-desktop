@@ -16,6 +16,7 @@ export type DialogState = {
   newProjectName: string
   creatingProject: boolean
   projectError: string
+  defaultProjectWorkspaceRoot: string
   projectNameRef: React.RefObject<HTMLInputElement | null>
 
   createTopicOpen: boolean
@@ -125,6 +126,7 @@ export function useProjectsData(
   const [newProjectName, setNewProjectName] = useState("")
   const [creatingProject, setCreatingProject] = useState(false)
   const [projectError, setProjectError] = useState("")
+  const [defaultProjectWorkspaceRoot, setDefaultProjectWorkspaceRoot] = useState("~")
   const projectNameRef = useRef<HTMLInputElement>(null)
 
   const [createTopicOpen, setCreateTopicOpen] = useState(false)
@@ -473,6 +475,12 @@ export function useProjectsData(
     setNewProjectName("")
     setProjectError("")
     setCreateProjectOpen(true)
+    invoke<{ profiles: Array<{ workspaceRoot?: string }> }>("middleware_profiles_list")
+      .then((result) => {
+        const workspaceRoot = result?.profiles?.[0]?.workspaceRoot
+        setDefaultProjectWorkspaceRoot(workspaceRoot || "~")
+      })
+      .catch(() => setDefaultProjectWorkspaceRoot("~"))
   }, [])
 
   const handleCreateProject = useCallback(async () => {
@@ -735,6 +743,7 @@ export function useProjectsData(
     newProjectName,
     creatingProject,
     projectError,
+    defaultProjectWorkspaceRoot,
     projectNameRef,
     createTopicOpen,
     createTopicForProject,
