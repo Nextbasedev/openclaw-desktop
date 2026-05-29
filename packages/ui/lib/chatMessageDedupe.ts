@@ -35,9 +35,20 @@ function stripNoReplyLines(text: string) {
     .trim()
 }
 
+export function collapseRepeatedAssistantText(value: string) {
+  let text = stripNoReplyLines(value)
+  while (text.length > 0 && text.length % 2 === 0) {
+    const half = text.length / 2
+    const left = text.slice(0, half)
+    if (left !== text.slice(half)) break
+    text = left
+  }
+  return text
+}
+
 export function mergeAssistantText(existing: string, incoming: string) {
-  const a = stripNoReplyLines(existing)
-  const b = stripNoReplyLines(incoming)
+  const a = collapseRepeatedAssistantText(existing)
+  const b = collapseRepeatedAssistantText(incoming)
   if (!a) return b
   if (!b) return a
   if (a === b) return a
@@ -195,8 +206,8 @@ export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (isAssistantErrorLike(a) && isAssistantErrorLike(b)) {
     return a.messageId === b.messageId || hasSameGatewayIndex(a, b)
   }
-  const aText = stripNoReplyLines(a.text)
-  const bText = stripNoReplyLines(b.text)
+  const aText = collapseRepeatedAssistantText(a.text)
+  const bText = collapseRepeatedAssistantText(b.text)
   if (a.messageId === b.messageId) return true
   if (hasOverlappingToolCalls(a, b)) return true
   if (!aText || !bText) return false
@@ -207,6 +218,12 @@ export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
       ? isAssistantPrefixUpdate(aText, bText)
       : isAssistantPrefixUpdate(bText, aText)
   )) {
+    return true
+  }
+
+  const shorterText = aText.length <= bText.length ? aText : bText
+  const longerText = aText.length <= bText.length ? bText : aText
+  if (!/\s/.test(shorterText) && isAssistantPrefixUpdate(shorterText, longerText)) {
     return true
   }
 
@@ -225,7 +242,7 @@ export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
 function messageSignature(message: ChatMessage) {
   const text = message.role === "user"
     ? normalizedUserText(message.text)
-    : message.text.trim().replace(/\s+/g, " ")
+    : collapseRepeatedAssistantText(message.text).replace(/\s+/g, " ")
   return `${message.role}:${text}`
 }
 
@@ -369,7 +386,10 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
   const result: ChatMessage[] = []
   const seenIds = new Set<string>()
 
-  for (const message of collapseRepeatedBlocks(messages)) {
+  for (const originalMessage of collapseRepeatedBlocks(messages)) {
+    const message = originalMessage.role === "assistant"
+      ? { ...originalMessage, text: collapseRepeatedAssistantText(originalMessage.text) }
+      : originalMessage
     const sameIdIndex = result.findIndex(
       (existing) => existing.messageId === message.messageId
     )

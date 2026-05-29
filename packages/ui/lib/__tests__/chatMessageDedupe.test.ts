@@ -40,6 +40,39 @@ describe("dedupeChatMessages", () => {
     expect(messages[0].text).toBe("Final answer with more detail")
   })
 
+  it("collapses exact repeated text inside a single assistant websocket row", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "live-duplicate",
+        role: "assistant",
+        text: "Hello Krish 👋Hello Krish 👋",
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].text).toBe("Hello Krish 👋")
+  })
+
+  it("collapses exact repeated assistant text before merging live and final rows", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "live",
+        role: "assistant",
+        text: "Hello Krish 👋Hello Krish 👋",
+        gatewayIndex: 2,
+      },
+      {
+        messageId: "final",
+        role: "assistant",
+        text: "Hello Krish 👋",
+        gatewayIndex: 2,
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].text).toBe("Hello Krish 👋")
+  })
+
   it("keeps distinct assistant fork replies even when the later answer extends the same prefix", () => {
     const messages = dedupeChatMessages([
       { messageId: "fork-a1", role: "assistant", text: "I fixed the fork replay issue." },
