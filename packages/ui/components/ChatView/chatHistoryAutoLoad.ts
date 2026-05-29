@@ -1,6 +1,7 @@
-export const OLDER_HISTORY_AUTO_LOAD_UPPER_RATIO = 0.8
-export const OLDER_HISTORY_REARM_VIEWPORT_RATIO = 0.6
-export const OLDER_HISTORY_REARM_MIN_PX = 320
+export const OLDER_HISTORY_PRELOAD_VIEWPORT_RATIO = 1.5
+export const OLDER_HISTORY_PRELOAD_MIN_PX = 800
+export const OLDER_HISTORY_REARM_VIEWPORT_RATIO = 0.75
+export const OLDER_HISTORY_REARM_MIN_PX = 500
 
 type OlderHistoryAutoLoadInput = {
   scrollTop: number
@@ -9,6 +10,11 @@ type OlderHistoryAutoLoadInput = {
   previousScrollTop: number
   hasUserIntent: boolean
   lastLoadScrollTop?: number | null
+}
+
+export function olderHistoryPreloadDistance(clientHeight: number) {
+  if (!Number.isFinite(clientHeight) || clientHeight <= 0) return OLDER_HISTORY_PRELOAD_MIN_PX
+  return Math.max(OLDER_HISTORY_PRELOAD_MIN_PX, clientHeight * OLDER_HISTORY_PRELOAD_VIEWPORT_RATIO)
 }
 
 export function shouldAutoLoadOlderHistory({
@@ -23,14 +29,14 @@ export function shouldAutoLoadOlderHistory({
   const maxScrollTop = scrollHeight - clientHeight
   if (!Number.isFinite(maxScrollTop) || maxScrollTop <= 0) return false
   if (scrollTop >= previousScrollTop) return false
-  const upperThreshold = maxScrollTop * OLDER_HISTORY_AUTO_LOAD_UPPER_RATIO
-  const crossedUpperThreshold = previousScrollTop > upperThreshold && scrollTop <= upperThreshold
-  if (crossedUpperThreshold) return true
 
-  if (typeof lastLoadScrollTop === "number" && Number.isFinite(lastLoadScrollTop) && scrollTop <= upperThreshold) {
-    const rearmDistance = Math.max(OLDER_HISTORY_REARM_MIN_PX, clientHeight * OLDER_HISTORY_REARM_VIEWPORT_RATIO)
-    return lastLoadScrollTop - scrollTop >= rearmDistance
+  const preloadDistance = Math.min(maxScrollTop, olderHistoryPreloadDistance(clientHeight))
+  if (scrollTop > preloadDistance) return false
+
+  if (typeof lastLoadScrollTop !== "number" || !Number.isFinite(lastLoadScrollTop)) {
+    return true
   }
 
-  return false
+  const rearmDistance = Math.max(OLDER_HISTORY_REARM_MIN_PX, clientHeight * OLDER_HISTORY_REARM_VIEWPORT_RATIO)
+  return lastLoadScrollTop - scrollTop >= rearmDistance
 }
