@@ -8,7 +8,7 @@ import { ToolCallSteps } from "./ToolCallSteps"
 import { ChatSearch } from "./ChatSearch"
 import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
 import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
-import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
+import { shouldAutoLoadOlderHistory, shouldPreloadOlderHistoryAtRest } from "./chatHistoryAutoLoad"
 import { logChatScrollDebug } from "./chatScrollDebug"
 
 import { ThinkingBlock } from "./ThinkingBlock"
@@ -922,8 +922,13 @@ export function ChatView({
   const lastOlderLoadAtRef = useRef(0)
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
   const previousScrollTopRef = useRef(0)
+  const hasOlderMessagesRef = useRef(hasOlderMessages)
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const [loadOlderUiBusy, setLoadOlderUiBusy] = useState(false)
+  useEffect(() => {
+    hasOlderMessagesRef.current = hasOlderMessages
+  }, [hasOlderMessages])
+
   useEffect(() => {
     if (typeof window === "undefined") return
     const previous = window.history.scrollRestoration
@@ -1120,7 +1125,7 @@ export function ChatView({
 
   const loadOlderWithoutJump = useCallback(async () => {
     const now = Date.now()
-    if (!hasOlderMessages || loadingOlderMessages || loadOlderUiBusy || loadOlderClickInFlightRef.current) return
+    if (!hasOlderMessages || loadingOlderMessages || loadOlderClickInFlightRef.current) return
     if (now - lastOlderLoadAtRef.current < 900) return
     lastOlderLoadAtRef.current = now
     loadOlderClickInFlightRef.current = true
@@ -1145,7 +1150,7 @@ export function ChatView({
       loadOlderClickInFlightRef.current = false
       setLoadOlderUiBusy(false)
     }
-  }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, loadOlderUiBusy, scrollContainerRef, sessionKey])
+  }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey])
 
   useLayoutEffect(() => {
     const anchor = pendingOlderAnchorRef.current
@@ -1160,8 +1165,19 @@ export function ChatView({
       }
       loadOlderClickInFlightRef.current = false
       setLoadOlderUiBusy(false)
+      window.setTimeout(() => {
+        const nextEl = scrollContainerRef.current
+        if (!nextEl || !hasOlderMessagesRef.current) return
+        if (!shouldPreloadOlderHistoryAtRest({
+          scrollTop: nextEl.scrollTop,
+          scrollHeight: nextEl.scrollHeight,
+          clientHeight: nextEl.clientHeight,
+          hasUserIntent: userScrollIntentRef.current,
+        })) return
+        void loadOlderWithoutJump()
+      }, 920)
     })
-  }, [renderedMessages.length, scrollContainerRef])
+  }, [hasOlderMessages, loadOlderWithoutJump, renderedMessages.length, scrollContainerRef])
 
   const handleScroll = useCallback(() => {
     onScroll()

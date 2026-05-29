@@ -12,9 +12,29 @@ type OlderHistoryAutoLoadInput = {
   lastLoadScrollTop?: number | null
 }
 
+type OlderHistoryPreloadAtRestInput = {
+  scrollTop: number
+  scrollHeight: number
+  clientHeight: number
+  hasUserIntent: boolean
+}
+
 export function olderHistoryPreloadDistance(clientHeight: number) {
   if (!Number.isFinite(clientHeight) || clientHeight <= 0) return OLDER_HISTORY_PRELOAD_MIN_PX
   return Math.max(OLDER_HISTORY_PRELOAD_MIN_PX, clientHeight * OLDER_HISTORY_PRELOAD_VIEWPORT_RATIO)
+}
+
+export function shouldPreloadOlderHistoryAtRest({
+  scrollTop,
+  scrollHeight,
+  clientHeight,
+  hasUserIntent,
+}: OlderHistoryPreloadAtRestInput) {
+  if (!hasUserIntent) return false
+  const maxScrollTop = scrollHeight - clientHeight
+  if (!Number.isFinite(maxScrollTop) || maxScrollTop <= 0) return false
+  const preloadDistance = Math.min(maxScrollTop, olderHistoryPreloadDistance(clientHeight))
+  return scrollTop <= preloadDistance
 }
 
 export function shouldAutoLoadOlderHistory({
@@ -25,13 +45,8 @@ export function shouldAutoLoadOlderHistory({
   hasUserIntent,
   lastLoadScrollTop = null,
 }: OlderHistoryAutoLoadInput) {
-  if (!hasUserIntent) return false
-  const maxScrollTop = scrollHeight - clientHeight
-  if (!Number.isFinite(maxScrollTop) || maxScrollTop <= 0) return false
   if (scrollTop >= previousScrollTop) return false
-
-  const preloadDistance = Math.min(maxScrollTop, olderHistoryPreloadDistance(clientHeight))
-  if (scrollTop > preloadDistance) return false
+  if (!shouldPreloadOlderHistoryAtRest({ scrollTop, scrollHeight, clientHeight, hasUserIntent })) return false
 
   if (typeof lastLoadScrollTop !== "number" || !Number.isFinite(lastLoadScrollTop)) {
     return true

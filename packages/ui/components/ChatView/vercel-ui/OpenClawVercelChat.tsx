@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { MarkdownContent } from "../MarkdownContent"
 import { ToolCallSteps } from "../ToolCallSteps"
 import type { ChatMessage } from "../types"
-import { shouldAutoLoadOlderHistory } from "../chatHistoryAutoLoad"
+import { shouldAutoLoadOlderHistory, shouldPreloadOlderHistoryAtRest } from "../chatHistoryAutoLoad"
 import { logChatScrollDebug } from "../chatScrollDebug"
 import { buildStableVercelTimeline, type StableChatMessage } from "./timeline"
 import { useStableChatScroll } from "./useStableChatScroll"
@@ -204,6 +204,7 @@ export function OpenClawVercelChat({
   const lastOlderLoadAtRef = useRef(0)
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
   const previousScrollTopRef = useRef(0)
+  const hasOlderMessagesRef = useRef(hasOlderMessages)
   const pendingOlderAnchorRef = useRef<VercelScrollAnchor | null>(null)
   const [localOlderLoading, setLocalOlderLoading] = useState(false)
   const isOlderLoading = loadingOlderMessages || localOlderLoading
@@ -217,6 +218,10 @@ export function OpenClawVercelChat({
   })
 
   useEffect(() => {
+    hasOlderMessagesRef.current = hasOlderMessages
+  }, [hasOlderMessages])
+
+  useEffect(() => {
     userScrollIntentRef.current = false
     previousScrollTopRef.current = 0
     lastOlderLoadAtRef.current = 0
@@ -226,7 +231,7 @@ export function OpenClawVercelChat({
 
   const loadOlderWithoutJump = useCallback(async () => {
     const now = Date.now()
-    if (!hasOlderMessages || isOlderLoading || loadOlderInFlightRef.current) return
+    if (!hasOlderMessages || loadingOlderMessages || loadOlderInFlightRef.current) return
     if (now - lastOlderLoadAtRef.current < 900) return
     lastOlderLoadAtRef.current = now
     loadOlderInFlightRef.current = true
@@ -251,7 +256,7 @@ export function OpenClawVercelChat({
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
     }
-  }, [containerRef, hasOlderMessages, isOlderLoading, onLoadOlderMessages, sessionKey])
+  }, [containerRef, hasOlderMessages, loadingOlderMessages, onLoadOlderMessages, sessionKey])
 
   useLayoutEffect(() => {
     const anchor = pendingOlderAnchorRef.current
@@ -266,8 +271,19 @@ export function OpenClawVercelChat({
       }
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
+      window.setTimeout(() => {
+        const nextContainer = containerRef.current
+        if (!nextContainer || !hasOlderMessagesRef.current) return
+        if (!shouldPreloadOlderHistoryAtRest({
+          scrollTop: nextContainer.scrollTop,
+          scrollHeight: nextContainer.scrollHeight,
+          clientHeight: nextContainer.clientHeight,
+          hasUserIntent: userScrollIntentRef.current,
+        })) return
+        void loadOlderWithoutJump()
+      }, 920)
     })
-  }, [containerRef, stableMessages.length])
+  }, [containerRef, hasOlderMessages, loadOlderWithoutJump, stableMessages.length])
 
   useEffect(() => {
     const container = containerRef.current
