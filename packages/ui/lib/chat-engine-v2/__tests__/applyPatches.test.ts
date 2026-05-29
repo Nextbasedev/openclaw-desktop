@@ -178,6 +178,37 @@ describe("applyChatPatch", () => {
     })
   })
 
+  test("replaces local first-send optimistic row with live optimistic user echo", () => {
+    const next = applyChatPatch({
+      cursor: 0,
+      messages: [{
+        messageId: "local-optimistic",
+        role: "user",
+        text: "hye",
+        createdAt: "2026-05-29T05:15:00.000Z",
+        isOptimistic: true,
+      }],
+    }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.created",
+          optimistic: true,
+          messageId: "live-user",
+          messageSeq: 1,
+          message: { role: "user", text: "hye", isOptimistic: true, __openclaw: { id: "live-user", seq: 1 } },
+        },
+        createdAtMs: 1,
+      },
+    })
+
+    expect(next.messages.map((message) => message.messageId)).toEqual(["live-user"])
+    expect(next.messages[0]).toMatchObject({ role: "user", text: "hye", isOptimistic: false, gatewayIndex: 1 })
+  })
+
   test("marks V2 send patches as optimistic so later gateway user echoes dedupe", () => {
     const optimistic = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",

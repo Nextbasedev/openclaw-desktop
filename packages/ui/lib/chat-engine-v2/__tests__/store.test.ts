@@ -2718,6 +2718,42 @@ describe("global V2 chat engine store", () => {
     expect(cached.v2Cursor).toBe(9)
   })
 
+  test("remount optimistic seed does not duplicate an active canonical first user", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 12,
+      status: "thinking",
+      statusLabel: "Thinking - waiting for the next event",
+      messages: [
+        {
+          messageId: "gateway-user-hye",
+          role: "user",
+          text: "hye",
+          gatewayIndex: 1,
+        },
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 0,
+      status: "thinking",
+      statusLabel: "Thinking",
+      messages: [
+        {
+          messageId: "local-user-hye",
+          role: "user",
+          text: "hye",
+          createdAt: "2026-05-29T05:15:00.000Z",
+          isOptimistic: true,
+        },
+      ],
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state?.messages.map((message) => message.messageId)).toEqual(["gateway-user-hye"])
+  })
+
   test("terminal bootstrap with assistant answer replaces stale live optimistic thinking state", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

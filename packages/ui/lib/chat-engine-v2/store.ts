@@ -53,6 +53,35 @@ function normalizeStatusLabel(status: StreamStatus, label: string | null | undef
   return isTerminalOrIdleStatus(status) ? null : (label ?? null)
 }
 
+function normalizedUserText(value: string) {
+  return value.replace(/\s+/g, " ").trim()
+}
+
+function attachmentSignature(message: ChatMessage) {
+  return (message.attachments ?? [])
+    .map((item) => item.name)
+    .filter(Boolean)
+    .sort()
+    .join("|")
+}
+
+function hasMatchingCanonicalUser(message: ChatMessage, candidates: ChatMessage[]) {
+  if (message.role !== "user" || !message.isOptimistic) return false
+  const text = normalizedUserText(message.text)
+  if (!text) return false
+  const attachments = attachmentSignature(message)
+  return candidates.some((candidate) => {
+    if (candidate.role !== "user" || candidate.isOptimistic) return false
+    if (normalizedUserText(candidate.text) !== text) return false
+    const candidateAttachments = attachmentSignature(candidate)
+    return !attachments || !candidateAttachments || attachments === candidateAttachments
+  })
+}
+
+function dropOptimisticUserEchoes(messages: ChatMessage[], canonicalSource: ChatMessage[]) {
+  return messages.filter((message) => !hasMatchingCanonicalUser(message, canonicalSource))
+}
+
 const states = new Map<string, SessionState>()
 const listeners = new Map<string, Set<Listener>>()
 function patchCursorStorageKey() {
@@ -1759,7 +1788,10 @@ export function seedGlobalChatSession(params: {
     (incomingDropsMessages || incomingDropsRunningTool)
   const hadNewerLiveState = !incomingHasFinalAnswer && (hasNewerCursor || hasSameCursorLiveState || incomingPartialDropsLocalMessages)
   state.messages = hadNewerLiveState
-    ? dedupeChatMessages([...params.messages, ...state.messages])
+    ? dedupeChatMessages([
+      ...dropOptimisticUserEchoes(params.messages, state.messages),
+      ...dropOptimisticUserEchoes(state.messages, params.messages),
+    ])
     : dedupeChatMessages(params.messages)
   state.cursor = Math.max(state.cursor, incomingCursor)
   if (!hadNewerLiveState || incomingHistoryCoverage === "full") {
