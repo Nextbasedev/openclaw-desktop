@@ -15,7 +15,6 @@
  */
 
 import type { ChatMessage } from "@/components/ChatView/types"
-import type { InlineToolCall } from "@/components/ChatView/types"
 import { dedupeChatMessages, sameUserMessage } from "../chatMessageDedupe"
 
 export type TimelineSource = "warm-cache" | "bootstrap" | "patch" | "optimistic" | "idle"
@@ -29,6 +28,18 @@ export type TimelineSnapshot = {
 }
 
 type TimelineListener = (snapshot: TimelineSnapshot) => void
+
+function normalizedUserText(value: string) {
+  return value.replace(/\s+/g, " ").trim()
+}
+
+function attachmentSignature(message: ChatMessage) {
+  return (message.attachments ?? [])
+    .map((item) => item.name)
+    .filter(Boolean)
+    .sort()
+    .join("|")
+}
 
 export class ChatTimelineStore {
   private messageMap = new Map<string, ChatMessage>()
@@ -90,6 +101,7 @@ export class ChatTimelineStore {
    * Highest priority — always applies on top of existing data.
    */
   applyPatchMessage(message: ChatMessage, cursor: number) {
+    this.replaceMatchingOptimisticUser(message)
     this.messageMap.set(message.messageId, message)
     this.cursor = Math.max(this.cursor, cursor)
     this.messageCount = Math.max(this.messageCount, this.messageMap.size)
@@ -179,6 +191,24 @@ export class ChatTimelineStore {
           this.messageMap.set(msg.messageId, msg)
         }
       }
+    }
+  }
+
+  private replaceMatchingOptimisticUser(message: ChatMessage) {
+    if (message.role !== "user" || message.isOptimistic) return
+
+    const incomingText = normalizedUserText(message.text)
+    if (!incomingText) return
+
+    const incomingAttachmentNames = attachmentSignature(message)
+    for (const existing of this.messageMap.values()) {
+      if (existing.messageId === message.messageId) continue
+      if (existing.role !== "user" || !existing.isOptimistic) continue
+      if (typeof existing.gatewayIndex === "number" && existing.gatewayIndex > 0) continue
+      if (normalizedUserText(existing.text) !== incomingText) continue
+      if (incomingAttachmentNames && attachmentSignature(existing) !== incomingAttachmentNames) continue
+      this.messageMap.delete(existing.messageId)
+      return
     }
   }
 

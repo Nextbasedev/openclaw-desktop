@@ -121,6 +121,23 @@ describe("ChatTimelineStore", () => {
       expect(snap.messages[0].text).toBe("sent!")
     })
 
+    it("replaces optimistic user when a canonical user patch arrives with the same text", () => {
+      store.applyOptimistic({
+        ...msg("optimistic-user", "hey", 0, "user"),
+        createdAt: "2026-05-29T04:32:00.000Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+      })
+      store.flushSync()
+
+      store.applyPatchMessage(msg("gateway-user", "hey", 1, "user"), 2)
+      store.flushSync()
+
+      const snap = store.getSnapshot()
+      expect(snap.messages.map((message) => message.messageId)).toEqual(["gateway-user"])
+      expect(snap.messages.some((message) => message.isOptimistic)).toBe(false)
+    })
+
     it("drops optimistic user when bootstrap contains canonical echo with different id", () => {
       store.applyBootstrap([msg("prev", "previous", 1, "assistant")], 10)
       store.flushSync()
