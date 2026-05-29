@@ -441,7 +441,12 @@ export function MarkdownContent({
   }, [normalizedHighlightTexts])
 
   return (
-    <div className={cn("prose-chat max-w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere]", isRevealing && "streaming-text", className)}>
+    <div className={cn(
+      "prose-chat max-w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere]",
+      isRevealing && "streaming-text",
+      streaming && !isRevealing && "live-streaming-text",
+      className,
+    )}>
       {parts.map((part, i) =>
         part.type === "embed" ? (
           <EmbedBlock key={`embed-${i}`} embed={part.embed} />

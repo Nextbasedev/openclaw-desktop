@@ -610,7 +610,8 @@ body {
   }
 }
 
-.streaming-text> :last-child::after {
+.streaming-text> :last-child::after,
+.live-streaming-text> :last-child::after {
   content: "";
   display: inline-block;
   width: 2px;
@@ -620,6 +621,20 @@ body {
   background-color: currentColor;
   opacity: 0.7;
   animation: cursor-blink 0.6s steps(2) infinite;
+}
+
+.live-streaming-text> :last-child {
+  animation: live-stream-update 0.16s ease-out;
+}
+
+@keyframes live-stream-update {
+  from {
+    opacity: 0.88;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes cursor-blink {
@@ -694,7 +709,10 @@ body {
 
   .streaming-text,
   .streaming-text> :last-child,
-  .streaming-text> :last-child::after {
+  .streaming-text> :last-child::after,
+  .live-streaming-text,
+  .live-streaming-text> :last-child,
+  .live-streaming-text> :last-child::after {
     animation: none;
     transition: none;
     filter: none;
