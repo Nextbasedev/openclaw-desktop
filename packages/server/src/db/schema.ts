@@ -117,6 +117,7 @@ export function initDb(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       icon_image_json TEXT,
+      icon_emoji_json TEXT,
       repo_root TEXT,
       project_id TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
@@ -231,6 +232,11 @@ export function initDb(db: Database.Database): void {
       table: "spaces",
       column: "icon_image_json",
       sql: "ALTER TABLE spaces ADD COLUMN icon_image_json TEXT",
+    },
+    {
+      table: "spaces",
+      column: "icon_emoji_json",
+      sql: "ALTER TABLE spaces ADD COLUMN icon_emoji_json TEXT",
     },
     {
       table: "projects",
