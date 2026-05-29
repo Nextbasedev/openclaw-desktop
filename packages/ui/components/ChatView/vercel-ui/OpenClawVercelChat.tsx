@@ -160,7 +160,7 @@ function VercelMessage({
           </div>
         )}
 
-        <div className={cn(isUser ? "flex max-w-[min(80%,56ch)] flex-col items-end gap-2" : "flex min-w-0 flex-1 flex-col gap-2")}>
+        <div className={cn(isUser ? "flex max-w-[min(80%,56ch)] flex-col items-end gap-2" : "flex min-w-0 flex-1 flex-col gap-1.5")}>
           {isUser ? (
             <div className="w-fit overflow-hidden break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 text-[13px] leading-[1.65] shadow-[var(--shadow-card)]">
               <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.text}</p>
@@ -334,7 +334,7 @@ export function OpenClawVercelChat({
       )}
 
       <div ref={containerRef} className="absolute inset-0 touch-pan-y overflow-y-auto overscroll-contain bg-background [overflow-anchor:none]">
-        <div className="mx-auto flex min-h-full min-w-0 max-w-4xl flex-col gap-5 px-2 py-6 md:gap-7 md:px-4">
+        <div className="mx-auto flex min-h-full min-w-0 max-w-4xl flex-col gap-6 px-2 py-6 md:gap-7 md:px-4">
           {stableMessages.map((message) => (
             <VercelMessage
               key={message.uiId}

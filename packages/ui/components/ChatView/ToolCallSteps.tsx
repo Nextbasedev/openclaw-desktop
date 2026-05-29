@@ -250,7 +250,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
 
   if (total === 1) {
     return (
-      <div className="mb-3">
+      <div className="mb-1.5">
         <button
           type="button"
           className={cn(
@@ -283,7 +283,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
   return (
     <div
       className="transition-all duration-300 ease-out"
-      style={{ marginBottom: groupOpen ? 8 : rest > 0 ? 20 : 12 }}
+      style={{ marginBottom: groupOpen ? 2 : rest > 0 ? 16 : 8 }}
     >
       <button
         type="button"
@@ -384,9 +384,6 @@ export const ToolCallSteps = memo(function ToolCallSteps({
                 {rest > 1 && (
                   <div className="absolute top-[12px] right-2 left-2 z-1 h-full rounded-lg bg-card/60" />
                 )}
-                <span className="absolute -bottom-4 left-0 z-20 text-[10px] text-muted-foreground/40">
-                  +{rest} more
-                </span>
               </>
             )}
           </div>

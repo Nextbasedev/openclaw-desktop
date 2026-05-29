@@ -1,11 +1,16 @@
-const { spawn } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const { existsSync, rmSync } = require("node:fs");
 const http = require("node:http");
+const net = require("node:net");
 const path = require("node:path");
 
 const rootDir = path.resolve(__dirname, "..");
 const uiDir = path.join(rootDir, "packages", "ui");
 const nextDevLockPath = path.join(uiDir, ".next", "dev", "lock");
+const uiDevPort = 3000;
+const uiDevHost = "127.0.0.1";
+const uiDevUrl = `http://${uiDevHost}:${uiDevPort}`;
+const uiDevDisplayUrl = "http://localhost:3000";
 
 function checkNextServer(url) {
   return new Promise((resolve) => {
@@ -34,7 +39,7 @@ function delay(ms) {
 }
 
 async function waitForNextServer(url) {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
     if (await checkNextServer(url)) {
       return true;
     }
@@ -43,6 +48,45 @@ async function waitForNextServer(url) {
   }
 
   return false;
+}
+
+function isPortListening(host, port) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host, port });
+
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+
+    socket.once("error", () => resolve(false));
+    socket.setTimeout(1000, () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
+function describePortListeners(port) {
+  if (process.platform === "win32") {
+    return [];
+  }
+
+  try {
+    const output = execFileSync(
+      "lsof",
+      ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+
+    if (!output) {
+      return [];
+    }
+
+    return output.split(/\r?\n/u).slice(1);
+  } catch {
+    return [];
+  }
 }
 
 function findUiNextDevProcesses() {
@@ -97,7 +141,7 @@ function prepareNextDevLock() {
 
   if (processes.length > 0) {
     console.error("A Next.js dev process already owns the UI build lock.");
-    console.error("Tauri needs the UI on http://localhost:3000.");
+    console.error(`Tauri needs the UI on ${uiDevDisplayUrl}.`);
 
     for (const processInfo of processes) {
       console.error(
@@ -143,17 +187,32 @@ function quoteWindowsArg(arg) {
 }
 
 async function main() {
-  const nextServerRunning = await waitForNextServer("http://127.0.0.1:3000");
+  const nextServerRunning = await waitForNextServer(uiDevUrl);
   if (nextServerRunning) {
-    console.log("Reusing existing Next.js dev server on http://localhost:3000");
+    console.log(`Reusing existing Next.js dev server on ${uiDevDisplayUrl}`);
     return;
+  }
+
+  if (await isPortListening(uiDevHost, uiDevPort)) {
+    console.error(`${uiDevDisplayUrl} is already in use, but it is not responding like a Next.js dev server.`);
+    const listeners = describePortListeners(uiDevPort);
+
+    if (listeners.length > 0) {
+      console.error("Process currently listening on that port:");
+      for (const listener of listeners) {
+        console.error(`- ${listener}`);
+      }
+    }
+
+    console.error("Stop that process, then run `pnpm dev:tauri` again.");
+    process.exit(1);
   }
 
   if (!prepareNextDevLock()) {
     process.exit(1);
   }
 
-  console.log("Starting Next.js UI dev server on http://localhost:3000");
+  console.log(`Starting Next.js UI dev server on ${uiDevDisplayUrl}`);
   const child = spawnPnpm(["dev"], { cwd: uiDir });
 
   child.on("exit", (code, signal) => {

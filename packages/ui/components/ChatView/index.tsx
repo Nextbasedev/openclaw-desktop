@@ -1685,7 +1685,7 @@ export function ChatView({
             </div>
           )}
           {showPending && filteredPending.length > 0 && (
-            <div className="mt-4 max-w-[85%]">
+            <div className="mt-2 max-w-[85%]">
               <ToolCallSteps
                 tools={filteredPending}
                 defaultOpen
@@ -1970,7 +1970,7 @@ export function ChatView({
           {renderedMessages.map((msg, index) => (
             <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
           ))}
-          <div className="mx-auto max-w-[44rem] px-4 pt-1 pb-8">
+          <div className="mx-auto max-w-[44rem] px-4 pt-0 pb-8">
             <AnimatePresence initial={false}>
               {editPreview && (
                 <EditPreviewPanel
@@ -1980,7 +1980,7 @@ export function ChatView({
                 />
               )}
             </AnimatePresence>
-            <div className="mt-1 flex h-[21px] items-center">
+            <div className="mt-2 flex h-[21px] items-center">
               {statusText && (
                 <>
                   <ProcessStatusIcon tool={liveTool?.tool} />
