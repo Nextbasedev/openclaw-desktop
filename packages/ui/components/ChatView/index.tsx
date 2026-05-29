@@ -79,6 +79,7 @@ const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 type MessageScrollAnchor = {
   id: string
   uiId: string
+  messageId: string
   top: number
   previousScrollHeight: number
   previousScrollTop: number
@@ -99,6 +100,7 @@ function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrol
     return {
       id: "",
       uiId: "",
+      messageId: "",
       top: containerTop,
       previousScrollHeight: container.scrollHeight,
       previousScrollTop: container.scrollTop,
@@ -107,6 +109,7 @@ function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrol
   return {
     id: visibleRow.id,
     uiId: visibleRow.dataset.uiId ?? "",
+    messageId: visibleRow.dataset.messageId ?? "",
     top: visibleRow.getBoundingClientRect().top,
     previousScrollHeight: container.scrollHeight,
     previousScrollTop: container.scrollTop,
@@ -115,16 +118,17 @@ function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrol
 
 function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null) {
   if (!container || !anchor) return
-  if (anchor.uiId) {
-    const row = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-      .find((item) => item.dataset.uiId === anchor.uiId)
+  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
+  if (anchor.uiId || anchor.messageId) {
+    const row = rows.find((item) => item.dataset.uiId === anchor.uiId) ??
+      rows.find((item) => item.dataset.messageId === anchor.messageId)
     if (row) {
       const deltaPx = row.getBoundingClientRect().top - anchor.top
       container.scrollTop += deltaPx
       logChatScrollDebug({
         source: "chat",
         event: "restore-anchor-row",
-        anchorId: anchor.uiId,
+        anchorId: anchor.uiId || anchor.messageId,
         anchorTop: anchor.top,
         deltaPx,
         scrollTop: container.scrollTop,
@@ -1170,9 +1174,6 @@ export function ChatView({
     onScroll()
     const el = scrollContainerRef.current
     if (el) {
-      if (loadOlderUiBusy && olderLoadAwaitingRenderRef.current && userScrollIntentRef.current) {
-        pendingOlderAnchorRef.current = captureMessageScrollAnchor(el)
-      }
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
       setShowJumpToBottom(!atBottom)
       if (hasOlderMessages && shouldAutoLoadOlderHistory({
@@ -1591,6 +1592,7 @@ export function ChatView({
           id={`message-${msg.messageId}`}
           data-chat-message-row="true"
           data-ui-id={msg.uiId}
+          data-message-id={msg.messageId}
           className={cn(
             "mx-auto max-w-[44rem] px-4 py-3",
             highlightedMessageId && highlightedMessageId !== msg.messageId && "opacity-40",

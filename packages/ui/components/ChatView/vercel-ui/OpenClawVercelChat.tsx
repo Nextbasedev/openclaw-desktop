@@ -276,9 +276,6 @@ export function OpenClawVercelChat({
       userScrollIntentRef.current = true
     }
     const onScroll = () => {
-      if (localOlderLoading && olderLoadAwaitingRenderRef.current && userScrollIntentRef.current) {
-        pendingOlderAnchorRef.current = captureVercelScrollAnchor(container)
-      }
       if (shouldAutoLoadOlderHistory({
         scrollTop: container.scrollTop,
         scrollHeight: container.scrollHeight,
