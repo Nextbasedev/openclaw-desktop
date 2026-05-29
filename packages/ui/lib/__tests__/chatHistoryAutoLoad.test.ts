@@ -29,7 +29,11 @@ describe("shouldAutoLoadOlderHistory", () => {
     expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 0, scrollTop: 0 })).toBe(true)
   })
 
-  it("does not repeatedly load from tiny upward movement inside the already-crossed threshold", () => {
+  it("loads on first upward scroll found inside the threshold even if the exact crossing edge was missed", () => {
+    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 3_500, scrollTop: 3_400 })).toBe(true)
+  })
+
+  it("does not repeatedly load from tiny upward movement inside the already-crossed threshold after a prior load", () => {
     expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 3_500, scrollTop: 3_400, lastLoadScrollTop: 3_600 })).toBe(false)
   })
 

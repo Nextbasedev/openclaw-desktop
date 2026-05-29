@@ -26,16 +26,17 @@ export function shouldAutoLoadOlderHistory({
   if (scrollTop <= OLDER_HISTORY_TOP_LOAD_PX) return true
   if (scrollTop >= previousScrollTop) return false
   // Preload one older page while there is still roughly 40% of the
-  // currently loaded history above the viewport. That keeps the next page
-  // ready before the user reaches the loaded-history boundary.
+  // currently loaded history above the viewport. Do not require a strict
+  // previous>threshold crossing: virtualization measurement and anchor
+  // restoration can move the threshold between scroll events, leaving the
+  // user already inside the load zone without ever satisfying that edge.
   const loadThreshold = maxScrollTop * OLDER_HISTORY_AUTO_LOAD_SCROLL_UP_RATIO
-  const crossedLoadThreshold = previousScrollTop > loadThreshold && scrollTop <= loadThreshold
-  if (crossedLoadThreshold) return true
+  if (scrollTop > loadThreshold) return false
 
-  if (typeof lastLoadScrollTop === "number" && Number.isFinite(lastLoadScrollTop) && scrollTop <= loadThreshold) {
+  if (typeof lastLoadScrollTop === "number" && Number.isFinite(lastLoadScrollTop)) {
     const rearmDistance = Math.max(OLDER_HISTORY_REARM_MIN_PX, clientHeight * OLDER_HISTORY_REARM_VIEWPORT_RATIO)
     return lastLoadScrollTop - scrollTop >= rearmDistance
   }
 
-  return false
+  return true
 }
