@@ -305,8 +305,13 @@ export class MessageRepository {
           const row = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
           const nextSeq = Math.max(openclawSeq, Number(row?.maxSeq ?? 0)) + 1;
           if (openclawSeq > 1 && existing.role === "user" && message.role === "assistant" && isOptimisticData(fromJson(existing.data_json))) {
-            moveSeq.run({ sessionKey: message.sessionKey, oldSeq: openclawSeq, newSeq: nextSeq });
-            existing = undefined;
+            // A live assistant delta can arrive before the Gateway user echo has
+            // fully confirmed the local optimistic user. Keep the user anchored
+            // at its appended turn position and move the assistant after it;
+            // moving the user made the transcript briefly render as
+            // assistant→user, then snap back once history caught up.
+            openclawSeq = nextSeq;
+            existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;
           } else {
             openclawSeq = nextSeq;
             existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;

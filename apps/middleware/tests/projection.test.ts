@@ -300,6 +300,44 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("live assistant arriving before optimistic user confirmation stays after the user", () => {
+    const db = openDatabase({ databasePath: testDbPath("assistant-after-optimistic-user") });
+    const repo = new MessageRepository(db);
+    const segment = repo.ensureActiveSegment({ sessionKey: "s1", sessionId: "gateway-session" });
+    repo.upsertMessages(normalizeHistoryMessages("s1", [
+      { role: "user", text: "previous", __openclaw: { id: "u1", seq: 1 } },
+      { role: "assistant", text: "previous answer", __openclaw: { id: "a1", seq: 2 } },
+    ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+    repo.insertOptimisticMessage({
+      sessionKey: "s1",
+      openclawSeq: 3,
+      messageId: "client-2",
+      role: "user",
+      data: { role: "user", text: "hii", __clientOptimistic: true, __openclaw: { id: "client-2" } },
+      updatedAtMs: 100,
+    });
+
+    repo.upsertMessages([{
+      sessionKey: "s1",
+      segmentId: segment.segmentId,
+      sessionId: segment.sessionId,
+      gatewaySeq: 3,
+      openclawSeq: 3,
+      messageId: "live-assistant",
+      role: "assistant",
+      data: { role: "assistant", text: "Hi Dixit 👋", __openclaw: { id: "live-assistant" } },
+      updatedAtMs: 200,
+    }], { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+
+    expect(repo.listMessages("s1").map((message) => `${message.openclawSeq}:${message.role}:${(message.data as { text?: string }).text ?? ""}`)).toEqual([
+      "1:user:previous",
+      "2:assistant:previous answer",
+      "3:user:hii",
+      "4:assistant:Hi Dixit 👋",
+    ]);
+    db.close();
+  });
+
   test("projection cursor increases monotonically", () => {
     const db = openDatabase({ databasePath: testDbPath("cursor") });
     const repo = new MessageRepository(db);
