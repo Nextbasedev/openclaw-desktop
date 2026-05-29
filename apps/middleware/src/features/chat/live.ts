@@ -60,6 +60,14 @@ function liveErrorLabel(payload: Record<string, unknown>, data: Record<string, u
 const RECENT_CONFIRMED_USER_ECHO_TTL_MS = 2 * 60 * 1000;
 const RECENT_CONFIRMED_USER_ECHO_LIMIT = 20;
 
+function stableJson(value: unknown): string {
+  try {
+    return JSON.stringify(value ?? null);
+  } catch {
+    return String(value);
+  }
+}
+
 function textFromLiveValue(value: unknown): string | null {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
@@ -84,6 +92,7 @@ export class ChatLiveIngest {
   private optimisticUsers = new Map<string, Array<{ id: string; text: string; runId?: string; idempotencyKey?: string; createdAtMs: number }>>();
   private recentlyConfirmedUsers = new Map<string, Array<{ id: string; text: string; runId?: string; idempotencyKey?: string; openclawSeq: number; confirmedAtMs: number }>>();
   private liveAssistantText = new Map<string, string>();
+  private recentToolPatchSignatures = new Map<string, string>();
   private historyBackfillTimers = new Map<string, NodeJS.Timeout>();
   private readonly subagents = new SubagentCorrelation();
   private readonly log = createLogger("chat-live");
@@ -546,18 +555,39 @@ export class ChatLiveIngest {
       else if (!this.context.runs.hasRunningTools(sessionKey, associatedRun.runId)) this.context.runs.updateRunStatus(associatedRun.runId, "thinking", { statusLabel: "Thinking" });
     }
     const patchRun = tool.runId ? this.context.runs.getRun(tool.runId) : null;
-    const patch = this.context.messages.appendProjectionEvent({
-      sessionKey,
-      eventType: phase === "error" ? "chat.tool.error" : phase === "result" ? "chat.tool.result" : phase === "update" ? "chat.tool.update" : "chat.tool.started",
-      payload: canonicalPatchPayload({
-        sessionKey,
-        semanticType: phase === "error" ? "chat.tool.error" : phase === "result" ? "chat.tool.result" : phase === "update" ? "chat.tool.update" : "chat.tool.started",
-        run: patchRun,
-        tool,
-        payload: { sessionKey, phase, ...(liveResultValue !== undefined ? { output: liveResultValue, result: liveResultValue } : {}) },
-      }),
+    const eventType = phase === "error" ? "chat.tool.error" : phase === "result" ? "chat.tool.result" : phase === "update" ? "chat.tool.update" : "chat.tool.started";
+    const toolPatchKey = `${sessionKey}:${toolCallId}`;
+    const toolPatchSignature = stableJson({
+      eventType,
+      phase: tool.phase,
+      status: tool.status,
+      runId: tool.runId,
+      name: tool.name,
+      argsMeta: tool.argsMeta,
+      resultMeta: tool.resultMeta,
     });
-    this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
+    const duplicateToolPatch = this.recentToolPatchSignatures.get(toolPatchKey) === toolPatchSignature;
+    if (!duplicateToolPatch) {
+      this.recentToolPatchSignatures.set(toolPatchKey, toolPatchSignature);
+      if (this.recentToolPatchSignatures.size > 500) {
+        const firstKey = this.recentToolPatchSignatures.keys().next().value;
+        if (firstKey) this.recentToolPatchSignatures.delete(firstKey);
+      }
+      const patch = this.context.messages.appendProjectionEvent({
+        sessionKey,
+        eventType,
+        payload: canonicalPatchPayload({
+          sessionKey,
+          semanticType: eventType,
+          run: patchRun,
+          tool,
+          payload: { sessionKey, phase, ...(liveResultValue !== undefined ? { output: liveResultValue, result: liveResultValue } : {}) },
+        }),
+      });
+      this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
+    } else {
+      this.log.info("tool.patch.skip-duplicate", { sessionKey, toolCallId, phase: tool.phase, status: tool.status });
+    }
     this.log.info("tool.persist", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status, awaitingResult: shouldMarkAwaitingResult });
     if (shouldMarkAwaitingResult) {
       this.scheduleHistoryBackfill(sessionKey, tool.runId ?? run?.runId ?? gatewayRunId, "gateway_stripped_live_tool_result");
@@ -642,8 +672,16 @@ export class ChatLiveIngest {
       this.projectAgentToolEvent(sessionKey, gatewayRunId, run?.runId ?? null, payload.stream, data);
       return;
     }
-    if (payload.stream !== "thinking") return;
     if (!run) return;
+    if (payload.stream !== "thinking") {
+      const liveText = this.extractLiveAssistantText(data);
+      if (liveText) {
+        const updated = this.context.runs.updateRunStatus(run.runId, "streaming", { statusLabel: "Streaming" });
+        if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
+        this.broadcastLiveAssistantText(sessionKey, updated ?? run, data);
+      }
+      return;
+    }
     const text = textFromLiveValue(data.text);
     const delta = textFromLiveValue(data.delta) ?? text;
     if (!text && !delta) return;
