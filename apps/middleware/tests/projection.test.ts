@@ -207,6 +207,39 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("confirming optimistic user moves it to the Gateway sequence before late prior assistant history", () => {
+    const db = openDatabase({ databasePath: testDbPath("confirm-user-gateway-seq") });
+    const repo = new MessageRepository(db);
+    const segment = repo.ensureActiveSegment({ sessionKey: "s1", sessionId: "gateway-session" });
+    repo.upsertMessages(normalizeHistoryMessages("s1", [
+      { role: "user", text: "hello", __openclaw: { id: "gateway-user-1", seq: 1 } },
+    ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+    repo.insertOptimisticMessage({
+      sessionKey: "s1",
+      openclawSeq: 2,
+      messageId: "client-2",
+      role: "user",
+      data: { role: "user", text: "generate 100 words content", __clientOptimistic: true, __openclaw: { id: "client-2" } },
+      updatedAtMs: 100,
+    });
+    const [gatewayUser] = normalizeHistoryMessages("s1", [
+      { role: "user", text: "generate 100 words content", __openclaw: { id: "gateway-user-2", seq: 3 } },
+    ], 200);
+
+    const confirmed = repo.confirmOptimisticUser("s1", "client-2", gatewayUser!);
+    repo.upsertMessages(normalizeHistoryMessages("s1", [
+      { role: "assistant", text: "Hello Krish 👋", __openclaw: { id: "assistant-1", seq: 2 } },
+    ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+
+    expect(confirmed).toMatchObject({ messageId: "client-2", openclawSeq: 3 });
+    expect(repo.listMessages("s1").map((message) => `${message.role}:${(message.data as { text?: string }).text ?? (message.data as { content?: string }).content ?? ""}`)).toEqual([
+      "user:hello",
+      "assistant:Hello Krish 👋",
+      "user:generate 100 words content",
+    ]);
+    db.close();
+  });
+
   test("confirming optimistic user with empty gateway echo preserves optimistic display text", () => {
     const db = openDatabase({ databasePath: testDbPath("confirm-user-empty-echo") });
     const repo = new MessageRepository(db);

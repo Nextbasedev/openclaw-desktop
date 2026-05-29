@@ -504,7 +504,8 @@ export class MessageRepository {
     `);
     const updateOptimistic = this.db.prepare(`
       UPDATE v2_messages
-      SET segment_id = COALESCE(@segmentId, segment_id),
+      SET openclaw_seq = COALESCE(@projectedGatewaySeq, openclaw_seq),
+          segment_id = COALESCE(@segmentId, segment_id),
           session_id = COALESCE(@sessionId, session_id),
           gateway_seq = COALESCE(@gatewaySeq, gateway_seq),
           role = @role,
@@ -537,7 +538,7 @@ export class MessageRepository {
       segmentId,
       sessionId,
       gatewaySeq,
-      openclawSeq: existing.openclaw_seq,
+      openclawSeq: projectedGatewaySeq ?? existing.openclaw_seq,
       messageId: optimisticId,
       data,
       updatedAtMs: gatewayMessage.updatedAtMs,
@@ -555,6 +556,7 @@ export class MessageRepository {
         segmentId,
         sessionId,
         gatewaySeq,
+        projectedGatewaySeq,
         role: confirmed.role,
         dataJson: toJson(confirmed.data),
         updatedAtMs: confirmed.updatedAtMs,
