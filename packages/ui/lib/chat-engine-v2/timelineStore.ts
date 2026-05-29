@@ -196,12 +196,32 @@ export class ChatTimelineStore {
 
   private getSortedMessages(): ChatMessage[] {
     const msgs = dedupeChatMessages(Array.from(this.messageMap.values()))
-    // Optimistic messages always sort to the END (after all canonical messages)
+    // Optimistic user messages often do not have a Gateway seq yet. They should
+    // render after the already-visible transcript, but not after assistant/tool
+    // rows that arrive for the same in-flight turn. Otherwise the UI briefly
+    // shows the assistant answer above the user's latest message until the
+    // canonical user echo arrives and re-sorts the timeline.
     const maxSeq = msgs.reduce((max, m) => m.isOptimistic ? max : Math.max(max, m.gatewayIndex ?? 0), 0)
+    const timestamp = (message: ChatMessage) => {
+      if (!message.createdAt) return null
+      const parsed = Date.parse(message.createdAt)
+      return Number.isFinite(parsed) ? parsed : null
+    }
+    const sortValue = (message: ChatMessage) => {
+      const seq = message.gatewayIndex ?? 0
+      return seq > 0 ? seq : maxSeq + 1
+    }
     msgs.sort((a, b) => {
-      const seqA = a.isOptimistic ? maxSeq + 1 : (a.gatewayIndex ?? 0)
-      const seqB = b.isOptimistic ? maxSeq + 1 : (b.gatewayIndex ?? 0)
-      return seqA - seqB
+      const aSeq = a.gatewayIndex ?? 0
+      const bSeq = b.gatewayIndex ?? 0
+      const aNeedsTimeAnchor = a.isOptimistic && aSeq <= 0
+      const bNeedsTimeAnchor = b.isOptimistic && bSeq <= 0
+      if (aNeedsTimeAnchor || bNeedsTimeAnchor) {
+        const aTime = timestamp(a)
+        const bTime = timestamp(b)
+        if (aTime !== null && bTime !== null && aTime !== bTime) return aTime - bTime
+      }
+      return sortValue(a) - sortValue(b)
     })
     return msgs
   }

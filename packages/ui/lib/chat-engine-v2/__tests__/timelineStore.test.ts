@@ -153,6 +153,33 @@ describe("ChatTimelineStore", () => {
       expect(store.getSnapshot().messages).toHaveLength(2)
     })
 
+    it("keeps in-flight optimistic user before later assistant rows for the same turn", () => {
+      store.applyBootstrap([
+        { ...msg("prev-user", "previous question", 1, "user"), createdAt: "2026-05-29T20:00:00.000Z" },
+        { ...msg("prev-assistant", "previous answer", 2, "assistant"), createdAt: "2026-05-29T20:00:03.000Z" },
+      ], 10)
+      store.flushSync()
+
+      store.applyOptimistic({
+        ...msg("optimistic-user", "latest question", 0, "user"),
+        createdAt: "2026-05-29T20:01:00.000Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+      })
+      store.applyPatchMessage({
+        ...msg("live-assistant", "answer is starting", 99, "assistant"),
+        createdAt: "2026-05-29T20:01:02.000Z",
+      }, 11)
+      store.flushSync()
+
+      expect(store.getSnapshot().messages.map((message) => `${message.role}:${message.text}`)).toEqual([
+        "user:previous question",
+        "assistant:previous answer",
+        "user:latest question",
+        "assistant:answer is starting",
+      ])
+    })
+
     it("confirms optimistic with gateway echo", () => {
       store.applyOptimistic(msg("opt-1", "sending...", 100, "user"))
       store.flushSync()
