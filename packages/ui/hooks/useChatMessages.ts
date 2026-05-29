@@ -1875,7 +1875,7 @@ export function useChatMessages(
             setErrorMessage(state.status === "error" ? nextStatusLabel : null)
             if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, nextStatusLabel)
             else clearCachedChatActivity(sessionKey)
-            setMessages(state.messages)
+            setMessages(mergeOptimisticMessagesWithCanonical(state.messages, messagesRef.current))
           }
         )
         return
@@ -2142,8 +2142,9 @@ export function useChatMessages(
             setErrorMessage(state.status === "error" ? nextStatusLabel : null)
             if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, nextStatusLabel)
             else clearCachedChatActivity(sessionKey)
-            // setMessages writes through to timeline store automatically
-            setMessages(state.messages)
+            // setMessages writes through to timeline store automatically.
+            // Preserve local optimistic user sends while status-only/live patches catch up.
+            setMessages(mergeOptimisticMessagesWithCanonical(state.messages, messagesRef.current))
           }
         )
         unsubscribeStream = null

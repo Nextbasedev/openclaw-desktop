@@ -33,7 +33,6 @@ import { loadWorkspaceLayoutSnapshot, loadWorkspaceLayoutSnapshotSync, saveWorks
 import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace } from "@/lib/chatListCache"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
-import { seedGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
@@ -2359,52 +2358,18 @@ function AppShell({
       activeSpaceId,
     })
     if (quickSending || !text) return
+    if (!(await checkGatewayOrRedirect())) return
     routeRequestRef.current += 1
     setComposerError(null)
     setQuickSending(true)
-
-    const targetGroupId = editorGroups.focusedGroupId
-    const fallbackName = fallbackChatNameFromText(text)
-    const optimisticId = randomId()
-    let sessionKey = `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-    const optimisticMessages: OptimisticMsg[] = [{
-      messageId: optimisticId,
-      role: "user",
-      text,
-      createdAt: new Date().toISOString(),
-      isOptimistic: true,
-      attachments: payload.attachments?.map((a) => ({
-        name: a.name,
-        mimeType: a.mimeType,
-        content: a.content,
-        size: a.size,
-      })),
-    }]
-    const pendingChat = { id: `pending:${optimisticId}`, name: fallbackName, sessionKey }
-    seedGlobalChatSession({
-      sessionKey,
-      messages: optimisticMessages,
-      cursor: 0,
-      status: "thinking",
-      statusLabel: "Thinking",
-      historyCoverage: "metadata",
-      messageCount: optimisticMessages.length,
-    })
-    setPendingPrompt(null)
-    setInitialMessages(undefined)
-    setActiveTab("chat")
-    setActiveTopic(null)
-    setActiveChat(pendingChat)
-    setActiveSessionKey(sessionKey)
-    setActiveSessionTitle(fallbackName)
-
     try {
-      if (!(await checkGatewayOrRedirect())) throw new Error("Middleware connection is not available")
+      const targetGroupId = editorGroups.focusedGroupId
+      const fallbackName = fallbackChatNameFromText(text)
       const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
         "middleware_chats_create",
-        { input: { name: fallbackName, spaceId: activeSpaceId, agentId: "main", sessionKey } },
+        { input: { name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
       )
-      sessionKey = sessionKeyFromResponse(result) ?? sessionKey
+      let sessionKey = sessionKeyFromResponse(result)
       if (!sessionKey) {
         const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
           "middleware_sessions_create",
@@ -2418,16 +2383,25 @@ function AppShell({
         }
       }
       if (!sessionKey) throw new Error("New chat did not return a sessionKey")
-      seedGlobalChatSession({
-        sessionKey,
-        messages: optimisticMessages,
-        cursor: 0,
-        status: "thinking",
-        statusLabel: "Thinking",
-        historyCoverage: "metadata",
-        messageCount: optimisticMessages.length,
-      })
 
+      const optimisticId = randomId()
+      const optimisticMessages: OptimisticMsg[] = [{
+        messageId: optimisticId,
+        role: "user",
+        text,
+        createdAt: new Date().toISOString(),
+        isOptimistic: true,
+        attachments: payload.attachments?.map((a) => ({
+          name: a.name,
+          mimeType: a.mimeType,
+          content: a.content,
+          size: a.size,
+        })),
+      }]
+      setPendingPrompt(null)
+      setInitialMessages(optimisticMessages)
+      setActiveTab("chat")
+      setActiveTopic(null)
       const createdChat = { id: result.chat.id, name: fallbackName, sessionKey }
       const sessionData = { chat: createdChat, sessionKey, title: fallbackName }
       resolvedChatCacheRef.current.set(result.chat.id, sessionData)
@@ -2559,17 +2533,8 @@ function AppShell({
           size: a.size,
         })),
       }]
-      seedGlobalChatSession({
-        sessionKey,
-        messages: optimisticMessages,
-        cursor: 0,
-        status: "thinking",
-        statusLabel: "Thinking",
-        historyCoverage: "metadata",
-        messageCount: optimisticMessages.length,
-      })
       setPendingPrompt(null)
-      setInitialMessages(undefined)
+      setInitialMessages(optimisticMessages)
       setActiveSessionKey(sessionKey)
       setActiveSessionTitle(activeTopic.name)
 
