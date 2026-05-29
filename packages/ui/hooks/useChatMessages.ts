@@ -443,13 +443,11 @@ async function reconcileChatHistory(
   sessionKey: string,
   status?: StreamStatus | null
 ): Promise<ChatMessage[]> {
-  const history = await invoke<{ messages: unknown[] }>(
-    "middleware_chat_history",
-    {
-      input: { sessionKey },
-    }
-  )
-  const parsed = parseChatHistory((history.messages as RawMessage[]) || [])
+  // Keep active-run recovery on the V2 chat path. The legacy
+  // middleware_chat_history command can timeout/abort under load and should not
+  // compete with the websocket patch stream for live response rendering.
+  const bootstrap = await fetchStableChatBootstrap(sessionKey)
+  const parsed = parseChatHistory((bootstrap.messages as RawMessage[]) || [])
   void status
   return hydrateCachedAttachments(sessionKey, parsed.messages)
 }
