@@ -71,7 +71,7 @@ export function ChatLoadingSkeleton() {
         </div>
       </div>
 
-      {/* ChatBox skeleton — matches real ChatBox: textarea min-h-[68px] + pt-3, ActionBar px-3 pb-3 pt-2 with size-8 buttons */}
+      {/* ChatBox skeleton — matches real ChatBox: textarea min-h-[68px] + pt-3, compact ActionBar with size-8 buttons */}
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         <div className="mx-auto w-full max-w-3xl px-2 sm:px-4">
           <div className="rounded-2xl border border-border/50 bg-card">
@@ -79,8 +79,8 @@ export function ChatLoadingSkeleton() {
             <div className="flex min-h-[68px] items-start px-3 pt-4">
               <div className="h-4 w-[45%] animate-pulse rounded-sm bg-foreground/[0.05]" />
             </div>
-            {/* ActionBar: px-3 pb-3 pt-2 */}
-            <div className="flex items-center justify-between px-3 pb-3 pt-2">
+            {/* ActionBar: compact, outer shell provides equal side/bottom padding */}
+            <div className="flex items-center justify-between px-0 pb-0 pt-1">
               <div className="flex items-center gap-1">
                 <div className="size-8 animate-pulse rounded-full bg-foreground/[0.04]" />
                 <div className="size-8 animate-pulse rounded-full bg-foreground/[0.04]" />

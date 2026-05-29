@@ -91,7 +91,7 @@ export function ActionBar({
       ) === i,
   )
   return (
-    <div className="flex items-center justify-between px-3 pb-3 pt-2">
+    <div className="flex items-center justify-between px-0 pb-0 pt-1">
       {/* Left controls */}
       <div className="flex items-center gap-1.5">
         {/* + menu */}
