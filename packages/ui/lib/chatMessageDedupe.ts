@@ -163,7 +163,11 @@ function sameOptimisticUserTurn(a: ChatMessage, b: ChatMessage) {
     const maxForwardMs = hasAttachmentEcho ? 5 * 60 * 1000 : 5 * 60 * 1000
     const maxReverseSkewMs = hasAttachmentEcho ? 5 * 60 * 1000 : 30 * 1000
     const delta = canonicalTime - optimisticTime
-    if (delta < 0) return (hasAttachmentEcho || optimisticWasAlreadyVisible) && Math.abs(delta) <= maxReverseSkewMs
+    if (delta < 0) {
+      const samePositiveGatewayIndex = hasSameGatewayIndex(optimistic, canonical)
+      const canonicalHasGatewayIndex = typeof canonical.gatewayIndex === "number" && Number.isFinite(canonical.gatewayIndex) && canonical.gatewayIndex > 0
+      return (hasAttachmentEcho || samePositiveGatewayIndex || optimisticWasAlreadyVisible || !canonicalHasGatewayIndex) && Math.abs(delta) <= maxReverseSkewMs
+    }
     return delta <= maxForwardMs
   }
 
@@ -397,42 +401,7 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
       return a.index - b.index
     })
     .map((item) => item.message)
-  return pairConsecutiveUserAssistantBursts(sorted)
-}
-
-function pairConsecutiveUserAssistantBursts(messages: ChatMessage[]): ChatMessage[] {
-  const result: ChatMessage[] = []
-  for (let i = 0; i < messages.length;) {
-    const users: ChatMessage[] = []
-    let cursor = i
-    while (messages[cursor]?.role === "user") {
-      users.push(messages[cursor])
-      cursor++
-    }
-    if (users.length <= 1) {
-      result.push(messages[i])
-      i++
-      continue
-    }
-
-    const assistants: ChatMessage[] = []
-    while (messages[cursor]?.role === "assistant") {
-      assistants.push(messages[cursor])
-      cursor++
-    }
-    if (assistants.length < users.length) {
-      result.push(...users, ...assistants)
-      i = cursor
-      continue
-    }
-
-    for (let offset = 0; offset < users.length; offset++) {
-      result.push(users[offset], assistants[offset])
-    }
-    result.push(...assistants.slice(users.length))
-    i = cursor
-  }
-  return result
+  return sorted
 }
 
 export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {

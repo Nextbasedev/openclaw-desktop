@@ -168,6 +168,16 @@ export class RunRepository {
     return row ? rowToRun(row) : null;
   }
 
+  findOldestPendingRun(sessionKey: string): ProjectedRun | null {
+    const row = this.db.prepare(`
+      SELECT * FROM v2_runs
+      WHERE session_key = @sessionKey AND status IN ('queued', 'thinking', 'streaming', 'tool_running')
+      ORDER BY started_at_ms ASC
+      LIMIT 1
+    `).get({ sessionKey }) as Record<string, unknown> | undefined;
+    return row ? rowToRun(row) : null;
+  }
+
   latestRun(sessionKey: string): ProjectedRun | null {
     const row = this.db.prepare(`SELECT * FROM v2_runs WHERE session_key = @sessionKey ORDER BY updated_at_ms DESC LIMIT 1`).get({ sessionKey }) as Record<string, unknown> | undefined;
     return row ? rowToRun(row) : null;

@@ -3105,4 +3105,60 @@ describe("global V2 chat engine store", () => {
     expect(state?.status).toBe("done")
     expect(state?.pendingTools).toEqual([])
   })
+
+  test("rapid identical sends never collapse assistant finals into one merged card", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1,
+        payload: { semanticType: "chat.user.created", messageId: "client-1", messageSeq: 1, message: { role: "user", text: "hii", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1", seq: 1 } } },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2,
+        payload: { semanticType: "chat.user.created", messageId: "client-2", messageSeq: 3, message: { role: "user", text: "hii", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-2", seq: 3 } } },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 3,
+        payload: { semanticType: "chat.assistant.final", messageId: "assistant-1", messageSeq: 2, runId: "run-1", message: { role: "assistant", text: "reply1", __openclaw: { id: "assistant-1", seq: 2, runId: "run-1" } } },
+      },
+    })
+    let state = getGlobalChatSession("s1")
+    expect(state?.messages.some((message) => message.text === "reply1\n\nreply2")).toBe(false)
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 4,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 4,
+        payload: { semanticType: "chat.assistant.final", messageId: "assistant-2", messageSeq: 4, runId: "run-2", message: { role: "assistant", text: "reply2", __openclaw: { id: "assistant-2", seq: 4, runId: "run-2" } } },
+      },
+    })
+
+    state = getGlobalChatSession("s1")
+    expect(state?.messages.map((message) => `${message.role}:${message.text}`)).toEqual([
+      "user:hii",
+      "assistant:reply1",
+      "user:hii",
+      "assistant:reply2",
+    ])
+    expect(state?.messages.filter((message) => message.role === "assistant")).toHaveLength(2)
+    expect(state?.messages.some((message) => message.text === "reply1\n\nreply2")).toBe(false)
+  })
 })

@@ -229,6 +229,24 @@ export class ChatLiveIngest {
       });
       return;
     }
+    const associatedRun = this.associatedRunForMessage(sessionKey, message, optimistic?.runId);
+    if (projectedMessage.role === "assistant" && associatedRun) {
+      const liveMessageId = `live:${associatedRun.runId}:assistant`;
+      const liveMessage = this.context.messages.findMessageById(sessionKey, liveMessageId);
+      if (liveMessage && projectedMessage.messageId !== liveMessageId) {
+        this.context.messages.deleteMessageById(sessionKey, liveMessageId);
+        projectedMessage.openclawSeq = liveMessage.openclawSeq;
+        projectedMessage.data = {
+          ...projectedMessage.data,
+          __openclaw: {
+            ...(isObject(projectedMessage.data.__openclaw) ? projectedMessage.data.__openclaw : {}),
+            replacedLiveMessageId: liveMessageId,
+            runId: associatedRun.runId,
+          },
+        };
+        normalized[0] = projectedMessage;
+      }
+    }
     const confirmed = optimisticId ? this.context.messages.confirmOptimisticUser(sessionKey, optimisticId, projectedMessage) : null;
     if (optimisticId) this.rememberConfirmedUser(sessionKey, optimisticId, confirmed ?? projectedMessage, optimistic);
     const projection = confirmed ? { upserted: 1, lastSeq: confirmed.openclawSeq } : this.context.messages.upsertMessages(normalized);
@@ -244,7 +262,6 @@ export class ChatLiveIngest {
       at: activityAt,
       lastMessageText: textFromMessage(message),
     });
-    const associatedRun = this.associatedRunForMessage(sessionKey, message, optimistic?.runId);
     const gatewayProjection = projectGatewayMessage(message);
     this.projectToolsFromMessage(sessionKey, message, associatedRun, gatewayProjection);
     const assistantHasFinalText = gatewayProjection.assistantHasFinalText;
@@ -331,8 +348,8 @@ export class ChatLiveIngest {
     if (explicitRunId) {
       return this.context.runs.findRunByGatewayRunId(explicitRunId) ?? this.context.runs.getRun(explicitRunId);
     }
-    if (optimisticRunId) return this.context.runs.getRun(optimisticRunId) ?? this.context.runs.findLatestPendingRun(sessionKey);
-    if (message.role === "assistant") return this.context.runs.findLatestPendingRun(sessionKey);
+    if (optimisticRunId) return this.context.runs.getRun(optimisticRunId) ?? this.context.runs.findOldestPendingRun(sessionKey);
+    if (message.role === "assistant") return this.context.runs.findOldestPendingRun(sessionKey);
     return null;
   }
 
@@ -477,7 +494,7 @@ export class ChatLiveIngest {
     const toolCallId = readToolCallId(data);
     if (!toolCallId) return;
     const gatewayRunId = typeof payload.runId === "string" ? payload.runId : typeof data.runId === "string" ? data.runId : null;
-    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
+    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findOldestPendingRun(sessionKey);
     const rawPhase = typeof data.phase === "string" ? data.phase.toLowerCase() : typeof data.status === "string" ? data.status.toLowerCase() : "start";
     const phase = rawPhase === "error" || rawPhase === "failed"
       ? "error"
@@ -613,7 +630,7 @@ export class ChatLiveIngest {
     const sessionKey = firstString(payload.sessionKey, payload.key, data.sessionKey, data.key);
     if (!sessionKey) return;
     const gatewayRunId = firstString(payload.runId, data.runId, payload.id, data.id);
-    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
+    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findOldestPendingRun(sessionKey);
     if (!run) return;
     const status = firstString(payload.status, data.status, payload.phase, data.phase)?.toLowerCase() ?? null;
     if (status === "final" || status === "done" || status === "completed") {
@@ -644,7 +661,7 @@ export class ChatLiveIngest {
     const sessionKey = firstString(payload.sessionKey, data.sessionKey, payload.key, data.key);
     if (!sessionKey) return;
     const gatewayRunId = firstString(payload.runId, data.runId, payload.id, data.id);
-    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
+    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findOldestPendingRun(sessionKey);
     if (payload.stream === "item" || payload.stream === "command_output") {
       this.projectAgentToolEvent(sessionKey, gatewayRunId, run?.runId ?? null, payload.stream, data);
       return;
@@ -741,7 +758,7 @@ export class ChatLiveIngest {
         sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
       });
       const projection = this.context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-      const run = runId ? this.context.runs.getRun(runId) : this.context.runs.findLatestPendingRun(sessionKey) ?? this.context.runs.latestRun(sessionKey);
+      const run = runId ? this.context.runs.getRun(runId) : this.context.runs.findOldestPendingRun(sessionKey) ?? this.context.runs.latestRun(sessionKey);
       for (const projected of projection.changedMessages) {
         const gatewayProjection = projectGatewayMessage(projected.data as OpenClawMessage);
         this.projectToolsFromMessage(sessionKey, projected.data as OpenClawMessage, run, gatewayProjection);
@@ -771,7 +788,7 @@ export class ChatLiveIngest {
       // After backfill, check if the run should be finalized.
       // The assistant message was projected via upsertMessages (not handleSessionMessage),
       // so the normal run finalization in handleSessionMessage won't fire.
-      const postBackfillRun = runId ? this.context.runs.getRun(runId) : this.context.runs.findLatestPendingRun(sessionKey);
+      const postBackfillRun = runId ? this.context.runs.getRun(runId) : this.context.runs.findOldestPendingRun(sessionKey);
       if (postBackfillRun && ["queued", "thinking", "streaming", "tool_running"].includes(postBackfillRun.status)) {
         const hasAssistantFinal = messages.some((m) => {
           const msg = m as Record<string, unknown>;

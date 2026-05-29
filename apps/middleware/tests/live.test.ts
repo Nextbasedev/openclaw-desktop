@@ -36,6 +36,97 @@ describe("patch replay", () => {
 });
 
 describe("chat live ingest", () => {
+  test("assistant message without run id binds to oldest unanswered pending run", async () => {
+    const app = await createApp(config("assistant-oldest-pending-run"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+    context.runs.upsertRun({ runId: "run-2", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 200, updatedAtMs: 200 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 3,
+        message: {
+          role: "assistant",
+          text: "first answer",
+          __openclaw: { id: "assistant-1", seq: 3 },
+        },
+      },
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.upsert",
+        payload: expect.objectContaining({
+          messageId: "assistant-1",
+          runId: "run-1",
+        }),
+      }),
+    ]));
+    expect(context.runs.getRun("run-1")).toMatchObject({ status: "done" });
+    expect(context.runs.getRun("run-2")).toMatchObject({ status: "thinking" });
+    await app.close();
+  });
+
+  test("assistant final replaces synthetic live assistant row for the same run", async () => {
+    const app = await createApp(config("assistant-final-replaces-live"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "chat",
+      payload: {
+        sessionKey: "s1",
+        status: "streaming",
+        text: "Hello Dixit",
+      },
+    });
+    expect(context.messages.findMessageById("s1", "live:run-1:assistant")).toMatchObject({ role: "assistant" });
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          text: "Hello Dixit",
+          __openclaw: { id: "assistant-final", seq: 2 },
+        },
+      },
+    });
+
+    const messages = context.messages.listMessages("s1");
+    expect(messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+    expect(context.messages.findMessageById("s1", "live:run-1:assistant")).toBeNull();
+    expect(context.messages.findMessageById("s1", "assistant-final")).toMatchObject({
+      role: "assistant",
+      data: expect.objectContaining({ text: "Hello Dixit" }),
+    });
+    await app.close();
+  });
+
   test("assistant final without a run id completes the pending run and canonical bootstrap", async () => {
     const app = await createApp(config("assistant-final-pending-run"));
     const context = contextOf(app);

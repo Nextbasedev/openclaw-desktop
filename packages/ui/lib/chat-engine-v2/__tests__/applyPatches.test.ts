@@ -560,6 +560,58 @@ describe("applyChatPatch", () => {
     expect(state.messages[2]).toMatchObject({ messageId: "client-2", isOptimistic: false })
   })
 
+  test("keeps rapid identical user sends and assistant finals as distinct turns", () => {
+    let state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.user.created", messageId: "client-1", messageSeq: 1, message: { role: "user", text: "hii", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1", seq: 1 } } },
+        createdAtMs: 1,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.user.created", messageId: "client-2", messageSeq: 3, message: { role: "user", text: "hii", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-2", seq: 3 } } },
+        createdAtMs: 2,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.assistant.final", messageId: "assistant-1", messageSeq: 2, runId: "run-1", message: { role: "assistant", text: "reply1", __openclaw: { id: "assistant-1", seq: 2, runId: "run-1" } } },
+        createdAtMs: 3,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 4,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.assistant.final", messageId: "assistant-2", messageSeq: 4, runId: "run-2", message: { role: "assistant", text: "reply2", __openclaw: { id: "assistant-2", seq: 4, runId: "run-2" } } },
+        createdAtMs: 4,
+      },
+    })
+
+    expect(state.messages.map((message) => `${message.role}:${message.text}`)).toEqual([
+      "user:hii",
+      "assistant:reply1",
+      "user:hii",
+      "assistant:reply2",
+    ])
+    expect(state.messages.filter((message) => message.role === "assistant")).toHaveLength(2)
+    expect(state.messages.some((message) => message.text === "reply1\n\nreply2")).toBe(false)
+  })
+
   test("merges canonical gateway user into confirmed optimistic user by sequence when ids differ", () => {
     const text = "fastqa2 B 1778517449764"
     let state = applyChatPatch({ cursor: 0, messages: [] }, {

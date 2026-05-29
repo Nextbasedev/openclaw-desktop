@@ -91,7 +91,7 @@ describe("dedupeChatMessages", () => {
     expect(messages).toHaveLength(2)
   })
 
-  it("pairs consecutive user turns with consecutive assistant replies", () => {
+  it("does not reorder consecutive user and assistant bursts without stronger turn identity", () => {
     const messages = dedupeChatMessages([
       { messageId: "u1", role: "user", text: "hii", gatewayIndex: 1 },
       { messageId: "a1", role: "assistant", text: "Hi, I'm here.", gatewayIndex: 2 },
@@ -105,10 +105,30 @@ describe("dedupeChatMessages", () => {
       "u1",
       "a1",
       "u2",
-      "a2",
       "u3",
+      "a2",
       "a3",
     ])
+  })
+
+  it("dedupes canonical user before optimistic echo with bounded clock skew", () => {
+    const messages = dedupeChatMessages([
+      { messageId: "gateway-user", role: "user", text: "hii", gatewayIndex: 10, createdAt: "2026-05-29T20:08:20.000Z" },
+      { messageId: "client-user", role: "user", text: "hii", gatewayIndex: 10, isOptimistic: true, createdAt: "2026-05-29T20:08:35.000Z" },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].messageId).toBe("gateway-user")
+  })
+
+  it("keeps assistant replies with overlapping tools separate when gateway indexes differ", () => {
+    const messages = dedupeChatMessages([
+      { messageId: "a1", role: "assistant", text: "First reply", gatewayIndex: 10, toolCalls: [{ id: "tool-1", tool: "exec", status: "success" }] },
+      { messageId: "a2", role: "assistant", text: "Second reply", gatewayIndex: 12, toolCalls: [{ id: "tool-1", tool: "exec", status: "success" }] },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual(["a1", "a2"])
+    expect(messages.map((message) => message.text)).toEqual(["First reply", "Second reply"])
   })
 
   it("collapses stale live assistant echo after canonical final answer even when persisted seq drifted", () => {
