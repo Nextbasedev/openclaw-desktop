@@ -16,6 +16,7 @@ export type SessionState = {
   cursor: number
   messages: ChatMessage[]
   historyCoverage: HistoryCoverageV2
+  oldestLoadedSeq: number | null
   messageCount: number | null
   status: StreamStatus
   statusLabel: string | null
@@ -73,6 +74,7 @@ function cloneState(state: SessionState): SessionState {
     cursor: state.cursor,
     messages: state.messages,
     historyCoverage: state.historyCoverage,
+    oldestLoadedSeq: state.oldestLoadedSeq,
     messageCount: state.messageCount,
     status: state.status,
     statusLabel: state.statusLabel,
@@ -85,7 +87,7 @@ function cloneState(state: SessionState): SessionState {
 }
 
 function defaultState(): SessionState {
-  return { cursor: 0, messages: [], historyCoverage: "none", messageCount: null, status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0, deferredDoneUntilAssistant: false }
+  return { cursor: 0, messages: [], historyCoverage: "none", oldestLoadedSeq: null, messageCount: null, status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0, deferredDoneUntilAssistant: false }
 }
 
 function normalizedSpawnText(value: string | null | undefined) {
@@ -196,6 +198,7 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
       messages: state.messages,
       messageCount: state.messageCount ?? state.messages.length,
       historyCoverage: state.historyCoverage,
+      oldestLoadedSeq: state.oldestLoadedSeq,
       fullMessagesIncluded: state.historyCoverage === "full",
       cursor,
       v2Cursor: cursor,
@@ -228,6 +231,7 @@ function persistWarmSessionSnapshot(sessionKey: string, state: SessionState) {
       statusLabel: normalizeStatusLabel(snapshot.status, snapshot.statusLabel),
       pendingTools: snapshot.pendingTools,
       messageCount: snapshot.messageCount ?? snapshot.messages.length,
+      oldestLoadedSeq: snapshot.oldestLoadedSeq,
     }).catch((error) => {
       frontendLog("chat", "warm-cache.live-persist.fail", {
         sessionKey,
@@ -1052,16 +1056,27 @@ function latestUserMessageIndex(state: SessionState) {
   return -1
 }
 
-function hasAssistantAnswerAfterLatestUser(state: SessionState) {
-  const latestUserIndex = latestUserMessageIndex(state)
+function latestUserMessageIndexInMessages(messages: ChatMessage[]) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") return i
+  }
+  return -1
+}
+
+function hasAssistantAnswerAfterLatestUserMessages(messages: ChatMessage[]) {
+  const latestUserIndex = latestUserMessageIndexInMessages(messages)
   const start = latestUserIndex >= 0 ? latestUserIndex + 1 : 0
-  for (let i = state.messages.length - 1; i >= start; i--) {
-    const message = state.messages[i]
+  for (let i = messages.length - 1; i >= start; i--) {
+    const message = messages[i]
     if (message?.role !== "assistant") continue
     if (message.toolCalls?.some((tool) => tool.status === "running")) return false
     if (message.text.trim().length > 0) return true
   }
   return false
+}
+
+function hasAssistantAnswerAfterLatestUser(state: SessionState) {
+  return hasAssistantAnswerAfterLatestUserMessages(state.messages)
 }
 
 function hasVisibleToolRows(messages: ChatMessage[]) {
@@ -1704,6 +1719,7 @@ export function seedGlobalChatSession(params: {
   spawnedSubagents?: SpawnedSubagent[]
   messageCount?: number | null
   historyCoverage?: HistoryCoverageV2
+  oldestLoadedSeq?: number | null
   queryClient?: QueryClient
 }) {
   if (params.queryClient) queryClientRef = params.queryClient
@@ -1718,6 +1734,7 @@ export function seedGlobalChatSession(params: {
   const incomingDropsRunningTool = state.pendingTools.some((tool) => tool.status === "running" && !incomingToolIds.has(tool.id))
   const hasNewerCursor = state.cursor > incomingCursor && state.messages.length > 0
   const incomingMayBePartial = incomingHistoryCoverage !== "full"
+  const incomingHasFinalAnswer = incomingIsTerminal && !incomingMayBePartial && hasAssistantAnswerAfterLatestUserMessages(params.messages)
   const incomingPartialDropsLocalMessages = incomingMayBePartial &&
     incomingCursor <= state.cursor &&
     state.messages.length > 0 &&
@@ -1727,7 +1744,7 @@ export function seedGlobalChatSession(params: {
     hasLiveState &&
     incomingIsTerminal &&
     (incomingDropsMessages || incomingDropsRunningTool)
-  const hadNewerLiveState = hasNewerCursor || hasSameCursorLiveState || incomingPartialDropsLocalMessages
+  const hadNewerLiveState = !incomingHasFinalAnswer && (hasNewerCursor || hasSameCursorLiveState || incomingPartialDropsLocalMessages)
   state.messages = hadNewerLiveState
     ? dedupeChatMessages([...params.messages, ...state.messages])
     : dedupeChatMessages(params.messages)
@@ -1735,6 +1752,11 @@ export function seedGlobalChatSession(params: {
   if (!hadNewerLiveState || incomingHistoryCoverage === "full") {
     state.historyCoverage = incomingHistoryCoverage
     state.messageCount = incomingMessageCount
+    if (params.oldestLoadedSeq !== undefined) state.oldestLoadedSeq = params.oldestLoadedSeq
+  } else if (params.oldestLoadedSeq !== undefined && params.oldestLoadedSeq !== null) {
+    state.oldestLoadedSeq = state.oldestLoadedSeq !== null
+      ? Math.min(state.oldestLoadedSeq, params.oldestLoadedSeq)
+      : params.oldestLoadedSeq
   }
   if (params.status && !hadNewerLiveState) {
     const wasActive = ACTIVE_STATUSES.has(state.status)
@@ -1766,6 +1788,7 @@ export function seedGlobalChatSession(params: {
     pendingToolCount: state.pendingTools.length,
     spawnedSubagentCount: state.spawnedSubagents.length,
     historyCoverage: state.historyCoverage,
+    oldestLoadedSeq: state.oldestLoadedSeq,
   }, "debug")
   notifySync(params.sessionKey)
 }

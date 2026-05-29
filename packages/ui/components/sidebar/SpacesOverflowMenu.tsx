@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils"
 import type { MouseEvent } from "react"
 import type { Space } from "@/types/space"
 import { SpaceActionsMenu } from "./SpaceActionsMenu"
-import { SpaceIconImage, spaceIconEmoji, spaceIconEmojiColor, spaceIconSrc } from "./SpaceIconImage"
 
 const MENU_SPRING = {
   type: "spring" as const,
@@ -57,22 +56,12 @@ export function SpacesOverflowMenu({
             onContextMenu={(event) => onContextMenu(event, space)}
             className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-md border-0 px-2.5 py-2 text-left shadow-none outline-none transition-colors hover:bg-white/[0.08] focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
           >
-            {spaceIconEmoji(space) ? (
-              <span className={cn("flex size-4 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[12px]", spaceIconEmojiColor(space))}>
-                {spaceIconEmoji(space)}
-              </span>
-            ) : spaceIconSrc(space) ? (
-              <span className="size-4 shrink-0 overflow-hidden rounded-full shadow-[0_0_0_1px_rgba(255,255,255,0.12)]">
-                <SpaceIconImage space={space} />
-              </span>
-            ) : (
-              <span
-                className={cn(
-                  "size-2.5 shrink-0 rounded-full bg-gradient-to-br shadow-[0_0_0_1px_rgba(255,255,255,0.08)]",
-                  gradientForSpace(space),
-                )}
-              />
-            )}
+            <span
+              className={cn(
+                "size-2.5 shrink-0 rounded-full bg-gradient-to-br shadow-[0_0_0_1px_rgba(255,255,255,0.08)]",
+                gradientForSpace(space),
+              )}
+            />
             <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/90">
               {space.name}
             </span>

@@ -76,6 +76,33 @@ function isSnapshot(value: unknown): value is WorkspaceLayoutSnapshot {
   )
 }
 
+function isFreshSnapshot(value: unknown): value is WorkspaceLayoutSnapshot {
+  return isSnapshot(value) && Date.now() - value.updatedAt <= LAYOUT_TTL_MS
+}
+
+function persistentLocalStorageKey(key: string) {
+  return `openclaw-ui-cache:v1:${key}`
+}
+
+function readLocalSnapshot(cacheKey: string): WorkspaceLayoutSnapshot | null {
+  if (typeof localStorage === "undefined") return null
+  try {
+    const entry = JSON.parse(localStorage.getItem(persistentLocalStorageKey(cacheKey)) || "null") as { value?: unknown } | null
+    return isFreshSnapshot(entry?.value) ? entry.value : null
+  } catch {
+    return null
+  }
+}
+
+export function loadWorkspaceLayoutSnapshotSync(): WorkspaceLayoutSnapshot | null {
+  const cacheKey = workspaceLayoutCacheKey()
+  const payload = readLocalSnapshot(cacheKey)
+  if (payload) return payload
+
+  if (cacheKey !== workspaceLayoutCacheKey("main")) return null
+  return readLocalSnapshot(LEGACY_LAYOUT_CACHE_KEY)
+}
+
 export async function saveWorkspaceLayoutSnapshot(
   snapshot: Omit<WorkspaceLayoutSnapshot, "version" | "updatedAt">,
 ) {
@@ -94,13 +121,12 @@ export async function saveWorkspaceLayoutSnapshot(
 export async function loadWorkspaceLayoutSnapshot(): Promise<WorkspaceLayoutSnapshot | null> {
   const cacheKey = workspaceLayoutCacheKey()
   const payload = await persistentCacheGet<WorkspaceLayoutSnapshot>(cacheKey)
-  if (isSnapshot(payload) && Date.now() - payload.updatedAt <= LAYOUT_TTL_MS) return payload
+  if (isFreshSnapshot(payload)) return payload
 
   if (cacheKey !== workspaceLayoutCacheKey("main")) return null
 
   const legacyPayload = await persistentCacheGet<WorkspaceLayoutSnapshot>(LEGACY_LAYOUT_CACHE_KEY)
-  if (!isSnapshot(legacyPayload)) return null
-  if (Date.now() - legacyPayload.updatedAt > LAYOUT_TTL_MS) return null
+  if (!isFreshSnapshot(legacyPayload)) return null
 
   await persistentCacheSet(cacheKey, legacyPayload, { ttlMs: LAYOUT_TTL_MS })
   try {

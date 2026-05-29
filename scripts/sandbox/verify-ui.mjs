@@ -95,8 +95,8 @@ function parseArgs(argv) {
   if (!Number.isFinite(options.port) || options.port <= 0) {
     throw new Error("--port must be a positive number");
   }
-  if (!Number.isFinite(options.timeout) || options.timeout <= 0) {
-    throw new Error("--timeout must be a positive number of milliseconds");
+  if (!Number.isFinite(options.timeout) || options.timeout < 0) {
+    throw new Error("--timeout must be a non-negative number of milliseconds; use 0 to disable per-step timeouts");
   }
   if (!options.path.startsWith("/")) {
     options.path = `/${options.path}`;
@@ -234,8 +234,12 @@ async function takeNamedScreenshot(client, runDir, label) {
   return filePath;
 }
 
+function withTimeout(timeoutMs, extraMs = 0) {
+  return timeoutMs > 0 ? timeoutMs + extraMs : undefined;
+}
+
 async function waitForMainText(client, expectedText, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = timeoutMs > 0 ? Date.now() + timeoutMs : Number.POSITIVE_INFINITY;
   let lastMainText = "";
 
   while (Date.now() < deadline) {
@@ -323,9 +327,7 @@ async function run() {
   }
 
   const client = new Client({ name: "jarvis-sandbox-verifier", version: "0.1.0" });
-  const mcpArgs = [
-    "/c",
-    "npx",
+  const mcpBaseArgs = [
     "-y",
     "chrome-devtools-mcp@latest",
     "--no-usage-statistics",
@@ -335,12 +337,16 @@ async function run() {
     "--chrome-arg=--process-per-site",
     "--chrome-arg=--disable-site-isolation-trials",
   ];
+  const command = process.platform === "win32" ? "cmd" : "npx";
+  const mcpArgs = process.platform === "win32"
+    ? ["/c", "npx", ...mcpBaseArgs]
+    : mcpBaseArgs;
   if (options.headless) {
     mcpArgs.push("--headless");
   }
 
   const transport = new StdioClientTransport({
-    command: "cmd",
+    command,
     args: mcpArgs,
     cwd: process.cwd(),
     env: {
@@ -392,8 +398,8 @@ async function run() {
     const page = await callTool(
       client,
       "new_page",
-      { url, timeout: options.timeout },
-      options.timeout + 5_000,
+      { url, timeout: options.timeout > 0 ? options.timeout : undefined },
+      withTimeout(options.timeout, 5_000),
     );
     pageId = getCreatedPageId(page);
 
@@ -404,8 +410,8 @@ async function run() {
       await callTool(
         client,
         "wait_for",
-        { text: [options.waitFor], timeout: options.timeout },
-        options.timeout + 5_000,
+        { text: [options.waitFor], timeout: options.timeout > 0 ? options.timeout : undefined },
+        withTimeout(options.timeout, 5_000),
       );
     }
 

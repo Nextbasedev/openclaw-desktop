@@ -184,6 +184,36 @@ function hasAssistantAnswerAfterLatestUserMessage(messages: ChatMessage[]) {
   return false
 }
 
+function messageTimelineSignature(message: ChatMessage) {
+  return JSON.stringify({
+    role: message.role,
+    text: message.text,
+    reasoningText: message.reasoningText,
+    toolCalls: message.toolCalls,
+    embeds: message.embeds,
+    attachments: message.attachments,
+    sendStatus: message.sendStatus,
+    sendError: message.sendError,
+    isOptimistic: message.isOptimistic,
+    gatewayIndex: message.gatewayIndex,
+    createdAt: message.createdAt,
+    usage: message.usage,
+    stopReason: message.stopReason,
+  })
+}
+
+export function timelineMessageChanged(existing: ChatMessage | undefined, next: ChatMessage) {
+  if (!existing) return true
+  return messageTimelineSignature(existing) !== messageTimelineSignature(next)
+}
+
+export function shouldPreserveTimelineStoreRows(params: {
+  loadingOlderMessages: boolean
+  status: StreamStatus | null | undefined
+}) {
+  return params.loadingOlderMessages || isActiveRunStatus(params.status)
+}
+
 export function mergeOptimisticMessagesWithCanonical(
   canonicalMessages: ChatMessage[],
   optimisticSource: ChatMessage[] | null | undefined
@@ -212,13 +242,15 @@ export function shouldPreserveActiveReconcile(params: {
   freshMessageCount?: number
 }) {
   if (!isActiveRunStatus(params.currentStatus)) return false
+  const hasFreshAssistantAnswer = hasAssistantAnswerAfterLatestUserMessage(params.candidateMessages)
   if (
     typeof params.currentMessageCount === "number" &&
     typeof params.freshMessageCount === "number" &&
-    params.freshMessageCount < params.currentMessageCount
+    params.freshMessageCount < params.currentMessageCount &&
+    !(params.nextStatus === "done" && params.runningToolCount === 0 && hasFreshAssistantAnswer)
   ) return true
   if ((params.nextStatus === "idle" || params.nextStatus === "done") && params.runningToolCount > 0) return true
-  return !hasAssistantAnswerAfterLatestUserMessage(params.candidateMessages)
+  return !hasFreshAssistantAnswer
 }
 
 function stableRawMessageId(raw: RawMessage): string {
@@ -291,7 +323,7 @@ const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
 const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 160
-const CHAT_OLDER_PAGE_LIMIT = 80
+const CHAT_OLDER_PAGE_LIMIT = 240
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -544,6 +576,30 @@ function canLoadOlderThanFirstMessage(messages: ChatMessage[]) {
   return firstSeq !== null && firstSeq > 1
 }
 
+function gatewayIndexedMessageCount(messages: ChatMessage[]) {
+  return messages.reduce(
+    (count, message) => count + (typeof message.gatewayIndex === "number" && Number.isFinite(message.gatewayIndex) ? 1 : 0),
+    0
+  )
+}
+
+function shouldKeepCurrentTimelineSnapshot(current: ChatMessage[], incoming: ChatMessage[]) {
+  if (current.length === 0 || incoming.length === 0) return false
+  if (incoming.length >= current.length) return false
+
+  const currentIndexed = gatewayIndexedMessageCount(current)
+  const incomingIndexed = gatewayIndexedMessageCount(incoming)
+  if (currentIndexed > 0 && incomingIndexed < currentIndexed) return true
+
+  const currentIds = new Set(current.map((message) => message.messageId))
+  const incomingIds = new Set(incoming.map((message) => message.messageId))
+  let overlap = 0
+  for (const id of incomingIds) {
+    if (currentIds.has(id)) overlap += 1
+  }
+  return overlap > 0 && overlap === incomingIds.size
+}
+
 function attachmentLogMeta(attachments: ChatComposerSubmit["attachments"] | undefined) {
   return {
     count: attachments?.length ?? 0,
@@ -635,6 +691,7 @@ export function useChatMessages(
   // independent of parseChatHistory's merged gatewayIndex which can drift
   // forward during assistant message merging and break pagination.
   const oldestLoadedSeqRef = useRef<number | null>(null)
+  const loadOlderInFlightRef = useRef(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
@@ -676,6 +733,7 @@ export function useChatMessages(
           statusLabel: normalizeStatusLabelForStatus(statusRef.current, statusLabel),
           pendingTools: Array.from(pendingToolMapRef.current.values()),
           messageCount: next.length,
+          oldestLoadedSeq: oldestLoadedSeqRef.current,
         })
       })().catch((error) => {
         frontendLog("chat", "warm-cache.persist.fail", {
@@ -694,17 +752,26 @@ export function useChatMessages(
         )
         schedulePersistentMessages(next)
         updateCachedBootstrapMessages(queryClient, sessionKey, next)
-        // Write-through to timeline store — store dedupes and batches
+        // Write-through to timeline store — store dedupes and batches.
+        // Older-page loads and active runs can temporarily hold partial local
+        // snapshots while live patch-stream rows still exist in the global
+        // timeline. Removing absent ids in those windows makes the whole chat
+        // flash/blink until the next patch/bootstrap re-adds them.
         const store = timelineStoreRef.current
-        const nextIds = new Set(next.map((m) => m.messageId))
-        // Remove stale entries (e.g. optimistic messages replaced by confirmed)
-        for (const existing of store.getAllMessageIds()) {
-          if (!nextIds.has(existing)) {
-            store.removeMessage(existing, v2CursorRef.current)
+        const preserveExistingTimelineRows = shouldPreserveTimelineStoreRows({
+          loadingOlderMessages: loadOlderInFlightRef.current,
+          status: statusRef.current,
+        })
+        if (!preserveExistingTimelineRows) {
+          const nextIds = new Set(next.map((m) => m.messageId))
+          for (const existing of store.getAllMessageIds()) {
+            if (!nextIds.has(existing)) {
+              store.removeMessage(existing, v2CursorRef.current)
+            }
           }
         }
         for (const msg of next) {
-          if (!store.getMessage(msg.messageId) || store.getMessage(msg.messageId)?.text !== msg.text) {
+          if (timelineMessageChanged(store.getMessage(msg.messageId), msg)) {
             store.applyPatchMessage(msg, v2CursorRef.current)
           }
         }
@@ -736,8 +803,22 @@ export function useChatMessages(
     const store = timelineStoreRef.current
     const unsubscribe = store.subscribe((snapshot) => {
       if (snapshot.messages.length > 0) {
-        setLocalMessages(snapshot.messages)
-        schedulePersistentMessages(snapshot.messages)
+        setLocalMessages((current) => {
+          if (shouldKeepCurrentTimelineSnapshot(current, snapshot.messages)) {
+            frontendLog("chat", "chat.timeline-snapshot.skip-regressive", {
+              sessionKey,
+              currentCount: current.length,
+              incomingCount: snapshot.messages.length,
+              currentGatewayIndexed: gatewayIndexedMessageCount(current),
+              incomingGatewayIndexed: gatewayIndexedMessageCount(snapshot.messages),
+              currentFirstGatewayIndex: firstLoadedGatewayIndex(current),
+              incomingFirstGatewayIndex: firstLoadedGatewayIndex(snapshot.messages),
+            }, "warn")
+            return current
+          }
+          schedulePersistentMessages(snapshot.messages)
+          return snapshot.messages
+        })
       }
     })
     return unsubscribe
@@ -778,9 +859,7 @@ export function useChatMessages(
   const bottomRef = useRef<HTMLDivElement>(null)
   const seenIds = useRef(new Set<string>())
   const isAtBottomRef = useRef(true)
-  const scrollFrameRef = useRef<number | null>(null)
-  const programmaticScrollUntilRef = useRef(0)
-  const lastSmoothScrollAtRef = useRef(0)
+
   const lastStreamEventAtRef = useRef(Date.now())
   const activeReconcileInFlightRef = useRef(false)
   const messagesRef = useRef<ChatMessage[]>(
@@ -822,56 +901,24 @@ export function useChatMessages(
   const onScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    if (Date.now() < programmaticScrollUntilRef.current) return
-    isAtBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
   }, [])
 
-  const scrollToBottom = useCallback((smooth = false) => {
+  const scrollToBottom = useCallback((_smooth = false) => {
+    void _smooth
     if (!isAtBottomRef.current) return
-    if (scrollFrameRef.current !== null) {
-      cancelAnimationFrame(scrollFrameRef.current)
-    }
-    const scroll = () => {
-      const el = scrollContainerRef.current
-      if (!el) return
-      const now = Date.now()
-      const allowSmooth = smooth && now - lastSmoothScrollAtRef.current > 180
-      if (allowSmooth) lastSmoothScrollAtRef.current = now
-      programmaticScrollUntilRef.current = now + (allowSmooth ? 350 : 80)
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: allowSmooth ? "smooth" : "auto",
-      })
-      isAtBottomRef.current = true
-      scrollFrameRef.current = null
-    }
-    scrollFrameRef.current = requestAnimationFrame(scroll)
+    const el = scrollContainerRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    isAtBottomRef.current = true
   }, [])
 
-  const forceScrollToBottom = useCallback((smooth = false) => {
+  const forceScrollToBottom = useCallback((_smooth = false) => {
+    void _smooth
     isAtBottomRef.current = true
-    if (scrollFrameRef.current !== null) {
-      cancelAnimationFrame(scrollFrameRef.current)
-    }
-    const scroll = () => {
-      const el = scrollContainerRef.current
-      if (!el) return
-      programmaticScrollUntilRef.current = Date.now() + (smooth ? 350 : 80)
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: smooth ? "smooth" : "auto",
-      })
-      isAtBottomRef.current = true
-      scrollFrameRef.current = null
-    }
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      if (smooth) {
-        scrollFrameRef.current = requestAnimationFrame(scroll)
-        return
-      }
-      scroll()
-    })
+    const el = scrollContainerRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
   }, [])
 
   const reconcileActiveRun = useCallback(async () => {
@@ -961,14 +1008,6 @@ export function useChatMessages(
       activeReconcileInFlightRef.current = false
     }
   }, [queryClient, sessionKey])
-
-  useEffect(() => {
-    return () => {
-      if (scrollFrameRef.current !== null) {
-        cancelAnimationFrame(scrollFrameRef.current)
-      }
-    }
-  }, [])
 
   const flushToolsToLastAssistant = useCallback(() => {
     const tools = Array.from(pendingToolMapRef.current.values())
@@ -1528,6 +1567,7 @@ export function useChatMessages(
           pendingTools: seededMessages ? [] : cachedBootstrap?.tools?.map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool)) ?? [],
           messageCount: cachedBootstrap?.messageCount ?? warmMessages.length,
           historyCoverage: seededMessages ? "metadata" : isKnownEmptyBootstrap(cachedBootstrap) || cachedBootstrap?.historyCoverage === "full" ? "full" : "metadata",
+          oldestLoadedSeq: useCachedGlobal ? cachedGlobal?.oldestLoadedSeq ?? null : cachedBootstrap?.oldestLoadedSeq ?? getWarmChatCacheSync(sessionKey)?.entry.oldestLoadedSeq ?? null,
           queryClient,
         })
       }
@@ -1621,7 +1661,9 @@ export function useChatMessages(
     }
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
-    oldestLoadedSeqRef.current = null
+    oldestLoadedSeqRef.current = useCachedGlobal
+      ? cachedGlobal?.oldestLoadedSeq ?? null
+      : cachedBootstrap?.oldestLoadedSeq ?? getWarmChatCacheSync(sessionKey)?.entry.oldestLoadedSeq ?? null
     let unsubscribeStream: (() => void) | null = null
     let unsubscribeV2Stream: (() => void) | null = null
     let bootstrapSettled = false
@@ -1947,6 +1989,7 @@ export function useChatMessages(
           spawnedSubagents: canonicalSpawns,
           messageCount: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : (typeof canonicalMessageCount === "number" ? canonicalMessageCount : seedMessages.length),
           historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
+          oldestLoadedSeq: typeof bootstrapOldestSeq === "number" ? bootstrapOldestSeq : oldestLoadedSeqRef.current,
           queryClient,
         })
         const globalAfterSeed = getGlobalChatSession(sessionKey)
@@ -1967,6 +2010,7 @@ export function useChatMessages(
           messageCount: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : (typeof canonicalMessageCount === "number" ? canonicalMessageCount : displayMessages.length),
           historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
           fullMessagesIncluded: bootstrapHistoryCoverage !== "windowed",
+          oldestLoadedSeq: typeof bootstrapOldestSeq === "number" ? bootstrapOldestSeq : oldestLoadedSeqRef.current,
         }).catch((error) => {
           frontendLog("chat", "warm-cache.bootstrap-persist.fail", {
             sessionKey,
@@ -2871,8 +2915,18 @@ export function useChatMessages(
     )
   }, [])
 
-  const loadOlderMessages = useCallback(async () => {
-    if (loadingOlderMessages || !hasOlderMessages) return
+  const loadOlderMessages = useCallback(async (): Promise<boolean> => {
+    if (loadOlderInFlightRef.current || loadingOlderMessages || !hasOlderMessages) {
+      frontendLog("chat", "chat.load-older.skip", {
+        sessionKey,
+        inFlight: loadOlderInFlightRef.current,
+        loadingOlderMessages,
+        hasOlderMessages,
+        currentCount: messagesRef.current.length,
+        oldestLoadedSeq: oldestLoadedSeqRef.current,
+      }, "debug")
+      return false
+    }
     // Use the tracked raw seq instead of the parsed/merged gatewayIndex.
     // parseChatHistory merges consecutive assistant messages and updates
     // gatewayIndex to the latest seq, which causes beforeSeq to point to
@@ -2881,13 +2935,27 @@ export function useChatMessages(
     const beforeSeq = oldestLoadedSeqRef.current ?? firstLoadedGatewayIndex(messagesRef.current)
     if (beforeSeq === null || beforeSeq <= 1) {
       setHasOlderMessages(false)
-      return
+      frontendLog("chat", "chat.load-older.exhausted-before-fetch", {
+        sessionKey,
+        beforeSeq,
+        currentCount: messagesRef.current.length,
+        oldestLoadedSeq: oldestLoadedSeqRef.current,
+      }, "debug")
+      return false
     }
 
-    const el = scrollContainerRef.current
-    const previousScrollHeight = el?.scrollHeight ?? 0
-    const previousScrollTop = el?.scrollTop ?? 0
+    loadOlderInFlightRef.current = true
+    setLoadError(null)
     setLoadingOlderMessages(true)
+    const startedAtMs = Date.now()
+    const startingCount = messagesRef.current.length
+    frontendLog("chat", "chat.load-older.start", {
+      sessionKey,
+      beforeSeq,
+      currentCount: startingCount,
+      oldestLoadedSeq: oldestLoadedSeqRef.current,
+      limit: CHAT_OLDER_PAGE_LIMIT,
+    }, "info")
     try {
       const page = await fetchChatMessagesV2({
         sessionKey,
@@ -2908,7 +2976,7 @@ export function useChatMessages(
           reason: "view-generation-changed",
           extra: { beforeSeq, returnedMessageCount: page.messages.length },
         })
-        return
+        return false
       }
       logChatApplyDecision({
         windowId: windowIdRef.current,
@@ -2938,10 +3006,17 @@ export function useChatMessages(
       )
       if (olderMessages.length === 0) {
         setHasOlderMessages(false)
-        return
+        frontendLog("chat", "chat.load-older.empty-page", {
+          sessionKey,
+          beforeSeq,
+          rawReturned: page.messages.length,
+          durationMs: Date.now() - startedAtMs,
+        }, "warn")
+        return false
       }
       const currentMessages = messagesRef.current
       const merged = dedupeChatMessages([...olderMessages, ...currentMessages])
+      const addedCount = merged.length - currentMessages.length
       setMessages(merged)
       // Keep the global patch-stream session in sync with paginated history.
       // Otherwise the next non-message patch (for example chat.tool.update)
@@ -2962,25 +3037,35 @@ export function useChatMessages(
           : existingGlobal?.historyCoverage === "full"
             ? "full"
             : "metadata",
+        oldestLoadedSeq: oldestLoadedSeqRef.current,
         queryClient,
       })
-      setHasOlderMessages(
-        page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
+      const hasMoreOlder = page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
         (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
-      )
-      requestAnimationFrame(() => {
-        const nextEl = scrollContainerRef.current
-        if (!nextEl) return
-        const delta = nextEl.scrollHeight - previousScrollHeight
-        nextEl.scrollTop = previousScrollTop + Math.max(0, delta)
-      })
+      setHasOlderMessages(hasMoreOlder)
+      frontendLog("chat", "chat.load-older.applied", {
+        sessionKey,
+        beforeSeq,
+        rawReturned: page.messages.length,
+        parsedReturned: olderMessages.length,
+        previousCount: currentMessages.length,
+        nextCount: merged.length,
+        addedCount,
+        hasMoreOlder,
+        oldestLoadedSeq: oldestLoadedSeqRef.current,
+        durationMs: Date.now() - startedAtMs,
+      }, "info")
+      return addedCount > 0
+
     } catch (error) {
       frontendLog("chat", "chat.load-older.fail", {
         sessionKey,
         beforeSeq,
         error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
       }, "warn")
+      return false
     } finally {
+      loadOlderInFlightRef.current = false
       setLoadingOlderMessages(false)
     }
   }, [hasOlderMessages, loadingOlderMessages, queryClient, sessionKey, setMessages, statusLabel])

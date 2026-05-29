@@ -24,7 +24,6 @@ import {
   VscClose,
   VscOpenPreview,
   VscRefresh,
-  VscGlobe,
 } from "react-icons/vsc"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
@@ -65,8 +64,6 @@ import {
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
 import { RepoPickerDialog } from "@/components/sidebar/RepoPickerDialog"
-import type { InspectorScope } from "./inspectorScope"
-import { InspectorScopePicker } from "./InspectorScopePicker"
 
 /* ── Types ── */
 
@@ -963,13 +960,9 @@ function getFileSidebarDefaults() {
 export function WorkspaceTab({
   sessionKey,
   projectId,
-  inspectorScope,
-  onInspectorScopeChange,
 }: {
   sessionKey?: string | null
   projectId?: string | null
-  inspectorScope?: InspectorScope
-  onInspectorScopeChange?: (scope: InspectorScope) => void
 }) {
   const [workspaceSessionKey, setWorkspaceSessionKey] = useState<string | null>(
     globalWorkspaceSessionKeyCache ?? sessionKey ?? null,
@@ -989,7 +982,6 @@ export function WorkspaceTab({
   const [newItemType, setNewItemType] = useState<"file" | "folder" | null>(null)
   const [newItemName, setNewItemName] = useState("")
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
-  const [scopePickerOpen, setScopePickerOpen] = useState(false)
   const [repairingWorkspace, setRepairingWorkspace] = useState(false)
   const previewPaneRef = useRef<HTMLDivElement>(null)
   const [previewCompact, setPreviewCompact] = useState(false)
@@ -1443,32 +1435,6 @@ export function WorkspaceTab({
 
   const missingWorkspace = isMissingWorkspaceError(treeError)
 
-  const scopeLabel = inspectorScope?.kind === "project"
-    ? "Project Workspace"
-    : inspectorScope?.kind === "global"
-      ? "Global Workspace"
-      : "Chat Workspace"
-
-  const handleScopePickerSelect = (scope: InspectorScope) => {
-    onInspectorScopeChange?.(scope)
-    setScopePickerOpen(false)
-    emit("sidebar:refresh")
-  }
-
-  // Show picker only as an explicit change action, or if no valid scope exists.
-  // MUST be after all hooks to avoid React hooks violation.
-  if (scopePickerOpen || inspectorScope?.kind === "unset") {
-    return (
-      <InspectorScopePicker
-        title={projectId ? "Change project workspace folder" : "Choose workspace folder"}
-        description={projectId ? "This changes the workspace folder for every chat in this project." : "Choose a folder for this chat, or use the global workspace."}
-        targetProjectId={projectId ?? null}
-        onSelectScope={handleScopePickerSelect}
-        onCancel={() => setScopePickerOpen(false)}
-      />
-    )
-  }
-
   return (
     <div className="relative flex h-full overflow-hidden">
       {/* New item dialog — centered at top of full workspace */}
@@ -1542,49 +1508,6 @@ export function WorkspaceTab({
         className="flex shrink-0 flex-col transition-[width] duration-200" 
         style={{ width: selectedNode && selectedNode.type === "file" ? sidebarWidth : "100%" }}
       >
-        {/* Scope header */}
-        <div className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-border/30 px-2">
-          <div className="flex min-w-0 items-center gap-1.5">
-            {inspectorScope?.kind === "global" ? (
-              <VscGlobe className="size-3.5 shrink-0 text-muted-foreground/65" />
-            ) : (
-              <VscFolder className="size-3.5 shrink-0 text-muted-foreground/65" />
-            )}
-            <span className="truncate text-[11px] font-medium text-foreground/80">{scopeLabel}</span>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {inspectorScope?.kind === "project" && (
-              <button
-                type="button"
-                onClick={() => setScopePickerOpen(true)}
-                className="rounded-md border border-border/40 px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
-              >
-                Change folder
-              </button>
-            )}
-            {inspectorScope?.kind !== "project" && (
-              <>
-                {inspectorScope?.kind !== "global" && (
-                  <button
-                    type="button"
-                    onClick={() => onInspectorScopeChange?.({ kind: "global" })}
-                    className="rounded-md border border-border/40 px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
-                  >
-                    Reset
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setScopePickerOpen(true)}
-                  className="rounded-md border border-border/40 px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
-                >
-                  Change
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-
         {/* File sidebar header */}
         <div className="flex h-7 shrink-0 items-center justify-between border-b border-border/30 px-2">
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">

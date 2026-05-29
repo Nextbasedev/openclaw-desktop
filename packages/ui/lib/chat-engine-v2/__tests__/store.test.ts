@@ -2718,6 +2718,55 @@ describe("global V2 chat engine store", () => {
     expect(cached.v2Cursor).toBe(9)
   })
 
+  test("terminal bootstrap with assistant answer replaces stale live optimistic thinking state", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 25,
+      status: "thinking",
+      statusLabel: "Thinking - waiting for the next event",
+      messages: [
+        {
+          messageId: "client-hey",
+          role: "user",
+          text: "hey",
+          createdAt: "2026-05-28T12:54:00.000Z",
+          isOptimistic: true,
+        },
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 20,
+      status: "done",
+      statusLabel: null,
+      historyCoverage: "full",
+      messages: [
+        {
+          messageId: "gateway-user-hey",
+          role: "user",
+          text: "hey",
+          createdAt: "2026-05-28T12:54:01.000Z",
+          gatewayIndex: 100,
+        },
+        {
+          messageId: "gateway-assistant-answer",
+          role: "assistant",
+          text: "Hey Krish — what's up?",
+          createdAt: "2026-05-28T12:54:02.000Z",
+          gatewayIndex: 101,
+        },
+      ],
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state).toMatchObject({ status: "done", statusLabel: null })
+    expect(state?.messages.map((message) => ({ role: message.role, text: message.text, isOptimistic: message.isOptimistic }))).toEqual([
+      { role: "user", text: "hey", isOptimistic: undefined },
+      { role: "assistant", text: "Hey Krish — what's up?", isOptimistic: undefined },
+    ])
+  })
+
   // --- Bug 1: Duplicate tool card prevention ---
 
   test("completed canonical tool is removed from pendingTools when written to message", () => {

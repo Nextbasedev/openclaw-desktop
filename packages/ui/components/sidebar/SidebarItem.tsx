@@ -86,7 +86,7 @@ export function SidebarItem({
       dragListener={false}
       layout="position"
       transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
-      style={{ position: "relative", boxShadow: "none", cursor: "grab", touchAction: "none" }}
+      style={{ position: "relative", boxShadow: "none", cursor: "pointer", touchAction: "none" }}
       whileDrag={{ boxShadow: "none", cursor: "grabbing" }}
       onPointerDown={(event) => dragControls.start(event)}
     >

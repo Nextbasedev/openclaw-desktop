@@ -55,6 +55,52 @@ export function mergeToolCallsForDisplay(
   return mergeToolCalls(base ?? [], filteredLive)
 }
 
+export function mergeActiveTurnToolCalls(
+  messages: ChatMessage[],
+  pendingTools: InlineToolCall[]
+) {
+  const merged = new Map<string, InlineToolCall>()
+
+  const add = (tool: InlineToolCall) => {
+    const existing = merged.get(tool.id)
+    if (!existing) {
+      merged.set(tool.id, tool)
+      return
+    }
+    const existingTerminal = existing.status === "success" || existing.status === "error"
+    if (existingTerminal && tool.status === "running") {
+      merged.set(tool.id, {
+        ...tool,
+        ...existing,
+        duration: existing.duration ?? tool.duration,
+        startedAt: existing.startedAt ?? tool.startedAt,
+        completedAt: existing.completedAt ?? tool.completedAt,
+        resultText: existing.resultText ?? tool.resultText,
+        approval: existing.approval ?? tool.approval,
+        awaitingResult: false,
+      })
+      return
+    }
+    merged.set(tool.id, {
+      ...existing,
+      ...tool,
+      duration: tool.duration ?? existing.duration,
+      startedAt: tool.startedAt ?? existing.startedAt,
+      completedAt: tool.completedAt ?? existing.completedAt,
+      resultText: tool.resultText ?? existing.resultText,
+      approval: tool.approval ?? existing.approval,
+      awaitingResult: tool.resultText ? false : (tool.awaitingResult ?? existing.awaitingResult),
+    })
+  }
+
+  for (const message of messages) {
+    if (message.role !== "assistant") continue
+    for (const tool of message.toolCalls ?? []) add(tool)
+  }
+  for (const tool of pendingTools) add(tool)
+  return Array.from(merged.values())
+}
+
 export function terminalToolStateById(messages: ChatMessage[], live?: InlineToolCall[]) {
   const terminal = new Map<string, InlineToolCall>()
   const add = (tool: InlineToolCall) => {
@@ -121,21 +167,34 @@ export function groupAssistantToolCallsByMessage(messages: ChatMessage[]) {
       continue
     }
     if (message.role !== "assistant") continue
-    if (message.text.trim()) {
+    const tools = message.toolCalls ?? []
+    const hasText = message.text.trim().length > 0
+    const hasTools = tools.length > 0
+    if (hasText && hasTools && firstToolMessageId && collected.length > 0) {
+      // Reloaded canonical history can attach the same completed tool summary
+      // to the final text message after earlier tool-only rows. Keep one stack
+      // above the answer text instead of rendering a duplicate stack directly
+      // before the final response.
+      suppressed.add(message.messageId)
+      collected = mergeToolCalls(collected, tools)
+      flush()
+      continue
+    }
+    if (hasText) {
       // Assistant text is the visible boundary of a response segment. Do not
       // keep merging later tool activity into the earlier steps block, or one
       // new running tool makes the completed steps above old answers look like
       // they are loading again.
       flush()
     }
-    if (!message.toolCalls?.length) continue
+    if (!hasTools) continue
 
     if (!firstToolMessageId) {
       firstToolMessageId = message.messageId
     } else {
       suppressed.add(message.messageId)
     }
-    collected = mergeToolCalls(collected, message.toolCalls)
+    collected = mergeToolCalls(collected, tools)
   }
 
   flush()

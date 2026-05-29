@@ -62,16 +62,13 @@ interface SpeechRecognitionInstance extends EventTarget {
   onstart: (() => void) | null
 }
 
-declare global {
-  interface Window {
+function getSpeechRecognition(): (new () => SpeechRecognitionInstance) | null {
+  if (typeof window === "undefined") return null
+  const speechWindow = window as Window & {
     SpeechRecognition?: new () => SpeechRecognitionInstance
     webkitSpeechRecognition?: new () => SpeechRecognitionInstance
   }
-}
-
-function getSpeechRecognition(): (new () => SpeechRecognitionInstance) | null {
-  if (typeof window === "undefined") return null
-  return window.SpeechRecognition || window.webkitSpeechRecognition || null
+  return speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition || null
 }
 
 export function useVoiceInput(options?: VoiceInputOptions): VoiceInputResult {
@@ -177,7 +174,7 @@ export function useVoiceInput(options?: VoiceInputOptions): VoiceInputResult {
 
     try {
       recognition.start()
-    } catch (e) {
+    } catch {
       const msg = "Failed to start speech recognition"
       setError(msg)
       setState("error")

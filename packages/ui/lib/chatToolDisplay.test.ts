@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { applyTerminalToolState, groupAssistantToolCallsByMessage, mergeToolCallsForDisplay, terminalToolStateById } from "./chatToolDisplay"
+import { applyTerminalToolState, groupAssistantToolCallsByMessage, mergeActiveTurnToolCalls, mergeToolCallsForDisplay, terminalToolStateById } from "./chatToolDisplay"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 describe("ChatView tool display grouping", () => {
@@ -57,6 +57,65 @@ describe("ChatView tool display grouping", () => {
     expect(grouped.get("a-tools-1")).toMatchObject([{ id: "read", status: "success" }])
     expect(grouped.get("a-tools-late")).toMatchObject([{ id: "exec", status: "running" }])
     expect(suppressed.size).toBe(0)
+  })
+
+  test("merges final assistant tool summary into the existing stack on reload", () => {
+    const messages: ChatMessage[] = [
+      { messageId: "u1", role: "user", text: "once again do this" },
+      {
+        messageId: "a-tools-1",
+        role: "assistant",
+        text: "",
+        toolCalls: [
+          { id: "exec-1", tool: "exec", status: "success", duration: "0.5s" },
+          { id: "read-1", tool: "read", status: "success" },
+        ],
+      },
+      {
+        messageId: "a-tools-2",
+        role: "assistant",
+        text: "",
+        toolCalls: [{ id: "write-1", tool: "write", status: "success" }],
+      },
+      {
+        messageId: "a-final",
+        role: "assistant",
+        text: "Done — 3 sequential tool calls.",
+        toolCalls: [
+          { id: "exec-1", tool: "exec", status: "success", duration: "3.1s" },
+          { id: "read-1", tool: "read", status: "success" },
+          { id: "write-1", tool: "write", status: "success" },
+        ],
+      },
+    ]
+
+    const { grouped, suppressed } = groupAssistantToolCallsByMessage(messages)
+
+    expect(grouped.get("a-tools-1")).toMatchObject([
+      { id: "exec-1", tool: "exec", status: "success", duration: "0.5s" },
+      { id: "read-1", tool: "read", status: "success" },
+      { id: "write-1", tool: "write", status: "success" },
+    ])
+    expect(grouped.has("a-final")).toBe(false)
+    expect(suppressed.has("a-tools-2")).toBe(true)
+    expect(suppressed.has("a-final")).toBe(true)
+  })
+
+  test("appends new pending tools after existing live turn history", () => {
+    const messages: ChatMessage[] = [
+      { messageId: "a-tools", role: "assistant", text: "", toolCalls: [
+        { id: "read", tool: "read", status: "success" },
+        { id: "write", tool: "write", status: "success" },
+      ] },
+    ]
+
+    const tools = mergeActiveTurnToolCalls(messages, [
+      { id: "exec", tool: "exec", status: "running" },
+      { id: "read", tool: "read", status: "success" },
+      { id: "write", tool: "write", status: "success" },
+    ])
+
+    expect(tools.map((tool) => tool.id)).toEqual(["read", "write", "exec"])
   })
 
   test("starts a new steps block after the next user message", () => {
