@@ -45,4 +45,25 @@ describe("calculateVirtualRows", () => {
       [4, 575, 100],
     ])
   })
+
+  it("keeps explicit anchor rows mounted outside the visible window", () => {
+    const result = calculateVirtualRows({
+      count: 100,
+      scrollTop: 1_000,
+      viewportHeight: 300,
+      overscan: 1,
+      getKey: (index) => `row-${index}`,
+      getSize: () => 100,
+      extraIndexes: [30],
+    })
+
+    expect(result.rows.map((row) => row.index)).toEqual([
+      8, 9, 10, 11, 12, 13, 14, 30,
+    ])
+    expect(result.rows.at(-1)).toMatchObject({
+      key: "row-30",
+      start: 3_000,
+      size: 100,
+    })
+  })
 })

@@ -1027,6 +1027,17 @@ export function ChatView({
     () => buildStableChatRows(visibleAllMessages),
     [visibleAllMessages]
   )
+  const [pendingOlderAnchorUiId, setPendingOlderAnchorUiId] = useState<string | null>(null)
+  const pendingOlderAnchorIndex = useMemo(
+    () => pendingOlderAnchorUiId
+      ? renderedMessages.findIndex((message) => message.uiId === pendingOlderAnchorUiId)
+      : -1,
+    [pendingOlderAnchorUiId, renderedMessages]
+  )
+  const virtualExtraIndexes = useMemo(
+    () => pendingOlderAnchorIndex >= 0 ? [pendingOlderAnchorIndex] : [],
+    [pendingOlderAnchorIndex]
+  )
   const virtualChatRows = useVirtualChatRows({
     count: renderedMessages.length,
     enabled: renderedMessages.length > VIRTUAL_CHAT_ROW_THRESHOLD,
@@ -1039,6 +1050,7 @@ export function ChatView({
       (index: number) => estimateChatRowHeight(renderedMessages[index]),
       [renderedMessages]
     ),
+    extraIndexes: virtualExtraIndexes,
   })
   useEffect(() => {
     frontendLog("chat", "chat.rendered-messages.changed", {
@@ -1313,6 +1325,7 @@ export function ChatView({
     olderLoadAwaitingRenderRef.current = true
     setLoadOlderUiBusy(true)
     pendingOlderAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
+    setPendingOlderAnchorUiId(pendingOlderAnchorRef.current?.uiId || null)
     logChatScrollDebug({
       source: "chat",
       event: "load-older-start",
@@ -1327,6 +1340,7 @@ export function ChatView({
       const addedMessages = await loadOlderMessages()
       if (!addedMessages) {
         pendingOlderAnchorRef.current = null
+        setPendingOlderAnchorUiId(null)
         olderLoadAwaitingRenderRef.current = false
         lastOlderLoadAtRef.current = Date.now()
         loadOlderClickInFlightRef.current = false
@@ -1334,6 +1348,7 @@ export function ChatView({
       }
     } catch {
       pendingOlderAnchorRef.current = null
+      setPendingOlderAnchorUiId(null)
       olderLoadAwaitingRenderRef.current = false
       lastOlderLoadAtRef.current = Date.now()
       loadOlderClickInFlightRef.current = false
@@ -1359,6 +1374,7 @@ export function ChatView({
       lastOlderLoadIntentGenerationRef.current = userScrollIntentGenerationRef.current
       lastOlderLoadAtRef.current = Date.now()
       loadOlderClickInFlightRef.current = false
+      setPendingOlderAnchorUiId(null)
       setLoadOlderUiBusy(false)
     })
   }, [renderedMessages, scrollContainerRef])

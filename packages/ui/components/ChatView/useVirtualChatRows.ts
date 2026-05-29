@@ -24,6 +24,7 @@ type CalculateVirtualRowsParams = {
   overscan: number
   getKey: (index: number) => string
   getSize: (index: number) => number
+  extraIndexes?: number[]
 }
 
 export function calculateVirtualRows({
@@ -33,6 +34,7 @@ export function calculateVirtualRows({
   overscan,
   getKey,
   getSize,
+  extraIndexes = [],
 }: CalculateVirtualRowsParams): {
   rows: VirtualRow[]
   totalSize: number
@@ -66,8 +68,14 @@ export function calculateVirtualRows({
 
   const startIndex = Math.max(0, firstVisible - overscan)
   const endIndex = Math.min(count, lastVisible + overscan + 1)
+  const rowIndexes = new Set<number>()
+  for (let i = startIndex; i < endIndex; i++) rowIndexes.add(i)
+  for (const index of extraIndexes) {
+    if (index >= 0 && index < count) rowIndexes.add(index)
+  }
+
   const rows: VirtualRow[] = []
-  for (let i = startIndex; i < endIndex; i++) {
+  for (const i of Array.from(rowIndexes).sort((a, b) => a - b)) {
     rows.push({ index: i, key: getKey(i), start: starts[i], size: sizes[i] })
   }
   return { rows, totalSize, startIndex, endIndex }
@@ -80,6 +88,7 @@ type UseVirtualChatRowsParams = {
   getItemKey: (index: number) => string
   estimateSize: (index: number) => number
   overscan?: number
+  extraIndexes?: number[]
 }
 
 export function useVirtualChatRows({
@@ -89,6 +98,7 @@ export function useVirtualChatRows({
   getItemKey,
   estimateSize,
   overscan = 8,
+  extraIndexes = [],
 }: UseVirtualChatRowsParams) {
   const [measuredSizes, setMeasuredSizes] = useState<Map<string, number>>(
     () => new Map()
@@ -182,10 +192,12 @@ export function useVirtualChatRows({
       overscan,
       getKey: getItemKey,
       getSize: measuredGetSize,
+      extraIndexes,
     })
   }, [
     count,
     enabled,
+    extraIndexes,
     getItemKey,
     measuredGetSize,
     overscan,
