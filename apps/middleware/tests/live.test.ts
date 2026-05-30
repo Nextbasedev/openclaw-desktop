@@ -5,6 +5,65 @@ import { createApp } from "../src/app.js";
 import type { AppContext } from "../src/app.js";
 import type { GatewayEvent } from "../src/features/gateway/client.js";
 import type { MiddlewareConfig } from "../src/config/env.js";
+import { matchRecentConfirmedUserEcho, type RecentConfirmedUserEntry } from "../src/features/chat/live.js";
+
+describe("matchRecentConfirmedUserEcho", () => {
+  const confirmed: RecentConfirmedUserEntry = {
+    id: "client-1",
+    text: "hii",
+    runId: "run:desktop-v2:agent:main:desktop:s1:idem-1",
+    idempotencyKey: "idem-1",
+    openclawSeq: 2,
+    confirmedAtMs: Date.now(),
+  };
+
+  test("folds the fresh-chat duplicate user echo (higher live seq, same run) into the confirmed turn", () => {
+    // Reproduces the new-chat bug: the duplicate echo has a real messageId, no
+    // idempotency key, and a HIGHER live sequence than the confirmed turn, so a
+    // seq-only guard would miss it. The shared runId catches it.
+    const match = matchRecentConfirmedUserEcho({
+      text: "hii",
+      openclawSeq: 3,
+      idempotencyKey: null,
+      runId: "run:desktop-v2:agent:main:desktop:s1:idem-1",
+      entries: [confirmed],
+    });
+    expect(match).toBe(confirmed);
+  });
+
+  test("matches by idempotency key regardless of sequence", () => {
+    const match = matchRecentConfirmedUserEcho({
+      text: "hii",
+      openclawSeq: 99,
+      idempotencyKey: "idem-1",
+      runId: null,
+      entries: [confirmed],
+    });
+    expect(match).toBe(confirmed);
+  });
+
+  test("keeps a genuine repeated send visible (different run, higher seq, no idempotency key)", () => {
+    const match = matchRecentConfirmedUserEcho({
+      text: "hii",
+      openclawSeq: 5,
+      idempotencyKey: null,
+      runId: "run:desktop-v2:agent:main:desktop:s1:idem-2",
+      entries: [confirmed],
+    });
+    expect(match).toBeNull();
+  });
+
+  test("still folds a lower/equal-seq replay echo when no run id is present", () => {
+    const match = matchRecentConfirmedUserEcho({
+      text: "hii",
+      openclawSeq: 1,
+      idempotencyKey: null,
+      runId: null,
+      entries: [confirmed],
+    });
+    expect(match).toBe(confirmed);
+  });
+});
 
 function config(name: string): MiddlewareConfig {
   return {
@@ -336,6 +395,73 @@ describe("chat live ingest", () => {
     expect(replay.statusCode).toBe(200);
     const patches = replay.json().patches as Array<{ type: string; payload: { messageId?: string; optimisticId?: string } }>;
     expect(patches.filter((patch) => patch.type === "chat.message.confirmed" && patch.payload.optimisticId === "client-1")).toHaveLength(1);
+    expect(patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.upsert",
+        payload: expect.objectContaining({ messageId: "gateway-duplicate" }),
+      }),
+    ]));
+    await app.close();
+  });
+
+  test("folds the new-chat duplicate user echo that arrives with a higher live sequence (same run)", async () => {
+    // Reproduces the fresh-chat send bug from the field log: the optimistic user
+    // turn is confirmed at seq 2, then Gateway re-emits the same user message
+    // with a real messageId, no idempotency key, and a HIGHER live sequence (3).
+    // A seq-only guard misses this live (it is only caught later by backfill,
+    // after the duplicate bubble already rendered). The shared runId catches it.
+    const app = await createApp(config("dedupe-newchat-higher-seq-echo"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    const now = Date.now();
+    const runId = "run:desktop-v2:agent:main:desktop:s1:idem-1";
+    context.runs.upsertRun({ runId, sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: now, updatedAtMs: now });
+    context.chatLive.addOptimisticUser("s1", { id: "client-1", text: "hii", runId, idempotencyKey: "idem-1", createdAtMs: now });
+    context.messages.insertOptimisticMessage({
+      sessionKey: "s1",
+      openclawSeq: 2,
+      messageId: "client-1",
+      role: "user",
+      data: { role: "user", text: "hii", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1", idempotencyKey: "idem-1", runId } },
+      updatedAtMs: now,
+    });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    // First echo: matches + confirms the optimistic turn at seq 2.
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: { role: "user", text: "hii", __openclaw: { idempotencyKey: "idem-1", runId, seq: 2 } },
+      },
+    });
+    // Second echo: decorated duplicate with real messageId, no idempotency key,
+    // higher live sequence (3), same run.
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 3,
+        message: { role: "user", text: "hii", __openclaw: { id: "gateway-duplicate", runId, seq: 3 } },
+      },
+    });
+
+    const userMessages = context.messages.listMessages("s1").filter((message) => message.role === "user");
+    expect(userMessages).toHaveLength(1);
+    expect(userMessages[0]).toMatchObject({ messageId: "client-1" });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.statusCode).toBe(200);
+    const patches = replay.json().patches as Array<{ type: string; payload: { messageId?: string } }>;
     expect(patches).not.toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: "chat.message.upsert",

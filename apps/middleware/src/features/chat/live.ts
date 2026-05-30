@@ -60,6 +60,57 @@ function liveErrorLabel(payload: Record<string, unknown>, data: Record<string, u
 const RECENT_CONFIRMED_USER_ECHO_TTL_MS = 2 * 60 * 1000;
 const RECENT_CONFIRMED_USER_ECHO_LIMIT = 20;
 
+export type RecentConfirmedUserEntry = {
+  id: string;
+  text: string;
+  runId?: string;
+  idempotencyKey?: string;
+  openclawSeq: number;
+  confirmedAtMs: number;
+};
+
+/**
+ * Decide whether an incoming user message is a duplicate echo of a turn that
+ * was already confirmed (optimistic -> gateway echo). Pure so it can be unit
+ * tested without an AppContext.
+ *
+ * The fresh-chat send path echoes the same user turn twice: the first echo
+ * carries the optimistic clientMessageId/idempotencyKey (confirmed + consumed),
+ * the second arrives decorated with a real messageId, no idempotency key, and a
+ * HIGHER Gateway sequence. A seq-only guard (`incoming <= confirmed`) misses it.
+ */
+export function matchRecentConfirmedUserEcho(params: {
+  text: string;
+  openclawSeq: number;
+  idempotencyKey?: string | null;
+  runId?: string | null;
+  entries: RecentConfirmedUserEntry[];
+}): RecentConfirmedUserEntry | null {
+  const { text, openclawSeq, idempotencyKey, runId, entries } = params;
+  if (!text) return null;
+  return entries.find((entry) => {
+    if (entry.text !== text) return false;
+    // Match by idempotency key if available (most reliable).
+    if (idempotencyKey && entry.idempotencyKey && idempotencyKey === entry.idempotencyKey) return true;
+    // Match by run id: the fresh-chat send path echoes the same user turn twice
+    // within ONE run. The first echo carries the optimistic
+    // clientMessageId/idempotencyKey (confirmed + consumed); the second arrives
+    // decorated with a real messageId, no idempotency key, and — because the live
+    // event envelope assigns a fresh sequence while the persisted message keeps
+    // its original lower seq — a HIGHER live sequence than the confirmed turn.
+    // The seq guard below therefore misses it live (it is only caught later by
+    // the history backfill, after the duplicate patch already rendered). A
+    // same-run + same-text echo of an already-confirmed turn is that duplicate.
+    // A genuine repeated send belongs to a different (newer) run, so this stays
+    // safe for intentional resends of identical text.
+    if (runId && entry.runId && runId === entry.runId) return true;
+    // Later legitimate repeated sends have a newer sequence and their own
+    // optimistic entry. A decorated Gateway echo for the already-confirmed turn
+    // commonly replays with the original/lower Gateway sequence.
+    return openclawSeq <= entry.openclawSeq;
+  }) ?? null;
+}
+
 function textFromLiveValue(value: unknown): string | null {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
@@ -395,15 +446,14 @@ export class ChatLiveIngest {
       ? (message.data as Record<string, unknown>).__openclaw as Record<string, unknown>
       : null;
     const msgIdempotencyKey = typeof msgOpenclaw?.idempotencyKey === "string" ? msgOpenclaw.idempotencyKey : null;
-    return fresh.find((entry) => {
-      if (entry.text !== text) return false;
-      // Match by idempotency key if available (most reliable)
-      if (msgIdempotencyKey && entry.idempotencyKey && msgIdempotencyKey === entry.idempotencyKey) return true;
-      // Later legitimate repeated sends should have a newer sequence and their
-      // own optimistic entry. A decorated Gateway echo for the already-confirmed
-      // turn commonly replays with the original/lower Gateway sequence.
-      return message.openclawSeq <= entry.openclawSeq;
-    }) ?? null;
+    const msgRunId = this.readRunId(message.data);
+    return matchRecentConfirmedUserEcho({
+      text,
+      openclawSeq: message.openclawSeq,
+      idempotencyKey: msgIdempotencyKey,
+      runId: msgRunId,
+      entries: fresh,
+    });
   }
 
   private takeMatchingOptimisticUser(sessionKey: string, message: OpenClawMessage): { id: string; runId?: string; idempotencyKey?: string } | null {
