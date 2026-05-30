@@ -286,17 +286,42 @@ describe("ChatTimelineStore", () => {
       expect(snap.messages.map((m) => m.text)).toEqual(["first", "second", "third"])
     })
 
-    it("keeps the user message above an assistant/tool row that shares its seq", () => {
+    it("keeps the user message above the same-turn tool card it triggered on a seq collision", () => {
       // Live repro (session mps6lcrp): middleware's chat.user.confirmed patch
       // stamps the confirmed user turn with the projection lastSeq (13), which
-      // collides with the assistant tool row's own seq (13). The tool card must
-      // not float above the user message.
-      store.applyPatchMessage(msg("assistant-13", "tool card", 13, "assistant"), 1)
-      store.applyPatchMessage(msg("user-13", "my question", 13, "user"), 2)
+      // collides with the assistant tool row's own seq (13). The tie breaks by
+      // creation time: the user message was created before its tool card, so it
+      // must stay above. Insert assistant first to prove order is not insertion.
+      store.applyPatchMessage(
+        { ...msg("assistant-13", "tool card", 13, "assistant"), createdAt: "2026-05-30T10:02:53.000Z" } as ChatMessage,
+        1
+      )
+      store.applyPatchMessage(
+        { ...msg("user-13", "my question", 13, "user"), createdAt: "2026-05-30T10:02:51.000Z" } as ChatMessage,
+        2
+      )
       store.flushSync()
       const snap = store.getSnapshot()
       expect(snap.messages.map((m) => m.role)).toEqual(["user", "assistant"])
       expect(snap.messages.map((m) => m.text)).toEqual(["my question", "tool card"])
+    })
+
+    it("keeps a newer user message below an older assistant reply it collides with on seq", () => {
+      // The inverse collision: a newer user turn (created later) must not jump
+      // above an older assistant reply that shares its seq. A role-first tie
+      // rule would wrongly hoist the user above the old reply; chronology keeps
+      // the older reply first.
+      store.applyPatchMessage(
+        { ...msg("assistant-old", "old reply", 20, "assistant"), createdAt: "2026-05-30T10:00:00.000Z" } as ChatMessage,
+        1
+      )
+      store.applyPatchMessage(
+        { ...msg("user-new", "new question", 20, "user"), createdAt: "2026-05-30T10:05:00.000Z" } as ChatMessage,
+        2
+      )
+      store.flushSync()
+      const snap = store.getSnapshot()
+      expect(snap.messages.map((m) => m.text)).toEqual(["old reply", "new question"])
     })
   })
 

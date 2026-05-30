@@ -211,8 +211,6 @@ export class ChatTimelineStore {
       const seq = message.gatewayIndex ?? 0
       return seq > 0 ? seq : maxSeq + 1
     }
-    // User rows sort before assistant/tool rows when they share a sequence.
-    const roleRank = (message: ChatMessage) => (message.role === "user" ? 0 : 1)
     msgs.sort((a, b) => {
       const aSeq = a.gatewayIndex ?? 0
       const bSeq = b.gatewayIndex ?? 0
@@ -225,11 +223,14 @@ export class ChatTimelineStore {
       }
       const seqDelta = sortValue(a) - sortValue(b)
       if (seqDelta !== 0) return seqDelta
-      // Middleware's live user-confirm patch can stamp the confirmed user turn
-      // with the projection's lastSeq, colliding with the assistant/tool row's
-      // own seq. On a tie, keep the user message above its answer/tool card and
-      // fall back to creation time so a tool card never floats above the user.
-      if (a.role !== b.role) return roleRank(a) - roleRank(b)
+      // Sequence collisions happen because middleware's live user-confirm patch
+      // can stamp the confirmed user turn with the projection's lastSeq, which
+      // matches an assistant/tool row's own seq. Break the tie by true creation
+      // time, NOT by role: chronological order correctly keeps a user message
+      // above the tool card it triggered (same turn, user created first) AND
+      // keeps a newer user message below an older assistant reply it collides
+      // with (different turns, reply created first). A role-based rule only
+      // satisfies the first case and reorders the second.
       const aTime = timestamp(a)
       const bTime = timestamp(b)
       if (aTime !== null && bTime !== null && aTime !== bTime) return aTime - bTime
