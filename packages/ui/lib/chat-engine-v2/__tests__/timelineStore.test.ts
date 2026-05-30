@@ -285,6 +285,19 @@ describe("ChatTimelineStore", () => {
       const snap = store.getSnapshot()
       expect(snap.messages.map((m) => m.text)).toEqual(["first", "second", "third"])
     })
+
+    it("keeps the user message above an assistant/tool row that shares its seq", () => {
+      // Live repro (session mps6lcrp): middleware's chat.user.confirmed patch
+      // stamps the confirmed user turn with the projection lastSeq (13), which
+      // collides with the assistant tool row's own seq (13). The tool card must
+      // not float above the user message.
+      store.applyPatchMessage(msg("assistant-13", "tool card", 13, "assistant"), 1)
+      store.applyPatchMessage(msg("user-13", "my question", 13, "user"), 2)
+      store.flushSync()
+      const snap = store.getSnapshot()
+      expect(snap.messages.map((m) => m.role)).toEqual(["user", "assistant"])
+      expect(snap.messages.map((m) => m.text)).toEqual(["my question", "tool card"])
+    })
   })
 
   describe("subscribe", () => {

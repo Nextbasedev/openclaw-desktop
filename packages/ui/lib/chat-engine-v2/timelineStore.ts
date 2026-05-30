@@ -211,6 +211,8 @@ export class ChatTimelineStore {
       const seq = message.gatewayIndex ?? 0
       return seq > 0 ? seq : maxSeq + 1
     }
+    // User rows sort before assistant/tool rows when they share a sequence.
+    const roleRank = (message: ChatMessage) => (message.role === "user" ? 0 : 1)
     msgs.sort((a, b) => {
       const aSeq = a.gatewayIndex ?? 0
       const bSeq = b.gatewayIndex ?? 0
@@ -221,7 +223,17 @@ export class ChatTimelineStore {
         const bTime = timestamp(b)
         if (aTime !== null && bTime !== null && aTime !== bTime) return aTime - bTime
       }
-      return sortValue(a) - sortValue(b)
+      const seqDelta = sortValue(a) - sortValue(b)
+      if (seqDelta !== 0) return seqDelta
+      // Middleware's live user-confirm patch can stamp the confirmed user turn
+      // with the projection's lastSeq, colliding with the assistant/tool row's
+      // own seq. On a tie, keep the user message above its answer/tool card and
+      // fall back to creation time so a tool card never floats above the user.
+      if (a.role !== b.role) return roleRank(a) - roleRank(b)
+      const aTime = timestamp(a)
+      const bTime = timestamp(b)
+      if (aTime !== null && bTime !== null && aTime !== bTime) return aTime - bTime
+      return 0
     })
     return msgs
   }
