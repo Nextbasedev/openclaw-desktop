@@ -73,26 +73,38 @@ describe("ChatTimelineStore", () => {
       expect(store.getSnapshot().messageCount).toBe(50)
     })
 
-    it("orders confirmed user before assistant when projected seq drifted but gateway seq is correct", () => {
+    it("orders bootstrap history by canonical openclaw seq even when gateway seq is out of order", () => {
       const parsed = parseChatHistory([
         {
+          role: "user",
+          text: "spawn please",
+          __openclaw: { id: "u1", seq: 1, gatewaySeq: 60 },
+        },
+        {
           role: "assistant",
-          text: "WEBWRIGHT_CHAT_123",
-          __openclaw: { id: "assistant-final", seq: 2, gatewaySeq: 2 },
+          text: "Spawned subagents",
+          __openclaw: { id: "spawn", seq: 2, gatewaySeq: 74 },
         },
         {
           role: "user",
-          text: "WEBWRIGHT_CHAT_123 long message",
-          __openclaw: { id: "user-confirmed", seq: 3, gatewaySeq: 1 },
+          text: "continue",
+          __openclaw: { id: "u2", seq: 3, gatewaySeq: 62 },
+        },
+        {
+          role: "assistant",
+          text: "Subagent result",
+          __openclaw: { id: "result", seq: 4, gatewaySeq: 73 },
         },
       ])
 
       store.applyBootstrap(parsed.messages, 20)
       store.flushSync()
 
-      expect(store.getSnapshot().messages.map((message) => `${message.role}:${message.text}`)).toEqual([
-        "user:WEBWRIGHT_CHAT_123 long message",
-        "assistant:WEBWRIGHT_CHAT_123",
+      expect(store.getSnapshot().messages.map((message) => `${message.messageId}:${message.text}`)).toEqual([
+        "u1:spawn please",
+        "spawn:Spawned subagents",
+        "u2:continue",
+        "result:Subagent result",
       ])
     })
   })

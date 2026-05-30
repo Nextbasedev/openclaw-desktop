@@ -42,7 +42,7 @@ describe("dedupeChatMessages", () => {
     )
   })
 
-  it("keeps same-timestamp user messages before assistant replies", () => {
+  it("keeps same-seq same-timestamp user messages before assistant replies", () => {
     const messages: ChatMessage[] = [
       {
         messageId: "assistant",
@@ -56,7 +56,7 @@ describe("dedupeChatMessages", () => {
         role: "user",
         text: "Prompt",
         createdAt: "2026-05-14T10:00:00.000Z",
-        gatewayIndex: 2,
+        gatewayIndex: 1,
       },
     ]
 

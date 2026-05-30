@@ -161,11 +161,21 @@ function inferGatewayOrderBase(raw: RawHistoryMessage[]) {
 }
 
 function messageOrderSeq(raw: RawHistoryMessage, gatewayOrderBase: number | undefined) {
+  // openclawSeq is the canonical, monotonic persisted order from the
+  // middleware. Trust it first. Earlier this preferred gatewayOrderBase +
+  // gatewaySeq, but the raw gatewaySeq can be out of order within a single run
+  // (e.g. a create_task/subagent-spawn assistant message gets a HIGHER
+  // gatewaySeq than its own tool results and the follow-up reply), which pushed
+  // the spawning tool card below the assistant's answer. Only fall back to the
+  // gateway-derived position when the canonical seq is absent (pure live rows
+  // that have not been persisted yet).
+  const seq = openclawSeq(raw)
+  if (seq !== undefined) return seq
   const gateway = gatewaySeq(raw)
   if (gateway !== undefined && gatewayOrderBase !== undefined) {
     return gatewayOrderBase + gateway
   }
-  return openclawSeq(raw)
+  return undefined
 }
 
 function messageRunId(raw: RawHistoryMessage) {

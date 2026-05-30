@@ -689,6 +689,50 @@ describe("parseChatHistory", () => {
     assert.equal(tool?.completedAt, 1778669838056)
   })
 
+
+  it("orders messages by canonical seq, not by out-of-order gatewaySeq within a run", () => {
+    // Live repro (session mpsb1hn1): a sessions_spawn/subagent-spawn assistant
+    // message got a HIGHER raw gatewaySeq (74) than a later turn's reply
+    // (gatewaySeq 73). Ordering must follow the canonical, monotonic openclaw
+    // seq so the spawn/tool card is never pushed below a later reply. User
+    // boundaries keep the messages as separate rows (as they render live).
+    const parsed = parseChatHistory([
+      {
+        role: "user",
+        content: [{ type: "text", text: "spawn subagents" }],
+        __openclaw: { id: "u1", seq: 1, gatewaySeq: 60 },
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "ct1", name: "sessions_spawn", arguments: {} },
+        ],
+        text: "Spawning subagents.",
+        __openclaw: { id: "spawn", seq: 2, gatewaySeq: 74 },
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "and now reply" }],
+        __openclaw: { id: "u2", seq: 3, gatewaySeq: 62 },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Here is the reply." }],
+        __openclaw: { id: "reply", seq: 4, gatewaySeq: 73 },
+      },
+    ])
+
+    const spawn = parsed.messages.find((m) => m.messageId === "spawn")
+    const reply = parsed.messages.find((m) => m.messageId === "reply")
+    assert.ok(spawn && reply, "both messages present")
+    // Despite spawn.gatewaySeq (74) > reply.gatewaySeq (73), canonical seq order
+    // (2 < 4) must win so the spawn tool card stays above the later reply.
+    assert.ok(
+      (spawn?.gatewayIndex ?? 0) < (reply?.gatewayIndex ?? 0),
+      `spawn order (${spawn?.gatewayIndex}) must be before reply (${reply?.gatewayIndex})`,
+    )
+  })
+
   it("restores reply previews from markdown quotes with blank quoted lines", () => {
     const assistantText =
       "First assistant line.\n\nSecond assistant paragraph with enough text to represent a stored reply preview."
