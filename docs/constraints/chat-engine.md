@@ -2,10 +2,40 @@
 
 ## Message Ordering
 
-- Messages are ordered by `openclaw_seq` within segments, NOT by timestamp
-- Gateway timestamps can be inconsistent across segments
-- Segments have a `baseSeq`; projected seq = `baseSeq + gatewaySeq`
-- Active segment receives new messages; archived segments are read-only
+- `openclaw_seq` is the single canonical, monotonic ordering key. Messages are
+  ordered by it within segments, NOT by timestamp and NOT by raw `gatewaySeq`.
+- Gateway timestamps can be inconsistent across segments.
+- **Do not re-derive order from `gatewaySeq`.** Within a single run the raw
+  Gateway sequence can be out of order (e.g. a `sessions_spawn`/subagent-spawn
+  assistant message gets a HIGHER `gatewaySeq` than its own tool results and the
+  follow-up reply). The frontend parser (`messageOrderSeq` in
+  `chatHistoryParser.ts`) must trust `__openclaw.seq` first and only fall back to
+  a gateway-derived position when the canonical seq is absent (pure live rows
+  not yet persisted). `gatewaySeq` is identity/match metadata, not order.
+- `openclaw_seq` is ORDER, not identity. The middleware `upsertMessages` only
+  appends a new row on a true collision (a DIFFERENT message — different role,
+  or different text — landing on an occupied seq). A same-role/same-text replay
+  of an existing message overwrites in place; it must never be appended, or each
+  send duplicates the prior turn one row down.
+- `confirmOptimisticUser` must NOT move the optimistic user's `openclaw_seq` to
+  `baseSeq + gatewaySeq`. That projection overshoots when `baseSeq` was frozen
+  before local optimistic appends and collides the confirmed user with its own
+  run's assistant/tool rows. Keep the locally allocated seq; retain the gateway
+  position only in `gateway_seq` / `__openclaw.gatewaySeq` for matching.
+- Segments have a `baseSeq` used for backfill projection, but it is not an
+  authoritative reorder source for already-persisted messages.
+- Active segment receives new messages; archived segments are read-only.
+- Live patch apply (`applyPatches.ts`) must anchor an assistant/tool message to
+  at least `runUser.gatewayIndex + 1`. During streaming the live and
+  history-backfill seq sources can disagree (the live assistant can carry a
+  LOWER raw `messageSeq` than the user that triggered the run), which makes the
+  tool card flicker ABOVE the user message then snap back. Clamp it so an
+  assistant row in a run never sorts above its own run's user message.
+- Send-path history persist (`routes.ts`) must drop stripped prior-turn user
+  echoes using the same confirmed-user guard the live/backfill paths use
+  (`ChatLiveIngest.isConfirmedUserDuplicate`). Gateway replays every prior user
+  turn on each send with a stripped `messageId` (no `runId`/`idempotencyKey`);
+  re-persisting them duplicates earlier user turns.
 
 ## Message Deduplication (`chatMessageDedupe.ts`)
 
@@ -14,6 +44,12 @@
 - `sendStatus` is cleared when gateway confirmation arrives
 - Attachment marker text (`[Attached image: ...]`) is stripped from display text
 - Role comparator ensures user/assistant messages don't accidentally merge
+- **Single sorter.** Ordering is decided in exactly one place
+  (`sortChatMessagesByTimeline`, invoked as the final step of
+  `dedupeChatMessages`). `timelineStore.getSortedMessages` must delegate to it,
+  not implement a second, divergent tiebreak. Historically the store used a
+  `createdAt` tiebreak while dedupe used a role tiebreak, so the same messages
+  rendered in different orders depending on the path. Keep one source of truth.
 
 ## History Parsing (`chatHistoryParser.ts`)
 
