@@ -27,6 +27,14 @@ function flushBackgroundJobs() {
   return new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+async function waitFor(condition: () => boolean, timeoutMs = 500) {
+  const started = Date.now();
+  while (!condition()) {
+    if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for condition");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   clearLocalFirstBootstrapCache();
@@ -1055,6 +1063,58 @@ describe("middleware app", () => {
     expect(res.statusCode).toBe(200);
     expect(secondRes.statusCode).toBe(200);
     expect((secondRes.json().messages as Array<{ content?: string }>).map((message) => String(message.content || "")).join("\n")).toContain("valid archived message");
+    await app.close();
+  });
+
+  test("chat bootstrap prunes stale active projection rows after canonical history sync", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    const sessionKey = "agent:main:desktop:stale-local";
+    vi.spyOn(context.gateway, "status").mockReturnValue({
+      connected: true,
+      gatewayUrl: "ws://127.0.0.1:1",
+      connectedAtMs: Date.now(),
+      lastError: null,
+      pendingRequests: 0,
+      listenerCount: 0,
+    });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") {
+        return {
+          sessionKey,
+          sessionId: "session-1",
+          messages: [
+            { role: "user", text: "one", __openclaw: { id: "u1", seq: 1 } },
+            { role: "assistant", text: "two", __openclaw: { id: "a1", seq: 2 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    context.messages.upsertSession({ sessionKey, sessionId: "session-1", data: { sessionKey, sessionId: "session-1", status: "done" } });
+    const segment = context.messages.ensureActiveSegment({ sessionKey, sessionId: "session-1" });
+    context.messages.upsertMessages(normalizeHistoryMessages(sessionKey, [
+      { role: "user", text: "one", __openclaw: { id: "u1", seq: 1 } },
+      { role: "assistant", text: "two", __openclaw: { id: "a1", seq: 2 } },
+      { role: "user", text: "stale duplicate", __openclaw: { id: "stale-u", seq: 3 } },
+      { role: "assistant", text: "stale answer", __openclaw: { id: "stale-a", seq: 4 } },
+    ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+
+    const first = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().messages).toHaveLength(2);
+
+    await waitFor(() => context.messages.countMessages(sessionKey) === 2);
+    expect(context.messages.listMessages(sessionKey).map((message) => message.messageId)).toEqual(["u1", "a1"]);
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.json().patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.bootstrap",
+        payload: expect.objectContaining({ pruned: 2 }),
+      }),
+    ]));
     await app.close();
   });
 

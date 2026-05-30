@@ -3,6 +3,7 @@ export type OpenClawMessage = Record<string, unknown> & {
   __openclaw?: {
     id?: string;
     seq?: number;
+    gatewayId?: string | null;
     gatewaySeq?: number | null;
     segmentId?: string | null;
     runId?: string | null;

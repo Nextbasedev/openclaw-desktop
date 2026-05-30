@@ -344,6 +344,47 @@ export class MessageRepository {
     return { upserted: result.changedMessages.length, lastSeq: result.lastSeq, changedMessages: result.changedMessages };
   }
 
+  pruneSegmentToCanonicalMessages(params: { sessionKey: string; segmentId: string | null; baseSeq: number; canonicalMessages: ProjectedMessage[] }) {
+    const canonicalSeqs = new Set<number>();
+    const canonicalIds = new Set<string>();
+    const canonicalGatewaySeqs = new Set<number>();
+    for (const message of params.canonicalMessages) {
+      const gatewaySeq = message.gatewaySeq ?? message.openclawSeq;
+      canonicalSeqs.add(params.baseSeq + gatewaySeq);
+      canonicalGatewaySeqs.add(gatewaySeq);
+      if (message.messageId) canonicalIds.add(message.messageId);
+    }
+
+    const rows = this.db.prepare(`
+      SELECT openclaw_seq, message_id, role, data_json
+      FROM v2_messages
+      WHERE session_key = @sessionKey AND segment_id IS @segmentId
+    `).all({ sessionKey: params.sessionKey, segmentId: params.segmentId }) as Array<{ openclaw_seq: number; message_id: string | null; role: string | null; data_json: string }>;
+    const deleteRow = this.db.prepare(`
+      DELETE FROM v2_messages
+      WHERE session_key = @sessionKey AND segment_id IS @segmentId AND openclaw_seq = @openclawSeq
+    `);
+    const tx = this.db.transaction(() => {
+      let pruned = 0;
+      for (const row of rows) {
+        const data = fromJson(row.data_json) as OpenClawMessage;
+        if (isOptimisticData(data)) continue;
+        const gatewayId = data.__openclaw?.gatewayId;
+        const gatewaySeq = data.__openclaw?.gatewaySeq;
+        const represented =
+          canonicalSeqs.has(row.openclaw_seq) ||
+          (row.message_id !== null && canonicalIds.has(row.message_id)) ||
+          (typeof gatewayId === "string" && canonicalIds.has(gatewayId)) ||
+          (typeof gatewaySeq === "number" && canonicalGatewaySeqs.has(gatewaySeq));
+        if (represented) continue;
+        deleteRow.run({ sessionKey: params.sessionKey, segmentId: params.segmentId, openclawSeq: row.openclaw_seq });
+        pruned += 1;
+      }
+      return pruned;
+    });
+    return tx() as number;
+  }
+
   resequenceSessionMessages(sessionKey: string) {
     const segments = this.db.prepare(`
       SELECT segment_id, segment_index, is_active, started_at_ms

@@ -1222,12 +1222,15 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             const segment = context.messages.ensureActiveSegment({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null });
             context.messages.upsertSession({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, data: { ...sessionData, ...(history.status ? { status: history.status } : {}) } });
             const proj = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-            if (proj.upserted > 0) {
-              const newEvent = context.messages.appendProjectionEvent({ sessionKey: sk, eventType: "chat.bootstrap", payload: { sessionKey: sk, messageCount: serialized.length + proj.upserted, lastSeq: context.messages.nextMessageSeq(sk) - 1, backgroundRefresh: true } });
+            const activeRun = context.runs.findLatestPendingRun(sk);
+            const pruned = activeRun ? 0 : context.messages.pruneSegmentToCanonicalMessages({ sessionKey: sk, segmentId: segment.segmentId, baseSeq: segment.baseSeq, canonicalMessages: normalized });
+            if (proj.upserted > 0 || pruned > 0) {
+              const total = context.messages.countMessages(sk);
+              const newEvent = context.messages.appendProjectionEvent({ sessionKey: sk, eventType: "chat.bootstrap", payload: { sessionKey: sk, messageCount: total, lastSeq: context.messages.nextMessageSeq(sk) - 1, backgroundRefresh: true, pruned } });
               context.patchBus.broadcast({ cursor: newEvent.cursor, type: newEvent.eventType, sessionKey: sk, payload: newEvent.payload, createdAtMs: newEvent.createdAtMs });
-              log.info("bootstrap.background-sync.changed", { sessionKey: sk, upserted: proj.upserted, cursor: newEvent.cursor });
+              log.info("bootstrap.background-sync.changed", { sessionKey: sk, upserted: proj.upserted, pruned, cursor: newEvent.cursor });
             } else {
-              log.info("bootstrap.background-sync.unchanged", { sessionKey: sk });
+              log.info("bootstrap.background-sync.unchanged", { sessionKey: sk, pruned });
             }
             localFirstBootstrapTimestamps.set(sk, Date.now());
           } catch (error) {
@@ -1291,8 +1294,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
     log.info("bootstrap.session.persist", { sessionKey, sessionId: history.sessionId ?? existingSession?.sessionId ?? null, status: typeof sessionData.status === "string" ? sessionData.status : null });
     const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+    const bootstrapPruned = context.runs.findLatestPendingRun(sessionKey) ? 0 : context.messages.pruneSegmentToCanonicalMessages({ sessionKey, segmentId: segment.segmentId, baseSeq: segment.baseSeq, canonicalMessages: normalized });
     const bootstrapLastSeq = context.messages.nextMessageSeq(sessionKey) - 1;
-    log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: bootstrapLastSeq });
+    log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, pruned: bootstrapPruned, lastSeq: bootstrapLastSeq });
     void scheduleArchivedHistoryProjection({ context, log, sessionKey, history });
 
     const latestRun = context.runs.latestRun(sessionKey);
@@ -1350,7 +1354,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const event = context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.bootstrap",
-      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "metadata", fullMessagesIncluded: false },
+      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "metadata", fullMessagesIncluded: false, pruned: bootstrapPruned },
     });
     localFirstBootstrapTimestamps.set(sessionKey, nowMs());
     localFirstSqliteBlocked.delete('*');
