@@ -1,6 +1,13 @@
 export type OpenClawMessage = Record<string, unknown> & {
   role?: string;
-  __openclaw?: { id?: string; seq?: number; gatewaySeq?: number | null; segmentId?: string | null };
+  __openclaw?: {
+    id?: string;
+    seq?: number;
+    gatewaySeq?: number | null;
+    segmentId?: string | null;
+    runId?: string | null;
+    replacedLiveMessageId?: string | null;
+  };
 };
 
 export type ProjectedMessage = {

@@ -505,7 +505,7 @@ describe("applyChatPatch", () => {
         cursor: 1,
         type: "chat.message.upsert",
         sessionKey: "s1",
-        payload: { semanticType: "chat.user.created", messageId: "client-1", messageSeq: 1, message: { role: "user", text: "hii what is your name", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1", seq: 1 } } },
+        payload: { semanticType: "chat.user.created", messageId: "client-1", messageSeq: 1, message: { role: "user", text: "hii what is your name", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1", seq: 1, runId: "run-1" } } },
         createdAtMs: 1,
       },
     })
@@ -558,6 +558,46 @@ describe("applyChatPatch", () => {
     ])
     expect(state.messages.filter((message) => message.role === "user" && message.text === "ella you are my bff")).toHaveLength(1)
     expect(state.messages[2]).toMatchObject({ messageId: "client-2", isOptimistic: false })
+  })
+
+
+  test("keeps delayed older assistant above newer user even when assistant patch lacks messageSeq", () => {
+    let state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.user.created", messageId: "client-1", messageSeq: 1, message: { role: "user", text: "how are you", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1", seq: 1, runId: "run-1" } } },
+        createdAtMs: 1,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.user.created", messageId: "client-2", messageSeq: 3, message: { role: "user", text: "hii", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-2", seq: 3 } } },
+        createdAtMs: 2,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.assistant.final", messageId: "assistant-1", runId: "run-1", message: { role: "assistant", text: "I'm doing well.", __openclaw: { id: "assistant-1", runId: "run-1" } } },
+        createdAtMs: 3,
+      },
+    })
+
+    expect(state.messages.map((message) => `${message.role}:${message.text}`)).toEqual([
+      "user:how are you",
+      "assistant:I'm doing well.",
+      "user:hii",
+    ])
   })
 
   test("keeps rapid identical user sends and assistant finals as distinct turns", () => {

@@ -105,6 +105,7 @@ export type ChatMessage = {
   embeds?: EmbedContent[]
   replyTo?: ReplyTo
   gatewayIndex?: number
+  runId?: string
   attachments?: Array<{
     name: string
     mimeType: string

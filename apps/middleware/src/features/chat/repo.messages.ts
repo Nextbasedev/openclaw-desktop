@@ -533,6 +533,9 @@ export class MessageRepository {
     const gatewayHasDisplayText = textOf(gatewayMessage.data).length > 0;
     const existingHasDisplayText = textOf(existingData).length > 0;
     const preserveOptimisticDisplay = !gatewayHasDisplayText && existingHasDisplayText;
+    const existingOpenClaw = existingData.__openclaw ?? {};
+    const gatewayOpenClaw = gatewayMessage.data.__openclaw ?? {};
+    const preservedRunId = gatewayOpenClaw.runId ?? existingOpenClaw.runId;
     const data = {
       ...gatewayMessage.data,
       ...(preserveOptimisticDisplay && typeof existingData.text === "string" ? { text: existingData.text } : {}),
@@ -541,7 +544,8 @@ export class MessageRepository {
       isOptimistic: false,
       __clientOptimistic: false,
       __openclaw: {
-        ...(gatewayMessage.data.__openclaw ?? {}),
+        ...gatewayOpenClaw,
+        ...(typeof preservedRunId === "string" && preservedRunId.trim() ? { runId: preservedRunId.trim() } : {}),
         id: optimisticId,
         gatewayId: gatewayMessage.messageId,
         gatewaySeq,

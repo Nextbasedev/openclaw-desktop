@@ -55,6 +55,31 @@ function patchMessageSeq(frame: PatchFrame): number | undefined {
   return undefined
 }
 
+function patchRunId(frame: PatchFrame): string | null {
+  const payload = patchPayload(frame)
+  const payloadRunId = payload?.runId
+  if (typeof payloadRunId === "string" && payloadRunId.trim()) return payloadRunId.trim()
+  const message = patchMessage(frame)
+  if (message && typeof message === "object" && !Array.isArray(message)) {
+    const raw = message as { runId?: unknown; __openclaw?: { runId?: unknown } }
+    const runId = raw.__openclaw?.runId ?? raw.runId
+    if (typeof runId === "string" && runId.trim()) return runId.trim()
+  }
+  return null
+}
+
+function inferAssistantSeqFromRun(state: ApplyPatchState, frame: PatchFrame, parsed: ChatMessage[], messageSeq: number | undefined): number | undefined {
+  if (typeof messageSeq === "number") return messageSeq
+  if (!parsed.some((item) => item.role === "assistant")) return undefined
+  const runId = patchRunId(frame)
+  if (!runId) return undefined
+  const matchingUser = [...state.messages]
+    .reverse()
+    .find((item) => item.role === "user" && item.runId === runId && typeof item.gatewayIndex === "number" && Number.isFinite(item.gatewayIndex))
+  if (!matchingUser || typeof matchingUser.gatewayIndex !== "number") return undefined
+  return matchingUser.gatewayIndex + 1
+}
+
 function shouldAnimateAssistantTextPatch(frame: PatchFrame, message: ChatMessage): boolean {
   if (message.role !== "assistant") return false
   if (!message.text.trim()) return false
@@ -306,17 +331,18 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
   const optimisticId = patchOptimisticId(frame)
   const payload = patchPayload(frame)
   const canonicalMessageId = typeof payload?.messageId === "string" && payload.messageId.trim() ? payload.messageId : optimisticId
-  const messageSeq = patchMessageSeq(frame)
+  const initialMessageSeq = patchMessageSeq(frame)
   const parsed = synthesizeBlankUserConfirmation(
     state,
     parseChatHistory([message]).messages,
     optimisticId,
     canonicalMessageId,
-    messageSeq,
+    initialMessageSeq,
   )
+  const messageSeq = inferAssistantSeqFromRun(state, frame, parsed, initialMessageSeq)
   const withSeq = typeof messageSeq === "number"
-    ? parsed.map((item) => ({ ...item, gatewayIndex: messageSeq }))
-    : parsed
+    ? parsed.map((item) => ({ ...item, gatewayIndex: messageSeq, runId: item.runId ?? patchRunId(frame) ?? undefined }))
+    : parsed.map((item) => ({ ...item, runId: item.runId ?? patchRunId(frame) ?? undefined }))
   const normalizedRaw = canonicalMessageId
     ? withSeq.map((item) =>
       item.role === "user"

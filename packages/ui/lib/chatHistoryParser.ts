@@ -102,7 +102,9 @@ export type RawHistoryMessage = {
     seq?: number
     gatewaySeq?: number | null
     segmentId?: string | null
+    runId?: string | null
   }
+  runId?: string
   role?: string
   text?: string
   content?: string | ContentBlock[]
@@ -164,6 +166,11 @@ function messageOrderSeq(raw: RawHistoryMessage, gatewayOrderBase: number | unde
     return gatewayOrderBase + gateway
   }
   return openclawSeq(raw)
+}
+
+function messageRunId(raw: RawHistoryMessage) {
+  const runId = raw.__openclaw?.runId ?? raw.runId
+  return typeof runId === "string" && runId.trim() ? runId.trim() : undefined
 }
 
 function messageId(raw: RawHistoryMessage) {
@@ -781,6 +788,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           isOptimistic: Boolean(item.isOptimistic || item.__clientOptimistic),
           replyTo: reply?.replyTo,
           gatewayIndex: messageOrderSeq(item, gatewayOrderBase),
+          runId: messageRunId(item),
           attachments,
         })
       }
@@ -852,6 +860,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           last.usage = item.usage ?? last.usage
           last.stopReason = item.stopReason ?? last.stopReason
           last.gatewayIndex = messageOrderSeq(item, gatewayOrderBase) ?? last.gatewayIndex
+          last.runId = messageRunId(item) ?? last.runId
         } else {
           messages.push({
             messageId: messageId(item),
@@ -865,6 +874,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
             toolCalls:
               pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
             gatewayIndex: messageOrderSeq(item, gatewayOrderBase),
+            runId: messageRunId(item),
           })
         }
         assistantMergeBlockedByUserBoundary = false
