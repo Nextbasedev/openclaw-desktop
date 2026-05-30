@@ -114,6 +114,10 @@ function hasSameGatewayIndex(a: ChatMessage, b: ChatMessage) {
   )
 }
 
+function hasSameRunId(a: ChatMessage, b: ChatMessage) {
+  return Boolean(a.runId && b.runId && a.runId === b.runId)
+}
+
 function isAssistantErrorLike(message: ChatMessage) {
   if (message.role !== "assistant") return false
   if (isStandaloneChatErrorText(message.text)) return true
@@ -178,15 +182,16 @@ function sameOptimisticUserTurn(a: ChatMessage, b: ChatMessage) {
 
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
+  const aText = normalizeUserTextForDedupe(a.text)
+  const bText = normalizeUserTextForDedupe(b.text)
   if (hasSameGatewayIndex(a, b)) return true
+  if (hasSameRunId(a, b) && aText && aText === bText) return true
   if (hasDifferentGatewayIndex(a, b)) return false
   if (a.messageId && b.messageId && a.messageId === b.messageId) return true
 
   const hasOptimisticCandidate = isOptimisticUserCandidate(a) || isOptimisticUserCandidate(b)
   if (!hasOptimisticCandidate && !isSyntheticMessageId(a.messageId) && !isSyntheticMessageId(b.messageId)) return false
 
-  const aText = normalizeUserTextForDedupe(a.text)
-  const bText = normalizeUserTextForDedupe(b.text)
   if (!aText || aText !== bText) return false
   if (!hasSameAttachments(a, b) && !hasOptimisticCandidate) return false
   if (hasOptimisticCandidate) return sameOptimisticUserTurn(a, b)
@@ -224,6 +229,7 @@ function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   // live echoes as the same assistant turn even when those synthetic indexes
   // drift, otherwise rapid tab/reload flows show the final answer twice.
   if ((isLiveAssistantEcho(a) || isLiveAssistantEcho(b)) && aText && aText === bText) return true
+  if (hasSameRunId(a, b) && aText && aText === bText) return true
 
   if (hasDifferentGatewayIndex(a, b)) return false
   if (isAssistantErrorLike(a) && isAssistantErrorLike(b)) {

@@ -460,6 +460,30 @@ describe("dedupeChatMessages", () => {
     expect(messages[0].messageId).toBe("optimistic-confirmed")
   })
 
+  it("merges same-run user duplicates even when backend sequences differ", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "client-user",
+        role: "user",
+        text: "heyyy",
+        createdAt: "2026-05-30T05:55:12.000Z",
+        gatewayIndex: 90,
+        runId: "run-1",
+      },
+      {
+        messageId: "gateway-user",
+        role: "user",
+        text: "heyyy",
+        createdAt: "2026-05-30T05:55:18.000Z",
+        gatewayIndex: 88,
+        runId: "run-1",
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].messageId).toBe("client-user")
+  })
+
   it("keeps repeated canonical user messages separate when backend sequences differ", () => {
     const messages = dedupeChatMessages([
       {
@@ -583,6 +607,30 @@ it("dedupes optimistic user message against history copy with attachment marker"
     expect(messages).toHaveLength(1)
     expect(messages[0].messageId).toBe("history-user")
   })
+
+it("merges same-run assistant duplicates even when backend sequences differ", () => {
+  const messages = dedupeChatMessages([
+      {
+        messageId: "assistant-live",
+        role: "assistant",
+        text: "Hi Dixit 👋 Good morning.",
+        createdAt: "2026-05-30T05:55:18.000Z",
+        gatewayIndex: 91,
+        runId: "run-1",
+      },
+      {
+        messageId: "assistant-backfill",
+        role: "assistant",
+        text: "Hi Dixit 👋 Good morning.",
+        createdAt: "2026-05-30T05:55:20.000Z",
+        gatewayIndex: 89,
+        runId: "run-1",
+      },
+    ])
+
+  expect(messages).toHaveLength(1)
+  expect(messages[0].text).toBe("Hi Dixit 👋 Good morning.")
+})
 
 it("merges duplicate assistant partial text without repeating the first word", () => {
     const messages = dedupeChatMessages([
