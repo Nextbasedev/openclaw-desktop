@@ -931,11 +931,29 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 });
               }
               const isStalePreSendHistory = !currentHistory.currentUserRepresented && historyMaxSeq < optimisticSeq;
+              // Gateway re-sends every prior user turn on each send with a
+              // stripped messageId (no runId/idempotencyKey). Drop those replays
+              // using the same confirmed-user guard the live/backfill paths use,
+              // or each send re-persists the previous user turn as a duplicate
+              // row one seq down.
+              const dedupedNormalized = normalized.filter((message) => {
+                if (message === gatewayUserEcho) return true;
+                if (message.role !== "user") return true;
+                const isDuplicate = context.chatLive.isConfirmedUserDuplicate(input.sessionKey, {
+                  role: message.role,
+                  data: message.data,
+                  openclawSeq: projectSeq(message),
+                });
+                if (isDuplicate) {
+                  log.info("history.persist.duplicate-confirmed-user.skip", { sessionKey: input.sessionKey, messageId: message.messageId, messageSeq: projectSeq(message) });
+                }
+                return !isDuplicate;
+              });
               const normalizedToUpsert = isStalePreSendHistory
                 ? []
                 : confirmedUser && gatewayUserEcho
-                  ? normalized.filter((message) => message !== gatewayUserEcho)
-                  : normalized;
+                  ? dedupedNormalized.filter((message) => message !== gatewayUserEcho)
+                  : dedupedNormalized;
               const projection = normalizedToUpsert.length > 0
                 ? context.messages.upsertMessages(normalizedToUpsert, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq })
                 : { upserted: 0, lastSeq: context.messages.nextMessageSeq(input.sessionKey) - 1, changedMessages: [] };

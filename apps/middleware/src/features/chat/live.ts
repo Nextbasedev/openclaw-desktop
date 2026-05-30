@@ -427,6 +427,17 @@ export class ChatLiveIngest {
     this.recentlyConfirmedUsers.set(sessionKey, fresh.slice(-RECENT_CONFIRMED_USER_ECHO_LIMIT));
   }
 
+  /**
+   * Public guard for the send-path history persist. Gateway replays prior user
+   * turns on every send with a stripped messageId (no runId/idempotencyKey).
+   * The live ingest and history-backfill paths already drop these via
+   * findRecentConfirmedUserEcho; the send path must use the same guard or it
+   * re-persists each previous user turn as a new row one seq down.
+   */
+  isConfirmedUserDuplicate(sessionKey: string, message: { role: string | null; data: OpenClawMessage; openclawSeq: number }) {
+    return this.findRecentConfirmedUserEcho(sessionKey, message) !== null;
+  }
+
   private findRecentConfirmedUserEcho(sessionKey: string, message: { role: string | null; data: OpenClawMessage; openclawSeq: number }) {
     if (message.role !== "user") return null;
     const text = normalizeMessageText(textFromMessage(message.data));

@@ -301,21 +301,33 @@ export class MessageRepository {
           sessionKey: message.sessionKey,
           openclawSeq,
         }) as { message_id: string | null; role: string | null; data_json: string } | undefined;
-        const existingIsDifferentMessage = Boolean(
-          existing &&
-          !idMatch &&
-          existing.message_id &&
-          message.messageId &&
-          existing.message_id !== message.messageId
-        );
-        if (!idMatch && existing && (existingIsDifferentMessage || isOptimisticConflict(existing, message))) {
+        // A true seq collision is when a DIFFERENT message lands on a seq that is
+        // already owned by another message. Detect that by identity (different
+        // messageId) AND that it is not just the same logical message being
+        // replayed: Gateway re-sends prior user turns with a stripped messageId
+        // (no runId/idempotencyKey) on every send. Those replays have the SAME
+        // role and SAME text as the row already stored at that seq, so they must
+        // overwrite in place, NOT append, or each send duplicates the previous
+        // user turn one row down. Only treat it as a collision when the role
+        // differs (e.g. an assistant/tool row projecting onto a user's seq) or
+        // the text differs (a genuinely different message).
+        let existingIsCollision = false;
+        if (existing && !idMatch && existing.message_id && message.messageId && existing.message_id !== message.messageId) {
+          if (existing.role !== message.role) {
+            existingIsCollision = true;
+          } else {
+            const existingData = fromJson(existing.data_json);
+            existingIsCollision = textOf(existingData) !== textOf(message.data);
+          }
+        }
+        if (!idMatch && existing && (existingIsCollision || isOptimisticConflict(existing, message))) {
           const row = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
           const nextSeq = Math.max(openclawSeq, Number(row?.maxSeq ?? 0)) + 1;
           // openclaw_seq is ordering, not identity. If late Gateway/history rows
-          // project onto a seq already owned by another message, append the
-          // incoming row instead of overwriting the existing message. This keeps
-          // confirmed optimistic user turns anchored and prevents tool/assistant
-          // rows from deleting the user that triggered them.
+          // project onto a seq already owned by a DIFFERENT message, append the
+          // incoming row instead of overwriting it. This keeps confirmed
+          // optimistic user turns anchored and prevents tool/assistant rows from
+          // deleting the user that triggered them.
           openclawSeq = nextSeq;
           existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;
         }

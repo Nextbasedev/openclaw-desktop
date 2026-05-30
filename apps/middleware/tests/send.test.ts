@@ -508,6 +508,59 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("does not duplicate a prior user turn when a later send replays a stripped gateway echo", async () => {
+    const app = await createApp(config("send-no-duplicate-prior-user"));
+    const context = contextOf(app);
+    let phase = 0;
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: phase === 0 ? "r1" : "r2", status: "done" };
+      if (method === "chat.history") {
+        if (phase === 0) {
+          return {
+            sessionKey: "s1",
+            messages: [
+              { role: "user", text: "first question", __openclaw: { id: "gw-user-1", seq: 1, runId: "r1", idempotencyKey: "key-1" } },
+              { role: "assistant", text: "first answer", __openclaw: { id: "gw-a-1", seq: 2 } },
+            ],
+          };
+        }
+        return {
+          sessionKey: "s1",
+          messages: [
+            { role: "user", text: "first question", __openclaw: { id: "gw-user-1b", seq: 3 } },
+            { role: "assistant", text: "first answer", __openclaw: { id: "gw-a-1", seq: 2 } },
+            { role: "user", text: "second question", __openclaw: { id: "gw-user-2", seq: 4, runId: "r2", idempotencyKey: "key-2" } },
+            { role: "assistant", text: "second answer", __openclaw: { id: "gw-a-2", seq: 5 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "first question", idempotencyKey: "key-1", clientMessageId: "client-1" },
+    });
+    expect(first.statusCode).toBe(200);
+
+    phase = 1;
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "second question", idempotencyKey: "key-2", clientMessageId: "client-2" },
+    });
+    expect(second.statusCode).toBe(200);
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    const messages = bootstrap.json().messages as Array<{ role: string; text?: string }>;
+    const userTexts = messages.filter((m) => m.role === "user").map((m) => m.text);
+    expect(userTexts.filter((t) => t === "first question")).toHaveLength(1);
+    expect(userTexts.filter((t) => t === "second question")).toHaveLength(1);
+    await app.close();
+  });
+
+
   test("does not confirm current optimistic user with stale latest Gateway user history", async () => {
     const app = await createApp(config("send-history-stale-user-no-confirm"));
     const context = contextOf(app);
