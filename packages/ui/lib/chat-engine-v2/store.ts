@@ -1657,20 +1657,27 @@ function handlePatch(frame: PatchFrame) {
     }, "debug")
     return
   }
-  // When middleware finishes importing archived transcripts in the background,
-  // it broadcasts a chat.bootstrap patch with backgroundArchiveImport:true.
-  // Dispatch a recovery event so the active chat hook refetches full history.
-  if (frame.patch.type === "chat.bootstrap" && payload?.backgroundArchiveImport && typeof window !== "undefined") {
-    frontendLog("stream", "global-chat-session.archive-import-refresh", {
+  // When middleware changes canonical history outside the normal message patch
+  // flow (archive import, background sync pruning stale SQLite rows), it
+  // broadcasts a chat.bootstrap metadata patch. Dispatch recovery so the active
+  // hook refetches /api/chat/bootstrap; metadata alone cannot remove visible
+  // stale rows from the UI store.
+  const bootstrapPruned = typeof payload?.pruned === "number" && Number.isFinite(payload.pruned) && payload.pruned > 0
+  const bootstrapNeedsRecovery = frame.patch.type === "chat.bootstrap" && (payload?.backgroundArchiveImport || bootstrapPruned)
+  if (bootstrapNeedsRecovery && typeof window !== "undefined") {
+    const reason = bootstrapPruned ? "bootstrap-pruned" : "archive-import"
+    frontendLog("stream", "global-chat-session.bootstrap-refresh", {
       sessionKey,
       patchCursor: frame.patch.cursor,
-      messageCount: payload.messageCount,
+      messageCount: payload?.messageCount,
       recoveryScoped: true,
+      reason,
+      pruned: bootstrapPruned ? payload?.pruned : undefined,
     })
     window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
       detail: {
         sessionKey,
-        reason: "archive-import",
+        reason,
         cursor: frame.patch.cursor,
       },
     }))

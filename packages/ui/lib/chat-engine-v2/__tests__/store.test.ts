@@ -40,6 +40,42 @@ function stubLocalStorage(data: Record<string, string> = {}) {
 }
 
 describe("global V2 chat engine store", () => {
+  test("bootstrap prune metadata triggers scoped bootstrap recovery", () => {
+    const target = new EventTarget()
+    const recoveryEvents: Array<{ sessionKey?: string; reason?: string; cursor?: number }> = []
+    vi.stubGlobal("window", {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      dispatchEvent: target.dispatchEvent.bind(target),
+    })
+    window.addEventListener("openclaw:chat-bootstrap-recovery", (event) => {
+      recoveryEvents.push((event as CustomEvent).detail)
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s-pruned",
+      cursor: 10,
+      status: "done",
+      messages: [
+        { messageId: "u1", role: "user", text: "hii", gatewayIndex: 1 },
+        { messageId: "stale-u", role: "user", text: "hii", gatewayIndex: 3 },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.bootstrap",
+        sessionKey: "s-pruned",
+        createdAtMs: Date.now(),
+        payload: { sessionKey: "s-pruned", messageCount: 1, fullMessagesIncluded: false, pruned: 1 },
+      },
+    })
+
+    expect(recoveryEvents).toEqual([{ sessionKey: "s-pruned", reason: "bootstrap-pruned", cursor: 11 }])
+  })
+
   test("focused window stream does not rewind below persisted global cursor", async () => {
     stubLocalStorage({ "openclaw:patchCursor:default": "1000" })
     seedGlobalChatSession({
