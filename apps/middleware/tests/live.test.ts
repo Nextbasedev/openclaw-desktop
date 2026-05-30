@@ -42,12 +42,34 @@ describe("matchRecentConfirmedUserEcho", () => {
     expect(match).toBe(confirmed);
   });
 
+  test("folds stripped adjacent fresh-chat echo when run/idempotency are missing", () => {
+    const match = matchRecentConfirmedUserEcho({
+      text: "hii",
+      openclawSeq: 3,
+      idempotencyKey: null,
+      runId: null,
+      entries: [confirmed],
+    });
+    expect(match).toBe(confirmed);
+  });
+
   test("keeps a genuine repeated send visible (different run, higher seq, no idempotency key)", () => {
     const match = matchRecentConfirmedUserEcho({
       text: "hii",
       openclawSeq: 5,
       idempotencyKey: null,
       runId: "run:desktop-v2:agent:main:desktop:s1:idem-2",
+      entries: [confirmed],
+    });
+    expect(match).toBeNull();
+  });
+
+  test("keeps non-adjacent same-text echoes visible when run/idempotency are missing", () => {
+    const match = matchRecentConfirmedUserEcho({
+      text: "hii",
+      openclawSeq: 5,
+      idempotencyKey: null,
+      runId: null,
       entries: [confirmed],
     });
     expect(match).toBeNull();
@@ -428,7 +450,7 @@ describe("chat live ingest", () => {
       openclawSeq: 2,
       messageId: "client-1",
       role: "user",
-      data: { role: "user", text: "hii", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1", idempotencyKey: "idem-1", runId } },
+      data: { role: "user", text: "hii", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1", runId } },
       updatedAtMs: now,
     });
 
@@ -443,15 +465,15 @@ describe("chat live ingest", () => {
         message: { role: "user", text: "hii", __openclaw: { idempotencyKey: "idem-1", runId, seq: 2 } },
       },
     });
-    // Second echo: decorated duplicate with real messageId, no idempotency key,
-    // higher live sequence (3), same run.
+    // Second echo from the field log: decorated duplicate with real messageId,
+    // no run id, no idempotency key, and the adjacent higher live sequence (3).
     listener({
       type: "event",
       event: "session.message",
       payload: {
         sessionKey: "s1",
         messageSeq: 3,
-        message: { role: "user", text: "hii", __openclaw: { id: "gateway-duplicate", runId, seq: 3 } },
+        message: { role: "user", text: "hii", __openclaw: { id: "gateway-duplicate", seq: 3 } },
       },
     });
 

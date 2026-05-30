@@ -92,18 +92,14 @@ export function matchRecentConfirmedUserEcho(params: {
     if (entry.text !== text) return false;
     // Match by idempotency key if available (most reliable).
     if (idempotencyKey && entry.idempotencyKey && idempotencyKey === entry.idempotencyKey) return true;
-    // Match by run id: the fresh-chat send path echoes the same user turn twice
-    // within ONE run. The first echo carries the optimistic
-    // clientMessageId/idempotencyKey (confirmed + consumed); the second arrives
-    // decorated with a real messageId, no idempotency key, and — because the live
-    // event envelope assigns a fresh sequence while the persisted message keeps
-    // its original lower seq — a HIGHER live sequence than the confirmed turn.
-    // The seq guard below therefore misses it live (it is only caught later by
-    // the history backfill, after the duplicate patch already rendered). A
-    // same-run + same-text echo of an already-confirmed turn is that duplicate.
-    // A genuine repeated send belongs to a different (newer) run, so this stays
-    // safe for intentional resends of identical text.
+    // Match by run id when Gateway includes it.
     if (runId && entry.runId && runId === entry.runId) return true;
+    // Field log 2026-05-30 showed the second fresh-chat echo is stripped down to
+    // `__openclaw: { id, seq }`: no runId, no idempotencyKey, same text, and the
+    // next live sequence immediately after the confirmed optimistic echo. Fold
+    // only that adjacent same-turn shape. Keeping the adjacency requirement means
+    // a later intentional repeat of the same text remains visible.
+    if (!runId && !idempotencyKey && entry.runId && openclawSeq === entry.openclawSeq + 1) return true;
     // Later legitimate repeated sends have a newer sequence and their own
     // optimistic entry. A decorated Gateway echo for the already-confirmed turn
     // commonly replays with the original/lower Gateway sequence.
@@ -269,27 +265,6 @@ export class ChatLiveIngest {
     const normalized = normalizeHistoryMessages(sessionKey, [message], Date.now(), payloadSeq ?? this.context.messages.nextMessageSeq(sessionKey));
     const projectedMessage = normalized[0];
     if (!projectedMessage) return;
-    if (projectedMessage.role === "user" && !optimisticId) {
-      // DIAGNOSTIC (temporary): dump the raw shape of a non-optimistic user echo
-      // so we can pick the correct duplicate discriminator. The field that
-      // distinguishes a duplicate echo from a genuine repeat send lives in this
-      // payload; logs so far only show the projected summary, not the raw keys.
-      const rawOpenclaw = isObject((message as Record<string, unknown>).__openclaw)
-        ? (message as Record<string, unknown>).__openclaw as Record<string, unknown>
-        : null;
-      this.log.info("message.user-echo.diagnostic", {
-        sessionKey,
-        gatewayMessageId: projectedMessage.messageId,
-        messageSeq: projectedMessage.openclawSeq,
-        topLevelKeys: Object.keys(message as Record<string, unknown>),
-        openclawKeys: rawOpenclaw ? Object.keys(rawOpenclaw) : null,
-        openclawRunId: rawOpenclaw?.runId ?? null,
-        openclawIdempotencyKey: rawOpenclaw?.idempotencyKey ?? null,
-        topLevelRunId: (message as Record<string, unknown>).runId ?? (message as Record<string, unknown>).gatewayRunId ?? null,
-        recentConfirmedCount: (this.recentlyConfirmedUsers.get(sessionKey) ?? []).length,
-        pendingOptimisticCount: (this.optimisticUsers.get(sessionKey) ?? []).length,
-      });
-    }
     const confirmedDuplicate = !optimisticId ? this.findRecentConfirmedUserEcho(sessionKey, projectedMessage) : null;
     if (confirmedDuplicate) {
       this.log.info("message.duplicate-confirmed-user.skip", {
