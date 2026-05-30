@@ -16,7 +16,7 @@
 
 import type { ChatMessage } from "@/components/ChatView/types"
 import type { InlineToolCall } from "@/components/ChatView/types"
-import { dedupeChatMessages, sameUserMessage } from "../chatMessageDedupe"
+import { dedupeChatMessages, sameUserMessage, sortChatMessagesByTimeline } from "../chatMessageDedupe"
 
 export type TimelineSource = "warm-cache" | "bootstrap" | "patch" | "optimistic" | "idle"
 
@@ -195,48 +195,13 @@ export class ChatTimelineStore {
   }
 
   private getSortedMessages(): ChatMessage[] {
-    const msgs = dedupeChatMessages(Array.from(this.messageMap.values()))
-    // Optimistic user messages often do not have a Gateway seq yet. They should
-    // render after the already-visible transcript, but not after assistant/tool
-    // rows that arrive for the same in-flight turn. Otherwise the UI briefly
-    // shows the assistant answer above the user's latest message until the
-    // canonical user echo arrives and re-sorts the timeline.
-    const maxSeq = msgs.reduce((max, m) => m.isOptimistic ? max : Math.max(max, m.gatewayIndex ?? 0), 0)
-    const timestamp = (message: ChatMessage) => {
-      if (!message.createdAt) return null
-      const parsed = Date.parse(message.createdAt)
-      return Number.isFinite(parsed) ? parsed : null
-    }
-    const sortValue = (message: ChatMessage) => {
-      const seq = message.gatewayIndex ?? 0
-      return seq > 0 ? seq : maxSeq + 1
-    }
-    msgs.sort((a, b) => {
-      const aSeq = a.gatewayIndex ?? 0
-      const bSeq = b.gatewayIndex ?? 0
-      const aNeedsTimeAnchor = a.isOptimistic && aSeq <= 0
-      const bNeedsTimeAnchor = b.isOptimistic && bSeq <= 0
-      if (aNeedsTimeAnchor || bNeedsTimeAnchor) {
-        const aTime = timestamp(a)
-        const bTime = timestamp(b)
-        if (aTime !== null && bTime !== null && aTime !== bTime) return aTime - bTime
-      }
-      const seqDelta = sortValue(a) - sortValue(b)
-      if (seqDelta !== 0) return seqDelta
-      // Sequence collisions happen because middleware's live user-confirm patch
-      // can stamp the confirmed user turn with the projection's lastSeq, which
-      // matches an assistant/tool row's own seq. Break the tie by true creation
-      // time, NOT by role: chronological order correctly keeps a user message
-      // above the tool card it triggered (same turn, user created first) AND
-      // keeps a newer user message below an older assistant reply it collides
-      // with (different turns, reply created first). A role-based rule only
-      // satisfies the first case and reorders the second.
-      const aTime = timestamp(a)
-      const bTime = timestamp(b)
-      if (aTime !== null && bTime !== null && aTime !== bTime) return aTime - bTime
-      return 0
-    })
-    return msgs
+    // Single source of truth for ordering: dedupeChatMessages already runs
+    // sortChatMessagesByTimeline as its final step. Do NOT add a second,
+    // divergent sort here — historically the store used a createdAt-only
+    // tiebreak while dedupe used a role tiebreak, so the same messages rendered
+    // in different orders depending on the path. Delegate to the one shared
+    // sorter so every render path agrees.
+    return sortChatMessagesByTimeline(dedupeChatMessages(Array.from(this.messageMap.values())))
   }
 
   private scheduleNotify() {

@@ -34,6 +34,27 @@ describe("ChatView tool display grouping", () => {
     expect(suppressed.has("a-tools-2")).toBe(true)
   })
 
+  test("keeps text-bearing assistant tool calls anchored to the visible assistant row", () => {
+    const messages: ChatMessage[] = [
+      { messageId: "u1", role: "user", text: "run ten tools" },
+      {
+        messageId: "a-final-with-tools",
+        role: "assistant",
+        text: "Done — 10 tool calls in parallel.",
+        toolCalls: Array.from({ length: 10 }, (_, index) => ({
+          id: `tool-${index + 1}`,
+          tool: "session_status",
+          status: "success" as const,
+        })),
+      },
+    ]
+
+    const { grouped, suppressed } = groupAssistantToolCallsByMessage(messages)
+
+    expect(grouped.get("a-final-with-tools")).toHaveLength(10)
+    expect(suppressed.has("a-final-with-tools")).toBe(false)
+  })
+
   test("starts a new steps block after assistant text so later running tools do not relabel old answers", () => {
     const messages: ChatMessage[] = [
       { messageId: "u1", role: "user", text: "check project" },

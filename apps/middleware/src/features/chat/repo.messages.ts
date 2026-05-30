@@ -301,21 +301,23 @@ export class MessageRepository {
           sessionKey: message.sessionKey,
           openclawSeq,
         }) as { message_id: string | null; role: string | null; data_json: string } | undefined;
-        if (!idMatch && existing && isOptimisticConflict(existing, message)) {
+        const existingIsDifferentMessage = Boolean(
+          existing &&
+          !idMatch &&
+          existing.message_id &&
+          message.messageId &&
+          existing.message_id !== message.messageId
+        );
+        if (!idMatch && existing && (existingIsDifferentMessage || isOptimisticConflict(existing, message))) {
           const row = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
           const nextSeq = Math.max(openclawSeq, Number(row?.maxSeq ?? 0)) + 1;
-          if (openclawSeq > 1 && existing.role === "user" && message.role === "assistant" && isOptimisticData(fromJson(existing.data_json))) {
-            // A live assistant delta can arrive before the Gateway user echo has
-            // fully confirmed the local optimistic user. Keep the user anchored
-            // at its appended turn position and move the assistant after it;
-            // moving the user made the transcript briefly render as
-            // assistant→user, then snap back once history caught up.
-            openclawSeq = nextSeq;
-            existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;
-          } else {
-            openclawSeq = nextSeq;
-            existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;
-          }
+          // openclaw_seq is ordering, not identity. If late Gateway/history rows
+          // project onto a seq already owned by another message, append the
+          // incoming row instead of overwriting the existing message. This keeps
+          // confirmed optimistic user turns anchored and prevents tool/assistant
+          // rows from deleting the user that triggered them.
+          openclawSeq = nextSeq;
+          existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;
         }
 
         const dataJson = toJson(message.data);
@@ -534,16 +536,13 @@ export class MessageRepository {
     const sessionId = existing.session_id ?? gatewayMessage.sessionId ?? activeSegment?.sessionId ?? null;
     const gatewaySeq = gatewayMessage.gatewaySeq ?? gatewayMessage.openclawSeq;
     const projectedGatewaySeq = segmentId && activeSegment?.segmentId === segmentId ? activeSegment.baseSeq + gatewaySeq : null;
-    // Imported/archived Telegram chats can have a large local openclaw_seq
-    // window while Gateway history for the newly-sent turn reports a much
-    // smaller gateway seq. Moving the optimistic user backwards into that old
-    // range lets later history upserts overwrite the newest user message, so
-    // duplicate/reloaded tabs miss the newest marker. Only move the optimistic
-    // row when the projected gateway position is actually ahead of the local
-    // optimistic append position.
-    const confirmedOpenclawSeq = projectedGatewaySeq !== null && projectedGatewaySeq > existing.openclaw_seq
-      ? projectedGatewaySeq
-      : existing.openclaw_seq;
+    // Keep the optimistic row's locally allocated openclaw_seq as the canonical
+    // transcript order. Do not move it to baseSeq + gatewaySeq on confirm: that
+    // projection can overshoot when the active segment's baseSeq was frozen
+    // before local optimistic appends, causing the confirmed user message to
+    // collide with assistant/tool rows from the same run. Gateway sequence is
+    // retained separately in gateway_seq / __openclaw.gatewaySeq for matching.
+    const confirmedOpenclawSeq = existing.openclaw_seq;
 
     const deleteGatewayDuplicate = this.db.prepare(`
       DELETE FROM v2_messages

@@ -208,8 +208,8 @@ describe("SQLite projection", () => {
     db.close();
   });
 
-  test("confirming optimistic user moves it to the Gateway sequence before late prior assistant history", () => {
-    const db = openDatabase({ databasePath: testDbPath("confirm-user-gateway-seq") });
+  test("confirming optimistic user keeps its local canonical seq before late prior assistant history", () => {
+    const db = openDatabase({ databasePath: testDbPath("confirm-user-local-seq") });
     const repo = new MessageRepository(db);
     const segment = repo.ensureActiveSegment({ sessionKey: "s1", sessionId: "gateway-session" });
     repo.upsertMessages(normalizeHistoryMessages("s1", [
@@ -232,11 +232,46 @@ describe("SQLite projection", () => {
       { role: "assistant", text: "Hello Krish 👋", __openclaw: { id: "assistant-1", seq: 2 } },
     ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
 
-    expect(confirmed).toMatchObject({ messageId: "client-2", openclawSeq: 3 });
+    expect(confirmed).toMatchObject({ messageId: "client-2", openclawSeq: 2 });
     expect(repo.listMessages("s1").map((message) => `${message.role}:${(message.data as { text?: string }).text ?? (message.data as { content?: string }).content ?? ""}`)).toEqual([
       "user:hello",
-      "assistant:Hello Krish 👋",
       "user:generate 100 words content",
+      "assistant:Hello Krish 👋",
+    ]);
+    db.close();
+  });
+
+  test("confirming optimistic user does not overshoot into baseSeq plus gatewaySeq collisions", () => {
+    const db = openDatabase({ databasePath: testDbPath("confirm-user-no-overshoot-collision") });
+    const repo = new MessageRepository(db);
+    const segment = repo.ensureActiveSegment({ sessionKey: "s1", sessionId: "gateway-session" });
+    repo.upsertMessages(normalizeHistoryMessages("s1", [
+      { role: "user", text: "archived 1", __openclaw: { id: "archived-1", seq: 1 } },
+      { role: "assistant", text: "archived 2", __openclaw: { id: "archived-2", seq: 2 } },
+    ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+    repo.insertOptimisticMessage({
+      sessionKey: "s1",
+      openclawSeq: 3,
+      messageId: "client-3",
+      role: "user",
+      data: { role: "user", text: "run tools", __clientOptimistic: true, __openclaw: { id: "client-3" } },
+      updatedAtMs: 100,
+    });
+    repo.upsertMessages(normalizeHistoryMessages("s1", [
+      { role: "assistant", content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: {} }], __openclaw: { id: "assistant-tool", seq: 4 } },
+    ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+    const [gatewayUser] = normalizeHistoryMessages("s1", [
+      { role: "user", text: "run tools", __openclaw: { id: "gateway-user-3", seq: 4 } },
+    ], 200);
+
+    const confirmed = repo.confirmOptimisticUser("s1", "client-3", gatewayUser!);
+
+    expect(confirmed).toMatchObject({ messageId: "client-3", openclawSeq: 3 });
+    expect(repo.listMessages("s1").map((message) => `${message.openclawSeq}:${message.role}:${message.messageId}`)).toEqual([
+      "1:user:archived-1",
+      "2:assistant:archived-2",
+      "3:user:client-3",
+      "4:assistant:assistant-tool",
     ]);
     db.close();
   });
