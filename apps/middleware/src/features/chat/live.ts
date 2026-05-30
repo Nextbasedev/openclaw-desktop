@@ -269,6 +269,27 @@ export class ChatLiveIngest {
     const normalized = normalizeHistoryMessages(sessionKey, [message], Date.now(), payloadSeq ?? this.context.messages.nextMessageSeq(sessionKey));
     const projectedMessage = normalized[0];
     if (!projectedMessage) return;
+    if (projectedMessage.role === "user" && !optimisticId) {
+      // DIAGNOSTIC (temporary): dump the raw shape of a non-optimistic user echo
+      // so we can pick the correct duplicate discriminator. The field that
+      // distinguishes a duplicate echo from a genuine repeat send lives in this
+      // payload; logs so far only show the projected summary, not the raw keys.
+      const rawOpenclaw = isObject((message as Record<string, unknown>).__openclaw)
+        ? (message as Record<string, unknown>).__openclaw as Record<string, unknown>
+        : null;
+      this.log.info("message.user-echo.diagnostic", {
+        sessionKey,
+        gatewayMessageId: projectedMessage.messageId,
+        messageSeq: projectedMessage.openclawSeq,
+        topLevelKeys: Object.keys(message as Record<string, unknown>),
+        openclawKeys: rawOpenclaw ? Object.keys(rawOpenclaw) : null,
+        openclawRunId: rawOpenclaw?.runId ?? null,
+        openclawIdempotencyKey: rawOpenclaw?.idempotencyKey ?? null,
+        topLevelRunId: (message as Record<string, unknown>).runId ?? (message as Record<string, unknown>).gatewayRunId ?? null,
+        recentConfirmedCount: (this.recentlyConfirmedUsers.get(sessionKey) ?? []).length,
+        pendingOptimisticCount: (this.optimisticUsers.get(sessionKey) ?? []).length,
+      });
+    }
     const confirmedDuplicate = !optimisticId ? this.findRecentConfirmedUserEcho(sessionKey, projectedMessage) : null;
     if (confirmedDuplicate) {
       this.log.info("message.duplicate-confirmed-user.skip", {
