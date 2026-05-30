@@ -751,7 +751,25 @@ export class ChatLiveIngest {
       const history = await this.context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 200 });
       const messages = history.messages ?? [];
       if (!messages.length) return;
-      const normalized = normalizeHistoryMessages(sessionKey, messages);
+      const normalized = normalizeHistoryMessages(sessionKey, messages).filter((message) => {
+        const confirmedDuplicate = this.findRecentConfirmedUserEcho(sessionKey, {
+          role: message.role,
+          data: message.data,
+          openclawSeq: message.openclawSeq,
+        });
+        if (confirmedDuplicate) {
+          this.log.info("history.backfill.duplicate-confirmed-user.skip", {
+            sessionKey,
+            optimisticId: confirmedDuplicate.id,
+            gatewayMessageId: message.messageId,
+            messageSeq: message.openclawSeq,
+            confirmedSeq: confirmedDuplicate.openclawSeq,
+            reason,
+          });
+          return false;
+        }
+        return true;
+      });
       const segment = this.context.messages.ensureActiveSegment({
         sessionKey,
         sessionId: history.sessionId ?? this.context.messages.getSession(sessionKey)?.sessionId ?? null,

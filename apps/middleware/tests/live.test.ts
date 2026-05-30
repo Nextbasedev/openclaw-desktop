@@ -345,6 +345,67 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("backfill skips canonical user echoes already confirmed live", async () => {
+    const app = await createApp(config("backfill-confirmed-user-dedupe"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "sessions.messages.subscribe") return { ok: true };
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          messages: [
+            { role: "user", text: "E2E_OK please", __openclaw: { id: "gateway-user", seq: 88 } },
+            { role: "assistant", text: "Done", __openclaw: { id: "gateway-assistant", seq: 89 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: now, updatedAtMs: now });
+    context.chatLive.addOptimisticUser("s1", { id: "client-1", text: "E2E_OK please", runId: "run-1", createdAtMs: now });
+    context.messages.insertOptimisticMessage({
+      sessionKey: "s1",
+      openclawSeq: 90,
+      messageId: "client-1",
+      role: "user",
+      data: { role: "user", text: "E2E_OK please", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1", runId: "run-1" } },
+      updatedAtMs: now,
+    });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 90,
+        message: { role: "user", text: "E2E_OK please", __openclaw: { seq: 90 } },
+      },
+    });
+    listener({
+      type: "event",
+      event: "chat",
+      payload: { sessionKey: "s1", runId: "run-1", status: "final" },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    const userMessages = context.messages.listMessages("s1").filter((message) => message.role === "user");
+    expect(userMessages).toHaveLength(1);
+    expect(userMessages[0]).toMatchObject({ messageId: "client-1", openclawSeq: 90 });
+    expect(context.messages.findMessageById("s1", "gateway-user")).toBeNull();
+    expect(context.messages.findMessageById("s1", "gateway-assistant")).toMatchObject({ role: "assistant" });
+    await app.close();
+  });
+
   test("confirms optimistic user echoes from content blocks and uses positive fallback seq", async () => {
     const app = await createApp(config("content-optimistic-confirm"));
     const context = contextOf(app);
