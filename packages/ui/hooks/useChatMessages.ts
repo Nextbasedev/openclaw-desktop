@@ -750,7 +750,7 @@ export function useChatMessages(
   }, [sessionKey, statusLabel])
 
   const setMessages = useCallback(
-    (update: SetStateAction<ChatMessage[]>) => {
+    (update: SetStateAction<ChatMessage[]>, options?: { status?: StreamStatus | null }) => {
       setLocalMessages((prev) => {
         const next = dedupeChatMessages(
           typeof update === "function" ? update(prev) : update
@@ -761,11 +761,14 @@ export function useChatMessages(
         // Older-page loads and active runs can temporarily hold partial local
         // snapshots while live patch-stream rows still exist in the global
         // timeline. Removing absent ids in those windows makes the whole chat
-        // flash/blink until the next patch/bootstrap re-adds them.
+        // flash/blink until the next patch/bootstrap re-adds them. For global
+        // subscription snapshots, use the snapshot status instead of the ref:
+        // React status updates can lag one render behind a terminal assistant
+        // patch, which would preserve the stale live assistant row for a frame.
         const store = timelineStoreRef.current
         const preserveExistingTimelineRows = shouldPreserveTimelineStoreRows({
           loadingOlderMessages: loadOlderInFlightRef.current,
-          status: statusRef.current,
+          status: options?.status ?? statusRef.current,
         })
         if (!preserveExistingTimelineRows) {
           const nextIds = new Set(next.map((m) => m.messageId))
@@ -1832,7 +1835,7 @@ export function useChatMessages(
             setErrorMessage(state.status === "error" ? nextStatusLabel : null)
             if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, nextStatusLabel)
             else clearCachedChatActivity(sessionKey)
-            setMessages(state.messages)
+            setMessages(state.messages, { status: state.status })
           }
         )
         return
@@ -2099,7 +2102,7 @@ export function useChatMessages(
             if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, nextStatusLabel)
             else clearCachedChatActivity(sessionKey)
             // setMessages writes through to timeline store automatically
-            setMessages(state.messages)
+            setMessages(state.messages, { status: state.status })
           }
         )
         unsubscribeStream = null
