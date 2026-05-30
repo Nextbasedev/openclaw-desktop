@@ -69,15 +69,22 @@ function patchRunId(frame: PatchFrame): string | null {
 }
 
 function inferAssistantSeqFromRun(state: ApplyPatchState, frame: PatchFrame, parsed: ChatMessage[], messageSeq: number | undefined): number | undefined {
-  if (typeof messageSeq === "number") return messageSeq
-  if (!parsed.some((item) => item.role === "assistant")) return undefined
+  if (!parsed.some((item) => item.role === "assistant")) return messageSeq
   const runId = patchRunId(frame)
-  if (!runId) return undefined
+  if (!runId) return messageSeq
   const matchingUser = [...state.messages]
     .reverse()
     .find((item) => item.role === "user" && item.runId === runId && typeof item.gatewayIndex === "number" && Number.isFinite(item.gatewayIndex))
-  if (!matchingUser || typeof matchingUser.gatewayIndex !== "number") return undefined
-  return matchingUser.gatewayIndex + 1
+  if (!matchingUser || typeof matchingUser.gatewayIndex !== "number") return messageSeq
+  // During live streaming the backend can stamp an assistant/tool message with a
+  // raw gateway messageSeq that is LOWER than the user message that triggered
+  // the run (the live and history-backfill seq sources disagree until backfill
+  // rewrites the canonical seq). Trusting that value makes the tool card render
+  // ABOVE the user message for a moment, then snap back once history catches up.
+  // Anchor the assistant after its own run's user message so it never jumps up.
+  const floor = matchingUser.gatewayIndex + 1
+  if (typeof messageSeq !== "number") return floor
+  return Math.max(messageSeq, floor)
 }
 
 function shouldAnimateAssistantTextPatch(frame: PatchFrame, message: ChatMessage): boolean {

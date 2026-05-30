@@ -218,6 +218,54 @@ describe("applyChatPatch", () => {
     })
   })
 
+  test("anchors a live assistant/tool message after its run user even when live messageSeq is lower", () => {
+    // The user turn confirmed at gatewayIndex 15.
+    const withUser = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.confirmed",
+          runId: "run-1",
+          messageId: "user-1",
+          messageSeq: 15,
+          message: { role: "user", text: "do some tool call", __openclaw: { id: "user-1", seq: 15, runId: "run-1" } },
+        },
+        createdAtMs: 1,
+      },
+    })
+    // Live assistant/tool message for the same run arrives with a LOWER raw
+    // messageSeq (11) than the user (15) because the live and backfill seq
+    // sources disagree mid-stream. It must NOT render above the user.
+    const withAssistant = applyChatPatch(withUser, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.delta",
+          runId: "run-1",
+          messageId: "live:run-1:assistant",
+          messageSeq: 11,
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "tc1", name: "session_status", arguments: {} }],
+            __openclaw: { id: "live:run-1:assistant", seq: 11, runId: "run-1" },
+          },
+        },
+        createdAtMs: 2,
+      },
+    })
+    const user = withAssistant.messages.find((m) => m.messageId === "user-1")
+    const assistant = withAssistant.messages.find((m) => m.role === "assistant")
+    expect(user?.gatewayIndex).toBe(15)
+    expect((assistant?.gatewayIndex ?? 0) > (user?.gatewayIndex ?? 0)).toBe(true)
+  })
+
+
   test("marks V2 send patches as optimistic so later gateway user echoes dedupe", () => {
     const optimistic = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",
