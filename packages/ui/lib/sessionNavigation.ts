@@ -135,6 +135,7 @@ async function findChatBySessionKey(sessionKey: string, options: SessionNavigati
     id: chat.id,
     name: chat.name,
     sessionKey,
+    spaceId: chat.spaceId,
   } satisfies ActiveChat
 }
 
@@ -167,6 +168,7 @@ async function ensureChatForSession(session: SessionRecord, options: SessionNavi
       id: result.chat.id,
       name: result.chat.name,
       sessionKey: session.key,
+      spaceId: options.activeSpaceId ?? session.spaceId,
     },
     sessionKey: session.key,
     title: result.chat.name,

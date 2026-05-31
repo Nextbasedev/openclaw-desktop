@@ -134,6 +134,10 @@ function isUndecidedChatTitle(value: string | null | undefined): boolean {
   return normalized === "" || normalized === "opening chat..." || normalized === "opening chat…"
 }
 
+function chatBelongsToSpace(chat: ActiveChat | null | undefined, spaceId: string | null | undefined): chat is ActiveChat & { spaceId: string } {
+  return Boolean(chat?.spaceId && spaceId && chat.spaceId === spaceId)
+}
+
 function createDraftTab(groupId: EditorGroupId): EditorTab {
   return {
     id: `draft:${groupId}`,
@@ -863,7 +867,7 @@ function AppShell({
           (chat) => chat.id === route.chatId && chat.spaceId === activeSpaceId,
         ) as RouteChatRecord | undefined
         if (cachedFound) {
-          const cachedChat = { id: cachedFound.id, name: cachedFound.name, sessionKey: cachedFound.sessionKey }
+          const cachedChat = { id: cachedFound.id, name: cachedFound.name, sessionKey: cachedFound.sessionKey, spaceId: cachedFound.spaceId }
           const cachedTitle = isUndecidedChatTitle(cachedFound.name) ? "New Chat" : cachedFound.name
           if (isRealChatSessionKey(cachedFound.sessionKey)) {
             resolvedChatCacheRef.current.set(cachedFound.id, {
@@ -907,6 +911,7 @@ function AppShell({
           id: found.id,
           name: found.name,
           sessionKey: found.sessionKey,
+          spaceId: found.spaceId,
         }, { activeSpaceId: targetSpaceId })
         if (!isCurrentPath()) return
 
@@ -1492,7 +1497,7 @@ function AppShell({
     try {
       const cronJobId = cronJob.cronJobId ?? cronJob.id
       const listResult = await invoke<{
-        chats: { id: string; name: string; sessionKey?: string; archived: boolean }[]
+        chats: { id: string; name: string; sessionKey?: string; archived: boolean; spaceId?: string }[]
       }>("middleware_chats_list", { input: { spaceId: activeSpaceId ?? undefined } }).catch(() => ({ chats: [] }))
       const chats = listResult.chats.filter((chat) => !chat.archived)
       const directSessionKey = isRealChatSessionKey(cronJob.sessionKey)
@@ -1585,7 +1590,7 @@ function AppShell({
   }, [activeChat, activeSessionKey, activeSessionTitle, activeSpaceId, handleChatSelect])
 
   const handleForkNavigate = useCallback(
-    (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => {
+    (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null; spaceId?: string | null }) => {
       setChatRefreshTrigger((n) => n + 1)
       if (chat.projectId && chat.topicId && activeTopic?.projectId === chat.projectId) {
         const forkTopic = {
@@ -1602,7 +1607,7 @@ function AppShell({
         return
       }
       if (chat.id) {
-        handleChatSelect({ id: chat.id, name: chat.name, sessionKey: chat.sessionKey })
+        handleChatSelect({ id: chat.id, name: chat.name, sessionKey: chat.sessionKey, spaceId: chat.spaceId ?? undefined })
       }
     },
     [activeTopic, handleChatSelect],
@@ -1641,18 +1646,17 @@ function AppShell({
     if (spaceId === activeSpaceId) return
     if (activeSpaceId) {
       const route = parseRoute(getRoutePath())
-      if (route.kind === "chat") {
-        lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${route.chatId}`)
-        if (activeChat?.id) {
-          lastChatSelectionBySpaceRef.current.set(activeSpaceId, {
-            chat: activeChat,
-            sessionKey: activeSessionKey,
-            title: activeSessionTitle,
-          })
-        }
+      const canRememberActiveChat = chatBelongsToSpace(activeChat, activeSpaceId)
+      if (route.kind === "chat" && canRememberActiveChat) {
+        lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${activeChat.id}`)
+        lastChatSelectionBySpaceRef.current.set(activeSpaceId, {
+          chat: activeChat,
+          sessionKey: activeSessionKey,
+          title: activeSessionTitle,
+        })
       } else if (route.kind === "topic") {
         lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${route.projectId}/${route.topicId}`)
-      } else if (activeChat?.id) {
+      } else if (activeChat?.id && canRememberActiveChat) {
         lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${activeChat.id}`)
         lastChatSelectionBySpaceRef.current.set(activeSpaceId, {
           chat: activeChat,
@@ -1663,8 +1667,14 @@ function AppShell({
         lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${activeTopic.projectId}/${activeTopic.id}`)
       }
     }
-    const restorePath = lastChatRouteBySpaceRef.current.get(spaceId) ?? null
-    const restoreSelection = lastChatSelectionBySpaceRef.current.get(spaceId) ?? null
+    const storedRestorePath = lastChatRouteBySpaceRef.current.get(spaceId) ?? null
+    const storedRestoreSelection = lastChatSelectionBySpaceRef.current.get(spaceId) ?? null
+    const restoreSelection = storedRestoreSelection && chatBelongsToSpace(storedRestoreSelection.chat, spaceId)
+      ? storedRestoreSelection
+      : null
+    const restorePath = restoreSelection || (storedRestorePath && parseRoute(storedRestorePath).kind === "topic")
+      ? storedRestorePath
+      : null
     pendingSpaceRouteRestoreRef.current = { spaceId, path: restorePath }
     if (restorePath) window.history.pushState(null, "", routeUrl(restorePath))
     if (restoreSelection) {

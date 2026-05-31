@@ -153,6 +153,7 @@ export function ChatsSection({
                             id: chat.id,
                             name: chatDisplayName(chat),
                             sessionKey: chat.sessionKey,
+                            spaceId: chat.spaceId,
                           })
                         }
                         onPin={() => togglePinChat(chatId)}
