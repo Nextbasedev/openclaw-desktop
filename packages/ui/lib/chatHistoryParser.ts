@@ -223,8 +223,12 @@ function thinkingText(raw: RawHistoryMessage): string {
   return raw.content
     .filter((block) => block && typeof block === "object" && !Array.isArray(block) && block.type === "thinking")
     .map((block) => {
-      const record = block as { text?: unknown; content?: unknown }
-      return typeof record.text === "string" ? record.text : typeof record.content === "string" ? record.content : ""
+      const record = block as { thinking?: unknown; reasoning?: unknown; text?: unknown; content?: unknown }
+      return typeof record.thinking === "string" ? record.thinking
+        : typeof record.reasoning === "string" ? record.reasoning
+          : typeof record.text === "string" ? record.text
+            : typeof record.content === "string" ? record.content
+              : ""
     })
     .join("")
 }

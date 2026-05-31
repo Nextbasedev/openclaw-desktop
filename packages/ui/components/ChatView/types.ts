@@ -3,6 +3,8 @@ import type { SubagentLifecycleStatus } from "@/lib/subagentLifecycle"
 
 export type ContentBlock = {
   type: string
+  thinking?: string
+  reasoning?: string
   text?: string
   id?: string
   toolCallId?: string

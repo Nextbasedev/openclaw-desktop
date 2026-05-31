@@ -107,6 +107,25 @@ describe("ChatTimelineStore", () => {
         "result:Subagent result",
       ])
     })
+
+    it("extracts production thinking blocks into reasoning text", () => {
+      const parsed = parseChatHistory([
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "Planning the next tool call" },
+            { type: "toolCall", id: "tool-1", name: "read", arguments: { path: "IDENTITY.md" } },
+          ],
+          __openclaw: { id: "assistant-1", seq: 1 },
+        },
+      ])
+
+      expect(parsed.messages[0]).toMatchObject({
+        messageId: "assistant-1",
+        reasoningText: "Planning the next tool call",
+        toolCalls: [expect.objectContaining({ id: "tool-1", tool: "read" })],
+      })
+    })
   })
 
   describe("patches", () => {
