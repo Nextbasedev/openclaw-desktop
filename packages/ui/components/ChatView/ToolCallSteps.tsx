@@ -44,10 +44,30 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   }
 }
 
+function unwrapToolInput(value: unknown): Record<string, unknown> | null {
+  let record = asRecord(value)
+  for (let i = 0; i < 4 && record; i += 1) {
+    const nested = record.input ?? record.args ?? record.arguments ?? record.parameters
+    const nestedRecord = asRecord(nested)
+    if (!nestedRecord) return record
+    record = nestedRecord
+  }
+  return record
+}
+
 function firstString(record: Record<string, unknown> | null, keys: string[]) {
   if (!record) return null
   for (const key of keys) {
     const value = record[key]
+    if (typeof value === "string" && value.trim()) return value.trim()
+  }
+  return null
+}
+
+function firstUsefulString(record: Record<string, unknown> | null) {
+  if (!record) return null
+  for (const [key, value] of Object.entries(record)) {
+    if (["input", "args", "arguments", "parameters"].includes(key)) continue
     if (typeof value === "string" && value.trim()) return value.trim()
   }
   return null
@@ -71,7 +91,7 @@ function compactWhitespace(value: string) {
 }
 
 function toolSubject(call: InlineToolCall, inputText: string) {
-  const record = asRecord(call.input)
+  const record = unwrapToolInput(call.input)
   const name = normalizeToolName(call.tool).toLowerCase()
   const picked = /exec|shell|bash|command/.test(name)
     ? firstString(record, ["command", "cmd", "script"])
@@ -83,7 +103,7 @@ function toolSubject(call: InlineToolCall, inputText: string) {
           ? firstString(record, ["url", "href", "target"])
           : firstString(record, ["command", "path", "url", "query", "message", "prompt", "text", "file", "name"])
 
-  const subject = picked || inputText.split("\n").find((line) => line.trim()) || call.tool
+  const subject = picked || firstUsefulString(record) || call.tool
   return compactWhitespace(subject).slice(0, 180)
 }
 
