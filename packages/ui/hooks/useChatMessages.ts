@@ -473,7 +473,7 @@ function normalizeStatusLabelForStatus(status: StreamStatus | null | undefined, 
 }
 
 function streamStatusFromCanonicalRun(status: RunStatusV2 | string | null | undefined): StreamStatus {
-  if (status === "aborted") return "error"
+  if (status === "aborted") return "idle"
   if (
     status === "idle" ||
     status === "queued" ||
