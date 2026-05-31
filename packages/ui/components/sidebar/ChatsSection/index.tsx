@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { motion, AnimatePresence, Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { useChatsData } from "@/hooks/useChatsData"
@@ -23,9 +23,7 @@ type Props = {
   spaceId?: string | null
 }
 
-const CHAT_INITIAL_LIMIT = 5
-const CHAT_LOAD_STEP = 10
-const MORE_CHATS_ANIMATION_MS = 200
+const CHATS_PER_PAGE = 25
 
 export function ChatsSection({
   collapsible = true,
@@ -38,10 +36,7 @@ export function ChatsSection({
   spaceId,
 }: Props) {
   const [isOpen, setIsOpen] = useState(true)
-  const [visibleChatLimit, setVisibleChatLimit] = useState(CHAT_INITIAL_LIMIT)
-  const [extraChatsOpen, setExtraChatsOpen] = useState(false)
-  const [expandedChatIds, setExpandedChatIds] = useState<string[]>([])
-  const closeTimerRef = useRef<number | null>(null)
+  const [currentPage, setCurrentPage] = useState(0)
   const showList = !collapsible || isOpen
   const {
     chats,
@@ -58,57 +53,18 @@ export function ChatsSection({
     () => new Map(chats.map((chat) => [chat.id, chat])),
     [chats],
   )
-  const topChatIdSet = useMemo(
-    () => new Set(sortedChatIds.slice(0, CHAT_INITIAL_LIMIT)),
-    [sortedChatIds],
-  )
-  const visibleExtraChatIds = expandedChatIds.filter(
-    (id) => sortedChatIds.includes(id) && !topChatIdSet.has(id),
-  )
-  const hiddenExtraChatIds = sortedChatIds
-    .slice(CHAT_INITIAL_LIMIT)
-    .filter((id) => !expandedChatIds.includes(id))
-  const hasMoreChats = hiddenExtraChatIds.length > 0
-  const hasExpandedChats = visibleExtraChatIds.length > 0
+  const totalPages = Math.max(1, Math.ceil(sortedChatIds.length / CHATS_PER_PAGE))
+  const safeCurrentPage = Math.min(currentPage, totalPages - 1)
+  const pageStart = safeCurrentPage * CHATS_PER_PAGE
+  const pageEnd = Math.min(pageStart + CHATS_PER_PAGE, sortedChatIds.length)
+  const visibleChatIds = sortedChatIds.slice(pageStart, pageEnd)
+  const showPagination = sortedChatIds.length > CHATS_PER_PAGE
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setExpandedChatIds((prev) =>
-        prev
-          .filter((id) => sortedChatIds.includes(id) && !topChatIdSet.has(id))
-          .slice(0, Math.max(0, visibleChatLimit - CHAT_INITIAL_LIMIT)),
-      )
-    }, 0)
-    return () => window.clearTimeout(timer)
-  }, [sortedChatIds, topChatIdSet, visibleChatLimit])
-
-  const handleShowMoreChats = () => {
-    if (closeTimerRef.current !== null) {
-      window.clearTimeout(closeTimerRef.current)
-      closeTimerRef.current = null
+    if (currentPage > totalPages - 1) {
+      setCurrentPage(Math.max(0, totalPages - 1))
     }
-
-    setExtraChatsOpen(true)
-    setExpandedChatIds((current) => {
-      const currentSet = new Set(current)
-      const next = [...current]
-      for (const id of hiddenExtraChatIds) {
-        if (next.length >= current.length + CHAT_LOAD_STEP) break
-        if (!currentSet.has(id)) next.push(id)
-      }
-      setVisibleChatLimit(CHAT_INITIAL_LIMIT + next.length)
-      return next
-    })
-  }
-
-  const handleShowLessChats = () => {
-    setExtraChatsOpen(false)
-    closeTimerRef.current = window.setTimeout(() => {
-      setExpandedChatIds([])
-      setVisibleChatLimit(CHAT_INITIAL_LIMIT)
-      closeTimerRef.current = null
-    }, MORE_CHATS_ANIMATION_MS)
-  }
+  }, [currentPage, totalPages])
 
   return (
     <>
@@ -171,15 +127,16 @@ export function ChatsSection({
 
                 <Reorder.Group
                   axis="y"
-                  values={sortedChatIds.slice(0, CHAT_INITIAL_LIMIT)}
+                  values={visibleChatIds}
                   onReorder={(newVisible) => {
-                    const hiddenTail = sortedChatIds.filter((id) => !newVisible.includes(id))
-                    setChatOrder([...newVisible, ...hiddenTail])
+                    const beforePage = sortedChatIds.slice(0, pageStart)
+                    const afterPage = sortedChatIds.slice(pageEnd)
+                    setChatOrder([...beforePage, ...newVisible, ...afterPage])
                   }}
                   as="div"
                   className="flex flex-col gap-0.5"
                 >
-                  {sortedChatIds.slice(0, CHAT_INITIAL_LIMIT).map((chatId) => {
+                  {visibleChatIds.map((chatId) => {
                     const chat = chatsById.get(chatId)
                     if (!chat) return null
 
@@ -212,102 +169,29 @@ export function ChatsSection({
                     )
                   })}
                 </Reorder.Group>
-                {(hasExpandedChats || sortedChatIds.length > CHAT_INITIAL_LIMIT) && (
-                  <div
-                    aria-hidden={!extraChatsOpen}
-                    className="grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-in-out"
-                    style={{
-                      gridTemplateRows: extraChatsOpen ? "1fr" : "0fr",
-                      opacity: extraChatsOpen ? 1 : 0,
-                    }}
-                  >
-                    <div className="flex min-h-0 flex-col gap-0.5 overflow-hidden">
-                      {visibleExtraChatIds.map((chatId) => {
-                        const chat = chatsById.get(chatId)
-                        if (!chat) return null
-
-                        return (
-                          <ChatRow
-                            key={chatId}
-                            chatId={chatId}
-                            chat={chat}
-                            isActive={activeChat?.id === chatId}
-                            isPinned={pinnedChats.has(chatId)}
-                            isRunning={Boolean(chat.sessionKey && runningSessionKeys.has(chat.sessionKey))}
-                            disableReorder
-                            onClick={() =>
-                              onChatSelect({
-                                id: chat.id,
-                                name: chatDisplayName(chat),
-                                sessionKey: chat.sessionKey,
-                              })
-                            }
-                            onPin={() => togglePinChat(chatId)}
-                            onRename={() =>
-                              dialogActions.openRename(chat)
-                            }
-                            onArchive={() =>
-                              handleArchiveChat(chatId)
-                            }
-                            onDelete={() =>
-                              dialogActions.openDelete(chat)
-                            }
-                          />
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-                {sortedChatIds.length > CHAT_INITIAL_LIMIT && (
-                  <div className="mt-0.5 flex items-center gap-1">
-                    {hasMoreChats && (
-                      <button
-                        type="button"
-                        onClick={handleShowMoreChats}
-                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
-                      >
-                        <motion.span
-                          animate={{ rotate: 0 }}
-                          transition={{ duration: 0.2, ease: "easeInOut" }}
-                          className="inline-flex items-center justify-center"
-                        >
-                          <Icons.ChevronDown size={11} />
-                        </motion.span>
-                        See more
-                      </button>
-                    )}
-                    {hasExpandedChats && (
-                      <button
-                        type="button"
-                        onClick={handleShowLessChats}
-                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
-                      >
-                        <motion.span
-                          animate={{ rotate: 180 }}
-                          transition={{ duration: 0.2, ease: "easeInOut" }}
-                          className="inline-flex items-center justify-center"
-                        >
-                          <Icons.ChevronDown size={11} />
-                        </motion.span>
-                        See less
-                      </button>
-                    )}
-                    {!hasMoreChats && !hasExpandedChats && (
-                      <button
-                        type="button"
-                        onClick={handleShowMoreChats}
-                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
-                      >
-                        <motion.span
-                          animate={{ rotate: 0 }}
-                          transition={{ duration: 0.2, ease: "easeInOut" }}
-                          className="inline-flex items-center justify-center"
-                        >
-                          <Icons.ChevronDown size={11} />
-                        </motion.span>
-                        See more
-                      </button>
-                    )}
+                {showPagination && (
+                  <div className="mt-1 flex items-center justify-between gap-1 px-1 text-[11px] text-muted-foreground/60">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
+                      disabled={safeCurrentPage === 0}
+                      className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-secondary/60 hover:text-foreground disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-muted-foreground/60"
+                      aria-label="Previous chats page"
+                    >
+                      <Icons.ChevronDown size={12} className="rotate-90" />
+                    </button>
+                    <span className="min-w-0 flex-1 truncate text-center tabular-nums">
+                      {pageStart + 1}-{pageEnd} of {sortedChatIds.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((page) => Math.min(totalPages - 1, page + 1))}
+                      disabled={safeCurrentPage >= totalPages - 1}
+                      className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-secondary/60 hover:text-foreground disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-muted-foreground/60"
+                      aria-label="Next chats page"
+                    >
+                      <Icons.ChevronDown size={12} className="-rotate-90" />
+                    </button>
                   </div>
                 )}
               </div>
