@@ -12,7 +12,6 @@ import { dedupeSpawnedSubagents } from "@/lib/chat-engine-v2/store"
 import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
 import { logChatScrollDebug } from "./chatScrollDebug"
 
-import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
 import { SubagentBar } from "./SubagentBar"
 import { SubagentFullChat } from "./SubagentFullChat"
@@ -1624,19 +1623,18 @@ export function ChatView({
               />
             </div>
           )}
-          {msg.role === "assistant" && msg.reasoningText && (
-            <ThinkingBlock
-              text={msg.reasoningText}
-              defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
-            />
-          )}
           {(() => {
             const assistantHasText = msg.role === "assistant" && msg.text.trim().length > 0
-            const toolSteps = msg.role === "assistant" && filteredToolCalls && filteredToolCalls.length > 0
+            const hasExecutionEvents = msg.role === "assistant" && (
+              Boolean(msg.reasoningText?.trim()) ||
+              Boolean(filteredToolCalls && filteredToolCalls.length > 0)
+            )
+            const toolSteps = hasExecutionEvents
               ? (
                   <div className="mb-4 max-w-[85%]">
                     <ToolCallSteps
-                      tools={filteredToolCalls}
+                      tools={filteredToolCalls ?? []}
+                      thinkingText={msg.reasoningText}
                       defaultOpen={lastTwoAssistantIds.has(msg.messageId) && !assistantHasText}
                       onSelectTool={onSelectTool}
                       onResolveApproval={resolveExecApproval}

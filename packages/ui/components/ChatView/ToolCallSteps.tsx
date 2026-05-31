@@ -312,14 +312,83 @@ function ToolRow({
   )
 }
 
+function thinkingSummary(text: string) {
+  const cleaned = text
+    .replace(/\*\*/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+  return cleaned.slice(0, 180) || "Reasoning"
+}
+
+function ThinkingRow({
+  text,
+  open,
+  onOpenChange,
+  onInteract,
+}: {
+  text: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onInteract?: () => void
+}) {
+  return (
+    <div className="rounded-md transition-colors duration-100">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onInteract?.()
+          onOpenChange(!open)
+        }}
+        className={cn(
+          "group flex w-full items-center gap-2 bg-transparent px-1.5 py-[5px] text-left",
+          open ? "rounded-t-md rounded-b-none bg-card/55" : "rounded-md",
+          "cursor-pointer transition-colors duration-100 hover:bg-card/55"
+        )}
+      >
+        <span className="relative size-2 shrink-0 rounded-full bg-violet-300 shadow-[0_0_10px_rgba(196,181,253,0.55)]" />
+        <span className="shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-violet-300/85">
+          THINKING
+        </span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground/82">
+          {thinkingSummary(text)}
+        </span>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground/45 tabular-nums">
+          {formatBytes(text.length)}
+        </span>
+        <span className="flex size-5 shrink-0 items-center justify-center rounded text-foreground/20 transition-colors">
+          {open ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
+        </span>
+      </button>
+      <div
+        className="grid transition-[grid-template-rows] duration-250 ease-out"
+        style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+      >
+        <div className="overflow-hidden">
+          <div
+            className={cn(
+              "border-t border-border/10 bg-card/35 px-3 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground/80 transition-all duration-250 ease-out whitespace-pre-wrap",
+              open ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"
+            )}
+          >
+            {text}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export const ToolCallSteps = memo(function ToolCallSteps({
   tools,
+  thinkingText,
   onSelectTool,
   onInteract,
   onResolveApproval,
   sessionKey,
 }: {
   tools: InlineToolCall[]
+  thinkingText?: string
   defaultOpen?: boolean
   onSelectTool?: (id: string) => void
   onInteract?: () => void
@@ -330,12 +399,18 @@ export const ToolCallSteps = memo(function ToolCallSteps({
   ) => Promise<void> | void
 }) {
   const orderedTools = useMemo(() => sortToolsByCallOrder(tools), [tools])
-  const total = orderedTools.length
-  const [openToolId, setOpenToolId] = useState<string | null>(null)
+  const trimmedThinking = thinkingText?.trim() ?? ""
+  const total = orderedTools.length + (trimmedThinking ? 1 : 0)
+  const [openItemId, setOpenItemId] = useState<string | null>(null)
 
   function handleToolOpenChange(id: string, nextOpen: boolean) {
     onInteract?.()
-    setOpenToolId(nextOpen ? id : null)
+    setOpenItemId(nextOpen ? id : null)
+  }
+
+  function handleThinkingOpenChange(nextOpen: boolean) {
+    onInteract?.()
+    setOpenItemId(nextOpen ? "thinking" : null)
   }
 
   if (!total) return null
@@ -345,15 +420,23 @@ export const ToolCallSteps = memo(function ToolCallSteps({
       <div className="mb-0.5 flex items-center gap-1.5 py-1 text-muted-foreground/45">
         <span className="text-[11px] font-medium">Steps</span>
         <span className="font-mono text-[10px] tabular-nums">
-          {total} tool{total !== 1 ? "s" : ""}
+          {total} event{total !== 1 ? "s" : ""}
         </span>
       </div>
       <div className="space-y-0.5">
+        {trimmedThinking && (
+          <ThinkingRow
+            text={trimmedThinking}
+            open={openItemId === "thinking"}
+            onOpenChange={handleThinkingOpenChange}
+            onInteract={onInteract}
+          />
+        )}
         {orderedTools.map((call) => (
           <ToolRow
             key={call.id}
             call={call}
-            open={openToolId === call.id}
+            open={openItemId === call.id}
             onOpenChange={handleToolOpenChange}
             onSelect={onSelectTool}
             onInteract={onInteract}
