@@ -265,9 +265,9 @@ function ProcessStatusIcon({ tool }: { tool?: string | null }) {
   )
 }
 
-function AbortedDivider() {
+function AbortedDivider({ inline = false }: { inline?: boolean }) {
   return (
-    <div className="mx-auto max-w-[44rem] px-4 py-2" aria-label="Run aborted">
+    <div className={cn(inline ? "mt-3 py-1" : "mx-auto max-w-[44rem] px-4 py-2")} aria-label="Run aborted">
       <div className="flex items-center gap-3 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/55">
         <div className="h-px flex-1 bg-border/50" />
         <span className="rounded-full border border-border/60 bg-background px-3 py-1">Aborted</span>
@@ -1543,6 +1543,15 @@ export function ChatView({
     return () => window.removeEventListener("openclaw:scroll-to-message", handler)
   }, [sessionKey, scrollToRenderedMessage, handleHighlightMessage])
 
+  const abortedMarkerMessageId = useMemo(() => {
+    if (!wasAborted || isGenerating) return null
+    for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
+      const message = renderedMessages[index]
+      if (message.role === "assistant") return message.messageId
+    }
+    return null
+  }, [isGenerating, renderedMessages, wasAborted])
+
   const renderMessageRow = useCallback(
     (index: number, msg: StableChatMessage) => {
       const isLast = index === renderedMessages.length - 1
@@ -1661,6 +1670,7 @@ export function ChatView({
             const bubble = (msg.role === "user" || msg.text) ? (
               <MessageBubble
                 message={msg}
+                afterContent={msg.messageId === abortedMarkerMessageId ? <AbortedDivider inline /> : undefined}
                 onEdit={
                   msg.role === "user" && msg.messageId === lastEditableUserId
                     ? handleEdit
@@ -1714,6 +1724,7 @@ export function ChatView({
     [
       activePopoverId,
       activeTurnToolCalls,
+      abortedMarkerMessageId,
       askAboutSelectedText,
       deleteMessage,
       exportOneMessage,
@@ -1983,7 +1994,6 @@ export function ChatView({
           {renderedMessages.map((msg, index) => (
             <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
           ))}
-          {wasAborted && !isGenerating && <AbortedDivider />}
           <div className="mx-auto max-w-[44rem] px-4 pt-0 pb-8">
             <AnimatePresence initial={false}>
               {editPreview && (
