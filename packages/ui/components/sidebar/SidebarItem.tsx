@@ -29,18 +29,21 @@ export function SidebarItem({
 }: SidebarItemProps) {
   const dragControls = useDragControls()
   const interactiveClassName = cn(
-    "group flex w-full min-w-0 items-center rounded-md font-normal",
+    "group relative flex w-full min-w-0 items-center overflow-hidden rounded-xl font-normal",
     "gap-2.5 text-left text-[13px]",
     collapsed ? "px-2.5 py-2" : "px-2.5 py-1.5",
-    "transition-[background-color,color,opacity] duration-150 ease-in-out",
+    "transition-[background-color,color,opacity,transform] duration-150 ease-in-out",
     "cursor-pointer",
     isActive
-      ? "text-foreground"
-      : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
+      ? "bg-black/[0.07] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.48)] dark:bg-white/[0.075] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+      : "text-foreground/70 hover:translate-x-0.5 hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.045]",
   )
 
   const content = (
     <>
+      {isActive && !collapsed && (
+        <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r-full bg-cyan-300 shadow-[0_0_12px_rgba(103,232,249,0.8)]" />
+      )}
       <NavIcon type={item.icon} />
       {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
     </>

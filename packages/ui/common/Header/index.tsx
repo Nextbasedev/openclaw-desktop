@@ -249,10 +249,10 @@ export function Header({
       {hasVisibleTabs && editorGroups ? (
         <div
           className={cn(
-            "relative z-10 min-w-0 flex-1 self-stretch pt-2",
+            "relative z-10 min-w-0 flex-1 self-stretch py-1.5",
             isSplitTabs
-              ? "grid grid-cols-2 items-end"
-              : "flex items-end",
+              ? "grid grid-cols-2 items-center"
+              : "flex items-center",
           )}
           style={
             isSplitTabs
@@ -277,7 +277,7 @@ export function Header({
             return (
               <div
                 key={group.id}
-                className="flex min-w-0 flex-1 items-end rounded-t-md"
+                className="flex min-w-0 flex-1 items-center rounded-md"
                 style={
                   isLastGroup && rightClusterWidth > 0
                     ? { paddingRight: rightClusterWidth + 12 }
@@ -298,7 +298,7 @@ export function Header({
                     }
                   }}
                   className={cn(
-                    "flex min-w-0 flex-1 items-end gap-1 overflow-x-auto overflow-y-hidden scroll-smooth scrollbar-hide",
+                    "flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-smooth scrollbar-hide",
                     isSplitTabs
                       ? groupIndex === 0
                         ? "pl-0 pr-2"
@@ -584,13 +584,13 @@ function HeaderTab({
         }
       }}
       className={cn(
-        "group relative mb-0 flex h-[35px] w-46 shrink-0 cursor-pointer items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200",
+        "group relative flex h-8 w-46 shrink-0 cursor-pointer items-center gap-2 overflow-hidden rounded-lg border px-2.5 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200",
         isDragging && "cursor-grabbing opacity-45",
         activeAndFocused
-          ? "z-20 overflow-visible border-transparent bg-background text-foreground shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
+          ? "z-20 border-white/[0.09] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
           : isActive
-            ? "z-10 overflow-visible border-transparent bg-background/72 text-foreground/74 shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
-            : "border-transparent bg-transparent text-foreground/56 hover:bg-white/[0.045] hover:text-foreground/78 dark:border-transparent dark:bg-transparent dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/80",
+            ? "z-10 border-white/[0.06] bg-white/[0.055] text-white/78 shadow-none"
+            : "border-transparent bg-transparent text-white/58 hover:border-white/[0.045] hover:bg-white/[0.045] hover:text-white/82",
       )}
     >
       <div
@@ -621,23 +621,23 @@ function HeaderTab({
             className={cn(
               "truncate text-[10.5px]",
               isActive
-                ? "text-foreground/34 dark:text-white/36"
-                : "text-foreground/24 dark:text-white/26",
+                ? "text-white/44"
+                : "text-white/32",
             )}
           >
             {tab.subtitle}
           </span>
-          <span className="shrink-0 text-[10px] text-foreground/20 dark:text-white/20">
+          <span className="shrink-0 text-[10px] text-white/24">
             /
           </span>
           <span
             className={cn(
               "truncate text-[11.5px] font-medium",
               activeAndFocused
-                ? "text-foreground/88 dark:text-white/90"
+                ? "text-white/92"
                 : isActive
-                  ? "text-foreground/68 dark:text-white/70"
-                  : "text-foreground/62 dark:text-white/64",
+                  ? "text-white/74"
+                  : "text-white/66",
             )}
           >
             {tab.title}

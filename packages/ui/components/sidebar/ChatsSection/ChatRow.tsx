@@ -183,12 +183,15 @@ export function ChatRow({
           onClick={chat.pendingFork ? undefined : onClick}
           disabled={chat.pendingFork}
           className={cn(
-            "flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-7 text-left transition-colors duration-150",
+            "relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 overflow-hidden rounded-xl py-2 pl-2.5 pr-8 text-left transition-[background,color,transform,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/25",
             isActive
-              ? "bg-foreground/7 text-foreground"
-              : "text-foreground/80 hover:bg-foreground/4 hover:text-foreground",
+              ? "bg-[linear-gradient(135deg,rgba(24,24,27,0.08),rgba(24,24,27,0.035))] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:bg-[linear-gradient(135deg,rgba(255,255,255,0.09),rgba(255,255,255,0.035))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]"
+              : "text-foreground/78 hover:translate-x-0.5 hover:bg-black/[0.045] hover:text-foreground dark:text-foreground/74 dark:hover:bg-white/[0.045]",
           )}
         >
+          {isActive && (
+            <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-cyan-300 shadow-[0_0_14px_rgba(103,232,249,0.85)]" />
+          )}
           <span
             onClick={(e) => {
               e.stopPropagation()
@@ -200,9 +203,9 @@ export function ChatRow({
               chat.pendingFork && "cursor-default opacity-100 text-muted-foreground/50",
               !chat.pendingFork && (isPinned
                 ? isActive
-                  ? "text-foreground"
+                  ? "text-cyan-600 dark:text-cyan-200"
                   : "text-foreground/70"
-                : "text-muted-foreground/40 opacity-0 hover:text-foreground group-hover/row:opacity-100"),
+                : "text-muted-foreground/35 opacity-0 hover:text-foreground group-hover/row:opacity-100"),
             )}
           >
             {chat.pendingFork ? <span className="size-3 animate-spin rounded-full border border-muted-foreground/20 border-t-muted-foreground/70" /> : (
@@ -212,7 +215,7 @@ export function ChatRow({
               />
             )}
           </span>
-          <span className="flex-1 truncate text-[13px] font-light">
+          <span className="flex-1 truncate text-[13px] font-normal tracking-[-0.01em]">
             {displayName}
           </span>
         </button>
@@ -331,7 +334,7 @@ export function ChatRow({
           mass: 0.85,
         },
       }}
-      className="group/row relative flex min-w-0 items-center rounded-md"
+      className="group/row relative flex min-w-0 items-center rounded-xl"
       style={{ position: "relative" }}
       onContextMenu={handleContextMenu}
     >
@@ -352,7 +355,7 @@ export function ChatRow({
         },
       }}
       className={cn(
-        "group/row relative flex min-w-0 items-center rounded-md",
+        "group/row relative flex min-w-0 items-center rounded-xl",
         !chat.pendingFork && "cursor-grab active:cursor-grabbing",
       )}
       style={{ position: "relative", zIndex: 1, boxShadow: "none" }}

@@ -9,11 +9,16 @@ import { Reorder } from "framer-motion"
 import type { ActiveTopic } from "@/types/project"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
 import { CollapsedSpacesPopover } from "./CollapsedSpacesPopover"
+import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { SidebarItem, type SidebarNavItem } from "./SidebarItem"
 import type { Space } from "@/types/space"
 
-const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = []
+const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
+  { id: "chat", label: "Chats", icon: "chat" },
+  { id: "skill", label: "Skills", icon: "skill" },
+  { id: "connect", label: "Connect", icon: "connect" },
+]
 
 const NAV_HREFS: Record<string, string> = {}
 
@@ -147,6 +152,7 @@ export function Sidebar({
   const effectiveSpaceId = previewExpanded && previewSpaceId ? previewSpaceId : activeSpaceId
   const activeSpaceName =
     spaces.find((space) => space.id === effectiveSpaceId)?.name ?? "MySpace"
+  const activeSpace = spaces.find((space) => space.id === effectiveSpaceId) ?? null
 
   return (
     <>
@@ -171,7 +177,7 @@ export function Sidebar({
           "border-r border-border/50",
           uniqueSidebarBg
             ? "bg-gradient-to-b from-[#F4F7FF] to-[#E6EEFE] dark:from-[#0D1424] dark:to-[#060913]"
-            : "bg-white dark:bg-[#151518]",
+            : "bg-[linear-gradient(180deg,#F6F4EF_0%,#ECE8DF_100%)] dark:bg-[#151518]",
           "shadow-none transition-[width,transform,opacity] duration-[var(--panel-close-dur)] ease-[var(--panel-ease)] data-[open=true]:duration-[var(--panel-open-dur)]",
           "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:h-svh max-md:w-[var(--sidebar-mobile-width)] max-md:shadow-xl",
           collapsed
@@ -195,8 +201,8 @@ export function Sidebar({
           )}
         >
           <div className={cn(
-            "scrollbar-hide relative flex w-[58px] shrink-0 flex-col items-center overflow-y-auto px-2.5 pb-3 pt-1",
-            "border-r border-white/[0.055] bg-black/[0.025] shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)] dark:bg-black/[0.085]",
+            "scrollbar-hide relative flex w-[62px] shrink-0 flex-col items-center overflow-y-auto px-2.5 pb-3 pt-1",
+            "border-r border-black/[0.055] bg-[linear-gradient(180deg,rgba(24,24,27,0.055),rgba(24,24,27,0.025))] shadow-[inset_-1px_0_0_rgba(255,255,255,0.38)] dark:border-white/[0.055] dark:bg-black/[0.085] dark:shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)]",
           )}>
             <div className="mb-3 mt-0.5 flex h-6 w-9 items-center justify-center rounded-full border border-white/[0.045] bg-white/[0.025] shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]" aria-hidden="true">
               <span className="grid grid-cols-2 gap-0.5 opacity-45">
@@ -221,17 +227,48 @@ export function Sidebar({
           </div>
 
           <div
-            className="t-panel-slide min-w-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth border-l border-white/[0.06] px-1 shadow-[inset_12px_0_24px_-22px_rgba(0,0,0,0.55)]"
+            className="t-panel-slide min-w-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth border-l border-black/[0.035] px-3 pb-3 shadow-[inset_12px_0_24px_-22px_rgba(0,0,0,0.18)] dark:border-white/[0.06] dark:shadow-[inset_12px_0_24px_-22px_rgba(0,0,0,0.55)]"
             data-open={showExpandedContent ? "true" : "false"}
             style={{ "--panel-translate-y": "18px" } as CSSProperties}
           >
+            <div className="sticky top-0 z-20 -mx-3 mb-4 px-3 pb-2.5 pt-0.5 backdrop-blur-xl">
+              <div className="group/workspace relative overflow-hidden rounded-2xl border border-black/[0.07] bg-[linear-gradient(135deg,rgba(255,255,255,0.78),rgba(255,255,255,0.38)_58%,rgba(8,145,178,0.10))] p-3 shadow-[0_16px_34px_rgba(24,24,27,0.10),inset_0_1px_0_rgba(255,255,255,0.78)] transition-transform duration-200 hover:-translate-y-px dark:border-white/[0.075] dark:bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.025)_58%,rgba(103,232,249,0.045))] dark:shadow-[0_18px_44px_rgba(0,0,0,0.20),inset_0_1px_0_rgba(255,255,255,0.08)]">
+                <div className="pointer-events-none absolute -right-8 -top-10 size-24 rounded-full bg-cyan-400/20 blur-2xl dark:bg-cyan-300/10" />
+                <div className="relative flex items-start gap-2.5">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-black/[0.08] bg-zinc-950 text-white shadow-[0_8px_22px_rgba(24,24,27,0.24),inset_0_1px_0_rgba(255,255,255,0.12)] dark:border-white/[0.08] dark:bg-black/[0.18] dark:text-foreground">
+                    <Icons.Project size={16} strokeWidth={1.6} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/68 dark:text-muted-foreground/78">
+                      <span className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.65)] dark:bg-emerald-300 dark:shadow-[0_0_12px_rgba(110,231,183,0.75)]" />
+                      Workspace
+                    </div>
+                    <div className="mt-1 truncate text-[14px] font-medium tracking-[-0.02em] text-foreground" title={activeSpaceName}>
+                      {activeSpaceName}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-foreground/68 dark:text-muted-foreground/62">
+                      {activeSpace?.repoRoot ? activeSpace.repoRoot : "Agent conversations"}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onNewChat}
+                  className="relative mt-2.5 flex h-8 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-black/[0.08] bg-zinc-950 text-[12px] font-medium text-white shadow-[0_10px_22px_rgba(24,24,27,0.18),inset_0_1px_0_rgba(255,255,255,0.12)] transition-[background,transform,border-color] duration-150 hover:-translate-y-px hover:border-cyan-500/30 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/25 dark:border-white/[0.08] dark:bg-white/[0.055] dark:text-foreground dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] dark:hover:border-cyan-200/20 dark:hover:bg-white/[0.085] dark:focus-visible:ring-cyan-300/25"
+                >
+                  <Icons.NewChat size={14} strokeWidth={1.6} />
+                  New chat
+                </button>
+              </div>
+            </div>
+
             {showPrimaryNav && mounted && (
               <Reorder.Group
                 axis="y"
                 values={items.map((i) => i.id)}
                 onReorder={onItemsReorder}
                 as="div"
-                className="flex flex-col gap-0.5"
+                className="mb-4 flex flex-col gap-1 rounded-2xl border border-black/[0.055] bg-black/[0.035] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] dark:border-white/[0.055] dark:bg-black/[0.06] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
               >
                 {items.map((item) => (
                   <SidebarItem
@@ -249,7 +286,7 @@ export function Sidebar({
 
             <div
               className={cn(
-                showPrimaryNav && "mt-2 border-t border-border/10 pt-2"
+                showPrimaryNav && "border-t border-border/15 pt-3.5"
               )}
             >
               <ChatsSection

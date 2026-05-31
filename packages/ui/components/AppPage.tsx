@@ -225,7 +225,7 @@ function focusedChatWindowParams() {
 
 const SIDEBAR_MIN = 240
 const SIDEBAR_MAX = 480
-const SIDEBAR_DEFAULT = 240
+const SIDEBAR_DEFAULT = 276
 const SIDEBAR_COLLAPSED = 56
 const INSPECTOR_DEFAULT_WIDTH = 460
 const APP_CONTEXT_MENU_WIDTH = 176
