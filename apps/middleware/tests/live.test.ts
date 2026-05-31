@@ -570,7 +570,9 @@ describe("chat live ingest", () => {
           sessionId: "session-1",
           messages: [
             { role: "user", text: "hello", __openclaw: { id: "gateway-user", seq: 1 } },
-            { role: "assistant", text: "FINAL_OK", __openclaw: { id: "gateway-assistant", seq: 2 } },
+            { role: "assistant", text: "OLD_OK", __openclaw: { id: "gateway-old-assistant", seq: 2 } },
+            { role: "user", text: "latest", __openclaw: { id: "gateway-latest-user", seq: 3 } },
+            { role: "assistant", text: "FINAL_OK", __openclaw: { id: "gateway-assistant", seq: 4 } },
           ],
         };
       }
@@ -598,9 +600,10 @@ describe("chat live ingest", () => {
 
     expect(context.messages.findMessageById("s1", "live:run-1:assistant")).toBeNull();
     const assistants = context.messages.listMessages("s1").filter((message) => message.role === "assistant");
-    expect(assistants).toHaveLength(1);
-    expect(assistants[0]).toMatchObject({ messageId: "gateway-assistant", role: "assistant" });
-    expect(assistants[0]?.data.__openclaw).toMatchObject({ replacedLiveMessageId: "live:run-1:assistant", runId: "run-1" });
+    expect(assistants).toHaveLength(2);
+    expect(context.messages.findMessageById("s1", "gateway-old-assistant")?.data.__openclaw).not.toMatchObject({ runId: "run-1" });
+    expect(context.messages.findMessageById("s1", "gateway-assistant")).toMatchObject({ messageId: "gateway-assistant", role: "assistant" });
+    expect(context.messages.findMessageById("s1", "gateway-assistant")?.data.__openclaw).toMatchObject({ replacedLiveMessageId: "live:run-1:assistant", runId: "run-1" });
     await app.close();
   });
 

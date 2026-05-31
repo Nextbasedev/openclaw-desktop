@@ -835,7 +835,7 @@ export class ChatLiveIngest {
       });
       const run = runId ? this.context.runs.getRun(runId) : this.context.runs.findOldestPendingRun(sessionKey) ?? this.context.runs.latestRun(sessionKey);
       const finalAssistant = run
-        ? normalized.find((message) => message.role === "assistant" && textFromMessage(message.data).trim().length > 0)
+        ? [...normalized].reverse().find((message) => message.role === "assistant" && textFromMessage(message.data).trim().length > 0)
         : null;
       if (run && finalAssistant) {
         const liveMessageId = `live:${run.runId}:assistant`;
