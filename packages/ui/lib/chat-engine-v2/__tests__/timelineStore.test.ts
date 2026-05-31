@@ -126,6 +126,42 @@ describe("ChatTimelineStore", () => {
         toolCalls: [expect.objectContaining({ id: "tool-1", tool: "read" })],
       })
     })
+
+    it("preserves assistant execution segments instead of grouping tools around one answer", () => {
+      const parsed = parseChatHistory([
+        { role: "user", text: "check server", __openclaw: { id: "u1", seq: 1 } },
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "First I will inspect processes" },
+            { type: "toolCall", id: "tool-1", name: "exec", arguments: { command: "ps aux" } },
+          ],
+          __openclaw: { id: "a-tools-1", seq: 2 },
+        },
+        { role: "toolResult", content: [{ type: "text", text: "node running" }], __openclaw: { id: "r1", seq: 3 } },
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "Now I will inspect cgroups" },
+            { type: "text", text: "Node is running; checking limits next." },
+            { type: "toolCall", id: "tool-2", name: "exec", arguments: { command: "systemctl show" } },
+          ],
+          __openclaw: { id: "a-tools-2", seq: 4 },
+        },
+        { role: "toolResult", content: [{ type: "text", text: "TasksMax=1024" }], __openclaw: { id: "r2", seq: 5 } },
+        { role: "assistant", text: "Final diagnosis.", __openclaw: { id: "a-final", seq: 6 } },
+      ])
+
+      expect(parsed.messages.map((message) => message.messageId)).toEqual([
+        "u1",
+        "a-tools-1",
+        "a-tools-2",
+        "a-final",
+      ])
+      expect(parsed.messages[1]).toMatchObject({ reasoningText: "First I will inspect processes", toolCalls: [expect.objectContaining({ id: "tool-1" })] })
+      expect(parsed.messages[2]).toMatchObject({ text: "Node is running; checking limits next.", reasoningText: "Now I will inspect cgroups", toolCalls: [expect.objectContaining({ id: "tool-2" })] })
+      expect(parsed.messages[3]).toMatchObject({ text: "Final diagnosis.", toolCalls: undefined })
+    })
   })
 
   describe("patches", () => {

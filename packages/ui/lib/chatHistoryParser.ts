@@ -715,6 +715,21 @@ export function isTransientSlashCommandHistory(
   return !isSlashCommandMessage(visible.at(-2))
 }
 
+function canMergeAssistantSegment(
+  last: ChatMessage | undefined,
+  incoming: { toolCalls: InlineToolCall[]; reasoningText: string }
+) {
+  if (!last || last.role !== "assistant") return false
+  // Preserve execution order. Real Gateway history can produce multiple
+  // assistant segments before the next user, e.g.:
+  // assistant(thinking+tool) → tool result → assistant(answer+tool) → tool result → assistant(answer).
+  // Merging those segments groups all tools above/below one answer and loses the
+  // chronology the user saw live. Only merge plain assistant text chunks.
+  if ((last.toolCalls?.length ?? 0) > 0 || incoming.toolCalls.length > 0) return false
+  if (last.reasoningText?.trim() || incoming.reasoningText.trim()) return false
+  return true
+}
+
 function rawMessageIdentity(raw: RawHistoryMessage): string | null {
   const seq = openclawSeq(raw)
   if (typeof seq === "number") return `seq:${seq}`
@@ -864,7 +879,11 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
       const reasoningText = thinkingText(item).trim()
       if (text || pendingToolCalls.length > 0 || reasoningText) {
         const last = messages.at(-1)
-        if (last?.role === "assistant" && !assistantMergeBlockedByUserBoundary) {
+        if (
+          last &&
+          !assistantMergeBlockedByUserBoundary &&
+          canMergeAssistantSegment(last, { toolCalls: pendingToolCalls, reasoningText })
+        ) {
           if (text) last.text = mergeAssistantText(last.text, text)
           last.toolCalls = [...(last.toolCalls ?? []), ...pendingToolCalls]
           if (reasoningText) last.reasoningText = last.reasoningText ? `${last.reasoningText}${reasoningText}` : reasoningText
