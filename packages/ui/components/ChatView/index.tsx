@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
-import { ToolCallSteps } from "./ToolCallSteps"
+import { ToolCallSteps, type ExecutionDisplayMode } from "./ToolCallSteps"
 import { ChatSearch } from "./ChatSearch"
 import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
 import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
@@ -468,10 +468,23 @@ export function ChatView({
     spawnedSubagents,
     dataSource,
   } = useChatMessages(sessionKey, initialMessages)
+  const [executionDisplayMode, setExecutionDisplayMode] = useState<ExecutionDisplayMode>(() => {
+    if (typeof window === "undefined") return "power"
+    return localStorage.getItem("openclaw.executionDisplayMode") === "general" ? "general" : "power"
+  })
 
   const lastAssistantText = messages
     .filter((m) => m.role === "assistant")
     .at(-1)?.text
+
+  useEffect(() => {
+    const onModeChange = (event: Event) => {
+      const detail = (event as CustomEvent<ExecutionDisplayMode>).detail
+      setExecutionDisplayMode(detail === "general" ? "general" : "power")
+    }
+    window.addEventListener("openclaw:execution-display-mode", onModeChange)
+    return () => window.removeEventListener("openclaw:execution-display-mode", onModeChange)
+  }, [])
 
   // Keep a stable ref for handleSend so the toast listener doesn't re-attach
   const handleSendRef = useRef(handleSend)
@@ -1635,6 +1648,7 @@ export function ChatView({
                     <ToolCallSteps
                       tools={filteredToolCalls ?? []}
                       thinkingText={msg.reasoningText}
+                      mode={executionDisplayMode}
                       defaultOpen={lastTwoAssistantIds.has(msg.messageId) && !assistantHasText}
                       onSelectTool={onSelectTool}
                       onResolveApproval={resolveExecApproval}
@@ -1686,6 +1700,7 @@ export function ChatView({
             <div className="mt-2 max-w-[85%]">
               <ToolCallSteps
                 tools={filteredPending}
+                mode={executionDisplayMode}
                 defaultOpen
                 onSelectTool={onSelectTool}
                 onResolveApproval={resolveExecApproval}
@@ -1701,6 +1716,7 @@ export function ChatView({
       activeTurnToolCalls,
       askAboutSelectedText,
       deleteMessage,
+      executionDisplayMode,
       exportOneMessage,
       forkFromMessage,
       getSubagentsForMessage,

@@ -85,6 +85,15 @@ const colorTokens = [
   },
 ]
 
+type ExecutionDisplayMode = "general" | "power"
+
+const EXECUTION_DISPLAY_KEY = "openclaw.executionDisplayMode"
+
+function executionModeFromStorage(): ExecutionDisplayMode {
+  if (typeof window === "undefined") return "power"
+  return localStorage.getItem(EXECUTION_DISPLAY_KEY) === "general" ? "general" : "power"
+}
+
 export function AppearanceTab() {
   const { resolvedTheme } = useTheme()
   const [hexValues, setHexValues] = useState<Record<string, string>>({})
@@ -92,6 +101,7 @@ export function AppearanceTab() {
     if (typeof window === "undefined") return false
     return localStorage.getItem("openclaw.uniqueSidebarBg") === "true"
   })
+  const [executionDisplayMode, setExecutionDisplayMode] = useState<ExecutionDisplayMode>(executionModeFromStorage)
 
   useEffect(() => {
     // rAF ensures styles are committed before we read computed values
@@ -114,6 +124,12 @@ export function AppearanceTab() {
     window.dispatchEvent(new CustomEvent("appearance:sidebar-bg", { detail: val }))
   }
 
+  const handleExecutionDisplayModeChange = (mode: ExecutionDisplayMode) => {
+    setExecutionDisplayMode(mode)
+    localStorage.setItem(EXECUTION_DISPLAY_KEY, mode)
+    window.dispatchEvent(new CustomEvent("openclaw:execution-display-mode", { detail: mode }))
+  }
+
   return (
     <div className="flex flex-col gap-6 pb-8">
       <div>
@@ -130,6 +146,36 @@ export function AppearanceTab() {
         <div className="mt-6 flex items-center justify-between rounded-md border border-border/50 bg-foreground/5 px-4 py-3">
           <span className="text-[14px] text-foreground">Translucent sidebar</span>
           <Switch checked={isTranslucent} onCheckedChange={handleTranslucentChange} />
+        </div>
+
+        <div className="mt-3 rounded-md border border-border/50 bg-foreground/5 px-4 py-3">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[14px] text-foreground">Execution details</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Choose how thinking and tool calls appear in chat.
+              </p>
+            </div>
+            <div className="inline-flex shrink-0 rounded-lg border border-border/50 bg-background/70 p-1">
+              {(["general", "power"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => handleExecutionDisplayModeChange(mode)}
+                  className={`rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                    executionDisplayMode === mode
+                      ? "bg-foreground/10 text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {mode === "general" ? "General" : "Power"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/80">
+            General shows calm work summaries. Power shows the full timeline with thinking and raw tool rows.
+          </p>
         </div>
 
         <div className="mt-4 overflow-hidden rounded-md border border-border/50 bg-foreground/5">

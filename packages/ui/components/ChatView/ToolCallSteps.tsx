@@ -8,6 +8,7 @@ import { ToolCallDetails, getToolDetailState } from "./ToolCallDetails"
 import type { InlineToolCall } from "./types"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
+export type ExecutionDisplayMode = "general" | "power"
 
 function ToolIcon({ status }: { status: InlineToolCall["status"] }) {
   return (
@@ -118,6 +119,22 @@ function toolMetrics(text: string, call: InlineToolCall) {
   if (!text.trim()) return call.status === "error" ? "error" : "done"
   const lineCount = text.split("\n").length
   return `${formatBytes(text.length)} · ${lineCount}L`
+}
+
+function toolStatusLabel(call: InlineToolCall) {
+  if (call.status === "running") return "running"
+  if (call.status === "error") return "failed"
+  return "done"
+}
+
+function friendlyToolText(call: InlineToolCall, subject: string) {
+  const name = normalizeToolName(call.tool).toLowerCase()
+  if (/read|cat|file/.test(name)) return `Read ${subject}`
+  if (/write|edit|patch/.test(name)) return `Updated ${subject}`
+  if (/exec|shell|bash|command/.test(name)) return `Ran ${subject}`
+  if (/process|poll/.test(name)) return `Checked process ${subject}`
+  if (/plan/.test(name)) return `Updated plan${subject && subject !== call.tool ? ` — ${subject}` : ""}`
+  return `${toolVerb(call.tool).toLowerCase()} ${subject}`
 }
 
 function toolOrderTime(call: InlineToolCall) {
@@ -379,9 +396,132 @@ function ThinkingRow({
   )
 }
 
+function GeneralWorkCard({
+  tools,
+  thinkingText,
+  openItemId,
+  onToolOpenChange,
+  onThinkingOpenChange,
+  onSelectTool,
+  onInteract,
+  onResolveApproval,
+  sessionKey,
+}: {
+  tools: InlineToolCall[]
+  thinkingText: string
+  openItemId: string | null
+  onToolOpenChange: (id: string, open: boolean) => void
+  onThinkingOpenChange: (open: boolean) => void
+  onSelectTool?: (id: string) => void
+  onInteract?: () => void
+  onResolveApproval?: (
+    approvalId: string,
+    decision: ApprovalDecision
+  ) => Promise<void> | void
+  sessionKey?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const total = tools.length + (thinkingText ? 1 : 0)
+  const failed = tools.filter((tool) => tool.status === "error").length
+  const running = tools.some((tool) => tool.status === "running")
+  const title = failed > 0
+    ? `Hit ${failed} issue${failed === 1 ? "" : "s"} while working`
+    : running
+      ? "Working through the request"
+      : tools.length > 0
+        ? `Completed ${tools.length} step${tools.length === 1 ? "" : "s"}`
+        : "Thought through the next step"
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-border/35 bg-card/35">
+      <button
+        type="button"
+        onClick={() => {
+          onInteract?.()
+          setOpen((value) => !value)
+        }}
+        className="flex w-full cursor-pointer items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-card/55"
+      >
+        <span className={cn(
+          "size-2.5 shrink-0 rounded-full",
+          failed > 0 ? "bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.45)]" : running ? "bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.6)]" : "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.4)]"
+        )} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-medium text-foreground/90">{title}</span>
+          <span className="mt-0.5 block font-mono text-[10.5px] text-muted-foreground/55">
+            {total} event{total !== 1 ? "s" : ""}{failed > 0 ? ` · ${failed} failed` : running ? " · running" : ""}
+          </span>
+        </span>
+        <span className={cn("text-muted-foreground/45 transition-transform", open && "rotate-90")}>
+          <VscChevronRight className="size-3.5" />
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-border/20 px-3.5 py-2">
+          {thinkingText && (
+            <ThinkingRow
+              text={thinkingText}
+              open={openItemId === "thinking"}
+              onOpenChange={onThinkingOpenChange}
+              onInteract={onInteract}
+            />
+          )}
+          {tools.map((call) => {
+            const { inputText } = getToolDetailState(call)
+            const subject = toolSubject(call, inputText)
+            return (
+              <div key={call.id} className="border-t border-border/10 first:border-t-0">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onInteract?.()
+                    onToolOpenChange(call.id, openItemId !== call.id)
+                  }}
+                  className="flex w-full cursor-pointer items-start gap-2 py-2 text-left"
+                >
+                  <ToolIcon status={call.status} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] text-foreground/82">{friendlyToolText(call, subject)}</span>
+                    <span className="mt-0.5 block truncate font-mono text-[10.5px] text-muted-foreground/50">{call.tool} · {toolStatusLabel(call)}</span>
+                  </span>
+                  <VscChevronRight className={cn("mt-0.5 size-3 shrink-0 text-muted-foreground/35 transition-transform", openItemId === call.id && "rotate-90")} />
+                </button>
+                {openItemId === call.id && (
+                  <div className="pb-2">
+                    <ToolCallDetails
+                      call={call}
+                      inputText={getToolDetailState(call).inputText}
+                      outputText={getToolDetailState(call).outputText}
+                      fullOutputText={getToolDetailState(call).fullOutputText}
+                      sessionKey={sessionKey}
+                    />
+                  </div>
+                )}
+                {call.approval && (
+                  <ToolRow
+                    call={call}
+                    open={false}
+                    onOpenChange={onToolOpenChange}
+                    onSelect={onSelectTool}
+                    onInteract={onInteract}
+                    onResolveApproval={onResolveApproval}
+                    sessionKey={sessionKey}
+                  />
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export const ToolCallSteps = memo(function ToolCallSteps({
   tools,
   thinkingText,
+  mode = "power",
   onSelectTool,
   onInteract,
   onResolveApproval,
@@ -389,6 +529,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
 }: {
   tools: InlineToolCall[]
   thinkingText?: string
+  mode?: ExecutionDisplayMode
   defaultOpen?: boolean
   onSelectTool?: (id: string) => void
   onInteract?: () => void
@@ -414,6 +555,24 @@ export const ToolCallSteps = memo(function ToolCallSteps({
   }
 
   if (!total) return null
+
+  if (mode === "general") {
+    return (
+      <div className="mb-2 ml-1 max-w-full">
+        <GeneralWorkCard
+          tools={orderedTools}
+          thinkingText={trimmedThinking}
+          openItemId={openItemId}
+          onToolOpenChange={handleToolOpenChange}
+          onThinkingOpenChange={handleThinkingOpenChange}
+          onSelectTool={onSelectTool}
+          onInteract={onInteract}
+          onResolveApproval={onResolveApproval}
+          sessionKey={sessionKey}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="mb-2 ml-1 border-l border-border/20 pl-2">
