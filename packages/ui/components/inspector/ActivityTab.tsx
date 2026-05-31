@@ -290,7 +290,7 @@ export function ActivityTab({
       <div className="flex h-full flex-col gap-3 px-4 py-4">
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground/65">
           <VscPulse className="size-4 animate-pulse" />
-          Loading activity for this topic…
+          Loading subagents for this topic…
         </div>
         <div className="space-y-2">
           {[0, 1, 2, 3, 4].map((item) => (
@@ -309,7 +309,7 @@ export function ActivityTab({
       <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
         <VscPulse className="size-5 text-muted-foreground/50" />
         <p className="text-[12px] text-muted-foreground">
-          No activity yet
+          No subagents yet
         </p>
       </div>
     )
@@ -398,7 +398,7 @@ export function ActivityTab({
         <div className="flex flex-1 flex-col items-center justify-center gap-2">
           <VscPulse className="size-5 text-muted-foreground/40" />
           <p className="text-[11px] text-muted-foreground">
-            No activity
+            No subagents
           </p>
         </div>
       ) : (
@@ -479,8 +479,8 @@ export function ActivityTab({
               <div className="flex min-h-28 items-center justify-center rounded-xl border border-border/30 bg-white/[0.02]">
                 <p className="text-[11px] text-muted-foreground">
                   {selectedIsSubagent
-                    ? "Waiting for sub-agent activity..."
-                    : "No tool activity for this agent yet"}
+                    ? "Waiting for this subagent..."
+                    : "No subagent or tool events yet"}
                 </p>
               </div>
             )}

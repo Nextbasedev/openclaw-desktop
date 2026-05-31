@@ -14,7 +14,6 @@ import { logChatScrollDebug } from "./chatScrollDebug"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
-import { SubagentBar } from "./SubagentBar"
 import { SubagentFullChat } from "./SubagentFullChat"
 import { PinnedMessagesPopover } from "./PinnedMessagesPopover"
 import { MessageFeedbackDialog } from "./MessageFeedbackDialog"
@@ -1959,11 +1958,6 @@ export function ChatView({
           />
 
           <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
-            {spawnedSubagents.length > 0 && (
-              <div className="mb-2">
-                <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
-              </div>
-            )}
             <ChatBox
               onSend={wrappedSend}
               disabled={false}
@@ -2056,11 +2050,6 @@ export function ChatView({
             )}
           </AnimatePresence>
         </div>
-        {currentTurnSubagents.length > 0 && (
-          <div className="mb-2">
-            <SubagentBar subagents={currentTurnSubagents} onOpen={openSubagent} />
-          </div>
-        )}
         <ChatBox
           onSend={wrappedSend}
           disabled={false}

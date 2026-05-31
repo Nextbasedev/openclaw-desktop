@@ -213,8 +213,8 @@ function ToolRow({
         <span
           role={onSelect ? "button" : undefined}
           tabIndex={onSelect ? 0 : undefined}
-          aria-label={onSelect ? "Open in Activity" : undefined}
-          title={onSelect ? "Open in Activity" : undefined}
+          aria-label={onSelect ? "Open in Subagents" : undefined}
+          title={onSelect ? "Open in Subagents" : undefined}
           onClick={(e) => {
             if (!onSelect) return
             e.stopPropagation()
