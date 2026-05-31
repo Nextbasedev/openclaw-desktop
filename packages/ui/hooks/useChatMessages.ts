@@ -329,7 +329,16 @@ function delay(ms: number) {
 
 function toolResultText(result: unknown) {
   if (typeof result === "string" || Array.isArray(result)) {
-    return extractText(result as ContentBlock[] | string | undefined)
+    const text = extractText(result as ContentBlock[] | string | undefined)
+    if (text) return text
+    if (Array.isArray(result)) {
+      try {
+        return JSON.stringify(result, null, 2)
+      } catch {
+        return String(result)
+      }
+    }
+    return text
   }
   if (result === undefined || result === null) return ""
   try {

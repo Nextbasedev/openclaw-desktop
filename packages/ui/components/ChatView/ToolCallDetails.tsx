@@ -161,7 +161,7 @@ export function ToolCallDetails({
         </DetailBlock>
       )}
       {showDivider && <div className="h-px bg-transparent" />}
-      <div className="grid transition-[grid-template-rows] duration-300 ease-out" style={{ gridTemplateRows: outputText || showWaitingForOutput || showEmptyState ? "1fr" : "0fr" }}>
+      <div className="grid transition-[grid-template-rows] duration-300 ease-out" style={{ gridTemplateRows: outputText || showWaitingForOutput || showErrorFallback || showEmptyState ? "1fr" : "0fr" }}>
         <div className="overflow-hidden">
           <div className="transition-all duration-300 ease-out animate-in fade-in-0 slide-in-from-top-1">
             {outputText ? (
