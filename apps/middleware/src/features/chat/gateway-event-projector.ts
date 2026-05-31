@@ -66,6 +66,9 @@ export function isErrorToolResult(value: unknown): boolean {
     if (typeof status === "string" && ["error", "failed", "failure"].includes(status.trim().toLowerCase())) return true;
     if (value.error !== undefined && value.error !== null && value.error !== false) return true;
     if (value.is_error === true || value.isError === true) return true;
+    for (const key of ["text", "content", "result", "output", "message", "value", "data"]) {
+      if (key in value && isErrorToolResult(value[key])) return true;
+    }
   }
   if (Array.isArray(value)) return value.some(isErrorToolResult);
   if (typeof value === "string") {

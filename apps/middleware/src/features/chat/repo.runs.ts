@@ -17,6 +17,9 @@ function isErrorToolResult(value: unknown): boolean {
     if (typeof status === "string" && ["error", "failed", "failure"].includes(status.trim().toLowerCase())) return true;
     if (record.error !== undefined && record.error !== null && record.error !== false) return true;
     if (record.is_error === true || record.isError === true) return true;
+    for (const key of ["text", "content", "result", "output", "message", "value", "data"]) {
+      if (key in record && isErrorToolResult(record[key])) return true;
+    }
   }
   if (typeof value === "string") {
     const trimmed = value.trim();

@@ -1266,6 +1266,31 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("marks wrapped text tool_result errors as failed tool cards", async () => {
+    const app = await createApp(config("message-tool-result-wrapped-error-payload"));
+    const context = contextOf(app);
+
+    context.runs.upsertToolCall({
+      sessionKey: "s1",
+      runId: "run-1",
+      toolCallId: "tool-1",
+      name: "read",
+      phase: "result",
+      resultMeta: [{ type: "text", text: { status: "error", tool: "read", error: "ENOENT: missing file" } }],
+      updatedAtMs: 200,
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({
+      toolCallId: "tool-1",
+      name: "read",
+      status: "error",
+      phase: "error",
+      resultMeta: [{ type: "text", text: { status: "error", tool: "read", error: "ENOENT: missing file" } }],
+    });
+
+    await app.close();
+  });
+
   test("broadcasts standalone tool result text as a live message patch", async () => {
     const app = await createApp(config("standalone-tool-result-message"));
     const context = contextOf(app);
