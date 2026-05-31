@@ -974,7 +974,8 @@ function streamStatusFromPatchValue(value: unknown): StreamStatus | null {
     value === "done" ||
     value === "error"
   ) return value
-  if (value === "failed" || value === "aborted") return "error"
+  if (value === "failed") return "error"
+  if (value === "aborted") return "idle"
   if (value === "complete" || value === "completed" || value === "success") return "done"
   return null
 }

@@ -289,7 +289,7 @@ const ACTIVE_STATUSES = new Set<StreamStatus>(["queued", "running", "collect", "
 const VALID_STATUSES = new Set<StreamStatus>(["idle", "connected", "queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting", "done", "error"])
 
 function normalizePatchStatus(value: unknown): StreamStatus | null {
-  if (value === "aborted") return "error"
+  if (value === "aborted") return "idle"
   if (typeof value !== "string" || !VALID_STATUSES.has(value as StreamStatus)) return null
   return value as StreamStatus
 }

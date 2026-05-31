@@ -265,6 +265,18 @@ function ProcessStatusIcon({ tool }: { tool?: string | null }) {
   )
 }
 
+function AbortedDivider() {
+  return (
+    <div className="mx-auto max-w-[44rem] px-4 py-2" aria-label="Run aborted">
+      <div className="flex items-center gap-3 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/55">
+        <div className="h-px flex-1 bg-border/50" />
+        <span className="rounded-full border border-border/60 bg-background px-3 py-1">Aborted</span>
+        <div className="h-px flex-1 bg-border/50" />
+      </div>
+    </div>
+  )
+}
+
 type Props = {
   sessionKey: string
   sessionTitle?: string
@@ -447,6 +459,7 @@ export function ChatView({
     messages,
     status,
     statusLabel,
+    wasAborted,
     loading,
     hasOlderMessages,
     loadingOlderMessages,
@@ -1970,6 +1983,7 @@ export function ChatView({
           {renderedMessages.map((msg, index) => (
             <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
           ))}
+          {wasAborted && !isGenerating && <AbortedDivider />}
           <div className="mx-auto max-w-[44rem] px-4 pt-0 pb-8">
             <AnimatePresence initial={false}>
               {editPreview && (

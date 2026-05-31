@@ -669,6 +669,10 @@ export function useChatMessages(
         ? streamStatusFromCanonicalRun(initialSyncWarmCache.entry.runStatus)
         : "idle"
   )
+  const initialWasAborted = !hasInitial && (
+    initialCachedBootstrap?.runStatus === "aborted" ||
+    initialSyncWarmCache?.entry?.runStatus === "aborted"
+  )
   const instanceIdRef = useRef(randomId())
   const viewGenerationRef = useRef(0)
   const windowIdRef = useRef<string | null>(null)
@@ -692,6 +696,7 @@ export function useChatMessages(
   const [statusLabel, setStatusLabel] = useState<string | null>(
     () => normalizeStatusLabelForStatus(initialWarmStatus, initialGlobalSession?.statusLabel ?? initialCachedBootstrap?.statusLabel)
   )
+  const [wasAborted, setWasAborted] = useState(initialWasAborted)
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages && !initialKnownEmpty && !initialGlobalMessages)
   const [dataSource, setDataSource] = useState<"fresh" | "warm-cache" | "syncing" | "loading">(initialWarmMessages ? "warm-cache" : "loading")
@@ -1971,6 +1976,7 @@ export function useChatMessages(
         pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
         spawnMapRef.current = new Map(canonicalSpawns.map((spawn) => [spawn.toolCallId, spawn]))
         const canonicalStatus = streamStatusFromCanonicalRun(runStatus)
+        setWasAborted(runStatus === "aborted")
         const canonicalLabel = normalizeStatusLabelForStatus(canonicalStatus, canonicalStatusLabel)
         const shouldPreserveInitialOptimisticMessages =
           hasInitial &&
@@ -2263,6 +2269,7 @@ export function useChatMessages(
       flushSync(() => {
         setIsSending(true)
         setErrorMessage(null)
+        setWasAborted(false)
       })
       const optimisticId = retryMessageId ?? randomId()
       if (!runsAlongsideGeneration) {
@@ -2650,6 +2657,7 @@ export function useChatMessages(
       setPendingTools([])
       setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
       setStatus("idle")
+      setWasAborted(true)
       updateGlobalChatSessionActivity({
         sessionKey,
         pendingTools: [],
@@ -3040,6 +3048,7 @@ export function useChatMessages(
     messages: messagesBelongToActiveSession ? messages : [],
     status,
     statusLabel,
+    wasAborted,
     loading: loading || !messagesBelongToActiveSession,
     historyLoadVersion,
     hasOlderMessages,
