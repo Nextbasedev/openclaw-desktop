@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect, memo } from "react"
+import { useState, useCallback, useRef, useEffect, memo, type ReactNode } from "react"
 import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
 import { createPortal } from "react-dom"
@@ -521,6 +521,7 @@ export const MessageBubble = memo(function MessageBubble({
   suppressActions,
   popoverOpen,
   onPopoverOpenChange,
+  afterContent,
 }: {
   message: ChatMessage
   onEdit?: (messageId: string, newText: string) => void
@@ -550,6 +551,7 @@ export const MessageBubble = memo(function MessageBubble({
   suppressActions?: boolean
   popoverOpen?: boolean
   onPopoverOpenChange?: (open: boolean) => void
+  afterContent?: ReactNode
 }) {
   const isUser = message.role === "user"
   const isAssistantError = isAssistantErrorMessage(message)
@@ -943,6 +945,7 @@ export const MessageBubble = memo(function MessageBubble({
                 )}
               </div>
             )}
+            {!isUser && afterContent}
             {isUser && message.sendStatus === "failed" && (
               <div className="mt-1 flex max-w-full items-center gap-2 text-[11px] text-rose-300">
                 <span className="min-w-0 truncate">

@@ -310,13 +310,15 @@ function textFromUnknown(value: unknown): string {
     if (typeof item === "string") return item
     if (item && typeof item === "object" && !Array.isArray(item)) {
       const block = item as Record<string, unknown>
-      return typeof block.text === "string" ? block.text : ""
+      const nested = block.text ?? block.content ?? block.output ?? block.result ?? block.message ?? block.value
+      return nested === undefined || nested === null ? "" : textFromUnknown(nested)
     }
     return ""
   }).join("")
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const object = value as Record<string, unknown>
     if (typeof object.text === "string") return object.text
+    if (object.text !== undefined && object.text !== null) return textFromUnknown(object.text)
     if (typeof object.content === "string") return object.content
     if (Array.isArray(object.content)) return textFromUnknown(object.content)
   }
@@ -972,7 +974,8 @@ function streamStatusFromPatchValue(value: unknown): StreamStatus | null {
     value === "done" ||
     value === "error"
   ) return value
-  if (value === "failed" || value === "aborted") return "error"
+  if (value === "failed") return "error"
+  if (value === "aborted") return "idle"
   if (value === "complete" || value === "completed" || value === "success") return "done"
   return null
 }

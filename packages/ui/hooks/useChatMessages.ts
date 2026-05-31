@@ -329,7 +329,16 @@ function delay(ms: number) {
 
 function toolResultText(result: unknown) {
   if (typeof result === "string" || Array.isArray(result)) {
-    return extractText(result as ContentBlock[] | string | undefined)
+    const text = extractText(result as ContentBlock[] | string | undefined)
+    if (text) return text
+    if (Array.isArray(result)) {
+      try {
+        return JSON.stringify(result, null, 2)
+      } catch {
+        return String(result)
+      }
+    }
+    return text
   }
   if (result === undefined || result === null) return ""
   try {
@@ -464,7 +473,7 @@ function normalizeStatusLabelForStatus(status: StreamStatus | null | undefined, 
 }
 
 function streamStatusFromCanonicalRun(status: RunStatusV2 | string | null | undefined): StreamStatus {
-  if (status === "aborted") return "error"
+  if (status === "aborted") return "idle"
   if (
     status === "idle" ||
     status === "queued" ||
@@ -490,6 +499,7 @@ function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | 
     tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
     status,
     startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
+    completedAt: typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
     input: tool.argsMeta,
     resultText: tool.resultMeta ? toolResultText(tool.resultMeta) : undefined,
   }
@@ -659,6 +669,10 @@ export function useChatMessages(
         ? streamStatusFromCanonicalRun(initialSyncWarmCache.entry.runStatus)
         : "idle"
   )
+  const initialWasAborted = !hasInitial && (
+    initialCachedBootstrap?.runStatus === "aborted" ||
+    initialSyncWarmCache?.entry?.runStatus === "aborted"
+  )
   const instanceIdRef = useRef(randomId())
   const viewGenerationRef = useRef(0)
   const windowIdRef = useRef<string | null>(null)
@@ -682,6 +696,7 @@ export function useChatMessages(
   const [statusLabel, setStatusLabel] = useState<string | null>(
     () => normalizeStatusLabelForStatus(initialWarmStatus, initialGlobalSession?.statusLabel ?? initialCachedBootstrap?.statusLabel)
   )
+  const [wasAborted, setWasAborted] = useState(initialWasAborted)
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages && !initialKnownEmpty && !initialGlobalMessages)
   const [dataSource, setDataSource] = useState<"fresh" | "warm-cache" | "syncing" | "loading">(initialWarmMessages ? "warm-cache" : "loading")
@@ -1961,6 +1976,7 @@ export function useChatMessages(
         pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
         spawnMapRef.current = new Map(canonicalSpawns.map((spawn) => [spawn.toolCallId, spawn]))
         const canonicalStatus = streamStatusFromCanonicalRun(runStatus)
+        setWasAborted(runStatus === "aborted")
         const canonicalLabel = normalizeStatusLabelForStatus(canonicalStatus, canonicalStatusLabel)
         const shouldPreserveInitialOptimisticMessages =
           hasInitial &&
@@ -2253,6 +2269,7 @@ export function useChatMessages(
       flushSync(() => {
         setIsSending(true)
         setErrorMessage(null)
+        setWasAborted(false)
       })
       const optimisticId = retryMessageId ?? randomId()
       if (!runsAlongsideGeneration) {
@@ -2402,11 +2419,16 @@ export function useChatMessages(
         emit("chat:activity", { sessionKey })
         emit("chat:message-confirmed", { sessionKey })
         // Fallback: if WS is dead, patches won't arrive. Poll bootstrap after 8s
-        // to pick up the response if status is still "thinking".
-        // Uses reconcileActiveRun (lighter than setStreamGeneration which re-inits everything)
+        // only when no stream event has arrived recently. If the live stream is
+        // healthy, this recovery poll races against live patches and creates
+        // extra history/sessions requests during active generation.
         setTimeout(() => {
-          if (statusRef.current === "thinking" || statusRef.current === "streaming" || statusRef.current === "tool_running") {
-            frontendLog("composer", "chat.send.fallback-poll", { sessionKey, status: statusRef.current }, "warn")
+          const msSinceStreamEvent = Date.now() - lastStreamEventAtRef.current
+          if (
+            msSinceStreamEvent > 7_500 &&
+            (statusRef.current === "thinking" || statusRef.current === "streaming" || statusRef.current === "tool_running")
+          ) {
+            frontendLog("composer", "chat.send.fallback-poll", { sessionKey, status: statusRef.current, msSinceStreamEvent }, "warn")
             void reconcileActiveRun().catch(() => undefined)
           }
         }, 8000)
@@ -2635,6 +2657,7 @@ export function useChatMessages(
       setPendingTools([])
       setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
       setStatus("idle")
+      setWasAborted(true)
       updateGlobalChatSessionActivity({
         sessionKey,
         pendingTools: [],
@@ -3025,6 +3048,7 @@ export function useChatMessages(
     messages: messagesBelongToActiveSession ? messages : [],
     status,
     statusLabel,
+    wasAborted,
     loading: loading || !messagesBelongToActiveSession,
     historyLoadVersion,
     hasOlderMessages,

@@ -42,10 +42,10 @@ describe("matchRecentConfirmedUserEcho", () => {
     expect(match).toBe(confirmed);
   });
 
-  test("folds stripped adjacent fresh-chat echo when run/idempotency are missing", () => {
+  test("folds stripped fresh-chat echo when run/idempotency are missing", () => {
     const match = matchRecentConfirmedUserEcho({
       text: "hii",
-      openclawSeq: 3,
+      openclawSeq: 5,
       idempotencyKey: null,
       runId: null,
       entries: [confirmed],
@@ -64,13 +64,13 @@ describe("matchRecentConfirmedUserEcho", () => {
     expect(match).toBeNull();
   });
 
-  test("keeps non-adjacent same-text echoes visible when run/idempotency are missing", () => {
+  test("keeps same-text messages visible when no confirmed run-backed entry exists", () => {
     const match = matchRecentConfirmedUserEcho({
       text: "hii",
       openclawSeq: 5,
       idempotencyKey: null,
       runId: null,
-      entries: [confirmed],
+      entries: [{ ...confirmed, runId: undefined }],
     });
     expect(match).toBeNull();
   });
@@ -551,6 +551,59 @@ describe("chat live ingest", () => {
     expect(userMessages[0]).toMatchObject({ messageId: "client-1", openclawSeq: 90 });
     expect(context.messages.findMessageById("s1", "gateway-user")).toBeNull();
     expect(context.messages.findMessageById("s1", "gateway-assistant")).toMatchObject({ role: "assistant" });
+    await app.close();
+  });
+
+  test("backfill replaces live assistant delta with canonical final assistant", async () => {
+    const app = await createApp(config("backfill-replaces-live-assistant"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "sessions.messages.subscribe") return { ok: true };
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          messages: [
+            { role: "user", text: "hello", __openclaw: { id: "gateway-user", seq: 1 } },
+            { role: "assistant", text: "OLD_OK", __openclaw: { id: "gateway-old-assistant", seq: 2 } },
+            { role: "user", text: "latest", __openclaw: { id: "gateway-latest-user", seq: 3 } },
+            { role: "assistant", text: "FINAL_OK", __openclaw: { id: "gateway-assistant", seq: 4 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "streaming", statusLabel: "Streaming", startedAtMs: now, updatedAtMs: now });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "chat",
+      payload: { sessionKey: "s1", runId: "run-1", data: { status: "streaming", text: "FINAL_OK" } },
+    });
+    expect(context.messages.findMessageById("s1", "live:run-1:assistant")).toMatchObject({ role: "assistant" });
+
+    listener({
+      type: "event",
+      event: "chat",
+      payload: { sessionKey: "s1", runId: "run-1", status: "final" },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(context.messages.findMessageById("s1", "live:run-1:assistant")).toBeNull();
+    const assistants = context.messages.listMessages("s1").filter((message) => message.role === "assistant");
+    expect(assistants).toHaveLength(2);
+    expect(context.messages.findMessageById("s1", "gateway-old-assistant")?.data.__openclaw).not.toMatchObject({ runId: "run-1" });
+    expect(context.messages.findMessageById("s1", "gateway-assistant")).toMatchObject({ messageId: "gateway-assistant", role: "assistant" });
+    expect(context.messages.findMessageById("s1", "gateway-assistant")?.data.__openclaw).toMatchObject({ replacedLiveMessageId: "live:run-1:assistant", runId: "run-1" });
     await app.close();
   });
 
@@ -1146,6 +1199,95 @@ describe("chat live ingest", () => {
     const patches = replay.json().patches;
     const resultIndex = patches.findIndex((patch: { type: string; payload?: { toolCallId?: string } }) => patch.type === "chat.tool.result" && patch.payload?.toolCallId === "tool-1");
     expect(resultIndex).toBeGreaterThanOrEqual(0);
+    await app.close();
+  });
+
+  test("marks tool_result payloads with status error as failed tool cards", async () => {
+    const app = await createApp(config("message-tool-result-error-payload"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "tool-1", name: "read", input: { path: "/tmp/missing" } }],
+          __openclaw: { id: "assistant-tools", seq: 2 },
+        },
+      },
+    });
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 3,
+        message: {
+          role: "toolResult",
+          toolCallId: "tool-1",
+          content: { status: "error", tool: "read", error: "ENOENT: missing file" },
+          __openclaw: { id: "tool-result-error", seq: 3 },
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({
+      toolCallId: "tool-1",
+      name: "read",
+      status: "error",
+      phase: "error",
+      resultMeta: { status: "error", tool: "read", error: "ENOENT: missing file" },
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const patches = replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string; toolCall?: { status?: string; phase?: string; resultMeta?: unknown } } }>;
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.error",
+        payload: expect.objectContaining({
+          toolCallId: "tool-1",
+          toolCall: expect.objectContaining({ status: "error", phase: "error" }),
+        }),
+      }),
+    ]));
+    await app.close();
+  });
+
+  test("marks wrapped text tool_result errors as failed tool cards", async () => {
+    const app = await createApp(config("message-tool-result-wrapped-error-payload"));
+    const context = contextOf(app);
+
+    context.runs.upsertToolCall({
+      sessionKey: "s1",
+      runId: "run-1",
+      toolCallId: "tool-1",
+      name: "read",
+      phase: "result",
+      resultMeta: [{ type: "text", text: { status: "error", tool: "read", error: "ENOENT: missing file" } }],
+      updatedAtMs: 200,
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({
+      toolCallId: "tool-1",
+      name: "read",
+      status: "error",
+      phase: "error",
+      resultMeta: [{ type: "text", text: { status: "error", tool: "read", error: "ENOENT: missing file" } }],
+    });
+
     await app.close();
   });
 

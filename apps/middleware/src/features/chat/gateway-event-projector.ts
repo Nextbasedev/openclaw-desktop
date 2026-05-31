@@ -60,6 +60,29 @@ export function readToolResult(value: Record<string, unknown>) {
   return value.result ?? value.output ?? value.content ?? value.text ?? value.message ?? value.value ?? null;
 }
 
+export function isErrorToolResult(value: unknown): boolean {
+  if (isObject(value)) {
+    const status = value.status ?? value.state;
+    if (typeof status === "string" && ["error", "failed", "failure"].includes(status.trim().toLowerCase())) return true;
+    if (value.error !== undefined && value.error !== null && value.error !== false) return true;
+    if (value.is_error === true || value.isError === true) return true;
+    for (const key of ["text", "content", "result", "output", "message", "value", "data"]) {
+      if (key in value && isErrorToolResult(value[key])) return true;
+    }
+  }
+  if (Array.isArray(value)) return value.some(isErrorToolResult);
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    try {
+      return isErrorToolResult(JSON.parse(trimmed));
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 export function isToolResultRole(role: unknown) {
   return role === "tool" || role === "toolResult" || role === "tool_result";
 }
@@ -161,24 +184,26 @@ export function extractToolEventsFromMessage(message: OpenClawMessage | Record<s
   for (const block of toolResultBlocks(message.content)) {
     const toolCallId = readToolCallId(block);
     if (!toolCallId) continue;
+    const result = readToolResult(block);
     events.push({
       toolCallId,
       name: readToolName(block) ?? readToolName(message as Record<string, unknown>),
-      phase: block.is_error === true || block.isError === true ? "error" : "result",
+      phase: block.is_error === true || block.isError === true || isErrorToolResult(result) ? "error" : "result",
       args: null,
-      result: readToolResult(block),
+      result,
     });
   }
 
   if (isToolResultRole(message.role)) {
     const topLevelToolCallId = readToolCallId(message as Record<string, unknown>);
     if (topLevelToolCallId) {
+      const result = message.content ?? message.text ?? null;
       events.push({
         toolCallId: topLevelToolCallId,
         name: readToolName(message as Record<string, unknown>),
-        phase: "result",
+        phase: isErrorToolResult(result) ? "error" : "result",
         args: null,
-        result: message.content ?? message.text ?? null,
+        result,
       });
     }
   }
