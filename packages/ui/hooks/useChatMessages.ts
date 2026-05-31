@@ -2402,11 +2402,16 @@ export function useChatMessages(
         emit("chat:activity", { sessionKey })
         emit("chat:message-confirmed", { sessionKey })
         // Fallback: if WS is dead, patches won't arrive. Poll bootstrap after 8s
-        // to pick up the response if status is still "thinking".
-        // Uses reconcileActiveRun (lighter than setStreamGeneration which re-inits everything)
+        // only when no stream event has arrived recently. If the live stream is
+        // healthy, this recovery poll races against live patches and creates
+        // extra history/sessions requests during active generation.
         setTimeout(() => {
-          if (statusRef.current === "thinking" || statusRef.current === "streaming" || statusRef.current === "tool_running") {
-            frontendLog("composer", "chat.send.fallback-poll", { sessionKey, status: statusRef.current }, "warn")
+          const msSinceStreamEvent = Date.now() - lastStreamEventAtRef.current
+          if (
+            msSinceStreamEvent > 7_500 &&
+            (statusRef.current === "thinking" || statusRef.current === "streaming" || statusRef.current === "tool_running")
+          ) {
+            frontendLog("composer", "chat.send.fallback-poll", { sessionKey, status: statusRef.current, msSinceStreamEvent }, "warn")
             void reconcileActiveRun().catch(() => undefined)
           }
         }, 8000)

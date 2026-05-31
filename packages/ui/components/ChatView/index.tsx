@@ -900,7 +900,6 @@ export function ChatView({
         !firstFiredRef.current &&
         messages.length === 0 &&
         Boolean(onFirstMessageSent)
-      emit("chat:activity", { sessionKey })
       if (shouldNotifyFirstSend && onFirstMessageSent) {
         firstFiredRef.current = true
         onFirstMessageSent(payload.text)
