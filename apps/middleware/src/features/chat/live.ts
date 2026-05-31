@@ -833,8 +833,28 @@ export class ChatLiveIngest {
         sessionId: history.sessionId ?? this.context.messages.getSession(sessionKey)?.sessionId ?? null,
         sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
       });
-      const projection = this.context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
       const run = runId ? this.context.runs.getRun(runId) : this.context.runs.findOldestPendingRun(sessionKey) ?? this.context.runs.latestRun(sessionKey);
+      const finalAssistant = run
+        ? normalized.find((message) => message.role === "assistant" && textFromMessage(message.data).trim().length > 0)
+        : null;
+      if (run && finalAssistant) {
+        const liveMessageId = `live:${run.runId}:assistant`;
+        const liveMessage = this.context.messages.findMessageById(sessionKey, liveMessageId);
+        if (liveMessage) {
+          this.context.messages.deleteMessageById(sessionKey, liveMessageId);
+          this.liveAssistantText.delete(run.runId);
+          finalAssistant.data = {
+            ...finalAssistant.data,
+            __openclaw: {
+              ...(isObject(finalAssistant.data.__openclaw) ? finalAssistant.data.__openclaw : {}),
+              replacedLiveMessageId: liveMessageId,
+              runId: run.runId,
+            },
+          };
+          this.log.info("history.backfill.live-assistant.replaced", { sessionKey, runId: run.runId, liveMessageId, finalMessageId: finalAssistant.messageId });
+        }
+      }
+      const projection = this.context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
       for (const projected of projection.changedMessages) {
         const gatewayProjection = projectGatewayMessage(projected.data as OpenClawMessage);
         this.projectToolsFromMessage(sessionKey, projected.data as OpenClawMessage, run, gatewayProjection);

@@ -554,6 +554,56 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("backfill replaces live assistant delta with canonical final assistant", async () => {
+    const app = await createApp(config("backfill-replaces-live-assistant"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "sessions.messages.subscribe") return { ok: true };
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          messages: [
+            { role: "user", text: "hello", __openclaw: { id: "gateway-user", seq: 1 } },
+            { role: "assistant", text: "FINAL_OK", __openclaw: { id: "gateway-assistant", seq: 2 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "streaming", statusLabel: "Streaming", startedAtMs: now, updatedAtMs: now });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "chat",
+      payload: { sessionKey: "s1", runId: "run-1", data: { status: "streaming", text: "FINAL_OK" } },
+    });
+    expect(context.messages.findMessageById("s1", "live:run-1:assistant")).toMatchObject({ role: "assistant" });
+
+    listener({
+      type: "event",
+      event: "chat",
+      payload: { sessionKey: "s1", runId: "run-1", status: "final" },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(context.messages.findMessageById("s1", "live:run-1:assistant")).toBeNull();
+    const assistants = context.messages.listMessages("s1").filter((message) => message.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]).toMatchObject({ messageId: "gateway-assistant", role: "assistant" });
+    expect(assistants[0]?.data.__openclaw).toMatchObject({ replacedLiveMessageId: "live:run-1:assistant", runId: "run-1" });
+    await app.close();
+  });
+
   test("confirms optimistic user echoes from content blocks and uses positive fallback seq", async () => {
     const app = await createApp(config("content-optimistic-confirm"));
     const context = contextOf(app);
