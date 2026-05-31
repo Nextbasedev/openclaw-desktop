@@ -15,6 +15,7 @@
 4. **User scrolls up** → preserve position, show jump-to-bottom button
 5. **Load older messages** → preserve viewport position (no jump)
 6. **Background/inactive split panes** → must NOT steal scroll
+7. **Fast upward scroll** → prefetch older messages before the user reaches the top; never leave the top feeling dead while history loads.
 
 ## Implementation
 
@@ -49,6 +50,14 @@
   - `force=false` → only scroll if `isAtBottomRef.current` is true
 - `isAtBottomRef` updated by scroll events with programmatic-scroll debounce (80ms/350ms)
 - Live message updates use `scrollToBottom(false)` to avoid bounce
+
+### Older History Loading
+- Older-history loading should start before the viewport reaches the top. The normal prefetch zone is intentionally earlier than the visible top edge so fast scrolls do not outrun pagination.
+- Fast upward scrolls may trigger an even earlier prefetch path, but only while preserving the one-in-flight guard.
+- Re-trigger throttles should be short enough to support continued upward scrolling while still avoiding request spam.
+- While older history is in-flight, the transcript should show immediate top-of-list feedback (for example, a subtle "Loading older messages…" row) so the UI never appears frozen.
+- After older rows render and the scroll anchor settles, the view may request one more page if the user is still near the older-history edge and more history is available.
+- Older-page prepends must preserve the current viewport anchor; do not solve loading latency by force-scrolling the user.
 
 ### Jump-to-Bottom Button
 - Shown when user scrolls away from bottom
