@@ -191,6 +191,54 @@ function MoreAgentsPopover({
   )
 }
 
+function SubagentDashboardCard({
+  node,
+  active,
+  onSelect,
+}: {
+  node: AgentNode
+  active: boolean
+  onSelect: (id: string) => void
+}) {
+  const running = node.calls.filter((call) => call.status === "running").length
+  const errors = node.calls.filter((call) => call.status === "error").length
+  const latest = latestActivityAt(node)
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(node.id)}
+      className={cn(
+        "group relative flex min-w-[190px] flex-1 cursor-pointer flex-col overflow-hidden rounded-xl border px-3 py-3 text-left transition-all",
+        "bg-gradient-to-br from-white/[0.055] to-white/[0.018] shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]",
+        active
+          ? "border-foreground/22 ring-1 ring-foreground/10"
+          : "border-border/35 hover:border-border/70 hover:bg-white/[0.05]",
+      )}
+    >
+      <div className="flex items-start gap-2.5">
+        <span className={cn("mt-1 size-2 shrink-0 rounded-full shadow-[0_0_12px_currentColor]", TREE_DOT_COLORS[node.status])} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-semibold text-foreground">
+            {node.label}
+          </p>
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground/60">
+            {node.description || "Sub-agent session"}
+          </p>
+        </div>
+        <StatusBadge status={node.status} />
+      </div>
+
+      <div className="mt-3 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/55">
+        <span>{node.calls.length} events</span>
+        {running > 0 && <span className="text-amber-300">{running} running</span>}
+        {errors > 0 && <span className="text-rose-300">{errors} errors</span>}
+        {latest > 0 && <span className="ml-auto normal-case tracking-normal">{new Date(latest).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
+      </div>
+    </button>
+  )
+}
+
 export function ActivityTab({
   sessionKey,
   activeAgentId,
@@ -214,16 +262,15 @@ export function ActivityTab({
   const { historyLoaded, tree, isLive, agentToSessionKey } =
     useAgentActivity(sessionKey)
 
-  const selectedId = activeAgentId ?? "root"
-  const selectedNode = findNode(tree, selectedId) ?? tree[0] ?? null
+  const mainNode = tree[0] ?? null
+  const allSubagents = useMemo(() => sortAgentsForTabs(flattenAgents(tree)), [tree])
+  const selectedId = activeAgentId ?? allSubagents[0]?.id ?? "root"
+  const selectedNode = findNode(tree, selectedId) ?? allSubagents[0] ?? tree[0] ?? null
   const selectedSubagentSessionKey =
     selectedNode && selectedNode.id !== "root"
       ? agentToSessionKey.get(selectedNode.id) ?? null
       : null
   const selectedIsSubagent = Boolean(selectedNode && selectedNode.id !== "root")
-
-  const mainNode = tree[0] ?? null
-  const allSubagents = useMemo(() => sortAgentsForTabs(flattenAgents(tree)), [tree])
   const visibleSubagents = useMemo(
     () => makeVisibleAgents(allSubagents, selectedId),
     [allSubagents, selectedId],
@@ -235,6 +282,7 @@ export function ActivityTab({
 
   const runningSubagentCount = allSubagents.filter((agent) => agent.status === "running").length
   const errorSubagentCount = allSubagents.filter((agent) => agent.status === "error").length
+  const completedSubagentCount = allSubagents.filter((agent) => agent.status === "success").length
 
   const totalEvents = useMemo(() => {
     const count = (ns: AgentNode[]): number =>
@@ -317,50 +365,70 @@ export function ActivityTab({
 
   return (
     <section className="flex h-full min-w-0 flex-col overflow-hidden bg-[#121212]">
-      <div className="shrink-0 border-b border-border/30 bg-card/50 px-3 py-2">
-        <div className="flex items-center gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
-          {mainNode && (
-            <AgentTab
-              node={mainNode}
-              active={selectedId === "root"}
-              onSelect={(id) => onAgentSelect?.(id)}
-            />
-          )}
-          {visibleSubagents.map((agent) => (
-            <AgentTab
-              key={agent.id}
-              node={agent}
-              active={selectedId === agent.id}
-              onSelect={(id) => onAgentSelect?.(id)}
-            />
-          ))}
-          <MoreAgentsPopover
-            agents={overflowSubagents}
-            selectedId={selectedId}
-            onSelect={(id) => onAgentSelect?.(id)}
-          />
+      <div className="shrink-0 border-b border-border/30 bg-card/45 px-4 py-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground/55">
+              <span className={cn("size-1.5 rounded-full", isLive ? "bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.55)]" : "bg-muted-foreground/35")} />
+              {isLive ? "Live subagent monitor" : "Subagent monitor"}
+            </div>
+            <h2 className="mt-1 truncate text-[15px] font-semibold tracking-[-0.01em] text-foreground">
+              Subagents
+            </h2>
+          </div>
+          <div className="grid shrink-0 grid-cols-4 gap-1.5 text-center font-mono text-[10px] tabular-nums">
+            <div className="rounded-lg border border-border/30 bg-white/[0.025] px-2 py-1.5">
+              <p className="text-foreground">{allSubagents.length}</p>
+              <p className="uppercase tracking-wider text-muted-foreground/45">total</p>
+            </div>
+            <div className="rounded-lg border border-amber-300/15 bg-amber-300/[0.045] px-2 py-1.5">
+              <p className="text-amber-300">{runningSubagentCount}</p>
+              <p className="uppercase tracking-wider text-muted-foreground/45">run</p>
+            </div>
+            <div className="rounded-lg border border-emerald-300/15 bg-emerald-300/[0.04] px-2 py-1.5">
+              <p className="text-emerald-300">{completedSubagentCount}</p>
+              <p className="uppercase tracking-wider text-muted-foreground/45">done</p>
+            </div>
+            <div className="rounded-lg border border-rose-300/15 bg-rose-300/[0.045] px-2 py-1.5">
+              <p className="text-rose-300">{errorSubagentCount}</p>
+              <p className="uppercase tracking-wider text-muted-foreground/45">err</p>
+            </div>
+          </div>
         </div>
 
-        <div className="mt-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/65">
-          <span className={cn("size-1.5 shrink-0 rounded-full", isLive ? "bg-amber-400" : "bg-muted-foreground/40")} />
-          <span>{isLive ? "Live" : "Idle"}</span>
-          <span className="text-muted-foreground/30">/</span>
-          <span>{allSubagents.length} subagents</span>
-          {runningSubagentCount > 0 && (
-            <>
-              <span className="text-muted-foreground/30">/</span>
-              <span className="text-amber-300">{runningSubagentCount} running</span>
-            </>
+        {allSubagents.length > 0 ? (
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
+            {visibleSubagents.map((agent) => (
+              <SubagentDashboardCard
+                key={agent.id}
+                node={agent}
+                active={selectedId === agent.id}
+                onSelect={(id) => onAgentSelect?.(id)}
+              />
+            ))}
+            <MoreAgentsPopover
+              agents={overflowSubagents}
+              selectedId={selectedId}
+              onSelect={(id) => onAgentSelect?.(id)}
+            />
+          </div>
+        ) : mainNode ? (
+          <div className="mt-3 rounded-xl border border-dashed border-border/35 bg-white/[0.02] px-3 py-4 text-[12px] text-muted-foreground/65">
+            No spawned subagents yet. Main-agent tool events are still available below.
+          </div>
+        ) : null}
+
+        <div className="mt-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/50">
+          <span>{totalEvents} total events</span>
+          {mainNode && allSubagents.length === 0 && (
+            <button
+              type="button"
+              onClick={() => onAgentSelect?.("root")}
+              className="ml-auto cursor-pointer rounded-md border border-border/35 px-2 py-1 text-muted-foreground/70 hover:text-foreground"
+            >
+              Main agent
+            </button>
           )}
-          {errorSubagentCount > 0 && (
-            <>
-              <span className="text-muted-foreground/30">/</span>
-              <span className="text-rose-300">{errorSubagentCount} errors</span>
-            </>
-          )}
-          <span className="ml-auto shrink-0 tabular-nums text-foreground/40">
-            {totalEvents} events
-          </span>
         </div>
       </div>
 
