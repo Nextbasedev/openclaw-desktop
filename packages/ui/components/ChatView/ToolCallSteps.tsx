@@ -331,18 +331,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
 }) {
   const orderedTools = useMemo(() => sortToolsByCallOrder(tools), [tools])
   const total = orderedTools.length
-  const hasApproval = orderedTools.some((call) => Boolean(call.approval))
-  const [stepsOpen, setStepsOpen] = useState(false)
   const [openToolId, setOpenToolId] = useState<string | null>(null)
-  const showTools = stepsOpen || hasApproval
-
-  function toggleSteps() {
-    onInteract?.()
-    setStepsOpen((open) => {
-      if (open) setOpenToolId(null)
-      return !open
-    })
-  }
 
   function handleToolOpenChange(id: string, nextOpen: boolean) {
     onInteract?.()
@@ -353,34 +342,26 @@ export const ToolCallSteps = memo(function ToolCallSteps({
 
   return (
     <div className="mb-2 ml-1 border-l border-border/20 pl-2">
-      <button
-        type="button"
-        aria-expanded={showTools}
-        onClick={toggleSteps}
-        className="mb-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded-md py-1 text-left text-muted-foreground/45 transition-colors hover:text-muted-foreground/70"
-      >
-        {showTools ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
+      <div className="mb-0.5 flex items-center gap-1.5 py-1 text-muted-foreground/45">
         <span className="text-[11px] font-medium">Steps</span>
         <span className="font-mono text-[10px] tabular-nums">
           {total} tool{total !== 1 ? "s" : ""}
         </span>
-      </button>
-      {showTools && (
-        <div className="space-y-0.5">
-          {orderedTools.map((call) => (
-            <ToolRow
-              key={call.id}
-              call={call}
-              open={openToolId === call.id}
-              onOpenChange={handleToolOpenChange}
-              onSelect={onSelectTool}
-              onInteract={onInteract}
-              onResolveApproval={onResolveApproval}
-              sessionKey={sessionKey}
-            />
-          ))}
-        </div>
-      )}
+      </div>
+      <div className="space-y-0.5">
+        {orderedTools.map((call) => (
+          <ToolRow
+            key={call.id}
+            call={call}
+            open={openToolId === call.id}
+            onOpenChange={handleToolOpenChange}
+            onSelect={onSelectTool}
+            onInteract={onInteract}
+            onResolveApproval={onResolveApproval}
+            sessionKey={sessionKey}
+          />
+        ))}
+      </div>
     </div>
   )
 })
