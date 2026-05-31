@@ -490,6 +490,7 @@ function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | 
     tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
     status,
     startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
+    completedAt: typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
     input: tool.argsMeta,
     resultText: tool.resultMeta ? toolResultText(tool.resultMeta) : undefined,
   }

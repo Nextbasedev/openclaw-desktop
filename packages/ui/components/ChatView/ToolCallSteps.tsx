@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, memo } from "react"
+import { useMemo, useState, memo } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight } from "react-icons/vsc"
 import { LuShieldCheck } from "react-icons/lu"
@@ -118,6 +118,23 @@ function toolMetrics(text: string, call: InlineToolCall) {
   if (!text.trim()) return call.status === "error" ? "error" : "done"
   const lineCount = text.split("\n").length
   return `${formatBytes(text.length)} · ${lineCount}L`
+}
+
+function toolOrderTime(call: InlineToolCall) {
+  if (typeof call.startedAt === "number" && Number.isFinite(call.startedAt)) return call.startedAt
+  if (typeof call.completedAt === "number" && Number.isFinite(call.completedAt)) return call.completedAt
+  return Number.POSITIVE_INFINITY
+}
+
+function sortToolsByCallOrder(tools: InlineToolCall[]) {
+  return tools
+    .map((tool, index) => ({ tool, index }))
+    .sort((a, b) => {
+      const timeDelta = toolOrderTime(a.tool) - toolOrderTime(b.tool)
+      if (Number.isFinite(timeDelta) && timeDelta !== 0) return timeDelta
+      return a.index - b.index
+    })
+    .map(({ tool }) => tool)
 }
 
 function ToolRow({
@@ -313,9 +330,10 @@ export const ToolCallSteps = memo(function ToolCallSteps({
     decision: ApprovalDecision
   ) => Promise<void> | void
 }) {
-  const total = tools.length
+  const orderedTools = useMemo(() => sortToolsByCallOrder(tools), [tools])
+  const total = orderedTools.length
   const [openToolId, setOpenToolId] = useState<string | null>(() => {
-    return defaultOpen && total === 1 ? tools[0]?.id ?? null : null
+    return defaultOpen && total === 1 ? orderedTools[0]?.id ?? null : null
   })
 
   function handleToolOpenChange(id: string, nextOpen: boolean) {
@@ -334,7 +352,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
         </span>
       </div>
       <div className="space-y-0.5">
-        {tools.map((call) => (
+        {orderedTools.map((call) => (
           <ToolRow
             key={call.id}
             call={call}
