@@ -10,7 +10,15 @@ export function extractText(content?: unknown): string {
         if (!b || typeof b !== "object") return ""
         const block = b as ContentBlock & { content?: unknown; output?: unknown }
         const value = block.text ?? block.content ?? block.output
-        return typeof value === "string" ? value : ""
+        if (typeof value === "string") return value
+        if (value !== undefined && value !== null) {
+          try {
+            return JSON.stringify(value, null, 2)
+          } catch {
+            return String(value)
+          }
+        }
+        return ""
       })
       .filter(Boolean)
       .join("")
