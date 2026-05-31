@@ -587,7 +587,7 @@ export class ChatLiveIngest {
       name,
       phase,
       argsMeta: isObject(data.args) ? data.args : null,
-      resultMeta: phase === "error" ? this.safeResultMeta(data.error) : shouldMarkAwaitingResult ? awaitingResultMeta : liveResultIsAwaitingPlaceholder ? existingTool?.resultMeta ?? null : liveResultMeta,
+      resultMeta: phase === "error" ? this.safeResultMeta(data.error ?? liveResultValue) : shouldMarkAwaitingResult ? awaitingResultMeta : liveResultIsAwaitingPlaceholder ? existingTool?.resultMeta ?? null : liveResultMeta,
     });
     if ((phase === "start" || phase === "calling") && tool.status !== "running") {
       this.log.info("tool.replayed-start.skip-terminal", { sessionKey, toolCallId, requestedPhase: phase, existingPhase: tool.phase, status: tool.status });

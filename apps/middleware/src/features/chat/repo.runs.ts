@@ -9,6 +9,27 @@ const STALE_DETACHED_TOOL_MS = 5 * 60 * 1000;
 const DEFAULT_STALE_ACTIVE_RUN_MS = 3 * 60 * 1000;
 const DEFAULT_STALE_RUNNING_TOOL_MS = 30 * 60 * 1000;
 
+function isErrorToolResult(value: unknown): boolean {
+  if (value && typeof value === "object") {
+    if (Array.isArray(value)) return value.some(isErrorToolResult);
+    const record = value as Record<string, unknown>;
+    const status = record.status ?? record.state;
+    if (typeof status === "string" && ["error", "failed", "failure"].includes(status.trim().toLowerCase())) return true;
+    if (record.error !== undefined && record.error !== null && record.error !== false) return true;
+    if (record.is_error === true || record.isError === true) return true;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    try {
+      return isErrorToolResult(JSON.parse(trimmed));
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 export type ProjectedRun = {
   runId: string;
   sessionKey: string;
@@ -198,7 +219,8 @@ export class RunRepository {
     updatedAtMs?: number;
   }): ProjectedToolCall {
     const existing = this.getToolCall(tool.sessionKey, tool.toolCallId);
-    const incomingStatus = tool.status ?? (tool.phase === "error" ? "error" : tool.phase === "result" ? "success" : "running");
+    const resultLooksErrored = isErrorToolResult(tool.resultMeta);
+    const incomingStatus = tool.status ?? (tool.phase === "error" || resultLooksErrored ? "error" : tool.phase === "result" ? "success" : "running");
     const now = tool.updatedAtMs ?? Date.now();
     // Historical assistant/tool events can be replayed after a refresh. If a tool
     // already reached a terminal state, a replayed toolCall block must not
@@ -216,6 +238,7 @@ export class RunRepository {
       now - existing.startedAtMs > STALE_DETACHED_TOOL_MS
     ) return existing;
     const status = incomingStatus;
+    const phase = status === "error" && tool.phase === "result" ? "error" : tool.phase;
     const finishedAtMs = tool.finishedAtMs ?? (status === "running" ? null : now);
     const runId = existing?.runId ?? tool.runId ?? null;
     this.db.prepare(`
@@ -237,7 +260,7 @@ export class RunRepository {
       runId,
       messageId: tool.messageId ?? null,
       name: tool.name ?? "unknown",
-      phase: tool.phase,
+      phase,
       status,
       argsMetaJson: tool.argsMeta === undefined || tool.argsMeta === null ? null : toJson(tool.argsMeta),
       resultMetaJson: tool.resultMeta === undefined || tool.resultMeta === null ? null : toJson(tool.resultMeta),

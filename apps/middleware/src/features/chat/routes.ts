@@ -7,7 +7,7 @@ import type { AppContext } from "../../app.js";
 import { HttpError } from "../../lib/errors.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import { cleanMessageDisplayText, messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
-import { classifyGatewayMessageSemanticType, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
+import { classifyGatewayMessageSemanticType, isErrorToolResult, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
@@ -337,10 +337,11 @@ function inferToolResultFromHistory(messages: unknown[], messageIndex: number, t
     if (data.role === "tool" || data.role === "tool_result" || data.role === "toolResult") {
       const resultToolCallId = readToolCallId(data);
       if (!toolCallId || !resultToolCallId || resultToolCallId === toolCallId) {
+        const resultMeta = safeResultMeta(data.result ?? data.output ?? data.text ?? data.content ?? data.message ?? data.value);
         return {
-          status: "success" as const,
+          status: isErrorToolResult(resultMeta) ? "error" as const : "success" as const,
           finishedAtMs: historyTimestampMs(data),
-          resultMeta: safeResultMeta(data.result ?? data.output ?? data.text ?? data.content ?? data.message ?? data.value),
+          resultMeta,
         };
       }
     }
