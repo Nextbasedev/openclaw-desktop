@@ -94,12 +94,13 @@ export function matchRecentConfirmedUserEcho(params: {
     if (idempotencyKey && entry.idempotencyKey && idempotencyKey === entry.idempotencyKey) return true;
     // Match by run id when Gateway includes it.
     if (runId && entry.runId && runId === entry.runId) return true;
-    // Field log 2026-05-30 showed the second fresh-chat echo is stripped down to
-    // `__openclaw: { id, seq }`: no runId, no idempotencyKey, same text, and the
-    // next live sequence immediately after the confirmed optimistic echo. Fold
-    // only that adjacent same-turn shape. Keeping the adjacency requirement means
-    // a later intentional repeat of the same text remains visible.
-    if (!runId && !idempotencyKey && entry.runId && openclawSeq === entry.openclawSeq + 1) return true;
+    // Field logs showed Gateway can replay stripped user echoes after tool and
+    // assistant rows, not only as the immediately-adjacent seq. If there is no
+    // run/idempotency on the incoming echo, and the same text was just confirmed
+    // from an optimistic send, fold it into that confirmed turn. Intentional
+    // repeated sends are still preserved because they first match and consume
+    // their own pending optimistic entry before this duplicate guard runs.
+    if (!runId && !idempotencyKey && entry.runId) return true;
     // Later legitimate repeated sends have a newer sequence and their own
     // optimistic entry. A decorated Gateway echo for the already-confirmed turn
     // commonly replays with the original/lower Gateway sequence.

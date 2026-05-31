@@ -42,10 +42,10 @@ describe("matchRecentConfirmedUserEcho", () => {
     expect(match).toBe(confirmed);
   });
 
-  test("folds stripped adjacent fresh-chat echo when run/idempotency are missing", () => {
+  test("folds stripped fresh-chat echo when run/idempotency are missing", () => {
     const match = matchRecentConfirmedUserEcho({
       text: "hii",
-      openclawSeq: 3,
+      openclawSeq: 5,
       idempotencyKey: null,
       runId: null,
       entries: [confirmed],
@@ -64,13 +64,13 @@ describe("matchRecentConfirmedUserEcho", () => {
     expect(match).toBeNull();
   });
 
-  test("keeps non-adjacent same-text echoes visible when run/idempotency are missing", () => {
+  test("keeps same-text messages visible when no confirmed run-backed entry exists", () => {
     const match = matchRecentConfirmedUserEcho({
       text: "hii",
       openclawSeq: 5,
       idempotencyKey: null,
       runId: null,
-      entries: [confirmed],
+      entries: [{ ...confirmed, runId: undefined }],
     });
     expect(match).toBeNull();
   });
