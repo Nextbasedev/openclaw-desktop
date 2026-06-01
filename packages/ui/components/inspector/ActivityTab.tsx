@@ -2,8 +2,8 @@
 
 import { useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
-import { VscChevronDown, VscPulse, VscSearch } from "react-icons/vsc"
-import { ToolCallRow, StatusBadge, TREE_DOT_COLORS, COUNT_BADGE_COLORS } from "./ActivityNodes"
+import { VscArrowLeft, VscChevronDown, VscPulse, VscSearch } from "react-icons/vsc"
+import { StatusBadge, TREE_DOT_COLORS, COUNT_BADGE_COLORS } from "./ActivityNodes"
 import { useAgentActivity } from "@/hooks/useAgentActivity"
 import { SubagentChatView } from "./SubagentChatView"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -209,7 +209,7 @@ function SubagentDashboardCard({
       type="button"
       onClick={() => onSelect(node.id)}
       className={cn(
-        "group relative flex min-w-[190px] flex-1 cursor-pointer flex-col overflow-hidden rounded-xl border px-3 py-3 text-left transition-all",
+        "group relative flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border px-4 py-3.5 text-left transition-all",
         "bg-gradient-to-br from-white/[0.055] to-white/[0.018] shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]",
         active
           ? "border-foreground/22 ring-1 ring-foreground/10"
@@ -253,32 +253,16 @@ export function ActivityTab({
   onClearFocusedToolCall?: () => void
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
-  const [filter, setFilter] = useState<"all" | "success" | "error">("all")
-  const [openToolId, setOpenToolId] = useState<string | null>(null)
-
-  function handleToolOpenChange(id: string, open: boolean) {
-    setOpenToolId(open ? id : null)
-  }
   const { historyLoaded, tree, isLive, agentToSessionKey } =
     useAgentActivity(sessionKey)
 
-  const mainNode = tree[0] ?? null
   const allSubagents = useMemo(() => sortAgentsForTabs(flattenAgents(tree)), [tree])
-  const selectedId = activeAgentId ?? allSubagents[0]?.id ?? "root"
-  const selectedNode = findNode(tree, selectedId) ?? allSubagents[0] ?? tree[0] ?? null
+  const selectedId = activeAgentId ?? "root"
+  const selectedNode = selectedId === "root" ? null : findNode(tree, selectedId)
   const selectedSubagentSessionKey =
     selectedNode && selectedNode.id !== "root"
       ? agentToSessionKey.get(selectedNode.id) ?? null
       : null
-  const selectedIsSubagent = Boolean(selectedNode && selectedNode.id !== "root")
-  const visibleSubagents = useMemo(
-    () => makeVisibleAgents(allSubagents, selectedId),
-    [allSubagents, selectedId],
-  )
-  const overflowSubagents = useMemo(() => {
-    const visibleIds = new Set(visibleSubagents.map((agent) => agent.id))
-    return allSubagents.filter((agent) => !visibleIds.has(agent.id))
-  }, [allSubagents, visibleSubagents])
 
   const runningSubagentCount = allSubagents.filter((agent) => agent.status === "running").length
   const errorSubagentCount = allSubagents.filter((agent) => agent.status === "error").length
@@ -292,46 +276,6 @@ export function ActivityTab({
       )
     return count(tree)
   }, [tree])
-
-  const filteredCalls = useMemo(() => {
-    if (!selectedNode) return []
-    const calls = filter === "all"
-      ? selectedNode.calls
-      : selectedNode.calls.filter((c) => c.status === filter)
-    return [...calls].reverse()
-  }, [selectedNode, filter])
-
-  const groupedCalls = useMemo(() => {
-    const groups: Array<{ key: string; label: string; calls: typeof filteredCalls }> = []
-    for (const call of filteredCalls) {
-      const key = call.messageId ?? (call.messageIndex !== undefined ? `idx:${call.messageIndex}` : "unknown")
-      const label = call.messagePreview ?? "Live / ungrouped tools"
-      const existing =
-        groups.find((group) => group.key === key) ??
-        (call.messagePreview
-          ? groups.find((group) => group.label === label)
-          : undefined)
-      if (existing) {
-        existing.calls.push(call)
-        continue
-      }
-      groups.push({
-        key,
-        label,
-        calls: [call],
-      })
-    }
-    return groups
-  }, [filteredCalls])
-
-  const runningCount =
-    selectedNode?.calls.filter((c) => c.status === "running")
-      .length ?? 0
-  const totalCount = selectedNode?.calls.length ?? 0
-  const totalLabel =
-    selectedIsSubagent && selectedSubagentSessionKey && totalCount === 0
-      ? "Loading"
-      : String(totalCount)
 
   if (sessionKey && !historyLoaded) {
     return (
@@ -396,39 +340,8 @@ export function ActivityTab({
           </div>
         </div>
 
-        {allSubagents.length > 0 ? (
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
-            {visibleSubagents.map((agent) => (
-              <SubagentDashboardCard
-                key={agent.id}
-                node={agent}
-                active={selectedId === agent.id}
-                onSelect={(id) => onAgentSelect?.(id)}
-              />
-            ))}
-            <MoreAgentsPopover
-              agents={overflowSubagents}
-              selectedId={selectedId}
-              onSelect={(id) => onAgentSelect?.(id)}
-            />
-          </div>
-        ) : mainNode ? (
-          <div className="mt-3 rounded-xl border border-dashed border-border/35 bg-white/[0.02] px-3 py-4 text-[12px] text-muted-foreground/65">
-            No spawned subagents yet. Main-agent tool events are still available below.
-          </div>
-        ) : null}
-
         <div className="mt-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/50">
           <span>{totalEvents} total events</span>
-          {mainNode && allSubagents.length === 0 && (
-            <button
-              type="button"
-              onClick={() => onAgentSelect?.("root")}
-              className="ml-auto cursor-pointer rounded-md border border-border/35 px-2 py-1 text-muted-foreground/70 hover:text-foreground"
-            >
-              Main agent
-            </button>
-          )}
         </div>
       </div>
 
@@ -462,99 +375,50 @@ export function ActivityTab({
             ))}
           </div>
         </div>
-      ) : !selectedNode ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2">
-          <VscPulse className="size-5 text-muted-foreground/40" />
-          <p className="text-[11px] text-muted-foreground">
-            No subagents
-          </p>
+      ) : selectedSubagentSessionKey && selectedNode ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="flex h-12 items-center gap-3 border-b border-border/30 bg-[#121212] px-4">
+            <button
+              type="button"
+              onClick={() => onAgentSelect?.("root")}
+              className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              aria-label="Back to subagents"
+            >
+              <VscArrowLeft className="size-4" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-semibold text-foreground">{selectedNode.label}</p>
+              <p className="truncate font-mono text-[10px] text-muted-foreground/55">Subagent chat</p>
+            </div>
+            <StatusBadge status={selectedNode.status} />
+          </div>
+          <SubagentChatView
+            sessionKey={selectedSubagentSessionKey}
+            isLive={selectedNode.status === "running"}
+          />
         </div>
       ) : (
-        <>
-          <div className="border-b border-border/30 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <h3 className="min-w-0 truncate text-[14px] font-semibold text-foreground">
-                {selectedNode.id === "root"
-                  ? "Main agent"
-                  : selectedNode.label}
-              </h3>
-              <StatusBadge status={selectedNode.status} />
-            </div>
-            <div className="mt-3 flex items-center gap-4">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Total{" "}
-                <span className="text-foreground/70">
-                  {totalLabel}
-                </span>
-              </span>
-              {runningCount > 0 && (
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
-                  Running{" "}
-                  <span>{runningCount}</span>
-                </span>
-              )}
-              <div className="ml-auto flex gap-1">
-                {(["all", "success", "error"] as const).map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    onClick={() => setFilter(f)}
-                    className={cn(
-                      "cursor-pointer rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors",
-                      filter === f
-                        ? "bg-white/[0.08] text-foreground"
-                        : "text-muted-foreground/50 hover:text-muted-foreground",
-                    )}
-                  >
-                    {f === "all" ? "All" : f === "success" ? "Success" : "Error"}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-            {selectedSubagentSessionKey && (
-              <div className="mb-3 overflow-hidden rounded-xl border border-border/30 bg-[#121212]">
-                <SubagentChatView
-                  sessionKey={selectedSubagentSessionKey}
-                  isLive={selectedNode.status === "running"}
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          {allSubagents.length > 0 ? (
+            <div className="space-y-3">
+              {allSubagents.map((agent) => (
+                <SubagentDashboardCard
+                  key={agent.id}
+                  node={agent}
+                  active={false}
+                  onSelect={(id) => onAgentSelect?.(id)}
                 />
-              </div>
-            )}
-            {groupedCalls.map((group) => (
-              <div key={group.key} className="mb-3 first:mt-0">
-                <div className="sticky top-0 z-10 -mx-3 mb-1.5 flex items-center gap-2 bg-[#121212]/95 px-3 pb-3 pt-2 shadow-[0_10px_18px_rgba(18,18,18,0.75)] after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-4 after:h-4 after:bg-gradient-to-b after:from-[#121212]/80 after:to-transparent">
-                  <span className="max-w-[48%] truncate text-[10px] font-medium tracking-wide text-muted-foreground/65">
-                    {group.label}
-                  </span>
-                  <span className="h-px flex-1 bg-gradient-to-r from-border/50 via-border/25 to-transparent" />
-                  <span className="size-1.5 shrink-0 rounded-full bg-border/70 shadow-[0_0_10px_rgba(255,255,255,0.12)]" />
-                </div>
-                {group.calls.map((call) => (
-                  <ToolCallRow
-                    key={call.id}
-                    call={call}
-                    open={openToolId === call.id}
-                    onOpenChange={handleToolOpenChange}
-                    focused={call.id === focusedToolCallId}
-                    onFocusHandled={onClearFocusedToolCall}
-                  />
-                ))}
-              </div>
-            ))}
-            {filteredCalls.length === 0 && !selectedSubagentSessionKey && (
-              <div className="flex min-h-28 items-center justify-center rounded-xl border border-border/30 bg-white/[0.02]">
-                <p className="text-[11px] text-muted-foreground">
-                  {selectedIsSubagent
-                    ? "Waiting for this subagent..."
-                    : "No subagent or tool events yet"}
-                </p>
-              </div>
-            )}
+              ))}
+            </div>
+          ) : (
+            <div className="flex min-h-40 items-center justify-center rounded-xl border border-border/30 bg-white/[0.02]">
+              <p className="text-[12px] text-muted-foreground">
+                No subagents spawned yet
+              </p>
+            </div>
+          )}
             <div ref={bottomRef} className="h-px" />
-          </div>
-        </>
+        </div>
       )}
     </section>
   )
