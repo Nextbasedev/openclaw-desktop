@@ -2,7 +2,7 @@ import type { AppContext } from "../../app.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
 import { messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
-import { classifyGatewayMessageSemanticType, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
+import { classifyGatewayMessageSemanticType, messageHasAssistantAnswerText, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import type { OpenClawMessage } from "./types.js";
 import type { ProjectedRun } from "./repo.runs.js";
 import { canonicalPatchPayload } from "./projection.js";
@@ -835,7 +835,7 @@ export class ChatLiveIngest {
       });
       const run = runId ? this.context.runs.getRun(runId) : this.context.runs.findOldestPendingRun(sessionKey) ?? this.context.runs.latestRun(sessionKey);
       const finalAssistant = run
-        ? [...normalized].reverse().find((message) => message.role === "assistant" && textFromMessage(message.data).trim().length > 0)
+        ? [...normalized].reverse().find((message) => message.role === "assistant" && messageHasAssistantAnswerText(message.data))
         : null;
       if (run && finalAssistant) {
         const liveMessageId = `live:${run.runId}:assistant`;
@@ -888,7 +888,7 @@ export class ChatLiveIngest {
       if (postBackfillRun && ["queued", "thinking", "streaming", "tool_running"].includes(postBackfillRun.status)) {
         const hasAssistantFinal = messages.some((m) => {
           const msg = m as Record<string, unknown>;
-          return msg.role === "assistant" && typeof msg.text === "string" && (msg.text as string).trim().length > 0;
+          return msg.role === "assistant" && messageHasAssistantAnswerText(msg);
         });
         const hasRunningTools = this.context.runs.hasRunningTools(sessionKey, postBackfillRun.runId);
         if (hasAssistantFinal && !hasRunningTools) {

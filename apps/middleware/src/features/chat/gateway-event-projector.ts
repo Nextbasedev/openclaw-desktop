@@ -95,10 +95,24 @@ export function messageHasVisibleText(message: OpenClawMessage | Record<string, 
   return Boolean(message && textFromMessage(message as OpenClawMessage).trim().length > 0);
 }
 
+export function messageHasAssistantAnswerText(message: OpenClawMessage | Record<string, unknown> | null | undefined) {
+  if (!message) return false;
+  if (typeof message.text === "string" && message.text.trim().length > 0) return true;
+  const content = message.content;
+  if (typeof content === "string") return content.trim().length > 0;
+  if (!Array.isArray(content)) return false;
+  return content.some((block) => {
+    if (typeof block === "string") return block.trim().length > 0;
+    if (!isObject(block) || typeof block.text !== "string" || block.text.trim().length === 0) return false;
+    const type = typeof block.type === "string" ? block.type.trim().toLowerCase() : "text";
+    return type === "text" || type === "markdown" || type === "output_text" || type === "assistant_text";
+  });
+}
+
 export function projectGatewayMessage(message: OpenClawMessage | Record<string, unknown>): GatewayProjectedMessage {
   const role = typeof message.role === "string" ? message.role : null;
   const assistantHasToolCalls = role === "assistant" && messageHasToolCall(message);
-  const assistantHasFinalText = role === "assistant" && messageHasVisibleText(message) && !assistantHasToolCalls;
+  const assistantHasFinalText = role === "assistant" && messageHasAssistantAnswerText(message);
   const isToolResultMessage = isToolResultRole(role) || toolResultBlocks(message.content).length > 0;
   const toolEvents = extractToolEventsFromMessage(message);
 

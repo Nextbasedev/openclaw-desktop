@@ -1894,6 +1894,50 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("assistant answer text remains final even when message also contains tool calls", async () => {
+    const app = await createApp(config("assistant-text-with-toolcall-is-final"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          content: [
+            { type: "toolCall", id: "tool-1", name: "read", input: { path: "README.md" } },
+            { type: "text", text: "Done — the README says hello." },
+          ],
+          __openclaw: { id: "assistant-mixed-final", seq: 2 },
+        },
+      },
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const patches = replay.json().patches as Array<{ type: string; payload?: { semanticType?: string; messageId?: string; toolCallId?: string; message?: { content?: unknown } } }>;
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "chat.tool.started", payload: expect.objectContaining({ toolCallId: "tool-1" }) }),
+      expect.objectContaining({
+        type: "chat.message.upsert",
+        payload: expect.objectContaining({
+          messageId: "assistant-mixed-final",
+          semanticType: "chat.assistant.final",
+        }),
+      }),
+    ]));
+    await app.close();
+  });
+
   test("canonical bootstrap does not reinterpret tool-call-only assistant history as final text", async () => {
     const app = await createApp(config("bootstrap-toolcall-only-not-final"));
     const context = contextOf(app);
