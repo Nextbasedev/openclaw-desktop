@@ -26,6 +26,8 @@ const STALE_BOOTSTRAP_TOOL_MS = 30 * 60 * 1000;
 const LOCAL_FIRST_FRESH_MS = 30_000;
 const LOCAL_FIRST_SQLITE_MAX_AGE_MS = 5 * 60 * 1000;
 const LOCAL_FIRST_BACKGROUND_SYNC_MIN_AGE_MS = 2 * 60 * 1000;
+const DEFAULT_CHAT_SEND_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = DEFAULT_CHAT_SEND_TIMEOUT_MS + 10_000;
 const localFirstBootstrapTimestamps = new Map<string, number>();
 const localFirstSqliteBlocked = new Set<string>();
 
@@ -866,10 +868,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             const result = await context.gateway.request<Record<string, unknown>>("chat.send", {
               sessionKey: input.sessionKey,
               message: prepared.message,
-              timeoutMs: input.timeoutMs || 120_000,
+              timeoutMs: input.timeoutMs || DEFAULT_CHAT_SEND_TIMEOUT_MS,
               idempotencyKey: input.idempotencyKey,
               ...(prepared.attachments ? { attachments: prepared.attachments } : {}),
-            }, input.timeoutMs || 130_000);
+            }, input.timeoutMs || DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS);
             log.info("gateway.chat.send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, durationMs: elapsedMs(gatewaySendStartedAtMs), elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), status: typeof result.status === "string" ? result.status : undefined, runId: typeof result.runId === "string" ? result.runId : undefined });
             const gatewayRunId = typeof result.runId === "string" && result.runId.trim() ? result.runId.trim() : null;
             const gatewayRunStatus = runStatusFromGateway(result.status) ?? "thinking";
