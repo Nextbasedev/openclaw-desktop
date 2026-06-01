@@ -813,7 +813,7 @@ export const MessageBubble = memo(function MessageBubble({
             type="button"
             onClick={() => {
               document
-                .getElementById(`message-${message.replyTo!.messageId}`)
+                .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(message.replyTo!.messageId)}"]`)
                 ?.scrollIntoView({ behavior: "smooth", block: "center" })
             }}
             className={cn(

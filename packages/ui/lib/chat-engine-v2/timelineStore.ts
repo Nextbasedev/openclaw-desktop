@@ -60,16 +60,21 @@ export class ChatTimelineStore {
   }
 
   /**
-   * Apply bootstrap data. Replaces warm cache, becomes authoritative.
-   * Only patches (higher cursor) can override bootstrap data.
+   * Apply bootstrap data. Bootstrap is authoritative only up to its cursor.
+   * If live patches have already advanced this store past the bootstrap cursor,
+   * bootstrap may merge missing historical rows but must not delete newer live
+   * rows. Deletions require an explicit remove/prune patch.
    */
   applyBootstrap(messages: ChatMessage[], cursor: number, messageCount?: number) {
-    // Bootstrap is authoritative — replace all messages
-    // BUT preserve optimistic messages that haven't been confirmed yet
+    const bootstrapCursor = Math.max(0, cursor)
+    const hasNewerLiveState = this.cursor > bootstrapCursor && this.messageMap.size > 0
     const optimistic = Array.from(this.messageMap.values()).filter((m) => m.isOptimistic)
-    this.messageMap.clear()
+
+    if (!hasNewerLiveState) {
+      this.messageMap.clear()
+    }
     this.mergeMessages(messages)
-    // Re-add optimistic messages not yet in bootstrap
+
     for (const opt of optimistic) {
       const confirmedByBootstrap = Array.from(this.messageMap.values()).some((canonical) =>
         sameUserMessage(opt, canonical)
@@ -78,8 +83,10 @@ export class ChatTimelineStore {
         this.messageMap.set(opt.messageId, opt)
       }
     }
-    this.cursor = Math.max(this.cursor, cursor)
-    this.messageCount = messageCount ?? messages.length
+    this.cursor = Math.max(this.cursor, bootstrapCursor)
+    this.messageCount = hasNewerLiveState
+      ? Math.max(this.messageCount, messageCount ?? messages.length, this.messageMap.size)
+      : (messageCount ?? messages.length)
     this.source = "bootstrap"
     this.bootstrapSettled = true
     this.scheduleNotify()

@@ -242,14 +242,12 @@ describe("ChatTimelineStore", () => {
       // Patches arrived first (cursor 15)
       store.applyPatchMessage(msg("m2", "live", 2), 15)
       store.flushSync()
-      // Bootstrap arrives with lower cursor (10) but is authoritative
+      // Bootstrap arrives with lower cursor (10), so it may merge history but
+      // must not delete newer live patch rows.
       store.applyBootstrap([msg("m1", "boot", 1)], 10)
       store.flushSync()
-      // Bootstrap clears and replaces — m2 from patch is gone
-      // This is correct: bootstrap is authoritative for the message SET
       const snap = store.getSnapshot()
-      expect(snap.messages).toHaveLength(1)
-      expect(snap.messages[0].messageId).toBe("m1")
+      expect(snap.messages.map((message) => message.messageId)).toEqual(["m1", "m2"])
       // But cursor stays at max
       expect(snap.cursor).toBe(15)
     })

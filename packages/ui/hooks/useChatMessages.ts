@@ -842,7 +842,7 @@ export function useChatMessages(
   useEffect(() => {
     const store = timelineStoreRef.current
     const unsubscribe = store.subscribe((snapshot) => {
-      if (snapshot.messages.length > 0) {
+      if (snapshot.messages.length > 0 || snapshot.bootstrapSettled) {
         setLocalMessages(snapshot.messages)
         schedulePersistentMessages(snapshot.messages)
       }

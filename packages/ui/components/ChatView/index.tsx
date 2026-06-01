@@ -1524,7 +1524,8 @@ export function ChatView({
 
   const scrollToRenderedMessage = useCallback((messageId: string, _seq?: number) => {
     void _seq
-    const target = document.getElementById(`message-${messageId}`)
+    const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
+    const target = rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
     if (!target) return false
     target.scrollIntoView({ behavior: "auto", block: "center" })
     return true
@@ -1632,7 +1633,7 @@ export function ChatView({
 
       return (
         <div
-          id={`message-${msg.messageId}`}
+          id={`message-${msg.uiId}`}
           data-chat-message-row="true"
           data-ui-id={msg.uiId}
           data-message-id={msg.messageId}

@@ -11,7 +11,7 @@ const msg = (overrides: Partial<ChatMessage>): ChatMessage => ({
 })
 
 describe("buildStableVercelTimeline", () => {
-  it("keeps a user row stable when optimistic id becomes canonical", () => {
+  it("uses message identity for user rows instead of content identity", () => {
     const before = buildStableVercelTimeline([
       msg({ messageId: "client:1", role: "user", text: "please help" }),
     ])
@@ -19,18 +19,19 @@ describe("buildStableVercelTimeline", () => {
       msg({ messageId: "gateway:9", role: "user", text: "please help", gatewayIndex: 42 }),
     ])
 
-    expect(after[0].uiId).toBe(before[0].uiId)
+    expect(before[0].uiId).toBe("message:client:1")
+    expect(after[0].uiId).toBe("message:gateway:9")
     expect(after[0].messageId).toBe("gateway:9")
   })
 
   it("keeps assistant response stable when live backend id becomes final id", () => {
     const before = buildStableVercelTimeline([
       msg({ messageId: "u1", role: "user", text: "question" }),
-      msg({ messageId: "live:assistant", role: "assistant", text: "part", animateText: true }),
+      msg({ messageId: "live:assistant", role: "assistant", text: "part", animateText: true, runId: "run-1" }),
     ])
     const after = buildStableVercelTimeline([
       msg({ messageId: "u1", role: "user", text: "question" }),
-      msg({ messageId: "final:assistant", role: "assistant", text: "part done", animateText: true }),
+      msg({ messageId: "final:assistant", role: "assistant", text: "part done", animateText: true, runId: "run-1" }),
     ])
 
     expect(after[0].uiId).toBe(before[0].uiId)
@@ -50,9 +51,10 @@ describe("buildStableVercelTimeline", () => {
       msg({ messageId: "a2-final", role: "assistant", text: "newer answer plus" }),
     ])
 
-    expect(withHistory.slice(-2).map((message) => message.uiId)).toEqual(
-      current.map((message) => message.uiId)
-    )
+    expect(withHistory.slice(-2).map((message) => message.uiId)).toEqual([
+      "message:u2-final",
+      "message:a2-final:assistant:turn",
+    ])
   })
 
   it("keeps duplicate user rows stable when older duplicate text is prepended", () => {
@@ -67,10 +69,58 @@ describe("buildStableVercelTimeline", () => {
       msg({ messageId: "a21-final", role: "assistant", text: "newer answer plus", gatewayIndex: 21 }),
     ])
 
-    expect(withHistory.slice(-2).map((message) => message.uiId)).toEqual(
-      current.map((message) => message.uiId)
-    )
+    expect(withHistory.slice(-2).map((message) => message.uiId)).toEqual([
+      "message:u20-final",
+      "message:a21-final:assistant:turn",
+    ])
     expect(new Set(withHistory.map((message) => message.uiId)).size).toBe(withHistory.length)
+  })
+
+  it("does not remount earlier duplicate text rows when a newer duplicate is appended", () => {
+    const before = buildStableVercelTimeline([
+      msg({ messageId: "u1", role: "user", text: "same" }),
+      msg({ messageId: "a1", role: "assistant", text: "answer 1" }),
+    ])
+    const after = buildStableVercelTimeline([
+      msg({ messageId: "u1", role: "user", text: "same" }),
+      msg({ messageId: "a1", role: "assistant", text: "answer 1" }),
+      msg({ messageId: "u2", role: "user", text: "same" }),
+      msg({ messageId: "a2", role: "assistant", text: "answer 2" }),
+    ])
+
+    expect(after.slice(0, 2).map((message) => message.uiId)).toEqual(before.map((message) => message.uiId))
+  })
+
+  it("keeps unique stable rows across 45 repeated heavy tool-call turns", () => {
+    const messages: ChatMessage[] = []
+    for (let turn = 1; turn <= 45; turn += 1) {
+      messages.push(msg({
+        messageId: `user-${turn}`,
+        role: "user",
+        text: "repeat heavy prompt",
+        gatewayIndex: turn * 2 - 1,
+      }))
+      messages.push(msg({
+        messageId: `assistant-${turn}`,
+        role: "assistant",
+        text: `answer ${turn}`,
+        gatewayIndex: turn * 2,
+        toolCalls: Array.from({ length: 3 }, (_, index) => ({
+          id: `tool-${turn}-${index}`,
+          tool: "exec",
+          status: "success" as const,
+          input: { command: `echo ${turn}-${index}` },
+          resultText: `ok ${turn}-${index}`,
+        })),
+      }))
+    }
+
+    const before = buildStableVercelTimeline(messages)
+    const afterReload = buildStableVercelTimeline(messages.map((message) => ({ ...message })))
+
+    expect(before).toHaveLength(90)
+    expect(new Set(before.map((message) => message.uiId)).size).toBe(90)
+    expect(afterReload.map((message) => message.uiId)).toEqual(before.map((message) => message.uiId))
   })
 
   it("coalesces assistant tool and text chunks into one assistant row", () => {

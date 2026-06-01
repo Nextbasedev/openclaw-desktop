@@ -20,25 +20,20 @@ function textFingerprint(message: ChatMessage) {
   return hashString(`${message.text.trim()}\n${attachmentFingerprint(message)}`)
 }
 
-function reverseOccurrenceKeys(messages: readonly ChatMessage[]) {
-  const counts = new Map<string, number>()
-  const keys = new Map<ChatMessage, string>()
+function stableMessageBaseId(message: ChatMessage, fallbackOrdinal: number) {
+  const explicit = message.messageId?.trim()
+  if (explicit) return explicit
+  const seq = typeof message.gatewayIndex === "number" && Number.isFinite(message.gatewayIndex)
+    ? `seq:${message.gatewayIndex}`
+    : null
+  if (seq) return seq
+  return `fallback:${fallbackOrdinal}:${textFingerprint(message)}`
+}
 
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (message.role !== "user") continue
-    const fingerprint = textFingerprint(message)
-    const occurrenceFromEnd = (counts.get(fingerprint) ?? 0) + 1
-    counts.set(fingerprint, occurrenceFromEnd)
-    keys.set(
-      message,
-      occurrenceFromEnd === 1
-        ? `user:${fingerprint}`
-        : `user:${fingerprint}:from-end-${occurrenceFromEnd}`
-    )
-  }
-
-  return keys
+function stableAssistantBaseId(message: ChatMessage, fallbackOrdinal: number) {
+  const runId = message.runId?.trim()
+  if (runId) return `run:${runId}`
+  return stableMessageBaseId(message, fallbackOrdinal)
 }
 
 function mergeText(existing: string, incoming: string) {
@@ -109,10 +104,9 @@ export function buildStableChatRows(
   options: StableRowsOptions = {}
 ): StableChatMessage[] {
   const out: StableChatMessage[] = []
-  const userKeys = reverseOccurrenceKeys(messages)
-  let lastUserUiId: string | null = null
   let activeAssistant: StableChatMessage | null = null
   let assistantOrdinalInTurn = 0
+  let fallbackOrdinal = 0
 
   const flushAssistant = () => {
     if (!activeAssistant) return
@@ -124,15 +118,13 @@ export function buildStableChatRows(
     if (message.role === "user") {
       flushAssistant()
       assistantOrdinalInTurn = 0
-      const uiId = userKeys.get(message) ?? `user:${textFingerprint(message)}`
-      lastUserUiId = uiId
+      const uiId = `message:${stableMessageBaseId(message, fallbackOrdinal++)}`
       out.push({ ...message, uiId })
       continue
     }
 
-    const assistantUiId = lastUserUiId
-      ? `${lastUserUiId}:assistant:${options.coalesceAssistantTurns ? "turn" : assistantOrdinalInTurn}`
-      : `assistant:${textFingerprint(message)}:${message.gatewayIndex ?? message.messageId}`
+    const assistantBaseId = stableAssistantBaseId(message, fallbackOrdinal++)
+    const assistantUiId = `message:${assistantBaseId}:assistant:${options.coalesceAssistantTurns ? "turn" : assistantOrdinalInTurn}`
 
     if (options.coalesceAssistantTurns) {
       if (activeAssistant && assistantRowsAreSameTurn(activeAssistant, message)) {

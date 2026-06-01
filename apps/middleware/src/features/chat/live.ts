@@ -3,7 +3,7 @@ import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
 import { messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import { classifyGatewayMessageSemanticType, messageHasAssistantAnswerText, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
-import type { OpenClawMessage } from "./types.js";
+import type { OpenClawMessage, ProjectedMessage } from "./types.js";
 import type { ProjectedRun } from "./repo.runs.js";
 import { canonicalPatchPayload } from "./projection.js";
 import { SubagentCorrelation, type SpawnLink } from "./subagent-correlation.js";
@@ -852,8 +852,20 @@ export class ChatLiveIngest {
         sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
       });
       const run = runId ? this.context.runs.getRun(runId) : this.context.runs.findOldestPendingRun(sessionKey) ?? this.context.runs.latestRun(sessionKey);
+      const runStartSeq = run ? this.findRunStartSeq(sessionKey, run) : null;
+      const liveMessage = run ? this.context.messages.findMessageById(sessionKey, `live:${run.runId}:assistant`) : null;
+      const liveMessageText = liveMessage ? normalizeMessageText(textFromMessage(liveMessage.data)) : "";
+      const runEndSeq = run && runStartSeq !== null
+        ? normalized.find((message) => message.role === "user" && message.openclawSeq > runStartSeq)?.openclawSeq ?? null
+        : null;
+      const scopedNormalized = run
+        ? normalized.filter((message) => this.messageWithinRunBackfillScope(message, run, runStartSeq, runEndSeq))
+        : normalized;
       const finalAssistant = run
-        ? [...normalized].reverse().find((message) => message.role === "assistant" && messageHasAssistantAnswerText(message.data))
+        ? [...(liveMessageText ? normalized : scopedNormalized)].reverse().find((message) => {
+          if (message.role !== "assistant" || !messageHasAssistantAnswerText(message.data)) return false;
+          return !liveMessageText || normalizeMessageText(textFromMessage(message.data)) === liveMessageText;
+        })
         : null;
       if (run && finalAssistant) {
         const liveMessageId = `live:${run.runId}:assistant`;
@@ -874,6 +886,10 @@ export class ChatLiveIngest {
       }
       const projection = this.context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
       for (const projected of projection.changedMessages) {
+        if (run && projected.messageId !== finalAssistant?.messageId && !this.messageWithinRunBackfillScope(projected, run, runStartSeq, runEndSeq)) {
+          this.log.info("history.backfill.changed-message.skip_outside_run_scope", { sessionKey, runId: run.runId, messageId: projected.messageId, messageSeq: projected.openclawSeq, runStartSeq, runEndSeq, reason });
+          continue;
+        }
         const gatewayProjection = projectGatewayMessage(projected.data as OpenClawMessage);
         this.projectToolsFromMessage(sessionKey, projected.data as OpenClawMessage, run, gatewayProjection);
         if (!gatewayProjection.emitMessagePatch) {
@@ -904,10 +920,7 @@ export class ChatLiveIngest {
       // so the normal run finalization in handleSessionMessage won't fire.
       const postBackfillRun = runId ? this.context.runs.getRun(runId) : this.context.runs.findOldestPendingRun(sessionKey);
       if (postBackfillRun && ["queued", "thinking", "streaming", "tool_running"].includes(postBackfillRun.status)) {
-        const hasAssistantFinal = messages.some((m) => {
-          const msg = m as Record<string, unknown>;
-          return msg.role === "assistant" && messageHasAssistantAnswerText(msg);
-        });
+        const hasAssistantFinal = scopedNormalized.some((message) => message.role === "assistant" && messageHasAssistantAnswerText(message.data));
         const hasRunningTools = this.context.runs.hasRunningTools(sessionKey, postBackfillRun.runId);
         if (hasAssistantFinal && !hasRunningTools) {
           this.context.runs.updateRunStatus(postBackfillRun.runId, "done", { statusLabel: null });
@@ -930,6 +943,36 @@ export class ChatLiveIngest {
     } catch (error) {
       this.log.warn("history.backfill.fail", { sessionKey, runId, reason, ...errorMeta(error) });
     }
+  }
+
+  private findRunStartSeq(sessionKey: string, run: ProjectedRun): number | null {
+    if (run.clientMessageId) {
+      const user = this.context.messages.findMessageById(sessionKey, run.clientMessageId);
+      if (user?.role === "user") return user.openclawSeq;
+    }
+    const live = this.context.messages.findMessageById(sessionKey, `live:${run.runId}:assistant`);
+    if (live) return live.openclawSeq;
+    return null;
+  }
+
+  private messageWithinRunBackfillScope(message: ProjectedMessage, run: ProjectedRun, runStartSeq: number | null, runEndSeq: number | null) {
+    const openclaw = isObject(message.data.__openclaw) ? message.data.__openclaw as Record<string, unknown> : {};
+    const messageRunId = typeof openclaw.runId === "string" && openclaw.runId.trim()
+      ? openclaw.runId.trim()
+      : this.readRunId(message.data);
+    if (messageRunId) return messageRunId === run.runId || messageRunId === run.gatewayRunId;
+    const toolCallId = readToolCallId(message.data);
+    if (toolCallId) {
+      const tool = this.context.runs.getToolCall(run.sessionKey, toolCallId);
+      if (tool?.runId === run.runId) return true;
+    }
+    // If we cannot anchor the active run in history, do not let global
+    // backfill attach arbitrary old assistant/tool rows to it. The live stream
+    // path will continue handling current-run events.
+    if (runStartSeq === null) return false;
+    if (message.openclawSeq < runStartSeq) return false;
+    if (runEndSeq !== null && message.openclawSeq >= runEndSeq) return false;
+    return true;
   }
 
   private extractLiveAssistantText(payload: Record<string, unknown>) {
