@@ -44,20 +44,29 @@ function shouldReduceMotion(): boolean {
   )
 }
 
+function initialStreamingText(target: string): string {
+  if (!target) return ""
+  if (target.length <= 32) return target
+  const prefix = target.slice(0, 32)
+  const lastSpace = prefix.lastIndexOf(" ")
+  return target.slice(0, lastSpace >= 8 ? lastSpace : 24)
+}
+
 export function useStreamingText(
   target: string,
   streaming?: boolean,
   onRevealComplete?: () => void,
   options?: { mode?: "buffered" | "immediate" },
 ): { displayText: string; isRevealing: boolean } {
-  const [display, setDisplay] = useState(() => (streaming ? "" : target))
-  const [isRevealing, setIsRevealing] = useState(Boolean(streaming))
+  const initialDisplay = streaming ? initialStreamingText(target) : target
+  const [display, setDisplay] = useState(() => initialDisplay)
+  const [isRevealing, setIsRevealing] = useState(Boolean(streaming && initialDisplay.length < target.length))
   const rafRef = useRef<number | null>(null)
   const revealTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastFrameAtRef = useRef(0)
-  const displayRef = useRef(streaming ? "" : target)
+  const displayRef = useRef(initialDisplay)
   const targetRef = useRef(target)
-  const revealActiveRef = useRef(Boolean(streaming))
+  const revealActiveRef = useRef(Boolean(streaming && initialDisplay.length < target.length))
   const completeRef = useRef(onRevealComplete)
   const mode = options?.mode ?? "buffered"
 
@@ -119,10 +128,10 @@ export function useStreamingText(
     if (!target.startsWith(displayRef.current)) {
       stopAnimation()
       lastFrameAtRef.current = 0
-      const next = canAnimate ? "" : target
+      const next = canAnimate ? initialStreamingText(target) : target
       displayRef.current = next
-      revealActiveRef.current = canAnimate
-      commitState(next, canAnimate)
+      revealActiveRef.current = Boolean(canAnimate && next.length < target.length)
+      commitState(next, Boolean(canAnimate && next.length < target.length))
     } else if (canAnimate) {
       revealActiveRef.current = true
       commitState(displayRef.current, displayRef.current.length < target.length)

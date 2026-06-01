@@ -1562,6 +1562,10 @@ export function ChatView({
         msg.role === "user"
       const isActivelyStreaming =
         isLast && isGenerating && msg.role === "assistant"
+      const animateAssistantText =
+        msg.role === "assistant" &&
+        msg.text.trim().length > 0 &&
+        (isActivelyStreaming || (isLast && msg.animateText === true))
       let hasLaterAssistantInSameTurn = false
       if (msg.role === "assistant") {
         for (const next of renderedMessages.slice(index + 1)) {
@@ -1693,6 +1697,7 @@ export function ChatView({
                 reaction={messageActionState.reactions[msg.messageId]}
                 isGenerating={isGenerating}
                 isActivelyStreaming={isActivelyStreaming}
+                animateAssistantText={animateAssistantText}
                 suppressActions={suppressAssistantActions}
                 popoverOpen={activePopoverId === msg.messageId}
                 onPopoverOpenChange={(open) =>

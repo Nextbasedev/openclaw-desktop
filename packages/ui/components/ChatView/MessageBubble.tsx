@@ -494,6 +494,7 @@ interface MessageBubbleProps {
   reaction?: "up" | "down"
   isGenerating?: boolean
   isActivelyStreaming?: boolean
+  animateAssistantText?: boolean
   suppressActions?: boolean
   popoverOpen?: boolean
   onPopoverOpenChange?: (open: boolean) => void
@@ -518,6 +519,7 @@ export const MessageBubble = memo(function MessageBubble({
   reaction,
   isGenerating,
   isActivelyStreaming,
+  animateAssistantText,
   suppressActions,
   popoverOpen,
   onPopoverOpenChange,
@@ -548,6 +550,7 @@ export const MessageBubble = memo(function MessageBubble({
   reaction?: "up" | "down"
   isGenerating?: boolean
   isActivelyStreaming?: boolean
+  animateAssistantText?: boolean
   suppressActions?: boolean
   popoverOpen?: boolean
   onPopoverOpenChange?: (open: boolean) => void
@@ -563,7 +566,7 @@ export const MessageBubble = memo(function MessageBubble({
     isRevealing: isRevealingAssistantError,
   } = useStreamingText(
     assistantErrorText,
-    isAssistantError && Boolean(isActivelyStreaming),
+    isAssistantError && Boolean(animateAssistantText),
     () => onTextAnimationComplete?.(message.messageId)
   )
   const shouldAnimateSend = isUser && message.isOptimistic
@@ -927,7 +930,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <MarkdownContent
                   text={message.text}
                   embeds={message.embeds}
-                  streaming={Boolean(isActivelyStreaming || message.animateText)}
+                  streaming={Boolean(animateAssistantText)}
                   revealMode="buffered"
                   highlightTexts={referencedTexts}
                   onRevealComplete={() =>
@@ -1212,6 +1215,7 @@ function messageBubbleAreEqual(
   if (prev.message === next.message &&
       prev.isGenerating === next.isGenerating &&
       prev.isActivelyStreaming === next.isActivelyStreaming &&
+      prev.animateAssistantText === next.animateAssistantText &&
       prev.popoverOpen === next.popoverOpen &&
       prev.isPinned === next.isPinned &&
       prev.reaction === next.reaction &&
@@ -1231,6 +1235,7 @@ function messageBubbleAreEqual(
   // UI state props
   if (prev.isGenerating !== next.isGenerating) return false
   if (prev.isActivelyStreaming !== next.isActivelyStreaming) return false
+  if (prev.animateAssistantText !== next.animateAssistantText) return false
   if (prev.popoverOpen !== next.popoverOpen) return false
   if (prev.isPinned !== next.isPinned) return false
   if (prev.reaction !== next.reaction) return false
