@@ -433,10 +433,15 @@ function isTerminalSendStatus(status: unknown) {
   return typeof status === "string" && ["done", "complete", "completed", "success", "succeeded", "finished"].includes(status.trim().toLowerCase());
 }
 
+function assistantHasVisibleAnswer(message: ProjectedMessage) {
+  if (message.role !== "assistant") return false;
+  return cleanMessageDisplayText(textFromMessage(message.data)).trim().length > 0;
+}
+
 function gatewaySendCompleted(_result: Record<string, unknown>, currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null) {
   // Gateway chat.send can return a terminal status before the final assistant
   // message has reached chat.history/session.message. Do not broadcast done until
-  // the current user echo and an assistant answer after it are both projected.
+  // the current user echo and a visible assistant answer after it are both projected.
   // Otherwise the UI briefly hides Thinking, jumps the list, then receives the
   // answer a few seconds later.
   return Boolean(currentHistory?.currentUserRepresented && currentHistory.assistantAfterCurrentUser);
@@ -918,9 +923,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               currentHistory = {
                 currentUserRepresented: Boolean(gatewayUserEcho) || liveConfirmedCurrentUserSeq !== null,
                 assistantAfterCurrentUser: currentGatewayUserSeq !== null
-                  ? normalized.some((message) => message.role === "assistant" && message.openclawSeq > currentGatewayUserSeq)
+                  ? normalized.some((message) => message.openclawSeq > currentGatewayUserSeq && assistantHasVisibleAnswer(message))
                   : liveConfirmedCurrentUserSeq !== null
-                    ? normalized.some((message) => message.role === "assistant" && projectSeq(message) > liveConfirmedCurrentUserSeq)
+                    ? normalized.some((message) => projectSeq(message) > liveConfirmedCurrentUserSeq && assistantHasVisibleAnswer(message))
                     : false,
               };
               if (confirmedUser) {
