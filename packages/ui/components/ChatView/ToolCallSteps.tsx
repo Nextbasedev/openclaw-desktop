@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, memo } from "react"
+import { useEffect, useMemo, useState, memo } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight } from "react-icons/vsc"
 import { LuShieldCheck } from "react-icons/lu"
@@ -314,6 +314,7 @@ function ToolRow({
 
 export const ToolCallSteps = memo(function ToolCallSteps({
   tools,
+  defaultOpen = false,
   onSelectTool,
   onInteract,
   onResolveApproval,
@@ -331,7 +332,13 @@ export const ToolCallSteps = memo(function ToolCallSteps({
 }) {
   const orderedTools = useMemo(() => sortToolsByCallOrder(tools), [tools])
   const total = orderedTools.length
-  const [openToolId, setOpenToolId] = useState<string | null>(null)
+  const defaultOpenToolId = defaultOpen ? orderedTools[0]?.id ?? null : null
+  const [openToolId, setOpenToolId] = useState<string | null>(defaultOpenToolId)
+
+  useEffect(() => {
+    if (!defaultOpenToolId) return
+    setOpenToolId((current) => current ?? defaultOpenToolId)
+  }, [defaultOpenToolId])
 
   function handleToolOpenChange(id: string, nextOpen: boolean) {
     onInteract?.()
