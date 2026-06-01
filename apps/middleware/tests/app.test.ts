@@ -236,6 +236,30 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("pairing claim returns forwarded https origin behind a proxy", async () => {
+    const app = await createApp(testConfig({ pairingCode: "PAIR1234", middlewareToken: "token-1" }));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/pairing/claim",
+      headers: {
+        host: "127.0.0.1:8787",
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": "oc-example.tail.ts.net",
+      },
+      payload: { code: "PAIR1234" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      ok: true,
+      url: "https://oc-example.tail.ts.net",
+      token: "token-1",
+      mode: "remote",
+    });
+    await app.close();
+  });
+
   test("deleting a chat hides chat, removes compat session, and clears v2 session data", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> }, db: Database.Database } }).v2Context;

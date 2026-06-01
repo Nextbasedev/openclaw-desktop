@@ -4809,8 +4809,12 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     if (!expectedCode || code !== expectedCode) {
       return reply.code(403).send({ ok: false, error: { code: "INVALID_PAIRING_CODE", message: "Invalid pairing code" } });
     }
-    const host = request.headers.host ?? `127.0.0.1:${context.config.port}`;
-    const url = `http://${host}`;
+    const headerValue = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
+    const forwardedProto = headerValue(request.headers["x-forwarded-proto"])?.split(",")[0]?.trim();
+    const forwardedHost = headerValue(request.headers["x-forwarded-host"])?.split(",")[0]?.trim();
+    const host = forwardedHost || headerValue(request.headers.host) || `127.0.0.1:${context.config.port}`;
+    const proto = forwardedProto || (String(host).startsWith("localhost") || String(host).startsWith("127.0.0.1") ? "http" : "https");
+    const url = `${proto}://${host}`;
     return {
       ok: true,
       url,
