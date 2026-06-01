@@ -20,6 +20,20 @@ function isOptimisticConflict(existing: { message_id: string | null; role: strin
   return true;
 }
 
+function runIdentityOf(data: unknown): string | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const message = data as OpenClawMessage;
+  const openclaw = message.__openclaw && typeof message.__openclaw === "object" ? message.__openclaw as Record<string, unknown> : {};
+  const runId = openclaw.runId ?? message.runId ?? message.gatewayRunId;
+  return typeof runId === "string" && runId.trim() ? runId.trim() : null;
+}
+
+function isStrippedReplayCandidate(message: ProjectedMessage) {
+  if (message.role !== "user" && message.role !== "assistant") return false;
+  if (runIdentityOf(message.data)) return false;
+  return Boolean(textOf(message.data));
+}
+
 export class MessageRepository {
   constructor(private readonly db: Database.Database) {}
 
@@ -268,6 +282,15 @@ export class MessageRepository {
         AND gateway_seq = @gatewaySeq
       LIMIT 1
     `);
+    const existingByRole = this.db.prepare(`
+      SELECT openclaw_seq, message_id, role, data_json
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+        AND role = @role
+      ORDER BY openclaw_seq ASC
+      LIMIT 1000
+    `);
     const maxSeq = this.db.prepare(`
       SELECT max(openclaw_seq) AS maxSeq
       FROM v2_messages
@@ -306,8 +329,31 @@ export class MessageRepository {
         const gatewaySeqMatch = !idMatch && gatewaySeq > 0
           ? existingByGatewaySeq.get({ sessionKey: message.sessionKey, segmentId, gatewaySeq }) as { openclaw_seq: number } | undefined
           : undefined;
+        let strippedReplayMatchedSeq: number | null = null;
         if (idMatch?.openclaw_seq) openclawSeq = idMatch.openclaw_seq;
+        else if (isStrippedReplayCandidate(message)) {
+          const incomingText = textOf(message.data);
+          const replayMatch = (existingByRole.all({ sessionKey: message.sessionKey, segmentId, role: message.role }) as Array<{ openclaw_seq: number; message_id: string | null; role: string | null; data_json: string }>).find((row) => {
+            const existingData = fromJson(row.data_json);
+            if (textOf(existingData) !== incomingText) return false;
+            const existingRunId = runIdentityOf(existingData);
+            // Gateway history can replay old rows later with a new message id,
+            // new gateway_seq, and no run/idempotency metadata. When the text
+            // exactly matches an already projected row, keep the earlier row as
+            // canonical. This protects local optimistic user turns and live-run
+            // assistant finals from being duplicated by stripped history.
+            return Boolean(existingRunId) || row.message_id !== message.messageId;
+          });
+          if (replayMatch) {
+            openclawSeq = replayMatch.openclaw_seq;
+            strippedReplayMatchedSeq = replayMatch.openclaw_seq;
+          }
+        }
         else if (gatewaySeqMatch?.openclaw_seq) openclawSeq = gatewaySeqMatch.openclaw_seq;
+        if (strippedReplayMatchedSeq !== null) {
+          lastSeq = Math.max(lastSeq, strippedReplayMatchedSeq);
+          continue;
+        }
 
         let existing = existingAtSeq.get({
           sessionKey: message.sessionKey,

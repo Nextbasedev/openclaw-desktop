@@ -346,6 +346,54 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("45 sequential turns ignore stripped late replays even when gateway seq changes", () => {
+    const db = openDatabase({ databasePath: testDbPath("heavy-45-stripped-replay-new-gateway-seq") });
+    const repo = new MessageRepository(db);
+    const segment = repo.ensureActiveSegment({ sessionKey: "s1", sessionId: "gateway-session" });
+
+    for (let turn = 1; turn <= 45; turn += 1) {
+      const marker = `COZY_STRUCTURAL_45_TURN_${String(turn).padStart(2, "0")}_FINAL`;
+      repo.insertOptimisticMessage({
+        sessionKey: "s1",
+        openclawSeq: repo.nextMessageSeq("s1"),
+        messageId: `client-${turn}`,
+        role: "user",
+        data: { role: "user", text: `Production regression turn ${turn}/45 ${marker}`, __clientOptimistic: true, __openclaw: { id: `client-${turn}`, runId: `run-${turn}` } },
+        updatedAtMs: 100 + turn,
+      });
+      const [gatewayUser] = normalizeHistoryMessages("s1", [
+        { role: "user", text: `Production regression turn ${turn}/45 ${marker}`, __openclaw: { id: `gateway-user-${turn}`, seq: turn * 3 } },
+      ], 200 + turn);
+      repo.confirmOptimisticUser("s1", `client-${turn}`, gatewayUser!);
+      repo.upsertMessages(normalizeHistoryMessages("s1", [
+        { role: "assistant", text: marker, __openclaw: { id: `assistant-final-${turn}`, seq: turn * 3 + 1, runId: `run-${turn}` } },
+      ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+    }
+
+    const strippedReplay = [];
+    for (const turn of [2, 8, 12, 15, 19, 25, 43]) {
+      const marker = `COZY_STRUCTURAL_45_TURN_${String(turn).padStart(2, "0")}_FINAL`;
+      strippedReplay.push(
+        { role: "user", text: `Production regression turn ${turn}/45 ${marker}`, __openclaw: { id: `random-user-${turn}`, seq: 100 + turn } },
+        { role: "assistant", text: marker, __openclaw: { id: `random-assistant-${turn}`, seq: 200 + turn } },
+      );
+    }
+    const replay = repo.upsertMessages(normalizeHistoryMessages("s1", strippedReplay), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+
+    expect(replay.upserted).toBe(0);
+    const rows = repo.listMessages("s1");
+    const users = rows.filter((message) => message.role === "user" && ((message.data as { text?: string }).text ?? "").startsWith("Production regression turn "));
+    const finals = rows.filter((message) => message.role === "assistant" && ((message.data as { text?: string }).text ?? "").includes("COZY_STRUCTURAL_45_TURN_"));
+    expect(users).toHaveLength(45);
+    expect(finals).toHaveLength(45);
+    for (let turn = 1; turn <= 45; turn += 1) {
+      const marker = `COZY_STRUCTURAL_45_TURN_${String(turn).padStart(2, "0")}_FINAL`;
+      expect(users.filter((message) => ((message.data as { text?: string }).text ?? "").includes(marker))).toHaveLength(1);
+      expect(finals.filter((message) => ((message.data as { text?: string }).text ?? "").includes(marker))).toHaveLength(1);
+    }
+    db.close();
+  });
+
   test("confirming optimistic user keeps its local canonical seq before late prior assistant history", () => {
     const db = openDatabase({ databasePath: testDbPath("confirm-user-local-seq") });
     const repo = new MessageRepository(db);
