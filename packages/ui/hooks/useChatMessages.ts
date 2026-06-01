@@ -1967,6 +1967,7 @@ export function useChatMessages(
           .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
         if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
         const canonicalMessages = dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory(rawBootstrapMessages).messages))
+        const existingGlobalBeforeSeed = getGlobalChatSession(sessionKey)
         const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
         const canonicalSpawns = enrichCanonicalSubagentsFromHistory(
           inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn)),
@@ -1982,13 +1983,23 @@ export function useChatMessages(
           hasInitial &&
           canonicalMessages.length === 0 &&
           messagesRef.current.length > 0
+        const shouldPreserveExistingPatchMessages =
+          !hasInitial &&
+          canonicalMessages.length === 0 &&
+          (existingGlobalBeforeSeed?.messages.length ?? 0) > 0 &&
+          (existingGlobalBeforeSeed?.historyCoverage === "metadata" || existingGlobalBeforeSeed?.historyCoverage === "full")
+        const preservedPatchMessages = existingGlobalBeforeSeed?.messages.length
+          ? existingGlobalBeforeSeed.messages
+          : messagesRef.current
         const seedMessages = shouldPreserveInitialOptimisticMessages
           ? messagesRef.current
-          : canonicalMessages
-        const seedStatus = shouldPreserveInitialOptimisticMessages
+          : shouldPreserveExistingPatchMessages
+            ? preservedPatchMessages
+            : canonicalMessages
+        const seedStatus = shouldPreserveInitialOptimisticMessages || shouldPreserveExistingPatchMessages
           ? statusRef.current
           : canonicalStatus
-        const seedStatusLabel = shouldPreserveInitialOptimisticMessages
+        const seedStatusLabel = shouldPreserveInitialOptimisticMessages || shouldPreserveExistingPatchMessages
           ? normalizeStatusLabelForStatus(statusRef.current, statusLabel)
           : canonicalLabel
         seedGlobalChatSession({

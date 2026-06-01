@@ -32,6 +32,7 @@ import { emit } from "@/lib/events"
 import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
 import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace } from "@/lib/chatListCache"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
+import { getGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
@@ -1084,7 +1085,9 @@ function AppShell({
   const displayedSessionTitle = activeAgentId && activeAgentId !== "root" && activeSubagentSessionKey
     ? activeSubagentTitle ?? "Subagent"
     : activeSessionTitle
-  const displayedInitialMessages = displayedSessionKey === activeSessionKey ? initialMessages : undefined
+  const displayedInitialMessages = displayedSessionKey === activeSessionKey && !getGlobalChatSession(activeSessionKey ?? "")?.messages.length
+    ? initialMessages
+    : undefined
 
   const computedInspectorScope = effectiveInspectorScope(activeTopic?.projectId ?? null, inspectorScope)
 
