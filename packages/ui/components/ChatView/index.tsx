@@ -14,7 +14,6 @@ import { logChatScrollDebug } from "./chatScrollDebug"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
-import { SubagentBar } from "./SubagentBar"
 import { SubagentFullChat } from "./SubagentFullChat"
 import { PinnedMessagesPopover } from "./PinnedMessagesPopover"
 import { MessageFeedbackDialog } from "./MessageFeedbackDialog"
@@ -1244,6 +1243,7 @@ export function ChatView({
       needsInitialScrollRef.current &&
       renderedMessages.length > 0 &&
       !loading &&
+      dataSource === "fresh" &&
       !userScrollIntentRef.current
     ) {
       needsInitialScrollRef.current = false
@@ -1259,7 +1259,7 @@ export function ChatView({
         window.setTimeout(scrollToLatest, 120)
       })
     }
-  }, [renderedMessages.length, loading, scrollContainerRef])
+  }, [renderedMessages.length, loading, dataSource, scrollContainerRef])
 
 
 
@@ -1562,6 +1562,10 @@ export function ChatView({
         msg.role === "user"
       const isActivelyStreaming =
         isLast && isGenerating && msg.role === "assistant"
+      const animateAssistantText =
+        msg.role === "assistant" &&
+        msg.text.trim().length > 0 &&
+        (isActivelyStreaming || (isLast && msg.animateText === true))
       let hasLaterAssistantInSameTurn = false
       if (msg.role === "assistant") {
         for (const next of renderedMessages.slice(index + 1)) {
@@ -1693,6 +1697,7 @@ export function ChatView({
                 reaction={messageActionState.reactions[msg.messageId]}
                 isGenerating={isGenerating}
                 isActivelyStreaming={isActivelyStreaming}
+                animateAssistantText={animateAssistantText}
                 suppressActions={suppressAssistantActions}
                 popoverOpen={activePopoverId === msg.messageId}
                 onPopoverOpenChange={(open) =>
@@ -1959,11 +1964,6 @@ export function ChatView({
           />
 
           <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
-            {spawnedSubagents.length > 0 && (
-              <div className="mb-2">
-                <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
-              </div>
-            )}
             <ChatBox
               onSend={wrappedSend}
               disabled={false}
@@ -2056,11 +2056,6 @@ export function ChatView({
             )}
           </AnimatePresence>
         </div>
-        {currentTurnSubagents.length > 0 && (
-          <div className="mb-2">
-            <SubagentBar subagents={currentTurnSubagents} onOpen={openSubagent} />
-          </div>
-        )}
         <ChatBox
           onSend={wrappedSend}
           disabled={false}

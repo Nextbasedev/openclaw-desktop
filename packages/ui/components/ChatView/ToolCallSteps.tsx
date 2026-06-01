@@ -213,8 +213,8 @@ function ToolRow({
         <span
           role={onSelect ? "button" : undefined}
           tabIndex={onSelect ? 0 : undefined}
-          aria-label={onSelect ? "Open in Activity" : undefined}
-          title={onSelect ? "Open in Activity" : undefined}
+          aria-label={onSelect ? "Open in Subagents" : undefined}
+          title={onSelect ? "Open in Subagents" : undefined}
           onClick={(e) => {
             if (!onSelect) return
             e.stopPropagation()
@@ -332,6 +332,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
   const orderedTools = useMemo(() => sortToolsByCallOrder(tools), [tools])
   const total = orderedTools.length
   const [openToolId, setOpenToolId] = useState<string | null>(null)
+  const [stepsOpen, setStepsOpen] = useState(true)
 
   function handleToolOpenChange(id: string, nextOpen: boolean) {
     onInteract?.()
@@ -342,26 +343,37 @@ export const ToolCallSteps = memo(function ToolCallSteps({
 
   return (
     <div className="mb-2 ml-1 border-l border-border/20 pl-2">
-      <div className="mb-0.5 flex items-center gap-1.5 py-1 text-muted-foreground/45">
+      <button
+        type="button"
+        onClick={() => {
+          onInteract?.()
+          setStepsOpen((open) => !open)
+        }}
+        className="mb-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded py-1 text-left text-muted-foreground/45 transition-colors hover:text-muted-foreground/75"
+        aria-expanded={stepsOpen}
+      >
+        {stepsOpen ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
         <span className="text-[11px] font-medium">Steps</span>
         <span className="font-mono text-[10px] tabular-nums">
           {total} tool{total !== 1 ? "s" : ""}
         </span>
-      </div>
-      <div className="space-y-0.5">
-        {orderedTools.map((call) => (
-          <ToolRow
-            key={call.id}
-            call={call}
-            open={openToolId === call.id}
-            onOpenChange={handleToolOpenChange}
-            onSelect={onSelectTool}
-            onInteract={onInteract}
-            onResolveApproval={onResolveApproval}
-            sessionKey={sessionKey}
-          />
-        ))}
-      </div>
+      </button>
+      {stepsOpen && (
+        <div className="space-y-0.5">
+          {orderedTools.map((call) => (
+            <ToolRow
+              key={call.id}
+              call={call}
+              open={openToolId === call.id}
+              onOpenChange={handleToolOpenChange}
+              onSelect={onSelectTool}
+              onInteract={onInteract}
+              onResolveApproval={onResolveApproval}
+              sessionKey={sessionKey}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 })

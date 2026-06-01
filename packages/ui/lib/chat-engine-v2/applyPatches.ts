@@ -265,6 +265,57 @@ function liveAssistantIdForFinal(payload: PatchPayloadV2 | null, incoming: ChatM
   return hasFinalAssistant ? `live:${runId}:assistant` : null
 }
 
+function hasAssistantText(messages: ChatMessage[]) {
+  return messages.some((message) => message.role === "assistant" && message.text.trim())
+}
+
+function hasExistingLiveAssistantTextForRun(state: ApplyPatchState, runId: string | null) {
+  if (!runId) return false
+  return state.messages.some((message) =>
+    message.role === "assistant" &&
+    message.runId === runId &&
+    message.text.trim()
+  )
+}
+
+
+function assistantToolSourceForFinal(state: ApplyPatchState, runId: string | null, incoming: ChatMessage[]) {
+  if (!hasAssistantText(incoming)) return null
+  if (runId) {
+    const byRun = state.messages.find((message) =>
+      message.role === "assistant" &&
+      message.runId === runId &&
+      Boolean(message.toolCalls?.length)
+    )
+    if (byRun) return byRun
+  }
+
+  // Production middleware can emit tool calls as a tool-only assistant, then
+  // stream text into a live assistant, then replace that live row with a final
+  // canonical assistant. Transfer the accumulated tools into the final row so
+  // the visible transcript stays one assistant card per turn.
+  const lastUserIndex = state.messages.map((message) => message.role).lastIndexOf("user")
+  for (let i = state.messages.length - 1; i > lastUserIndex; i--) {
+    const message = state.messages[i]
+    if (message?.role === "assistant" && Boolean(message.toolCalls?.length)) {
+      return message
+    }
+  }
+  return null
+}
+
+function mergeIncomingAssistantWithPriorTools(incoming: ChatMessage[], prior: ChatMessage | null) {
+  if (!prior?.toolCalls?.length) return incoming
+  return incoming.map((message) => {
+    if (message.role !== "assistant" || !message.text.trim()) return message
+    return {
+      ...message,
+      toolCalls: mergeInlineToolCalls(prior.toolCalls, message.toolCalls ?? []),
+      reasoningText: message.reasoningText ?? prior.reasoningText,
+    }
+  })
+}
+
 function synthesizeBlankUserConfirmation(
   state: ApplyPatchState,
   parsed: ChatMessage[],
@@ -360,24 +411,35 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
     )
     : withSeq
   const normalized = preserveOptimisticUserDisplayFromBlankConfirmation(state, normalizedRaw, optimisticId)
-  if (rejectsStaleConfirmedUser(state, optimisticId, normalized)) {
+  const runId = patchRunId(frame)
+  if (
+    patchSemanticType(frame) === "chat.assistant.final" &&
+    !hasAssistantText(normalized) &&
+    hasExistingLiveAssistantTextForRun(state, runId)
+  ) {
     return { ...state, cursor: frame.patch.cursor }
   }
-  const normalizedHasUser = normalized.some((item) => item.role === "user")
-  const liveAssistantId = liveAssistantIdForFinal(payload, normalized)
+  const priorToolSourceAssistant = assistantToolSourceForFinal(state, runId, normalized)
+  const normalizedWithPriorTools = mergeIncomingAssistantWithPriorTools(normalized, priorToolSourceAssistant)
+  if (rejectsStaleConfirmedUser(state, optimisticId, normalizedWithPriorTools)) {
+    return { ...state, cursor: frame.patch.cursor }
+  }
+  const normalizedHasUser = normalizedWithPriorTools.some((item) => item.role === "user")
+  const liveAssistantId = liveAssistantIdForFinal(payload, normalizedWithPriorTools)
   const idsToReplace = new Set([
     optimisticId,
     normalizedHasUser ? canonicalMessageId : null,
     liveAssistantId,
-    ...matchingUserIdsAtGatewayIndex(state, normalized, messageSeq),
-    ...matchingOptimisticUserIdsByText(state, normalized, messageSeq),
+    priorToolSourceAssistant?.messageId ?? null,
+    ...matchingUserIdsAtGatewayIndex(state, normalizedWithPriorTools, messageSeq),
+    ...matchingOptimisticUserIdsByText(state, normalizedWithPriorTools, messageSeq),
   ].filter((id): id is string => Boolean(id)))
   const baseMessages = idsToReplace.size > 0
     ? state.messages.filter((item) => !idsToReplace.has(item.messageId))
     : state.messages
   const withPreservedAttachments = preserveUserAttachmentsFromReplacedMessages(
     state,
-    normalized,
+    normalizedWithPriorTools,
     idsToReplace,
   )
   const animated = withPreservedAttachments.map((item) =>

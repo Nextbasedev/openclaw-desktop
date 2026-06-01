@@ -218,6 +218,24 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("new chat creation only persists the chat and session compat collections", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { db: Database.Database } }).v2Context;
+    context.db.prepare("UPDATE v2_compat_state SET data_json = ?, updated_at_ms = ? WHERE key = ?")
+      .run(JSON.stringify([{ id: "run_1", payload: "large unrelated state" }]), 123, "cronRuns");
+
+    const res = await app.inject({ method: "POST", url: "/api/chats", payload: { name: "Fast create", agentId: "main" } });
+
+    expect(res.statusCode).toBe(200);
+    const cronRuns = context.db.prepare("SELECT updated_at_ms FROM v2_compat_state WHERE key = ?").get("cronRuns");
+    const chats = context.db.prepare("SELECT updated_at_ms FROM v2_compat_state WHERE key = ?").get("chats");
+    const sessions = context.db.prepare("SELECT updated_at_ms FROM v2_compat_state WHERE key = ?").get("sessions");
+    expect(cronRuns).toMatchObject({ updated_at_ms: 123 });
+    expect(chats).toMatchObject({ updated_at_ms: expect.any(Number) });
+    expect(sessions).toMatchObject({ updated_at_ms: expect.any(Number) });
+    await app.close();
+  });
+
   test("deleting a chat hides chat, removes compat session, and clears v2 session data", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> }, db: Database.Database } }).v2Context;

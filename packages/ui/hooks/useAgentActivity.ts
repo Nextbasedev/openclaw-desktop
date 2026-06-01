@@ -297,6 +297,7 @@ export function useAgentActivity(sessionKey: string | null) {
           (args?.agentId as string) ??
           `sub-${toolCallId.slice(-6)}`
         const description = (args?.task as string) ?? undefined
+        const model = (args?.model as string) ?? undefined
         const agentId = `spawn:${toolCallId}`
         if (phase === "start" || phase === "calling") {
           agentsRef.current.set(agentId, {
@@ -304,6 +305,7 @@ export function useAgentActivity(sessionKey: string | null) {
             phase: "start",
             label,
             description,
+            model,
           })
           if (!spawnQueueRef.current.includes(agentId)) {
             spawnQueueRef.current.push(agentId)
@@ -314,7 +316,8 @@ export function useAgentActivity(sessionKey: string | null) {
         ) {
           const prev = agentsRef.current.get(agentId)
           agentsRef.current.set(agentId, {
-            ...(prev ?? { runId: agentId, label }),
+            ...(prev ?? { runId: agentId, label, model }),
+            model: prev?.model ?? model,
             phase: "start",
           })
           const childSessionKey = extractSubagentSessionKey(data)
@@ -322,7 +325,8 @@ export function useAgentActivity(sessionKey: string | null) {
         } else if (isToolErrorPhase(phase)) {
           const prev = agentsRef.current.get(agentId)
           agentsRef.current.set(agentId, {
-            ...(prev ?? { runId: agentId, label }),
+            ...(prev ?? { runId: agentId, label, model }),
+            model: prev?.model ?? model,
             phase: "error",
           })
         }

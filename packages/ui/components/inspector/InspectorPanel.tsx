@@ -27,7 +27,7 @@ interface InspectorPanelProps {
   onClearFocusedToolCall?: () => void
   projectId?: string | null
   activeAgentId?: string | null
-  onAgentSelect?: (id: string) => void
+  onAgentSelect?: (id: string, sessionKey?: string | null, label?: string) => void
   inspectorScope?: InspectorScope
   onInspectorScopeChange?: (scope: InspectorScope) => void
 }

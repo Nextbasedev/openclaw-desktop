@@ -32,7 +32,9 @@ import { emit } from "@/lib/events"
 import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
 import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace } from "@/lib/chatListCache"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
+import { getGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
+import { abortSessionRequests } from "@/lib/requestScheduler"
 import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
@@ -705,6 +707,8 @@ function AppShell({
   const [composerError, setComposerError] = useState<string | null>(null)
   const [focusedToolCallId, setFocusedToolCallId] = useState<string | null>(null)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
+  const [activeSubagentSessionKey, setActiveSubagentSessionKey] = useState<string | null>(null)
+  const [activeSubagentTitle, setActiveSubagentTitle] = useState<string | null>(null)
   const [inspectorScope, setInspectorScope] = useState<InspectorScope>({ kind: "global" })
   const isResizing = useRef(false)
   const isSplitResizing = useRef(false)
@@ -1041,10 +1045,21 @@ function AppShell({
     setFocusedToolCallId(toolCallId)
   }, [inspectorOpen])
 
-  const handleSubagentOpen = useCallback((_sessionKey: string | null, agentId?: string | null) => {
+  const handleAgentSelect = useCallback((agentId: string, sessionKey?: string | null, label?: string) => {
+    setActiveAgentId(agentId || "root")
+    if (!agentId || agentId === "root") {
+      setActiveSubagentSessionKey(null)
+      setActiveSubagentTitle(null)
+      return
+    }
+    if (sessionKey) setActiveSubagentSessionKey(sessionKey)
+    if (label) setActiveSubagentTitle(label)
+  }, [])
+
+  const handleSubagentOpen = useCallback((sessionKey: string | null, agentId?: string | null) => {
     if (agentId && !inspectorOpen) setInspectorOpen(true)
-    setActiveAgentId(agentId ?? "root")
-  }, [inspectorOpen])
+    handleAgentSelect(agentId ?? "root", sessionKey, agentId ?? undefined)
+  }, [handleAgentSelect, inspectorOpen])
 
   // ── Inspector scope: project chats use project scope; normal chats default to Global Workspace ──
   useEffect(() => {
@@ -1060,6 +1075,20 @@ function AppShell({
       setInspectorScope({ kind: "global" })
     }
   }, [activeSessionKey, activeTopic?.projectId])
+
+  useEffect(() => {
+    handleAgentSelect("root")
+  }, [activeSessionKey, handleAgentSelect])
+
+  const displayedSessionKey = activeAgentId && activeAgentId !== "root" && activeSubagentSessionKey
+    ? activeSubagentSessionKey
+    : activeSessionKey
+  const displayedSessionTitle = activeAgentId && activeAgentId !== "root" && activeSubagentSessionKey
+    ? activeSubagentTitle ?? "Subagent"
+    : activeSessionTitle
+  const displayedInitialMessages = displayedSessionKey === activeSessionKey && !getGlobalChatSession(activeSessionKey ?? "")?.messages.length
+    ? initialMessages
+    : undefined
 
   const computedInspectorScope = effectiveInspectorScope(activeTopic?.projectId ?? null, inspectorScope)
 
@@ -2354,6 +2383,13 @@ function AppShell({
     if (quickSending || !text) return
     if (!(await checkGatewayOrRedirect())) return
     routeRequestRef.current += 1
+    const previousSessionKey = activeSessionKey
+    if (previousSessionKey) {
+      abortSessionRequests(previousSessionKey)
+      frontendLog("composer", "quick-send.abort-previous-session-requests", {
+        previousSessionKey,
+      }, "debug")
+    }
     setComposerError(null)
     setQuickSending(true)
     try {
@@ -2482,7 +2518,7 @@ function AppShell({
     } finally {
       setQuickSending(false)
     }
-  }, [activeSpaceId, clearConversationState, editorGroups.focusedGroupId, quickSending])
+  }, [activeSessionKey, activeSpaceId, clearConversationState, editorGroups.focusedGroupId, quickSending])
 
   const handleTopicQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
@@ -2760,10 +2796,10 @@ function AppShell({
                   activeTab={effectiveActiveTab}
                   activeTopic={activeTopic}
                   activeChat={activeChat}
-                  activeSessionKey={activeSessionKey}
+                  activeSessionKey={displayedSessionKey}
                   lastActiveSessionKey={lastActiveSessionKeyRef.current}
                   cronConversationTarget={cronConversationTarget}
-                  activeSessionTitle={activeSessionTitle}
+                  activeSessionTitle={displayedSessionTitle}
                   onSignOut={handleSignOut}
                   onDeleteAccount={handleDeleteAccount}
                   flowState={flowState}
@@ -2779,7 +2815,7 @@ function AppShell({
                   activeSpaceId={activeSpaceId}
                   onSpaceSwitch={handleSpaceSwitch}
                   onOpenSkills={() => setActiveTab("skill")}
-                  initialMessages={initialMessages}
+                  initialMessages={displayedInitialMessages}
                   onSelectTool={handleSelectTool}
                   onSubagentOpen={handleSubagentOpen}
                   pendingPrompt={pendingPrompt}
@@ -2861,10 +2897,10 @@ function AppShell({
                 activeTab={effectiveActiveTab}
                 activeTopic={activeTopic}
                 activeChat={activeChat}
-                activeSessionKey={activeSessionKey}
+                activeSessionKey={displayedSessionKey}
                 lastActiveSessionKey={lastActiveSessionKeyRef.current}
                 cronConversationTarget={cronConversationTarget}
-                activeSessionTitle={activeSessionTitle}
+                activeSessionTitle={displayedSessionTitle}
                 onSignOut={handleSignOut}
                 onDeleteAccount={handleDeleteAccount}
                 flowState={flowState}
@@ -2880,8 +2916,9 @@ function AppShell({
                 activeSpaceId={activeSpaceId}
                 onSpaceSwitch={handleSpaceSwitch}
                 onOpenSkills={() => setActiveTab("skill")}
-                initialMessages={initialMessages}
+                initialMessages={displayedInitialMessages}
                 onSelectTool={handleSelectTool}
+                onSubagentOpen={handleSubagentOpen}
                 pendingPrompt={pendingPrompt}
                 composerError={composerError}
                 onTopicQuickSend={handleTopicQuickSend}
@@ -2906,7 +2943,7 @@ function AppShell({
           onClearFocusedToolCall={() => setFocusedToolCallId(null)}
           projectId={activeTopic?.projectId ?? null}
           activeAgentId={activeAgentId}
-          onAgentSelect={setActiveAgentId}
+          onAgentSelect={handleAgentSelect}
           inspectorScope={computedInspectorScope}
           onInspectorScopeChange={handleInspectorScopeChange}
         />
@@ -2928,7 +2965,7 @@ function AppShell({
           sessionKey={activeSessionKey}
           projectId={activeTopic?.projectId ?? null}
           activeAgentId={activeAgentId}
-          onAgentSelect={setActiveAgentId}
+          onAgentSelect={handleAgentSelect}
           inspectorScope={computedInspectorScope}
           onInspectorScopeChange={handleInspectorScopeChange}
         />
@@ -3185,7 +3222,7 @@ function FullScreenInspectorOverlay({
   sessionKey: string | null
   projectId: string | null
   activeAgentId: string | null
-  onAgentSelect: (id: string) => void
+  onAgentSelect: (id: string, sessionKey?: string | null, label?: string) => void
   inspectorScope?: InspectorScope
   onInspectorScopeChange?: (scope: InspectorScope) => void
 }) {

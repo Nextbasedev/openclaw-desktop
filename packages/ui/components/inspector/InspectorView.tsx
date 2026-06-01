@@ -15,7 +15,7 @@ import { inspectorScopeProjectId, inspectorScopeRenderKey } from "./inspectorSco
 export type InspectorTabId = "activity" | "workspace" | "git" | "terminal"
 
 export const INSPECTOR_TABS: Array<{ id: InspectorTabId; label: string }> = [
-  { id: "activity", label: "Activity" },
+  { id: "activity", label: "Subagents" },
   { id: "terminal", label: "Terminal" },
   { id: "workspace", label: "Workspace" },
   { id: "git", label: "Git" },
@@ -38,7 +38,7 @@ type InspectorViewProps = {
   onClearFocusedToolCall?: () => void
   projectId?: string | null
   activeAgentId?: string | null
-  onAgentSelect?: (id: string) => void
+  onAgentSelect?: (id: string, sessionKey?: string | null, label?: string) => void
   className?: string
   inspectorScope?: InspectorScope
   onInspectorScopeChange?: (scope: InspectorScope) => void

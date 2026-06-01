@@ -298,26 +298,45 @@ function loadCompatState(context: AppContext) {
   if (changed) saveCompatState(context);
 }
 
-function saveCompatState(context: AppContext) {
-  const save = context.db.prepare(`
+function compatStateSaveStatement(context: AppContext) {
+  return context.db.prepare(`
     INSERT INTO v2_compat_state(key, data_json, updated_at_ms)
     VALUES (@key, @dataJson, @updatedAtMs)
     ON CONFLICT(key) DO UPDATE SET
       data_json = excluded.data_json,
       updated_at_ms = excluded.updated_at_ms
   `);
+}
+
+function saveCompatKeys(context: AppContext, keys: Array<CompatCollection | "activeSpaceId">) {
+  const save = compatStateSaveStatement(context);
   const timestamp = Date.now();
   const tx = context.db.transaction(() => {
-    for (const collection of compatCollections) {
-      save.run({ key: collection, dataJson: toJson(compatState[collection]), updatedAtMs: timestamp });
+    for (const key of keys) {
+      save.run({
+        key,
+        dataJson: key === "activeSpaceId" ? toJson(compatState.activeSpaceId) : toJson(compatState[key]),
+        updatedAtMs: timestamp,
+      });
     }
-    save.run({ key: "activeSpaceId", dataJson: toJson(compatState.activeSpaceId), updatedAtMs: timestamp });
   });
   tx();
 }
 
-function saveCompatCollection(context: AppContext, _collection?: CompatCollection) {
-  saveCompatState(context);
+function saveCompatState(context: AppContext) {
+  saveCompatKeys(context, [...compatCollections, "activeSpaceId"]);
+}
+
+function saveCompatCollection(context: AppContext, collection?: CompatCollection) {
+  if (!collection) {
+    saveCompatState(context);
+    return;
+  }
+  saveCompatKeys(context, [collection]);
+}
+
+function saveCompatCollections(context: AppContext, collections: CompatCollection[]) {
+  saveCompatKeys(context, Array.from(new Set(collections)));
 }
 
 function defaultV1SqlitePath() {
@@ -3592,7 +3611,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     };
     compatState.chats.push(chat);
     compatState.sessions.push(session);
-    saveCompatState(context);
+    saveCompatCollections(context, ["chats", "sessions"]);
     return { chat, session };
   });
 

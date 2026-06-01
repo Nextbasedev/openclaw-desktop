@@ -841,4 +841,113 @@ describe("applyChatPatch", () => {
     }).messages
     expect(dedupeChatMessages([...bootstrap, ...replay])).toHaveLength(1)
   })
+  test("moves live tool calls onto final assistant text for the same turn", () => {
+    let state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.confirmed",
+          messageSeq: 1,
+          messageId: "user-1",
+          message: { role: "user", text: "use a tool", __openclaw: { id: "user-1", seq: 1 } },
+        },
+        createdAtMs: 1,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.message.upsert",
+          messageSeq: 2,
+          messageId: "tool-row",
+          message: { role: "assistant", content: [{ type: "toolCall", id: "tool-1", name: "read", input: {} }], __openclaw: { id: "tool-row", seq: 2 } },
+        },
+        createdAtMs: 2,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.delta",
+          runId: "run-1",
+          messageId: "live:run-1:assistant",
+          message: { role: "assistant", text: "Done", __openclaw: { id: "live:run-1:assistant", runId: "run-1" } },
+        },
+        createdAtMs: 3,
+      },
+    })
+    const next = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 4,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.final",
+          runId: "run-1",
+          messageSeq: 3,
+          messageId: "assistant-final",
+          message: { role: "assistant", content: [{ type: "text", text: "Done with tool." }], __openclaw: { id: "assistant-final", seq: 3 } },
+        },
+        createdAtMs: 4,
+      },
+    })
+    expect(next.messages).toHaveLength(2)
+    expect(next.messages[1]).toMatchObject({
+      messageId: "assistant-final",
+      role: "assistant",
+      text: "Done with tool.",
+    })
+    expect(next.messages[1].toolCalls?.map((tool) => tool.tool)).toEqual(["read"])
+  })
+
+  test("does not erase live assistant text when an empty final metadata patch arrives", () => {
+    const state = {
+      cursor: 10,
+      messages: [
+        { messageId: "u1", role: "user" as const, text: "write" },
+        { messageId: "live:run-1:assistant", role: "assistant" as const, text: "Partial streamed answer", runId: "run-1", animateText: true },
+      ],
+    }
+    const next = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          projectionVersion: 3,
+          semanticType: "chat.assistant.final",
+          runId: "run-1",
+          runStatus: "done",
+          status: "done",
+          messageId: "final-1",
+          message: {
+            role: "assistant",
+            content: [{ type: "thinking", thinking: "" }],
+          },
+        },
+        createdAtMs: 11,
+      },
+    })
+    expect(next.cursor).toBe(11)
+    expect(next.messages).toHaveLength(2)
+    expect(next.messages[1]).toMatchObject({
+      messageId: "live:run-1:assistant",
+      role: "assistant",
+      text: "Partial streamed answer",
+    })
+  })
+
 })
