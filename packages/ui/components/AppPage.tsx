@@ -2681,8 +2681,7 @@ function AppShell({
     })
   }, [])
 
-  const hasSavedMiddlewareConnection = typeof window !== "undefined" && Boolean(localStorage.getItem("openclaw.middleware.url")?.trim())
-  const connectionScreenActive = effectiveActiveTab === "connect" || (effectiveActiveTab === "settings" && settingsSection === "connect" && !hasSavedMiddlewareConnection)
+  const connectionScreenActive = effectiveActiveTab === "connect"
 
   if (connectionScreenActive) {
     return (
