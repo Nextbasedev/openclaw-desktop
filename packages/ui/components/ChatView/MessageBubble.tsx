@@ -927,7 +927,8 @@ export const MessageBubble = memo(function MessageBubble({
                 <MarkdownContent
                   text={message.text}
                   embeds={message.embeds}
-                  streaming={Boolean(isActivelyStreaming)}
+                  streaming={Boolean(isActivelyStreaming || message.animateText)}
+                  revealMode="buffered"
                   highlightTexts={referencedTexts}
                   onRevealComplete={() =>
                     onTextAnimationComplete?.(message.messageId)

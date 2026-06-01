@@ -265,6 +265,19 @@ function liveAssistantIdForFinal(payload: PatchPayloadV2 | null, incoming: ChatM
   return hasFinalAssistant ? `live:${runId}:assistant` : null
 }
 
+function hasAssistantText(messages: ChatMessage[]) {
+  return messages.some((message) => message.role === "assistant" && message.text.trim())
+}
+
+function hasExistingLiveAssistantTextForRun(state: ApplyPatchState, runId: string | null) {
+  if (!runId) return false
+  return state.messages.some((message) =>
+    message.role === "assistant" &&
+    message.runId === runId &&
+    message.text.trim()
+  )
+}
+
 function synthesizeBlankUserConfirmation(
   state: ApplyPatchState,
   parsed: ChatMessage[],
@@ -360,6 +373,14 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
     )
     : withSeq
   const normalized = preserveOptimisticUserDisplayFromBlankConfirmation(state, normalizedRaw, optimisticId)
+  const runId = patchRunId(frame)
+  if (
+    patchSemanticType(frame) === "chat.assistant.final" &&
+    !hasAssistantText(normalized) &&
+    hasExistingLiveAssistantTextForRun(state, runId)
+  ) {
+    return { ...state, cursor: frame.patch.cursor }
+  }
   if (rejectsStaleConfirmedUser(state, optimisticId, normalized)) {
     return { ...state, cursor: frame.patch.cursor }
   }

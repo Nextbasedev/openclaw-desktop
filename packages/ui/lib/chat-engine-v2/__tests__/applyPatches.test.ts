@@ -841,4 +841,42 @@ describe("applyChatPatch", () => {
     }).messages
     expect(dedupeChatMessages([...bootstrap, ...replay])).toHaveLength(1)
   })
+  test("does not erase live assistant text when an empty final metadata patch arrives", () => {
+    const state = {
+      cursor: 10,
+      messages: [
+        { messageId: "u1", role: "user" as const, text: "write" },
+        { messageId: "live:run-1:assistant", role: "assistant" as const, text: "Partial streamed answer", runId: "run-1", animateText: true },
+      ],
+    }
+    const next = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          projectionVersion: 3,
+          semanticType: "chat.assistant.final",
+          runId: "run-1",
+          runStatus: "done",
+          status: "done",
+          messageId: "final-1",
+          message: {
+            role: "assistant",
+            content: [{ type: "thinking", thinking: "" }],
+          },
+        },
+        createdAtMs: 11,
+      },
+    })
+    expect(next.cursor).toBe(11)
+    expect(next.messages).toHaveLength(2)
+    expect(next.messages[1]).toMatchObject({
+      messageId: "live:run-1:assistant",
+      role: "assistant",
+      text: "Partial streamed answer",
+    })
+  })
+
 })
