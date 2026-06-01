@@ -312,39 +312,6 @@ function ToolRow({
   )
 }
 
-function CollapsedToolStack({ tools }: { tools: InlineToolCall[] }) {
-  const visible = tools.slice(0, 3)
-  if (!visible.length) return null
-
-  return (
-    <div className="relative mt-1 h-9 overflow-hidden" aria-hidden="true">
-      {visible.map((call, index) => {
-        const depth = visible.length - index - 1
-        return (
-          <div
-            key={call.id}
-            className="absolute inset-x-0 flex items-center gap-2 rounded-md border border-border/10 bg-background/70 px-1.5 py-[5px] shadow-sm backdrop-blur-sm"
-            style={{
-              zIndex: visible.length - index,
-              transform: `translate(${index * 8}px, ${index * 7}px)`,
-              width: `calc(100% - ${index * 16}px)`,
-              opacity: 1 - depth * 0.12,
-            }}
-          >
-            <ToolIcon status={call.status} />
-            <span className="shrink-0 font-mono text-[10px] font-semibold tracking-[0.14em] text-amber-300/70">
-              {toolVerb(call.tool)}
-            </span>
-            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/55">
-              {toolSubject(call, "")}
-            </span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 export const ToolCallSteps = memo(function ToolCallSteps({
   tools,
   defaultOpen = true,
@@ -392,7 +359,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
           {total} tool{total !== 1 ? "s" : ""}
         </span>
       </button>
-      {stepsOpen ? (
+      {stepsOpen && (
         <div className="relative z-0 space-y-0.5 overflow-visible">
           {orderedTools.map((call) => (
             <ToolRow
@@ -407,8 +374,6 @@ export const ToolCallSteps = memo(function ToolCallSteps({
             />
           ))}
         </div>
-      ) : (
-        <CollapsedToolStack tools={orderedTools} />
       )}
     </div>
   )
