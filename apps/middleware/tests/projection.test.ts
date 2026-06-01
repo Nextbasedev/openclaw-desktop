@@ -19,6 +19,17 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("history normalization drops blank assistant retry shells but keeps errors and tools", () => {
+    const normalized = normalizeHistoryMessages("s1", [
+      { role: "user", content: [{ type: "text", text: "image prompt" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "abc" } }], __openclaw: { id: "u1", seq: 1 } },
+      { role: "assistant", content: [], __openclaw: { id: "blank", seq: 2 } },
+      { role: "assistant", content: [{ type: "toolCall", id: "tool-1", name: "session_status", arguments: {} }], __openclaw: { id: "tool", seq: 3 } },
+      { role: "assistant", content: [], stopReason: "error", errorMessage: "provider failed", __openclaw: { id: "error", seq: 4 } },
+    ]);
+
+    expect(normalized.map((message) => message.messageId)).toEqual(["u1", "tool", "error"]);
+  });
+
   test("message upsert is keyed by session and OpenClaw seq", () => {
     const db = openDatabase({ databasePath: testDbPath("upsert") });
     const repo = new MessageRepository(db);

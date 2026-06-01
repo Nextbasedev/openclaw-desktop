@@ -136,10 +136,27 @@ function readMessageTimestampMs(message: OpenClawMessage, fallbackMs: number): n
   return fallbackMs;
 }
 
+function hasVisibleAssistantSignal(message: OpenClawMessage) {
+  if (message.role !== "assistant") return true;
+  if (normalizeMessageText(textFromMessage(message))) return true;
+  if (message.errorMessage || message.error || message.stopReason === "error") return true;
+  const content = message.content;
+  if (Array.isArray(content)) {
+    return content.some((block) => {
+      if (typeof block === "string") return Boolean(normalizeMessageText(block));
+      if (!block || typeof block !== "object" || Array.isArray(block)) return false;
+      const type = typeof (block as Record<string, unknown>).type === "string" ? String((block as Record<string, unknown>).type).toLowerCase() : "";
+      return type.includes("tool") || type === "thinking" || Boolean(normalizeMessageText(typeof (block as Record<string, unknown>).text === "string" ? String((block as Record<string, unknown>).text) : ""));
+    });
+  }
+  return false;
+}
+
 export function normalizeHistoryMessages(sessionKey: string, messages: unknown[], nowMs = Date.now(), firstFallbackSeq = 1): ProjectedMessage[] {
   return messages
     .filter((message): message is OpenClawMessage => Boolean(message) && typeof message === "object" && !Array.isArray(message))
     .filter((message) => !isInternalSubagentCompletionMessage(message))
+    .filter(hasVisibleAssistantSignal)
     .map((message, index) => ({
       sessionKey,
       openclawSeq: readOpenClawSeq(message, firstFallbackSeq + index),

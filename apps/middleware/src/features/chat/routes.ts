@@ -940,6 +940,11 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               const dedupedNormalized = normalized.filter((message) => {
                 if (message === gatewayUserEcho) return true;
                 if (message.role !== "user") return true;
+                const isSameCurrentSendText = Boolean(gatewayUserEcho) && messageTextMatchesSent(textFromMessage(message.data), prepared.message);
+                if (isSameCurrentSendText) {
+                  log.info("history.persist.duplicate-current-user.skip", { sessionKey: input.sessionKey, messageId: message.messageId, messageSeq: projectSeq(message), runId });
+                  return false;
+                }
                 const isDuplicate = context.chatLive.isConfirmedUserDuplicate(input.sessionKey, {
                   role: message.role,
                   data: message.data,
