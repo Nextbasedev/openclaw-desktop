@@ -60,6 +60,19 @@ describe("SQLite projection", () => {
     expect(normalized[1]?.data).toMatchObject({ errorMessage: "fallback failed" });
   });
 
+  test("drops late image fallback errors after the next user when a later fallback succeeds", () => {
+    const normalized = normalizeHistoryMessages("s1", [
+      { role: "user", content: [{ type: "text", text: "bad image\n\n[Attached image: bad.png]" }, { type: "image", mimeType: "image/png", omitted: true }], __openclaw: { id: "img-user", seq: 1 } },
+      { role: "assistant", content: [], stopReason: "error", errorMessage: "image invalid", __openclaw: { id: "img-error-1", seq: 2 } },
+      { role: "user", content: "next text turn", __openclaw: { id: "text-user", seq: 3 } },
+      { role: "assistant", content: [], stopReason: "error", errorMessage: "late image fallback error", __openclaw: { id: "img-error-2", seq: 4 } },
+      { role: "assistant", content: [{ type: "toolCall", id: "tool-1", name: "session_status", arguments: {} }], __openclaw: { id: "text-tool", seq: 5 } },
+      { role: "assistant", content: [{ type: "text", text: "next text succeeded" }], __openclaw: { id: "text-final", seq: 6 } },
+    ]);
+
+    expect(normalized.map((message) => message.messageId)).toEqual(["img-user", "text-user", "text-tool", "text-final"]);
+  });
+
   test("message upsert is keyed by session and OpenClaw seq", () => {
     const db = openDatabase({ databasePath: testDbPath("upsert") });
     const repo = new MessageRepository(db);

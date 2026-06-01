@@ -195,8 +195,14 @@ function collapseImageFallbackAttempts(messages: OpenClawMessage[]) {
         // internal to the same run, not new transcript turns.
         continue;
       }
-      activeImageText = imageText || null;
-      activeErrorIndex = null;
+      if (imageText) {
+        activeImageText = imageText;
+        activeErrorIndex = null;
+      }
+      // Do not clear an active image fallback window on a newer non-image user:
+      // Gateway can emit the image fallback errors late, after the next user
+      // turn has already been accepted. The window closes on the next successful
+      // assistant/tool signal, not on user replay ordering.
       out.push(message);
       continue;
     }
