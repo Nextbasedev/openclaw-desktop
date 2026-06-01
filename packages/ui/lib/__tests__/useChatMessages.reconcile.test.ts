@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
+import { mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 const user = (text = "question"): ChatMessage => ({ messageId: `u-${text}`, role: "user", text })
@@ -65,6 +65,30 @@ describe("chat reconcile active-state guards", () => {
     )).toMatchObject([
       { messageId: "canonical-user", role: "user", text: "long task" },
     ])
+  })
+
+  test("merges newer canonical rows while preserving active reconcile state", () => {
+    const current = [
+      user("ask"),
+      { ...assistant(""), messageId: "tool-row", toolCalls: [{ id: "exec-1", tool: "exec", status: "running" as const }] },
+    ]
+    const fresh = [
+      user("ask"),
+      assistant("final answer"),
+      user("follow up"),
+    ]
+
+    const merged = mergeActivePreservedReconcileMessages(current, fresh)
+
+    expect(merged.map((message) => message.text)).toEqual(["ask", "final answer", "follow up", ""])
+    expect(merged.some((message) => message.toolCalls?.some((tool) => tool.id === "exec-1"))).toBe(true)
+  })
+
+  test("does not replace active messages with shorter stale reconcile history", () => {
+    const current = [user("ask"), assistant("answer"), user("next")]
+    const fresh = [user("ask")]
+
+    expect(mergeActivePreservedReconcileMessages(current, fresh)).toBe(current)
   })
 
   test("preserves timeline rows during active streaming/tool states and older loads", () => {

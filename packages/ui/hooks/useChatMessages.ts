@@ -252,6 +252,23 @@ export function shouldPreserveActiveReconcile(params: {
   return !hasAssistantAnswerAfterLatestUserMessage(params.candidateMessages)
 }
 
+export function mergeActivePreservedReconcileMessages(
+  currentMessages: ChatMessage[],
+  freshMessages: ChatMessage[] | null | undefined
+) {
+  if (!freshMessages?.length) return currentMessages
+  if (freshMessages.length < currentMessages.length) return currentMessages
+  const currentIds = new Set(currentMessages.map((message) => message.messageId))
+  const hasNewCanonicalRows = freshMessages.some((message) => !currentIds.has(message.messageId))
+  if (!hasNewCanonicalRows && freshMessages.length === currentMessages.length) return currentMessages
+  // Preserve active run/tool state, but do not freeze the transcript. During
+  // long/heavy tool runs, periodic full-history reconcile can return newer
+  // canonical user/assistant rows while the legacy session status still says
+  // idle. Dropping that newer history is what made reload/scroll show duplicate
+  // user rows or hide the latest assistant answer behind only tool steps.
+  return dedupeChatMessages([...freshMessages, ...currentMessages])
+}
+
 function stableRawMessageId(raw: RawMessage): string {
   const openclawId = raw.__openclaw?.id
   if (typeof openclawId === "string" && openclawId.trim()) return openclawId
@@ -972,12 +989,31 @@ export function useChatMessages(
         // lag behind live patches for a few seconds after send; replacing the
         // local optimistic timeline with that partial history makes the latest
         // Thinking row and previous answer disappear until the final patch lands.
+        const mergedMessages = mergeActivePreservedReconcileMessages(currentMessages, freshMessages)
+        const mergedFreshRows = mergedMessages !== currentMessages
+        if (mergedFreshRows) {
+          setMessages(mergedMessages, { status: currentStatus })
+          seedGlobalChatSession({
+            sessionKey,
+            messages: mergedMessages,
+            cursor: v2CursorRef.current,
+            status: currentStatus,
+            statusLabel: normalizeStatusLabelForStatus(currentStatus, statusLabel),
+            pendingTools: Array.from(pendingToolMapRef.current.values()),
+            spawnedSubagents: Array.from(spawnMapRef.current.values()),
+            messageCount: Math.max(mergedMessages.length, freshMessages?.length ?? 0, currentMessages.length),
+            historyCoverage: "full",
+            queryClient,
+          })
+        }
         frontendLog("status", "chat.reconcile-preserve-active", {
           sessionKey,
           status: currentStatus,
           nextStatus,
           freshMessageCount: freshMessages?.length ?? 0,
           currentMessageCount: currentMessages.length,
+          mergedMessageCount: mergedMessages.length,
+          mergedFreshRows,
           runningToolCount,
           backendStatus: backendSession?.status ?? null,
         })
