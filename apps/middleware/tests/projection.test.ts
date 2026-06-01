@@ -208,6 +208,90 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("confirmed optimistic user is not duplicated when old history replay arrives after recent echo TTL", () => {
+    const db = openDatabase({ databasePath: testDbPath("confirmed-user-gateway-seq-replay") });
+    const repo = new MessageRepository(db);
+    const segment = repo.ensureActiveSegment({ sessionKey: "s1", sessionId: "gateway-session" });
+    repo.insertOptimisticMessage({
+      sessionKey: "s1",
+      openclawSeq: 1,
+      messageId: "client-1",
+      role: "user",
+      data: { role: "user", text: "heavy turn 1", __clientOptimistic: true, __openclaw: { id: "client-1" } },
+      updatedAtMs: 100,
+    });
+    const [gatewayUser] = normalizeHistoryMessages("s1", [
+      { role: "user", text: "heavy turn 1", __openclaw: { id: "gateway-user-1", seq: 7 } },
+    ], 200);
+    repo.confirmOptimisticUser("s1", "client-1", gatewayUser!);
+    repo.upsertMessages(normalizeHistoryMessages("s1", [
+      { role: "assistant", text: "answer 1", __openclaw: { id: "assistant-1", seq: 8 } },
+    ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+
+    const replay = repo.upsertMessages(normalizeHistoryMessages("s1", [
+      { role: "user", text: "heavy turn 1", __openclaw: { id: "gateway-user-1-replayed", seq: 7 } },
+    ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+
+    expect(replay.upserted).toBe(0);
+    expect(repo.listMessages("s1").map((message) => `${message.openclawSeq}:${message.role}:${message.messageId}:${(message.data as { text?: string }).text ?? ""}`)).toEqual([
+      "1:user:client-1:heavy turn 1",
+      "8:assistant:assistant-1:answer 1",
+    ]);
+    db.close();
+  });
+
+  test("15 sequential tool turns keep exactly one user and one final per turn after heavy history replay", () => {
+    const db = openDatabase({ databasePath: testDbPath("heavy-15-turn-replay") });
+    const repo = new MessageRepository(db);
+    const segment = repo.ensureActiveSegment({ sessionKey: "s1", sessionId: "gateway-session" });
+
+    for (let turn = 1; turn <= 15; turn += 1) {
+      const gatewaySeq = ((turn - 1) * 4) + 1;
+      const marker = `SEQ_HEAVY_FINAL_test_${String(turn).padStart(2, "0")}`;
+      repo.insertOptimisticMessage({
+        sessionKey: "s1",
+        openclawSeq: repo.nextMessageSeq("s1"),
+        messageId: `client-${turn}`,
+        role: "user",
+        data: { role: "user", text: `heavy turn ${turn}`, __clientOptimistic: true, __openclaw: { id: `client-${turn}` } },
+        updatedAtMs: 100 + turn,
+      });
+      const [gatewayUser] = normalizeHistoryMessages("s1", [
+        { role: "user", text: `heavy turn ${turn}`, __openclaw: { id: `gateway-user-${turn}`, seq: gatewaySeq } },
+      ], 200 + turn);
+      repo.confirmOptimisticUser("s1", `client-${turn}`, gatewayUser!);
+      repo.upsertMessages(normalizeHistoryMessages("s1", [
+        { role: "assistant", content: [{ type: "tool_call", id: `tool-${turn}`, name: "session_status", input: {} }], __openclaw: { id: `assistant-tool-${turn}`, seq: gatewaySeq + 1 } },
+        { role: "toolResult", tool_call_id: `tool-${turn}`, content: "ok", __openclaw: { id: `tool-result-${turn}`, seq: gatewaySeq + 2 } },
+        { role: "assistant", text: `done ${marker}`, __openclaw: { id: `assistant-final-${turn}`, seq: gatewaySeq + 3 } },
+      ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+    }
+
+    const heavyReplay = [];
+    for (let turn = 1; turn <= 15; turn += 1) {
+      const gatewaySeq = ((turn - 1) * 4) + 1;
+      const marker = `SEQ_HEAVY_FINAL_test_${String(turn).padStart(2, "0")}`;
+      heavyReplay.push(
+        { role: "user", text: `heavy turn ${turn}`, __openclaw: { id: `gateway-user-${turn}-late-replay`, seq: gatewaySeq } },
+        { role: "assistant", content: [{ type: "tool_call", id: `tool-${turn}`, name: "session_status", input: {} }], __openclaw: { id: `assistant-tool-${turn}`, seq: gatewaySeq + 1 } },
+        { role: "toolResult", tool_call_id: `tool-${turn}`, content: "ok", __openclaw: { id: `tool-result-${turn}`, seq: gatewaySeq + 2 } },
+        { role: "assistant", text: `done ${marker}`, __openclaw: { id: `assistant-final-${turn}`, seq: gatewaySeq + 3 } },
+      );
+    }
+    repo.upsertMessages(normalizeHistoryMessages("s1", heavyReplay), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+
+    const rows = repo.listMessages("s1");
+    const users = rows.filter((message) => message.role === "user" && ((message.data as { text?: string }).text ?? "").startsWith("heavy turn "));
+    const finals = rows.filter((message) => message.role === "assistant" && ((message.data as { text?: string }).text ?? "").includes("SEQ_HEAVY_FINAL_test_"));
+    const finalMarkers = finals.map((message) => ((message.data as { text?: string }).text ?? "").match(/SEQ_HEAVY_FINAL_test_\d+/)?.[0]).filter(Boolean);
+
+    expect(users).toHaveLength(15);
+    expect(finals).toHaveLength(15);
+    expect(new Set(finalMarkers).size).toBe(15);
+    expect(rows.filter((message) => message.role === "toolResult")).toHaveLength(15);
+    db.close();
+  });
+
   test("confirming optimistic user keeps its local canonical seq before late prior assistant history", () => {
     const db = openDatabase({ databasePath: testDbPath("confirm-user-local-seq") });
     const repo = new MessageRepository(db);

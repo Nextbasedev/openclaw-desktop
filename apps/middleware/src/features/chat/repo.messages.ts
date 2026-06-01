@@ -260,6 +260,14 @@ export class MessageRepository {
         AND json_extract(data_json, '$.__openclaw.gatewayId') = @messageId
       LIMIT 1
     `);
+    const existingByGatewaySeq = this.db.prepare(`
+      SELECT openclaw_seq
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+        AND gateway_seq = @gatewaySeq
+      LIMIT 1
+    `);
     const maxSeq = this.db.prepare(`
       SELECT max(openclaw_seq) AS maxSeq
       FROM v2_messages
@@ -295,12 +303,20 @@ export class MessageRepository {
           ? (existingById.get({ sessionKey: message.sessionKey, messageId: message.messageId, segmentId }) as { openclaw_seq: number } | undefined)
             ?? (existingByGatewayId.get({ sessionKey: message.sessionKey, messageId: message.messageId, segmentId }) as { openclaw_seq: number } | undefined)
           : undefined;
+        const gatewaySeqMatch = !idMatch && gatewaySeq > 0
+          ? existingByGatewaySeq.get({ sessionKey: message.sessionKey, segmentId, gatewaySeq }) as { openclaw_seq: number } | undefined
+          : undefined;
         if (idMatch?.openclaw_seq) openclawSeq = idMatch.openclaw_seq;
+        else if (gatewaySeqMatch?.openclaw_seq) openclawSeq = gatewaySeqMatch.openclaw_seq;
 
         let existing = existingAtSeq.get({
           sessionKey: message.sessionKey,
           openclawSeq,
         }) as { message_id: string | null; role: string | null; data_json: string } | undefined;
+        if (gatewaySeqMatch && existing && message.role === "user" && existing.role === "user" && textOf(fromJson(existing.data_json)) === textOf(message.data)) {
+          lastSeq = Math.max(lastSeq, openclawSeq);
+          continue;
+        }
         // A true seq collision is when a DIFFERENT message lands on a seq that is
         // already owned by another message. Detect that by identity (different
         // messageId) AND that it is not just the same logical message being
@@ -642,6 +658,41 @@ export class MessageRepository {
       DELETE FROM v2_messages
       WHERE session_key = @sessionKey AND message_id = @messageId
     `).run({ sessionKey, messageId }).changes;
+  }
+
+  findLatestLiveAssistantByText(sessionKey: string, text: string): ProjectedMessage | null {
+    const row = this.db.prepare(`
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND role = 'assistant'
+        AND message_id LIKE 'live:%:assistant'
+        AND json_extract(data_json, '$.text') = @text
+      ORDER BY openclaw_seq DESC
+      LIMIT 1
+    `).get({ sessionKey, text }) as {
+      session_key: string;
+      segment_id: string | null;
+      session_id: string | null;
+      gateway_seq: number | null;
+      openclaw_seq: number;
+      message_id: string | null;
+      role: string | null;
+      data_json: string;
+      updated_at_ms: number;
+    } | undefined;
+    if (!row) return null;
+    return {
+      sessionKey: row.session_key,
+      segmentId: row.segment_id,
+      sessionId: row.session_id,
+      gatewaySeq: row.gateway_seq ?? undefined,
+      openclawSeq: row.openclaw_seq,
+      messageId: row.message_id,
+      role: row.role,
+      data: fromJson(row.data_json) as OpenClawMessage,
+      updatedAtMs: row.updated_at_ms,
+    };
   }
 
   findMessageById(sessionKey: string, messageId: string): ProjectedMessage | null {

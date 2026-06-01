@@ -397,8 +397,22 @@ export class ChatLiveIngest {
       return this.context.runs.findRunByGatewayRunId(explicitRunId) ?? this.context.runs.getRun(explicitRunId);
     }
     if (optimisticRunId) return this.context.runs.getRun(optimisticRunId) ?? this.context.runs.findOldestPendingRun(sessionKey);
-    if (message.role === "assistant") return this.context.runs.findOldestPendingRun(sessionKey);
+    if (message.role === "assistant") {
+      const pending = this.context.runs.findOldestPendingRun(sessionKey);
+      if (pending) return pending;
+      const text = normalizeMessageText(textFromMessage(message));
+      if (text) {
+        const liveAssistant = this.context.messages.findLatestLiveAssistantByText(sessionKey, text);
+        const liveRunId = this.runIdFromLiveAssistantId(liveAssistant?.messageId ?? null);
+        if (liveRunId) return this.context.runs.getRun(liveRunId);
+      }
+    }
     return null;
+  }
+
+  private runIdFromLiveAssistantId(messageId: string | null) {
+    const match = messageId?.match(/^live:(.+):assistant$/);
+    return match?.[1] ?? null;
   }
 
   private readRunId(message: OpenClawMessage): string | null {
@@ -707,6 +721,10 @@ export class ChatLiveIngest {
       return;
     }
     if (status === "streaming" || this.extractLiveAssistantText(data)) {
+      if (["done", "error", "aborted"].includes(run.status)) {
+        this.log.info("chat.event.streaming.skip_terminal_run", { sessionKey, runId: run.runId, status: run.status, gatewayRunId });
+        return;
+      }
       const updated = this.context.runs.updateRunStatus(run.runId, "streaming", { statusLabel: "Streaming" });
       if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
       this.broadcastLiveAssistantText(sessionKey, updated ?? run, data);
@@ -968,7 +986,7 @@ export class ChatLiveIngest {
         id: messageId,
         role: "assistant",
         text: next,
-        __openclaw: { id: messageId },
+        __openclaw: { id: messageId, runId: run.runId },
       },
       updatedAtMs: Date.now(),
     }]);

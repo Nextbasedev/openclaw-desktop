@@ -604,6 +604,52 @@ describe("chat live ingest", () => {
     expect(context.messages.findMessageById("s1", "gateway-old-assistant")?.data.__openclaw).not.toMatchObject({ runId: "run-1" });
     expect(context.messages.findMessageById("s1", "gateway-assistant")).toMatchObject({ messageId: "gateway-assistant", role: "assistant" });
     expect(context.messages.findMessageById("s1", "gateway-assistant")?.data.__openclaw).toMatchObject({ replacedLiveMessageId: "live:run-1:assistant", runId: "run-1" });
+
+    listener({
+      type: "event",
+      event: "chat",
+      payload: { sessionKey: "s1", runId: "run-1", data: { status: "streaming", text: "FINAL_OK" } },
+    });
+    expect(context.messages.findMessageById("s1", "live:run-1:assistant")).toBeNull();
+    expect(context.messages.listMessages("s1").filter((message) => message.role === "assistant" && JSON.stringify(message.data).includes("FINAL_OK"))).toHaveLength(1);
+    await app.close();
+  });
+
+  test("canonical assistant final replaces live assistant even when run already reached done", async () => {
+    const app = await createApp(config("terminal-run-live-assistant-replace"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "streaming", statusLabel: "Streaming", startedAtMs: now, updatedAtMs: now });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "chat",
+      payload: { sessionKey: "s1", runId: "run-1", data: { status: "streaming", text: "FINAL_OK" } },
+    });
+    expect(context.messages.findMessageById("s1", "live:run-1:assistant")).toMatchObject({ role: "assistant" });
+
+    context.runs.updateRunStatus("run-1", "done", { statusLabel: null });
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 4,
+        message: { role: "assistant", text: "FINAL_OK", __openclaw: { id: "gateway-final", seq: 4 } },
+      },
+    });
+
+    expect(context.messages.findMessageById("s1", "live:run-1:assistant")).toBeNull();
+    expect(context.messages.findMessageById("s1", "gateway-final")).toMatchObject({ openclawSeq: 1, role: "assistant" });
+    expect(context.messages.findMessageById("s1", "gateway-final")?.data.__openclaw).toMatchObject({ replacedLiveMessageId: "live:run-1:assistant", runId: "run-1" });
     await app.close();
   });
 
