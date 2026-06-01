@@ -569,7 +569,12 @@ export const MessageBubble = memo(function MessageBubble({
     isAssistantError && Boolean(animateAssistantText),
     () => onTextAnimationComplete?.(message.messageId)
   )
-  const shouldAnimateSend = isUser && message.isOptimistic
+  // `isOptimistic` can intentionally survive after the send ACK so the live
+  // timeline can preserve the user row until the canonical Gateway echo/history
+  // catches up. During heavy tool runs the row may remount while patch/history
+  // reconciliation is active; only animate the first local sending state, not
+  // every later remount of an already-acknowledged optimistic row.
+  const shouldAnimateSend = isUser && message.isOptimistic && message.sendStatus === "sending"
   const hideAssistantActions =
     !isUser && (Boolean(isActivelyStreaming) || Boolean(suppressActions))
   const [editing, setEditing] = useState(false)
