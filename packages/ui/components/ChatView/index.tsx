@@ -1658,12 +1658,16 @@ export function ChatView({
           )}
           {(() => {
             const assistantHasText = msg.role === "assistant" && msg.text.trim().length > 0
+            const shouldOpenToolStepsByDefault =
+              lastTwoAssistantIds.has(msg.messageId) &&
+              !assistantHasText &&
+              filteredToolCalls.length <= 3
             const toolSteps = msg.role === "assistant" && filteredToolCalls && filteredToolCalls.length > 0
               ? (
                   <div className="mb-4 max-w-[85%]">
                     <ToolCallSteps
                       tools={filteredToolCalls}
-                      defaultOpen={lastTwoAssistantIds.has(msg.messageId) && !assistantHasText}
+                      defaultOpen={shouldOpenToolStepsByDefault}
                       onSelectTool={onSelectTool}
                       onResolveApproval={resolveExecApproval}
                       sessionKey={sessionKey}
