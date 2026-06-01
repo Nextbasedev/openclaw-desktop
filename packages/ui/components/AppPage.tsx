@@ -34,6 +34,7 @@ import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace } 
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
 import { getGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
+import { abortSessionRequests } from "@/lib/requestScheduler"
 import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
@@ -2382,6 +2383,13 @@ function AppShell({
     if (quickSending || !text) return
     if (!(await checkGatewayOrRedirect())) return
     routeRequestRef.current += 1
+    const previousSessionKey = activeSessionKey
+    if (previousSessionKey) {
+      abortSessionRequests(previousSessionKey)
+      frontendLog("composer", "quick-send.abort-previous-session-requests", {
+        previousSessionKey,
+      }, "debug")
+    }
     setComposerError(null)
     setQuickSending(true)
     try {
@@ -2510,7 +2518,7 @@ function AppShell({
     } finally {
       setQuickSending(false)
     }
-  }, [activeSpaceId, clearConversationState, editorGroups.focusedGroupId, quickSending])
+  }, [activeSessionKey, activeSpaceId, clearConversationState, editorGroups.focusedGroupId, quickSending])
 
   const handleTopicQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
