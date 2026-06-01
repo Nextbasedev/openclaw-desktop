@@ -89,4 +89,29 @@ describe("buildStableVercelTimeline", () => {
     expect(timeline[1].toolCalls?.[0]?.id).toBe("t1")
     expect(timeline[1].text).toBe("done")
   })
+
+  it("does not merge separate text-bearing assistant answers when a user separator is missing", () => {
+    const timeline = buildStableVercelTimeline([
+      msg({ messageId: "u1", role: "user", text: "hii", gatewayIndex: 1 }),
+      msg({ messageId: "u2", role: "user", text: "do some tool call", gatewayIndex: 6 }),
+      msg({ messageId: "a1", role: "assistant", text: "Hi Dixit — what should we work on?", gatewayIndex: 5 }),
+      msg({
+        messageId: "a2",
+        role: "assistant",
+        text: "Done — I called session_status.",
+        gatewayIndex: 9,
+        toolCalls: [{ id: "status", tool: "session_status", status: "success" }],
+      }),
+    ])
+
+    expect(timeline).toHaveLength(4)
+    expect(timeline.map((message) => message.text)).toEqual([
+      "hii",
+      "do some tool call",
+      "Hi Dixit — what should we work on?",
+      "Done — I called session_status.",
+    ])
+    expect(timeline[2].toolCalls).toBeUndefined()
+    expect(timeline[3].toolCalls?.[0]?.tool).toBe("session_status")
+  })
 })

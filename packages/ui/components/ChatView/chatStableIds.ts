@@ -73,6 +73,33 @@ function mergeAssistantTurn(existing: StableChatMessage, incoming: ChatMessage):
   }
 }
 
+function assistantRowsAreSameTurn(existing: StableChatMessage, incoming: ChatMessage) {
+  if (existing.messageId === incoming.messageId) return true
+
+  const existingRunId = existing.runId?.trim()
+  const incomingRunId = incoming.runId?.trim()
+  if (existingRunId && incomingRunId) return existingRunId === incomingRunId
+
+  const existingHasText = Boolean(existing.text.trim())
+  const incomingHasText = Boolean(incoming.text.trim())
+  // Tool-only/thinking-only assistant rows are fragments of the nearest visible
+  // assistant answer. Two text-bearing assistant rows are complete answers; do
+  // not merge them just because a user separator is missing or the timeline is
+  // temporarily out of order. That was the source of old answers absorbing later
+  // tool cards/final text into one giant assistant bubble.
+  if (existingHasText && incomingHasText) return false
+
+  if (
+    typeof existing.gatewayIndex === "number" &&
+    typeof incoming.gatewayIndex === "number" &&
+    existing.gatewayIndex !== incoming.gatewayIndex
+  ) {
+    return false
+  }
+
+  return true
+}
+
 type StableRowsOptions = {
   coalesceAssistantTurns?: boolean
 }
@@ -108,9 +135,12 @@ export function buildStableChatRows(
       : `assistant:${textFingerprint(message)}:${message.gatewayIndex ?? message.messageId}`
 
     if (options.coalesceAssistantTurns) {
-      activeAssistant = activeAssistant
-        ? mergeAssistantTurn(activeAssistant, message)
-        : { ...message, uiId: assistantUiId }
+      if (activeAssistant && assistantRowsAreSameTurn(activeAssistant, message)) {
+        activeAssistant = mergeAssistantTurn(activeAssistant, message)
+      } else {
+        flushAssistant()
+        activeAssistant = { ...message, uiId: assistantUiId }
+      }
     } else {
       out.push({ ...message, uiId: assistantUiId })
       assistantOrdinalInTurn += 1
