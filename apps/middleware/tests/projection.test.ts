@@ -30,6 +30,36 @@ describe("SQLite projection", () => {
     expect(normalized.map((message) => message.messageId)).toEqual(["u1", "tool", "error"]);
   });
 
+  test("collapses image fallback retry attempts into one successful transcript turn", () => {
+    const imageUser = (id: string, seq: number) => ({
+      role: "user",
+      content: [{ type: "text", text: "analyze image\n\n[Attached image: bad.png]" }, { type: "image", mimeType: "image/png", omitted: true }],
+      __openclaw: { id, seq },
+    });
+    const error = (id: string, seq: number, model: string) => ({ role: "assistant", content: [], stopReason: "error", errorMessage: `400 ${model}`, model, __openclaw: { id, seq } });
+    const normalized = normalizeHistoryMessages("s1", [
+      imageUser("u1", 1),
+      error("e1", 2, "primary"),
+      imageUser("u2", 3),
+      error("e2", 4, "fallback"),
+      { role: "assistant", content: [{ type: "text", text: "fallback worked" }], __openclaw: { id: "a-final", seq: 5 } },
+    ]);
+
+    expect(normalized.map((message) => message.messageId)).toEqual(["u1", "a-final"]);
+  });
+
+  test("collapses all-failed image fallback attempts to one user and one final error", () => {
+    const normalized = normalizeHistoryMessages("s1", [
+      { role: "user", content: [{ type: "text", text: "analyze image\n\n[Attached image: bad.png]" }, { type: "image", mimeType: "image/png", omitted: true }], __openclaw: { id: "u1", seq: 1 } },
+      { role: "assistant", content: [], stopReason: "error", errorMessage: "primary failed", __openclaw: { id: "e1", seq: 2 } },
+      { role: "user", content: [{ type: "text", text: "analyze image\n\n[Attached image: bad.png]" }, { type: "image", mimeType: "image/png", omitted: true }], __openclaw: { id: "u2", seq: 3 } },
+      { role: "assistant", content: [], stopReason: "error", errorMessage: "fallback failed", __openclaw: { id: "e2", seq: 4 } },
+    ]);
+
+    expect(normalized.map((message) => message.messageId)).toEqual(["u1", "e2"]);
+    expect(normalized[1]?.data).toMatchObject({ errorMessage: "fallback failed" });
+  });
+
   test("message upsert is keyed by session and OpenClaw seq", () => {
     const db = openDatabase({ databasePath: testDbPath("upsert") });
     const repo = new MessageRepository(db);

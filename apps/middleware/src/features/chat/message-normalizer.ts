@@ -136,26 +136,104 @@ function readMessageTimestampMs(message: OpenClawMessage, fallbackMs: number): n
   return fallbackMs;
 }
 
+function messageContentBlocks(message: OpenClawMessage) {
+  return Array.isArray(message.content) ? message.content : [];
+}
+
+function blockType(block: unknown) {
+  return isObject(block) && typeof block.type === "string" ? block.type.toLowerCase() : "";
+}
+
+function hasToolOrThinkingBlock(message: OpenClawMessage) {
+  return messageContentBlocks(message).some((block) => {
+    const type = blockType(block);
+    return type.includes("tool") || type === "thinking";
+  });
+}
+
+function messageHasImageAttachment(message: OpenClawMessage) {
+  if (Array.isArray(message.attachments) && message.attachments.some((item) => isObject(item) && typeof item.mimeType === "string" && item.mimeType.startsWith("image/"))) return true;
+  return messageContentBlocks(message).some((block) => {
+    if (!isObject(block)) return false;
+    const type = blockType(block);
+    const mimeType = typeof block.mimeType === "string" ? block.mimeType : typeof block.media_type === "string" ? block.media_type : "";
+    return type === "image" || mimeType.startsWith("image/");
+  }) || /^\s*\[Attached images?:/im.test(textFromMessage(message));
+}
+
+function isAssistantError(message: OpenClawMessage) {
+  return message.role === "assistant" && (message.errorMessage !== undefined || message.error !== undefined || message.stopReason === "error");
+}
+
 function hasVisibleAssistantSignal(message: OpenClawMessage) {
   if (message.role !== "assistant") return true;
   if (normalizeMessageText(textFromMessage(message))) return true;
-  if (message.errorMessage || message.error || message.stopReason === "error") return true;
+  if (isAssistantError(message)) return true;
   const content = message.content;
   if (Array.isArray(content)) {
     return content.some((block) => {
       if (typeof block === "string") return Boolean(normalizeMessageText(block));
       if (!block || typeof block !== "object" || Array.isArray(block)) return false;
-      const type = typeof (block as Record<string, unknown>).type === "string" ? String((block as Record<string, unknown>).type).toLowerCase() : "";
+      const type = blockType(block);
       return type.includes("tool") || type === "thinking" || Boolean(normalizeMessageText(typeof (block as Record<string, unknown>).text === "string" ? String((block as Record<string, unknown>).text) : ""));
     });
   }
   return false;
 }
 
+function collapseImageFallbackAttempts(messages: OpenClawMessage[]) {
+  const out: OpenClawMessage[] = [];
+  let activeImageText: string | null = null;
+  let activeErrorIndex: number | null = null;
+
+  for (const message of messages) {
+    if (message.role === "user") {
+      const imageText = messageHasImageAttachment(message) ? normalizeMessageText(textFromMessage(message)) : "";
+      if (imageText && activeImageText === imageText) {
+        // Provider fallback retries can replay the exact same image user turn
+        // before each model attempt. Keep the original user row; attempts are
+        // internal to the same run, not new transcript turns.
+        continue;
+      }
+      activeImageText = imageText || null;
+      activeErrorIndex = null;
+      out.push(message);
+      continue;
+    }
+
+    if (message.role === "assistant" && activeImageText) {
+      const emptyErrorAttempt = isAssistantError(message) && !hasToolOrThinkingBlock(message) && !normalizeMessageText(textFromMessage(message));
+      if (emptyErrorAttempt) {
+        if (activeErrorIndex === null) {
+          activeErrorIndex = out.length;
+          out.push(message);
+        } else {
+          // Keep only the latest provider error if every fallback fails.
+          out[activeErrorIndex] = message;
+        }
+        continue;
+      }
+      if (!isAssistantError(message) && hasVisibleAssistantSignal(message)) {
+        // A later fallback succeeded, so the intermediate provider errors were
+        // internal attempt noise and should not become visible transcript rows.
+        if (activeErrorIndex !== null) {
+          out.splice(activeErrorIndex, 1);
+          activeErrorIndex = null;
+        }
+        activeImageText = null;
+      }
+    }
+
+    out.push(message);
+  }
+
+  return out;
+}
+
 export function normalizeHistoryMessages(sessionKey: string, messages: unknown[], nowMs = Date.now(), firstFallbackSeq = 1): ProjectedMessage[] {
-  return messages
+  return collapseImageFallbackAttempts(messages
     .filter((message): message is OpenClawMessage => Boolean(message) && typeof message === "object" && !Array.isArray(message))
-    .filter((message) => !isInternalSubagentCompletionMessage(message))
+    .filter((message) => !isInternalSubagentCompletionMessage(message)))
     .filter(hasVisibleAssistantSignal)
     .map((message, index) => ({
       sessionKey,
