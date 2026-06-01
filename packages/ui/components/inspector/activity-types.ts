@@ -29,6 +29,7 @@ export interface AgentNode {
   label: string
   description?: string
   model?: string
+  sessionKey?: string
   status: ToolCallStatus
   calls: ToolCall[]
   children?: AgentNode[]
@@ -39,6 +40,7 @@ export interface AgentInfo {
   phase: string
   label: string
   description?: string
+  model?: string
   sessionKey?: string
 }
 
@@ -379,6 +381,7 @@ export function parseHistoryToolCalls(
           const args = matched.args as Record<string, unknown> | null
           const label = (args?.label as string) ?? (args?.agentId as string) ?? `sub-${matched.id.slice(-6)}`
           const task = (args?.task as string) ?? undefined
+          const model = (args?.model as string) ?? undefined
           const agentId = `spawn:${matched.id}`
           const childSessionKey = extractSubagentSessionKey(resultText)
           agents.set(agentId, {
@@ -386,6 +389,7 @@ export function parseHistoryToolCalls(
             phase: status === "error" ? "error" : "start",
             label,
             description: task,
+            model,
             sessionKey: childSessionKey ?? undefined,
           })
           if (childSessionKey) {
@@ -425,8 +429,9 @@ export function parseHistoryToolCalls(
       const args = remaining.args as Record<string, unknown> | null
       const label = (args?.label as string) ?? (args?.agentId as string) ?? `sub-${remaining.id.slice(-6)}`
       const task = (args?.task as string) ?? undefined
+      const model = (args?.model as string) ?? undefined
       const agentId = `spawn:${remaining.id}`
-      agents.set(agentId, { runId: agentId, phase: "start", label, description: task })
+      agents.set(agentId, { runId: agentId, phase: "start", label, description: task, model })
       spawnOrder.push(agentId)
       currentSubagentId = agentId
     }
@@ -484,6 +489,8 @@ export function buildTree(
       id: agentId,
       label: info.label || `agent-${agentId.slice(0, 8)}`,
       description: info.description,
+      model: info.model,
+      sessionKey: info.sessionKey,
       status: agentStatus(info.phase, aCalls),
       calls: aCalls,
     })

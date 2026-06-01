@@ -705,6 +705,8 @@ function AppShell({
   const [composerError, setComposerError] = useState<string | null>(null)
   const [focusedToolCallId, setFocusedToolCallId] = useState<string | null>(null)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
+  const [activeSubagentSessionKey, setActiveSubagentSessionKey] = useState<string | null>(null)
+  const [activeSubagentTitle, setActiveSubagentTitle] = useState<string | null>(null)
   const [inspectorScope, setInspectorScope] = useState<InspectorScope>({ kind: "global" })
   const isResizing = useRef(false)
   const isSplitResizing = useRef(false)
@@ -1041,10 +1043,21 @@ function AppShell({
     setFocusedToolCallId(toolCallId)
   }, [inspectorOpen])
 
-  const handleSubagentOpen = useCallback((_sessionKey: string | null, agentId?: string | null) => {
+  const handleAgentSelect = useCallback((agentId: string, sessionKey?: string | null, label?: string) => {
+    setActiveAgentId(agentId || "root")
+    if (!agentId || agentId === "root") {
+      setActiveSubagentSessionKey(null)
+      setActiveSubagentTitle(null)
+      return
+    }
+    if (sessionKey) setActiveSubagentSessionKey(sessionKey)
+    if (label) setActiveSubagentTitle(label)
+  }, [])
+
+  const handleSubagentOpen = useCallback((sessionKey: string | null, agentId?: string | null) => {
     if (agentId && !inspectorOpen) setInspectorOpen(true)
-    setActiveAgentId(agentId ?? "root")
-  }, [inspectorOpen])
+    handleAgentSelect(agentId ?? "root", sessionKey, agentId ?? undefined)
+  }, [handleAgentSelect, inspectorOpen])
 
   // ── Inspector scope: project chats use project scope; normal chats default to Global Workspace ──
   useEffect(() => {
@@ -1060,6 +1073,18 @@ function AppShell({
       setInspectorScope({ kind: "global" })
     }
   }, [activeSessionKey, activeTopic?.projectId])
+
+  useEffect(() => {
+    handleAgentSelect("root")
+  }, [activeSessionKey, handleAgentSelect])
+
+  const displayedSessionKey = activeAgentId && activeAgentId !== "root" && activeSubagentSessionKey
+    ? activeSubagentSessionKey
+    : activeSessionKey
+  const displayedSessionTitle = activeAgentId && activeAgentId !== "root" && activeSubagentSessionKey
+    ? activeSubagentTitle ?? "Subagent"
+    : activeSessionTitle
+  const displayedInitialMessages = displayedSessionKey === activeSessionKey ? initialMessages : undefined
 
   const computedInspectorScope = effectiveInspectorScope(activeTopic?.projectId ?? null, inspectorScope)
 
@@ -2760,10 +2785,10 @@ function AppShell({
                   activeTab={effectiveActiveTab}
                   activeTopic={activeTopic}
                   activeChat={activeChat}
-                  activeSessionKey={activeSessionKey}
+                  activeSessionKey={displayedSessionKey}
                   lastActiveSessionKey={lastActiveSessionKeyRef.current}
                   cronConversationTarget={cronConversationTarget}
-                  activeSessionTitle={activeSessionTitle}
+                  activeSessionTitle={displayedSessionTitle}
                   onSignOut={handleSignOut}
                   onDeleteAccount={handleDeleteAccount}
                   flowState={flowState}
@@ -2779,7 +2804,7 @@ function AppShell({
                   activeSpaceId={activeSpaceId}
                   onSpaceSwitch={handleSpaceSwitch}
                   onOpenSkills={() => setActiveTab("skill")}
-                  initialMessages={initialMessages}
+                  initialMessages={displayedInitialMessages}
                   onSelectTool={handleSelectTool}
                   onSubagentOpen={handleSubagentOpen}
                   pendingPrompt={pendingPrompt}
@@ -2861,10 +2886,10 @@ function AppShell({
                 activeTab={effectiveActiveTab}
                 activeTopic={activeTopic}
                 activeChat={activeChat}
-                activeSessionKey={activeSessionKey}
+                activeSessionKey={displayedSessionKey}
                 lastActiveSessionKey={lastActiveSessionKeyRef.current}
                 cronConversationTarget={cronConversationTarget}
-                activeSessionTitle={activeSessionTitle}
+                activeSessionTitle={displayedSessionTitle}
                 onSignOut={handleSignOut}
                 onDeleteAccount={handleDeleteAccount}
                 flowState={flowState}
@@ -2880,8 +2905,9 @@ function AppShell({
                 activeSpaceId={activeSpaceId}
                 onSpaceSwitch={handleSpaceSwitch}
                 onOpenSkills={() => setActiveTab("skill")}
-                initialMessages={initialMessages}
+                initialMessages={displayedInitialMessages}
                 onSelectTool={handleSelectTool}
+                onSubagentOpen={handleSubagentOpen}
                 pendingPrompt={pendingPrompt}
                 composerError={composerError}
                 onTopicQuickSend={handleTopicQuickSend}
@@ -2906,7 +2932,7 @@ function AppShell({
           onClearFocusedToolCall={() => setFocusedToolCallId(null)}
           projectId={activeTopic?.projectId ?? null}
           activeAgentId={activeAgentId}
-          onAgentSelect={setActiveAgentId}
+          onAgentSelect={handleAgentSelect}
           inspectorScope={computedInspectorScope}
           onInspectorScopeChange={handleInspectorScopeChange}
         />
@@ -2928,7 +2954,7 @@ function AppShell({
           sessionKey={activeSessionKey}
           projectId={activeTopic?.projectId ?? null}
           activeAgentId={activeAgentId}
-          onAgentSelect={setActiveAgentId}
+          onAgentSelect={handleAgentSelect}
           inspectorScope={computedInspectorScope}
           onInspectorScopeChange={handleInspectorScopeChange}
         />
@@ -3185,7 +3211,7 @@ function FullScreenInspectorOverlay({
   sessionKey: string | null
   projectId: string | null
   activeAgentId: string | null
-  onAgentSelect: (id: string) => void
+  onAgentSelect: (id: string, sessionKey?: string | null, label?: string) => void
   inspectorScope?: InspectorScope
   onInspectorScopeChange?: (scope: InspectorScope) => void
 }) {

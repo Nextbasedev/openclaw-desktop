@@ -38,7 +38,7 @@ type InspectorViewProps = {
   onClearFocusedToolCall?: () => void
   projectId?: string | null
   activeAgentId?: string | null
-  onAgentSelect?: (id: string) => void
+  onAgentSelect?: (id: string, sessionKey?: string | null, label?: string) => void
   className?: string
   inspectorScope?: InspectorScope
   onInspectorScopeChange?: (scope: InspectorScope) => void

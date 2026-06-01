@@ -82,12 +82,12 @@ function AgentTab({
 }: {
   node: AgentNode
   active: boolean
-  onSelect: (id: string) => void
+  onSelect: (id: string, sessionKey?: string | null, label?: string) => void
 }) {
   return (
     <button
       type="button"
-      onClick={() => onSelect(node.id)}
+      onClick={() => onSelect(node.id, undefined, node.label)}
       title={node.description || node.label}
       className={cn(
         "inline-flex h-8 max-w-[132px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium transition-colors",
@@ -111,7 +111,7 @@ function MoreAgentsPopover({
 }: {
   agents: AgentNode[]
   selectedId: string
-  onSelect: (id: string) => void
+  onSelect: (id: string, sessionKey?: string | null, label?: string) => void
 }) {
   const [query, setQuery] = useState("")
   const filteredAgents = useMemo(() => {
@@ -158,7 +158,7 @@ function MoreAgentsPopover({
             <button
               key={agent.id}
               type="button"
-              onClick={() => onSelect(agent.id)}
+              onClick={() => onSelect(agent.id, agent.sessionKey ?? null, agent.label)}
               className={cn(
                 "flex w-full cursor-pointer items-start gap-2 rounded-lg px-2 py-2 text-left transition-colors",
                 selectedId === agent.id
@@ -198,7 +198,7 @@ function SubagentDashboardCard({
 }: {
   node: AgentNode
   active: boolean
-  onSelect: (id: string) => void
+  onSelect: (id: string, sessionKey?: string | null, label?: string) => void
 }) {
   const running = node.calls.filter((call) => call.status === "running").length
   const errors = node.calls.filter((call) => call.status === "error").length
@@ -207,7 +207,7 @@ function SubagentDashboardCard({
   return (
     <button
       type="button"
-      onClick={() => onSelect(node.id)}
+      onClick={() => onSelect(node.id, node.sessionKey ?? null, node.label)}
       className={cn(
         "group relative flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border px-4 py-3.5 text-left transition-all",
         "bg-gradient-to-br from-white/[0.055] to-white/[0.018] shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]",
@@ -233,6 +233,8 @@ function SubagentDashboardCard({
         <span>{node.calls.length} events</span>
         {running > 0 && <span className="text-amber-300">{running} running</span>}
         {errors > 0 && <span className="text-rose-300">{errors} errors</span>}
+        {node.model && <span>{node.model}</span>}
+        {node.sessionKey && <span title={node.sessionKey}>linked</span>}
         {latest > 0 && <span className="ml-auto normal-case tracking-normal">{new Date(latest).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
       </div>
     </button>
@@ -248,7 +250,7 @@ export function ActivityTab({
 }: {
   sessionKey: string | null
   activeAgentId: string | null
-  onAgentSelect?: (id: string) => void
+  onAgentSelect?: (id: string, sessionKey?: string | null, label?: string) => void
   focusedToolCallId: string | null
   onClearFocusedToolCall?: () => void
 }) {
@@ -406,7 +408,7 @@ export function ActivityTab({
                   key={agent.id}
                   node={agent}
                   active={false}
-                  onSelect={(id) => onAgentSelect?.(id)}
+                  onSelect={(id, subagentSessionKey, label) => onAgentSelect?.(id, subagentSessionKey, label)}
                 />
               ))}
             </div>
