@@ -1243,6 +1243,7 @@ export function ChatView({
       needsInitialScrollRef.current &&
       renderedMessages.length > 0 &&
       !loading &&
+      dataSource === "fresh" &&
       !userScrollIntentRef.current
     ) {
       needsInitialScrollRef.current = false
@@ -1258,7 +1259,7 @@ export function ChatView({
         window.setTimeout(scrollToLatest, 120)
       })
     }
-  }, [renderedMessages.length, loading, scrollContainerRef])
+  }, [renderedMessages.length, loading, dataSource, scrollContainerRef])
 
 
 
