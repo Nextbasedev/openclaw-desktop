@@ -522,6 +522,15 @@ function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | 
   }
 }
 
+function terminalToolInMessages(messages: ChatMessage[], toolCallId: string): InlineToolCall | null {
+  for (const message of messages) {
+    if (message.role !== "assistant" || !message.toolCalls?.length) continue
+    const tool = message.toolCalls.find((candidate) => candidate.id === toolCallId)
+    if (tool?.status === "success" || tool?.status === "error") return tool
+  }
+  return null
+}
+
 function subagentLabelFromToolInput(input: unknown) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return "Sub-agent"
   const record = input as Record<string, unknown>
@@ -1222,6 +1231,11 @@ export function useChatMessages(
           if (phase === "start" || phase === "calling") {
             const args = (ev as Record<string, unknown>).args
             const existing = pendingToolMapRef.current.get(toolCallId)
+            const completedVisibleTool = terminalToolInMessages(messagesRef.current, toolCallId)
+            if (completedVisibleTool) {
+              pendingToolMapRef.current.delete(toolCallId)
+              break
+            }
             if (existing) {
               // Skip if tool is already in terminal state (success/error)
               if (existing.status === "success" || existing.status === "error") {
@@ -1339,6 +1353,11 @@ export function useChatMessages(
             if (!toolCallId || !name) continue
             sawToolCallBlock = true
             const existingTool = pendingToolMapRef.current.get(toolCallId)
+            const completedVisibleTool = terminalToolInMessages(messagesRef.current, toolCallId)
+            if (completedVisibleTool) {
+              pendingToolMapRef.current.delete(toolCallId)
+              continue
+            }
             if (existingTool) {
               // Skip if tool is already in terminal state (success/error)
               if (existingTool.status === "success" || existingTool.status === "error") {

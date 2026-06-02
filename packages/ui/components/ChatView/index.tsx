@@ -615,6 +615,7 @@ export function ChatView({
   const [modelSwitching, setModelSwitching] = useState(false)
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const [forceRenderKey, setForceRenderKey] = useState(0)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -945,7 +946,7 @@ export function ChatView({
   )
   const renderedMessages = useMemo(
     () => buildStableChatRows(visibleAllMessages),
-    [visibleAllMessages]
+    [visibleAllMessages, forceRenderKey]
   )
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
@@ -1237,6 +1238,37 @@ export function ChatView({
   useEffect(() => {
     syncJumpToBottomVisibility()
   }, [renderedMessages.length, scrollContainerRef, syncJumpToBottomVisibility])
+
+  // Hidden/minimized windows can leave the scroll pane visually blank until a
+  // scroll event forces layout/paint. Nudge React and the scroll container when
+  // the document/window becomes visible again so the existing DOM repaints.
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return
+    let rafId: number | null = null
+    const recoverVisibleRender = () => {
+      if (document.visibilityState !== "visible") return
+      setForceRenderKey((prev) => prev + 1)
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(() => {
+        const el = scrollContainerRef.current
+        if (!el) return
+        // Force layout and a no-op scroll write; this mirrors the manual scroll
+        // that currently makes the blank transcript paint again.
+        void el.getBoundingClientRect()
+        el.scrollTop = el.scrollTop
+        syncJumpToBottomVisibility()
+      })
+    }
+    document.addEventListener("visibilitychange", recoverVisibleRender)
+    window.addEventListener("focus", recoverVisibleRender)
+    window.addEventListener("pageshow", recoverVisibleRender)
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      document.removeEventListener("visibilitychange", recoverVisibleRender)
+      window.removeEventListener("focus", recoverVisibleRender)
+      window.removeEventListener("pageshow", recoverVisibleRender)
+    }
+  }, [scrollContainerRef, syncJumpToBottomVisibility])
 
   useLayoutEffect(() => {
     if (
