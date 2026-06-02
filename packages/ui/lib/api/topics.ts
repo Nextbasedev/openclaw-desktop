@@ -1,35 +1,22 @@
-import { invoke } from "@/lib/ipc"
-
 export type Topic = {
   id: string
-  projectId: string
   name: string
-  archived: boolean
-  unreadCount: number
-  sortOrder: number
-  createdAt: string
-  updatedAt: string
+  title?: string
+  archived?: boolean
+  updatedAt?: string
+  projectId?: string | null
+  projectName?: string | null
 }
 
-export type TopicListResponse = {
-  topics: Topic[]
+export type TopicListItem = Topic
+
+export async function fetchTopics(_archivedOrProjectId?: boolean | string | null): Promise<{ topics: Topic[] }> {
+  return { topics: [] }
 }
 
-export type TopicResponse = {
-  topic: Topic
+export async function listTopics(): Promise<TopicListItem[]> {
+  return []
 }
 
-export async function fetchTopics(projectId: string): Promise<TopicListResponse> {
-  return invoke<TopicListResponse>("middleware_topics_list", {
-    input: { projectId },
-  })
-}
-
-export async function archiveTopic(
-  topicId: string,
-  archived = true,
-): Promise<{ ok: boolean; topicId: string; archived: boolean }> {
-  return invoke("middleware_topics_archive", {
-    input: { topicId, archived },
-  })
-}
+export async function archiveTopic(_topicId: string, _archived?: boolean): Promise<void> {}
+export async function unarchiveTopic(_topicId: string): Promise<void> {}

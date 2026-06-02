@@ -1,5 +1,16 @@
-export { Sidebar, DEFAULT_DRAGGABLE_ITEMS } from "./Sidebar"
-export { SidebarItem } from "./SidebarItem"
-export type { SidebarNavItem } from "./SidebarItem"
-export type { ActiveTopic } from "./ProjectsSection"
-export type { ActiveChat } from "./ChatsSection"
+export type ActiveTopic = {
+  id: string
+  name: string
+  projectId: string
+  projectName: string
+  sessionKey?: string | null
+}
+
+export type ActiveChat = {
+  id: string
+  name: string
+  sessionKey?: string | null
+  spaceId?: string | null
+  projectId?: string | null
+  topicId?: string | null
+}

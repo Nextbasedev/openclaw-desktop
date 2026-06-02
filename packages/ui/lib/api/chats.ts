@@ -1,24 +1,22 @@
-import { invoke } from "@/lib/ipc"
-import type { Chat } from "@/types/chat"
-
-export type ChatListResponse = {
-  chats: Chat[]
+export type Chat = {
+  id: string
+  name: string
+  title?: string
+  archived?: boolean
+  updatedAt?: string
+  sessionKey?: string | null
+  spaceId?: string | null
 }
 
-export async function fetchChats(
-  archived = false,
-  spaceId?: string,
-): Promise<ChatListResponse> {
-  return invoke<ChatListResponse>("middleware_chats_list", {
-    input: { archived, spaceId },
-  })
+export type ChatListItem = Chat
+
+export async function fetchChats(_archivedOrSpaceId?: boolean | string | null): Promise<{ chats: Chat[] }> {
+  return { chats: [] }
 }
 
-export async function archiveChat(
-  chatId: string,
-  archived = true,
-): Promise<{ ok: boolean; chatId: string; archived: boolean }> {
-  return invoke("middleware_chats_archive", {
-    input: { chatId, archived },
-  })
+export async function listChats(): Promise<ChatListItem[]> {
+  return []
 }
+
+export async function archiveChat(_chatId: string, _archived?: boolean): Promise<void> {}
+export async function unarchiveChat(_chatId: string): Promise<void> {}

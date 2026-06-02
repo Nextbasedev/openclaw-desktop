@@ -1,30 +1,31 @@
-"use client"
-
-import { cn } from "@/lib/utils"
+import type { ReactNode } from "react"
 
 export function MenuAction({
+  children,
   label,
   icon,
   onClick,
-  danger = false,
+  disabled,
+  danger,
 }: {
-  label: string
-  icon: React.ReactNode
-  onClick: () => void
+  children?: ReactNode
+  label?: string
+  icon?: ReactNode
+  onClick?: () => void
+  disabled?: boolean
   danger?: boolean
 }) {
   return (
     <button
+      type="button"
+      disabled={disabled}
       onClick={onClick}
-      className={cn(
-        "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors text-left",
-        danger
-          ? "text-red-400 hover:bg-red-400/10"
-          : "text-foreground/80 hover:bg-foreground/8 hover:text-foreground",
-      )}
+      className={danger
+        ? "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-red-400 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+        : "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground hover:bg-secondary/60 disabled:cursor-not-allowed disabled:opacity-50"}
     >
       {icon}
-      {label}
+      {children ?? label}
     </button>
   )
 }
