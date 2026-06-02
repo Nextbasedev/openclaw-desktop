@@ -1221,7 +1221,19 @@ export function useChatMessages(
 
           if (phase === "start" || phase === "calling") {
             const args = (ev as Record<string, unknown>).args
-            if (!pendingToolMapRef.current.has(toolCallId)) {
+            const existing = pendingToolMapRef.current.get(toolCallId)
+            if (existing) {
+              // Skip if tool is already in terminal state (success/error)
+              if (existing.status === "success" || existing.status === "error") {
+                break
+              }
+              if (args !== undefined) {
+                pendingToolMapRef.current.set(toolCallId, {
+                  ...existing,
+                  input: args,
+                })
+              }
+            } else {
               const tc: InlineToolCall = {
                 id: toolCallId,
                 tool: name,
@@ -1230,11 +1242,6 @@ export function useChatMessages(
                 input: args,
               }
               pendingToolMapRef.current.set(toolCallId, tc)
-            } else if (args !== undefined) {
-              pendingToolMapRef.current.set(toolCallId, {
-                ...pendingToolMapRef.current.get(toolCallId)!,
-                input: args,
-              })
             }
             if (name === "write") {
               const writeArgs = args as Record<string, unknown> | undefined
@@ -1331,7 +1338,13 @@ export function useChatMessages(
             const name = block.name
             if (!toolCallId || !name) continue
             sawToolCallBlock = true
-            if (!pendingToolMapRef.current.has(toolCallId)) {
+            const existingTool = pendingToolMapRef.current.get(toolCallId)
+            if (existingTool) {
+              // Skip if tool is already in terminal state (success/error)
+              if (existingTool.status === "success" || existingTool.status === "error") {
+                continue
+              }
+            } else {
               pendingToolMapRef.current.set(toolCallId, {
                 id: toolCallId,
                 tool: name,
