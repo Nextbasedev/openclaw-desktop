@@ -48,7 +48,24 @@ function mergeTools(existing?: InlineToolCall[], incoming?: InlineToolCall[]) {
   const merged = new Map<string, InlineToolCall>()
   for (const tool of [...(existing ?? []), ...(incoming ?? [])]) {
     const current = merged.get(tool.id)
-    merged.set(tool.id, current ? { ...current, ...tool } : tool)
+    if (!current) {
+      merged.set(tool.id, tool)
+      continue
+    }
+    const currentTerminal = current.status === "success" || current.status === "error"
+    const staleRunningIncoming = currentTerminal && tool.status === "running"
+    merged.set(tool.id, staleRunningIncoming
+      ? {
+          ...tool,
+          ...current,
+          duration: current.duration ?? tool.duration,
+          startedAt: current.startedAt ?? tool.startedAt,
+          completedAt: current.completedAt ?? tool.completedAt,
+          resultText: current.resultText ?? tool.resultText,
+          awaitingResult: false,
+        }
+      : { ...current, ...tool }
+    )
   }
   return Array.from(merged.values())
 }

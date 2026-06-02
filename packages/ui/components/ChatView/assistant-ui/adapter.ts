@@ -47,6 +47,34 @@ function mergeText(existing: string, incoming: string) {
   return `${existing}\n\n${incoming}`
 }
 
+function mergeToolCalls(existing?: ChatMessage["toolCalls"], incoming?: ChatMessage["toolCalls"]): ChatMessage["toolCalls"] {
+  if (!existing?.length) return incoming
+  if (!incoming?.length) return existing
+  const merged = new Map(existing.map((tool) => [tool.id, tool]))
+  for (const tool of incoming) {
+    const current = merged.get(tool.id)
+    if (!current) {
+      merged.set(tool.id, tool)
+      continue
+    }
+    const currentTerminal = current.status === "success" || current.status === "error"
+    const staleRunningIncoming = currentTerminal && tool.status === "running"
+    merged.set(tool.id, staleRunningIncoming
+      ? {
+          ...tool,
+          ...current,
+          duration: current.duration ?? tool.duration,
+          startedAt: current.startedAt ?? tool.startedAt,
+          completedAt: current.completedAt ?? tool.completedAt,
+          resultText: current.resultText ?? tool.resultText,
+          awaitingResult: false,
+        }
+      : { ...current, ...tool }
+    )
+  }
+  return Array.from(merged.values())
+}
+
 function mergeAssistantMessages(messages: ChatMessage[]): ChatMessage {
   const [first, ...rest] = messages
   if (!first) throw new Error("mergeAssistantMessages requires at least one message")
@@ -57,7 +85,7 @@ function mergeAssistantMessages(messages: ChatMessage[]): ChatMessage {
     messageId: merged.messageId,
     text: mergeText(merged.text, message.text),
     reasoningText: mergeText(merged.reasoningText ?? "", message.reasoningText ?? "") || undefined,
-    toolCalls: [...(merged.toolCalls ?? []), ...(message.toolCalls ?? [])],
+    toolCalls: mergeToolCalls(merged.toolCalls, message.toolCalls),
     embeds: [...(merged.embeds ?? []), ...(message.embeds ?? [])],
     attachments: [...(merged.attachments ?? []), ...(message.attachments ?? [])],
     animateText: Boolean(merged.animateText || message.animateText),
