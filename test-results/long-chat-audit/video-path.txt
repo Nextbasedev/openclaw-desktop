@@ -1,1 +1,0 @@
-/root/.openclaw/workspace/openclaw-desktop/test-results/.playwright-artifacts-0/page@46892d5dae9d144a1779ee3a33507aba.webm
