@@ -668,22 +668,22 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
   // Backward-compatible aliases for old clients
   app.post("/api/chat/message", async (request, reply) => {
-    const response = await app.inject({
+    const response = await (app.inject({
       method: "POST",
       url: "/api/chat/send",
-      payload: request.body,
+      payload: request.body as string | Buffer | object | undefined,
       headers: request.headers,
-    });
+    }) as unknown as Promise<{ statusCode: number; json(): unknown }>);
     reply.code(response.statusCode).send(response.json());
   });
 
   app.post("/api/v1/chat/message", async (request, reply) => {
-    const response = await app.inject({
+    const response = await (app.inject({
       method: "POST",
       url: "/api/chat/send",
-      payload: request.body,
+      payload: request.body as string | Buffer | object | undefined,
       headers: request.headers,
-    });
+    }) as unknown as Promise<{ statusCode: number; json(): unknown }>);
     reply.code(response.statusCode).send(response.json());
   });
 
