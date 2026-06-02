@@ -603,7 +603,7 @@ export class ChatLiveIngest {
       argsMeta: isObject(data.args) ? data.args : null,
       resultMeta: phase === "error" ? this.safeResultMeta(data.error ?? liveResultValue) : shouldMarkAwaitingResult ? awaitingResultMeta : liveResultIsAwaitingPlaceholder ? existingTool?.resultMeta ?? null : liveResultMeta,
     });
-    if ((phase === "start" || phase === "calling") && tool.status !== "running") {
+    if ((phase === "start" || phase === "calling" || phase === "update") && tool.status !== "running") {
       this.log.info("tool.replayed-start.skip-terminal", { sessionKey, toolCallId, requestedPhase: phase, existingPhase: tool.phase, status: tool.status });
       return;
     }
