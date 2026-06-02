@@ -424,11 +424,15 @@ export class MessageRepository {
     const canonicalSeqs = new Set<number>();
     const canonicalIds = new Set<string>();
     const canonicalGatewaySeqs = new Set<number>();
+    const canonicalStrippedReplayTexts = new Set<string>();
     for (const message of params.canonicalMessages) {
       const gatewaySeq = message.gatewaySeq ?? message.openclawSeq;
       canonicalSeqs.add(params.baseSeq + gatewaySeq);
       canonicalGatewaySeqs.add(gatewaySeq);
       if (message.messageId) canonicalIds.add(message.messageId);
+      if (isStrippedReplayCandidate(message)) {
+        canonicalStrippedReplayTexts.add(`${message.role}\u0000${textOf(message.data)}`);
+      }
     }
 
     const rows = this.db.prepare(`
@@ -447,11 +451,16 @@ export class MessageRepository {
         if (isOptimisticData(data)) continue;
         const gatewayId = data.__openclaw?.gatewayId;
         const gatewaySeq = data.__openclaw?.gatewaySeq;
+        const strippedReplayRepresented =
+          Boolean(runIdentityOf(data)) &&
+          row.role !== null &&
+          canonicalStrippedReplayTexts.has(`${row.role}\u0000${textOf(data)}`);
         const represented =
           canonicalSeqs.has(row.openclaw_seq) ||
           (row.message_id !== null && canonicalIds.has(row.message_id)) ||
           (typeof gatewayId === "string" && canonicalIds.has(gatewayId)) ||
-          (typeof gatewaySeq === "number" && canonicalGatewaySeqs.has(gatewaySeq));
+          (typeof gatewaySeq === "number" && canonicalGatewaySeqs.has(gatewaySeq)) ||
+          strippedReplayRepresented;
         if (represented) continue;
         deleteRow.run({ sessionKey: params.sessionKey, segmentId: params.segmentId, openclawSeq: row.openclaw_seq });
         pruned += 1;
