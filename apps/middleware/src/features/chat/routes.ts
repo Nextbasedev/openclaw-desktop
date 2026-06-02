@@ -667,22 +667,24 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
   });
 
   // Backward-compatible aliases for old clients
-  app.post("/api/chat/message", async (request) => {
-    return app.inject({
+  app.post("/api/chat/message", async (request, reply) => {
+    const response = await app.inject({
       method: "POST",
       url: "/api/chat/send",
       payload: request.body,
       headers: request.headers,
     });
+    reply.code(response.statusCode).send(response.json());
   });
 
-  app.post("/api/v1/chat/message", async (request) => {
-    return app.inject({
+  app.post("/api/v1/chat/message", async (request, reply) => {
+    const response = await app.inject({
       method: "POST",
       url: "/api/chat/send",
       payload: request.body,
       headers: request.headers,
     });
+    reply.code(response.statusCode).send(response.json());
   });
 
   app.post("/api/chat/send", async (request) => {
