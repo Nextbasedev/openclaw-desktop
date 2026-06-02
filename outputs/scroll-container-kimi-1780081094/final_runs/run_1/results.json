@@ -1,0 +1,56 @@
+{
+  "scenarios": {
+    "1_load_chat": {
+      "pass": true,
+      "text_length": 163,
+      "container_found": true
+    },
+    "2_container_metrics": {
+      "scrollTop": 0,
+      "scrollHeight": 706,
+      "clientHeight": 706,
+      "rect": {
+        "top": 56,
+        "left": 58,
+        "width": 181,
+        "height": 706
+      },
+      "classes": "t-panel-slide min-w-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth border-l border-white/[0.06] px-1 shadow-[inset_12px_0_24px_-22px_rgba(0,0,0,0.55)]"
+    },
+    "3_wheel_scroll": {
+      "pass": false,
+      "initial": 0,
+      "after_down": 0,
+      "after_up": 0,
+      "down_delta": 0,
+      "up_delta": 0
+    },
+    "4_keyboard_scroll": {
+      "pass": false,
+      "before": 0,
+      "after_pagedown": 0,
+      "after_pageup": 0,
+      "pagedown_worked": false,
+      "pageup_worked": false
+    },
+    "5_dup_reload": {
+      "pass": true,
+      "dup_tab_check": {
+        "total": 0,
+        "unique": 0,
+        "hasDuplicates": false
+      },
+      "reload_container_exists": true,
+      "no_crash": true
+    },
+    "6_syncing_thinking": {
+      "info": {
+        "syncing": false,
+        "thinking": false,
+        "spinnerCount": 0
+      },
+      "note": "Reported separately from scroll functionality"
+    }
+  },
+  "pass": false
+}

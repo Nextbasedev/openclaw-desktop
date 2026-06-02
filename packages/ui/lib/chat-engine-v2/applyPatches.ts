@@ -174,6 +174,10 @@ function mergeInlineToolCalls(existing: ChatMessage["toolCalls"], incoming: NonN
     const current = merged.get(tool.id)
     const terminalCurrent = current?.status === "success" || current?.status === "error"
     const staleRunningIncoming = terminalCurrent && tool.status === "running"
+    // Skip duplicate tool calls that are already in terminal state
+    if (terminalCurrent && staleRunningIncoming) {
+      continue
+    }
     merged.set(tool.id, current ? {
       ...current,
       ...(staleRunningIncoming ? {} : tool),

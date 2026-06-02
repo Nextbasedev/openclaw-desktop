@@ -1,0 +1,180 @@
+SEND 200 {"ok":true,"accepted":true,"sessionKey":"agent:main:desktop:migrated-telegram-72bf5512-df6a-4345-aa6d-34f310953975","idempotencyKey":"00a19617-9e7f-468c-8f7b-5d0025464b45","clientMessageId":"client-WEBWRIGHT_IMPORTED_LONG_POSTFIX_1780084295","runId":"run:00a19617-9e7f-468c-8f7b-5d0025464b45"}
+METRICS {"label": "original_after_send", "url": "http://127.0.0.1:3000/chat_mpr8tjaf_wdcj5x", "bodyMarkerCount": 0, "bodyHasMarker": false, "syncing": true, "thinking": true, "pane": {"idx": 1, "x": 240, "y": 80, "w": 1039, "h": 1534, "scrollTop": 4496, "scrollHeight": 6030, "clientHeight": 1534, "textLen": 90697, "textHead": "can you test with webwright insted browser-cli do at least 10-15 minute so you can find more issue 17:26 Steps 10 tools used image 20s INPUT { \"images\": [ \"/roo", "textTail": "e-opus-4-6: This operation was aborted (timeout) | anthropic/claude-opus-4-5: This operation was aborted (timeout) | This operation was aborted | This operation was aborted. Logs: openclaw logs --follow Thinking - waiting for the next event", "markerCount": 0, "hasMarker": false}}
+METRICS {"label": "duplicate_tab", "url": "http://127.0.0.1:3000/chat_mpr8tjaf_wdcj5x", "bodyMarkerCount": 0, "bodyHasMarker": false, "syncing": true, "thinking": true, "pane": {"idx": 1, "x": 240, "y": 80, "w": 1039, "h": 1534, "scrollTop": 4496, "scrollHeight": 6030, "clientHeight": 1534, "textLen": 90697, "textHead": "can you test with webwright insted browser-cli do at least 10-15 minute so you can find more issue 17:26 Steps 10 tools used image 20s INPUT { \"images\": [ \"/roo", "textTail": "e-opus-4-6: This operation was aborted (timeout) | anthropic/claude-opus-4-5: This operation was aborted (timeout) | This operation was aborted | This operation was aborted. Logs: openclaw logs --follow Thinking - waiting for the next event", "markerCount": 0, "hasMarker": false}}
+METRICS {"label": "duplicate_reload", "url": "http://127.0.0.1:3000/chat_mpr8tjaf_wdcj5x", "bodyMarkerCount": 0, "bodyHasMarker": false, "syncing": true, "thinking": true, "pane": {"idx": 1, "x": 240, "y": 80, "w": 1039, "h": 1534, "scrollTop": 4496, "scrollHeight": 6030, "clientHeight": 1534, "textLen": 90697, "textHead": "can you test with webwright insted browser-cli do at least 10-15 minute so you can find more issue 17:26 Steps 10 tools used image 20s INPUT { \"images\": [ \"/roo", "textTail": "e-opus-4-6: This operation was aborted (timeout) | anthropic/claude-opus-4-5: This operation was aborted (timeout) | This operation was aborted | This operation was aborted. Logs: openclaw logs --follow Thinking - waiting for the next event", "markerCount": 0, "hasMarker": false}}
+FINAL {
+  "marker": "WEBWRIGHT_IMPORTED_LONG_POSTFIX_1780084295",
+  "pass": false,
+  "issues": [
+    {
+      "kind": "newest_marker_missing",
+      "label": "original_after_send",
+      "sample": {
+        "label": "original_after_send",
+        "url": "http://127.0.0.1:3000/chat_mpr8tjaf_wdcj5x",
+        "bodyMarkerCount": 0,
+        "bodyHasMarker": false,
+        "syncing": true,
+        "thinking": true,
+        "pane": {
+          "idx": 1,
+          "x": 240,
+          "y": 80,
+          "w": 1039,
+          "h": 1534,
+          "scrollTop": 4496,
+          "scrollHeight": 6030,
+          "clientHeight": 1534,
+          "textLen": 90697,
+          "textHead": "can you test with webwright insted browser-cli do at least 10-15 minute so you can find more issue 17:26 Steps 10 tools used image 20s INPUT { \"images\": [ \"/roo",
+          "textTail": "e-opus-4-6: This operation was aborted (timeout) | anthropic/claude-opus-4-5: This operation was aborted (timeout) | This operation was aborted | This operation was aborted. Logs: openclaw logs --follow Thinking - waiting for the next event",
+          "markerCount": 0,
+          "hasMarker": false
+        }
+      }
+    },
+    {
+      "kind": "stale_active_status_visible",
+      "label": "original_after_send",
+      "syncing": true,
+      "thinking": true
+    },
+    {
+      "kind": "newest_marker_missing",
+      "label": "duplicate_tab",
+      "sample": {
+        "label": "duplicate_tab",
+        "url": "http://127.0.0.1:3000/chat_mpr8tjaf_wdcj5x",
+        "bodyMarkerCount": 0,
+        "bodyHasMarker": false,
+        "syncing": true,
+        "thinking": true,
+        "pane": {
+          "idx": 1,
+          "x": 240,
+          "y": 80,
+          "w": 1039,
+          "h": 1534,
+          "scrollTop": 4496,
+          "scrollHeight": 6030,
+          "clientHeight": 1534,
+          "textLen": 90697,
+          "textHead": "can you test with webwright insted browser-cli do at least 10-15 minute so you can find more issue 17:26 Steps 10 tools used image 20s INPUT { \"images\": [ \"/roo",
+          "textTail": "e-opus-4-6: This operation was aborted (timeout) | anthropic/claude-opus-4-5: This operation was aborted (timeout) | This operation was aborted | This operation was aborted. Logs: openclaw logs --follow Thinking - waiting for the next event",
+          "markerCount": 0,
+          "hasMarker": false
+        }
+      }
+    },
+    {
+      "kind": "stale_active_status_visible",
+      "label": "duplicate_tab",
+      "syncing": true,
+      "thinking": true
+    },
+    {
+      "kind": "newest_marker_missing",
+      "label": "duplicate_reload",
+      "sample": {
+        "label": "duplicate_reload",
+        "url": "http://127.0.0.1:3000/chat_mpr8tjaf_wdcj5x",
+        "bodyMarkerCount": 0,
+        "bodyHasMarker": false,
+        "syncing": true,
+        "thinking": true,
+        "pane": {
+          "idx": 1,
+          "x": 240,
+          "y": 80,
+          "w": 1039,
+          "h": 1534,
+          "scrollTop": 4496,
+          "scrollHeight": 6030,
+          "clientHeight": 1534,
+          "textLen": 90697,
+          "textHead": "can you test with webwright insted browser-cli do at least 10-15 minute so you can find more issue 17:26 Steps 10 tools used image 20s INPUT { \"images\": [ \"/roo",
+          "textTail": "e-opus-4-6: This operation was aborted (timeout) | anthropic/claude-opus-4-5: This operation was aborted (timeout) | This operation was aborted | This operation was aborted. Logs: openclaw logs --follow Thinking - waiting for the next event",
+          "markerCount": 0,
+          "hasMarker": false
+        }
+      }
+    },
+    {
+      "kind": "stale_active_status_visible",
+      "label": "duplicate_reload",
+      "syncing": true,
+      "thinking": true
+    }
+  ],
+  "samples": [
+    {
+      "label": "original_after_send",
+      "url": "http://127.0.0.1:3000/chat_mpr8tjaf_wdcj5x",
+      "bodyMarkerCount": 0,
+      "bodyHasMarker": false,
+      "syncing": true,
+      "thinking": true,
+      "pane": {
+        "idx": 1,
+        "x": 240,
+        "y": 80,
+        "w": 1039,
+        "h": 1534,
+        "scrollTop": 4496,
+        "scrollHeight": 6030,
+        "clientHeight": 1534,
+        "textLen": 90697,
+        "textHead": "can you test with webwright insted browser-cli do at least 10-15 minute so you can find more issue 17:26 Steps 10 tools used image 20s INPUT { \"images\": [ \"/roo",
+        "textTail": "e-opus-4-6: This operation was aborted (timeout) | anthropic/claude-opus-4-5: This operation was aborted (timeout) | This operation was aborted | This operation was aborted. Logs: openclaw logs --follow Thinking - waiting for the next event",
+        "markerCount": 0,
+        "hasMarker": false
+      }
+    },
+    {
+      "label": "duplicate_tab",
+      "url": "http://127.0.0.1:3000/chat_mpr8tjaf_wdcj5x",
+      "bodyMarkerCount": 0,
+      "bodyHasMarker": false,
+      "syncing": true,
+      "thinking": true,
+      "pane": {
+        "idx": 1,
+        "x": 240,
+        "y": 80,
+        "w": 1039,
+        "h": 1534,
+        "scrollTop": 4496,
+        "scrollHeight": 6030,
+        "clientHeight": 1534,
+        "textLen": 90697,
+        "textHead": "can you test with webwright insted browser-cli do at least 10-15 minute so you can find more issue 17:26 Steps 10 tools used image 20s INPUT { \"images\": [ \"/roo",
+        "textTail": "e-opus-4-6: This operation was aborted (timeout) | anthropic/claude-opus-4-5: This operation was aborted (timeout) | This operation was aborted | This operation was aborted. Logs: openclaw logs --follow Thinking - waiting for the next event",
+        "markerCount": 0,
+        "hasMarker": false
+      }
+    },
+    {
+      "label": "duplicate_reload",
+      "url": "http://127.0.0.1:3000/chat_mpr8tjaf_wdcj5x",
+      "bodyMarkerCount": 0,
+      "bodyHasMarker": false,
+      "syncing": true,
+      "thinking": true,
+      "pane": {
+        "idx": 1,
+        "x": 240,
+        "y": 80,
+        "w": 1039,
+        "h": 1534,
+        "scrollTop": 4496,
+        "scrollHeight": 6030,
+        "clientHeight": 1534,
+        "textLen": 90697,
+        "textHead": "can you test with webwright insted browser-cli do at least 10-15 minute so you can find more issue 17:26 Steps 10 tools used image 20s INPUT { \"images\": [ \"/roo",
+        "textTail": "e-opus-4-6: This operation was aborted (timeout) | anthropic/claude-opus-4-5: This operation was aborted (timeout) | This operation was aborted | This operation was aborted. Logs: openclaw logs --follow Thinking - waiting for the next event",
+        "markerCount": 0,
+        "hasMarker": false
+      }
+    }
+  ]
+}

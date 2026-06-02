@@ -1,0 +1,1358 @@
+step 0 action: long Webwright stress start duration=600s middleware=http://127.0.0.1:8797
+step 1 action: scenario long duplicate start marker=WEBWRIGHT_LONG_1_1780074812
+step 1 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_001_long_1_after_send.png
+step 2 action: STATE {"label": "long_1_early", "marker": "WEBWRIGHT_LONG_1_1780074812", "bodyCount": 2, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_1_1780074812...", "WEBWRIGHT_LONG_1_1780074812 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_1_1780074812 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6l4d3_nv76dm", "elapsed": 7.7}
+step 3 action: STATE {"label": "long_1_after_answer", "marker": "WEBWRIGHT_LONG_1_1780074812", "bodyCount": 2, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_1_1780074812...", "WEBWRIGHT_LONG_1_1780074812 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_1_1780074812 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6l4d3_nv76dm", "elapsed": 7.7}
+step 3 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_003_long_1_after_answer.png
+step 4 action: STATE {"label": "long_1_duplicate_window", "marker": "WEBWRIGHT_LONG_1_1780074812", "bodyCount": 3, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_1_1780074812 long-message high-expectation us", "WEBWRIGHT_LONG_1_1780074812 long-message high-expectation us", "WEBWRIGHT_LONG_1_1780074812 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_1_1780074812 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6l4d3_nv76dm", "elapsed": 15.0}
+step 4 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_004_long_1_duplicate_window.png
+step 5 action: STATE {"label": "long_1_duplicate_reload", "marker": "WEBWRIGHT_LONG_1_1780074812", "bodyCount": 0, "transcriptCount": 0, "bodyLines": [], "transcriptLines": [], "failed": false, "syncing": false, "thinking": false, "url": "http://127.0.0.1:3000/chat_mpr6l4d3_nv76dm", "elapsed": 18.8}
+step 5 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_005_long_1_duplicate_reload.png
+step 6 action: scenario rapid two chats start WEBWRIGHT_RAPID_A_2_1780074839 WEBWRIGHT_RAPID_B_2_1780074839
+step 8 action: STATE {"label": "rapid_2_a", "marker": "WEBWRIGHT_RAPID_A_2_1780074839", "bodyCount": 3, "transcriptCount": 3, "bodyLines": ["WEBWRIGHT_RAPID_A_2_1780074839 first rapid chat. Reply marke", "WEBWRIGHT_RAPID_A_2_1780074839 first rapid chat. Reply marke", "WEBWRIGHT_RAPID_A_2_1780074839 first rapid chat. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_A_2_1780074839 first rapid chat. Reply marke", "WEBWRIGHT_RAPID_A_2_1780074839 first rapid chat. Reply marke", "WEBWRIGHT_RAPID_A_2_1780074839 first rapid chat. Reply marker only."], "failed": false, "syncing": true, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6lkzo_n11hig", "elapsed": 41.0}
+step 9 action: STATE {"label": "rapid_2_b", "marker": "WEBWRIGHT_RAPID_B_2_1780074839", "bodyCount": 3, "transcriptCount": 3, "bodyLines": ["WEBWRIGHT_RAPID_B_2_1780074839 second rapid chat while first", "WEBWRIGHT_RAPID_B_2_1780074839 second rapid chat while first", "WEBWRIGHT_RAPID_B_2_1780074839 second rapid chat while first may run. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_B_2_1780074839 second rapid chat while first", "WEBWRIGHT_RAPID_B_2_1780074839 second rapid chat while first", "WEBWRIGHT_RAPID_B_2_1780074839 second rapid chat while first may run. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6lmhu_5rghlj", "elapsed": 41.1}
+step 8 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_008_rapid_2_a_leak.png
+step 8 action: ISSUE {"kind": "cross_chat_leak", "detail": "chat A body contains marker B WEBWRIGHT_RAPID_B_2_1780074839", "elapsed": 41.6, "step": 8, "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_008_rapid_2_a_leak.png"}
+step 9 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_009_rapid_2_b_leak.png
+step 9 action: ISSUE {"kind": "cross_chat_leak", "detail": "chat B body contains marker A WEBWRIGHT_RAPID_A_2_1780074839", "elapsed": 41.7, "step": 9, "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_009_rapid_2_b_leak.png"}
+step 8 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_008_rapid_2_a_final.png
+step 9 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_009_rapid_2_b_final.png
+step 10 action: scenario tool/subagent start marker=WEBWRIGHT_SUBAGENT_3_1780074853
+step 11 action: STATE {"label": "subagent_3_0", "marker": "WEBWRIGHT_SUBAGENT_3_1780074853", "bodyCount": 1, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."], "transcriptLines": ["WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6lzf4_o4wekc", "elapsed": 55.7}
+step 11 action: subagent_mentions=7
+step 12 action: STATE {"label": "subagent_3_1", "marker": "WEBWRIGHT_SUBAGENT_3_1780074853", "bodyCount": 3, "transcriptCount": 3, "bodyLines": ["WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."], "transcriptLines": ["WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6lzf4_o4wekc", "elapsed": 63.7}
+step 12 action: subagent_mentions=9
+step 13 action: STATE {"label": "subagent_3_2", "marker": "WEBWRIGHT_SUBAGENT_3_1780074853", "bodyCount": 4, "transcriptCount": 4, "bodyLines": ["WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."], "transcriptLines": ["WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6lzf4_o4wekc", "elapsed": 71.7}
+step 13 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_013_subagent_3_2_possible_duplicate.png
+step 13 action: ISSUE {"kind": "possible_duplicate_marker_transcript", "detail": "subagent_3_2: transcript marker count 4", "elapsed": 71.9, "step": 13, "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_013_subagent_3_2_possible_duplicate.png"}
+step 13 action: subagent_mentions=14
+step 14 action: STATE {"label": "subagent_3_3", "marker": "WEBWRIGHT_SUBAGENT_3_1780074853", "bodyCount": 4, "transcriptCount": 4, "bodyLines": ["WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."], "transcriptLines": ["WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6lzf4_o4wekc", "elapsed": 79.9}
+step 14 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_014_subagent_3_3_possible_duplicate.png
+step 14 action: ISSUE {"kind": "possible_duplicate_marker_transcript", "detail": "subagent_3_3: transcript marker count 4", "elapsed": 80.1, "step": 14, "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_014_subagent_3_3_possible_duplicate.png"}
+step 14 action: subagent_mentions=9
+step 15 action: STATE {"label": "subagent_3_4", "marker": "WEBWRIGHT_SUBAGENT_3_1780074853", "bodyCount": 4, "transcriptCount": 4, "bodyLines": ["WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."], "transcriptLines": ["WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6lzf4_o4wekc", "elapsed": 88.2}
+step 15 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_015_subagent_3_4_possible_duplicate.png
+step 15 action: ISSUE {"kind": "possible_duplicate_marker_transcript", "detail": "subagent_3_4: transcript marker count 4", "elapsed": 88.3, "step": 15, "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_015_subagent_3_4_possible_duplicate.png"}
+step 15 action: subagent_mentions=17
+step 16 action: STATE {"label": "subagent_3_5", "marker": "WEBWRIGHT_SUBAGENT_3_1780074853", "bodyCount": 4, "transcriptCount": 4, "bodyLines": ["WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."], "transcriptLines": ["WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.", "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."], "failed": false, "syncing": false, "thinking": false, "url": "http://127.0.0.1:3000/chat_mpr6lzf4_o4wekc", "elapsed": 96.4}
+step 16 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_016_subagent_3_5_possible_duplicate.png
+step 16 action: ISSUE {"kind": "possible_duplicate_marker_transcript", "detail": "subagent_3_5: transcript marker count 4", "elapsed": 96.5, "step": 16, "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_016_subagent_3_5_possible_duplicate.png"}
+step 16 action: subagent_mentions=17
+step 20 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_020_subagent_3_final.png
+step 21 action: scenario long duplicate start marker=WEBWRIGHT_LONG_4_1780074908
+step 21 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_021_long_4_after_send.png
+step 22 action: STATE {"label": "long_4_early", "marker": "WEBWRIGHT_LONG_4_1780074908", "bodyCount": 2, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_4_1780074908...", "WEBWRIGHT_LONG_4_1780074908 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_4_1780074908 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6n5tt_s3sdo2", "elapsed": 102.9}
+step 23 action: STATE {"label": "long_4_after_answer", "marker": "WEBWRIGHT_LONG_4_1780074908", "bodyCount": 2, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_4_1780074908...", "WEBWRIGHT_LONG_4_1780074908 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_4_1780074908 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6n5tt_s3sdo2", "elapsed": 102.9}
+step 23 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_023_long_4_after_answer.png
+step 24 action: STATE {"label": "long_4_duplicate_window", "marker": "WEBWRIGHT_LONG_4_1780074908", "bodyCount": 3, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_4_1780074908...", "WEBWRIGHT_LONG_4_1780074908...", "WEBWRIGHT_LONG_4_1780074908 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_4_1780074908 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": true, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6n5tt_s3sdo2", "elapsed": 109.5}
+step 24 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_024_long_4_duplicate_window.png
+step 25 action: STATE {"label": "long_4_duplicate_reload", "marker": "WEBWRIGHT_LONG_4_1780074908", "bodyCount": 0, "transcriptCount": 0, "bodyLines": [], "transcriptLines": [], "failed": false, "syncing": false, "thinking": false, "url": "http://127.0.0.1:3000/chat_mpr6n5tt_s3sdo2", "elapsed": 113.9}
+step 25 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_025_long_4_duplicate_reload.png
+step 26 action: scenario rapid two chats start WEBWRIGHT_RAPID_A_5_1780074935 WEBWRIGHT_RAPID_B_5_1780074935
+step 28 action: STATE {"label": "rapid_5_a", "marker": "WEBWRIGHT_RAPID_A_5_1780074935", "bodyCount": 2, "transcriptCount": 2, "bodyLines": ["WEBWRIGHT_RAPID_A_5_1780074935 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_5_1780074935 first rapid chat. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_A_5_1780074935 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_5_1780074935 first rapid chat. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6nn67_c9yiuj", "elapsed": 178.8}
+step 29 action: STATE {"label": "rapid_5_b", "marker": "WEBWRIGHT_RAPID_B_5_1780074935", "bodyCount": 2, "transcriptCount": 2, "bodyLines": ["WEBWRIGHT_RAPID_B_5_1780074935 second rapid chat while first", "WEBWRIGHT_RAPID_B_5_1780074935 second rapid chat while first may run. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_B_5_1780074935 second rapid chat while first", "WEBWRIGHT_RAPID_B_5_1780074935 second rapid chat while first may run. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6non0_q186v6", "elapsed": 178.9}
+step 28 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_028_rapid_5_a_final.png
+step 29 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_029_rapid_5_b_final.png
+step 30 action: scenario long duplicate start marker=WEBWRIGHT_LONG_6_1780074991
+step 30 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_030_long_6_after_send.png
+step 31 action: STATE {"label": "long_6_early", "marker": "WEBWRIGHT_LONG_6_1780074991", "bodyCount": 2, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_6_1780074991...", "WEBWRIGHT_LONG_6_1780074991 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_6_1780074991 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6oyi4_dsmc1o", "elapsed": 186.8}
+step 32 action: STATE {"label": "long_6_after_answer", "marker": "WEBWRIGHT_LONG_6_1780074991", "bodyCount": 2, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_6_1780074991...", "WEBWRIGHT_LONG_6_1780074991 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_6_1780074991 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6oyi4_dsmc1o", "elapsed": 186.8}
+step 32 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_032_long_6_after_answer.png
+step 33 action: STATE {"label": "long_6_duplicate_window", "marker": "WEBWRIGHT_LONG_6_1780074991", "bodyCount": 3, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_6_1780074991...", "WEBWRIGHT_LONG_6_1780074991...", "WEBWRIGHT_LONG_6_1780074991 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_6_1780074991 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": false, "url": "http://127.0.0.1:3000/chat_mpr6oyi4_dsmc1o", "elapsed": 194.5}
+step 33 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_033_long_6_duplicate_window.png
+step 34 action: STATE {"label": "long_6_duplicate_reload", "marker": "WEBWRIGHT_LONG_6_1780074991", "bodyCount": 0, "transcriptCount": 0, "bodyLines": [], "transcriptLines": [], "failed": false, "syncing": false, "thinking": false, "url": "http://127.0.0.1:3000/chat_mpr6oyi4_dsmc1o", "elapsed": 198.8}
+step 34 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_034_long_6_duplicate_reload.png
+step 35 action: scenario rapid two chats start WEBWRIGHT_RAPID_A_7_1780075022 WEBWRIGHT_RAPID_B_7_1780075022
+step 37 action: STATE {"label": "rapid_7_a", "marker": "WEBWRIGHT_RAPID_A_7_1780075022", "bodyCount": 2, "transcriptCount": 2, "bodyLines": ["WEBWRIGHT_RAPID_A_7_1780075022 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_7_1780075022 first rapid chat. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_A_7_1780075022 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_7_1780075022 first rapid chat. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6pilu_ny8u66", "elapsed": 249.8}
+step 38 action: STATE {"label": "rapid_7_b", "marker": "WEBWRIGHT_RAPID_B_7_1780075022", "bodyCount": 4, "transcriptCount": 4, "bodyLines": ["WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first", "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first", "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first may run. Reply marker only.", "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first may run. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first", "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first", "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first may run. Reply marker only.", "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first may run. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6pk0y_qedb9x", "elapsed": 249.9}
+step 38 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_038_rapid_7_b_possible_duplicate.png
+step 38 action: ISSUE {"kind": "possible_duplicate_marker_transcript", "detail": "rapid_7_b: transcript marker count 4", "elapsed": 250.0, "step": 38, "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_038_rapid_7_b_possible_duplicate.png"}
+step 37 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_037_rapid_7_a_final.png
+step 38 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_038_rapid_7_b_final.png
+step 39 action: scenario long duplicate start marker=WEBWRIGHT_LONG_8_1780075062
+step 39 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_039_long_8_after_send.png
+step 40 action: STATE {"label": "long_8_early", "marker": "WEBWRIGHT_LONG_8_1780075062", "bodyCount": 2, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_8_1780075062...", "WEBWRIGHT_LONG_8_1780075062 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_8_1780075062 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6qh4t_5tjva0", "elapsed": 257.5}
+step 41 action: STATE {"label": "long_8_after_answer", "marker": "WEBWRIGHT_LONG_8_1780075062", "bodyCount": 2, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_8_1780075062...", "WEBWRIGHT_LONG_8_1780075062 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_8_1780075062 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6qh4t_5tjva0", "elapsed": 257.5}
+step 41 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_041_long_8_after_answer.png
+step 42 action: STATE {"label": "long_8_duplicate_window", "marker": "WEBWRIGHT_LONG_8_1780075062", "bodyCount": 3, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_8_1780075062...", "WEBWRIGHT_LONG_8_1780075062...", "WEBWRIGHT_LONG_8_1780075062 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_8_1780075062 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": false, "url": "http://127.0.0.1:3000/chat_mpr6qh4t_5tjva0", "elapsed": 265.0}
+step 42 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_042_long_8_duplicate_window.png
+step 43 action: STATE {"label": "long_8_duplicate_reload", "marker": "WEBWRIGHT_LONG_8_1780075062", "bodyCount": 0, "transcriptCount": 0, "bodyLines": [], "transcriptLines": [], "failed": false, "syncing": false, "thinking": false, "url": "http://127.0.0.1:3000/chat_mpr6qh4t_5tjva0", "elapsed": 270.1}
+step 43 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_043_long_8_duplicate_reload.png
+step 44 action: scenario rapid two chats start WEBWRIGHT_RAPID_A_9_1780075092 WEBWRIGHT_RAPID_B_9_1780075092
+step 46 action: STATE {"label": "rapid_9_a", "marker": "WEBWRIGHT_RAPID_A_9_1780075092", "bodyCount": 2, "transcriptCount": 2, "bodyLines": ["WEBWRIGHT_RAPID_A_9_1780075092 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_9_1780075092 first rapid chat. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_A_9_1780075092 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_9_1780075092 first rapid chat. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6r09u_odgew2", "elapsed": 310.0}
+step 47 action: STATE {"label": "rapid_9_b", "marker": "WEBWRIGHT_RAPID_B_9_1780075092", "bodyCount": 4, "transcriptCount": 4, "bodyLines": ["WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first", "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first", "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first may run. Reply marker only.", "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first may run. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first", "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first", "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first may run. Reply marker only.", "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first may run. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6r1qd_wx1v50", "elapsed": 310.0}
+step 47 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_047_rapid_9_b_possible_duplicate.png
+step 47 action: ISSUE {"kind": "possible_duplicate_marker_transcript", "detail": "rapid_9_b: transcript marker count 4", "elapsed": 310.1, "step": 47, "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_047_rapid_9_b_possible_duplicate.png"}
+step 46 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_046_rapid_9_a_final.png
+step 47 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_047_rapid_9_b_final.png
+step 48 action: scenario long duplicate start marker=WEBWRIGHT_LONG_10_1780075121
+step 48 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_048_long_10_after_send.png
+step 49 action: STATE {"label": "long_10_early", "marker": "WEBWRIGHT_LONG_10_1780075121", "bodyCount": 1, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_10_1780075121 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_10_1780075121 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6rr0e_89093p", "elapsed": 317.0}
+step 50 action: STATE {"label": "long_10_after_answer", "marker": "WEBWRIGHT_LONG_10_1780075121", "bodyCount": 2, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_10_1780075121 long-message high-expectation u", "WEBWRIGHT_LONG_10_1780075121 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_10_1780075121 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6rr0e_89093p", "elapsed": 322.2}
+step 50 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_050_long_10_after_answer.png
+step 51 action: STATE {"label": "long_10_duplicate_window", "marker": "WEBWRIGHT_LONG_10_1780075121", "bodyCount": 3, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_10_1780075121 long-message high-expectation u", "WEBWRIGHT_LONG_10_1780075121 long-message high-expectation u", "WEBWRIGHT_LONG_10_1780075121 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_10_1780075121 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6rr0e_89093p", "elapsed": 329.9}
+step 51 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_051_long_10_duplicate_window.png
+step 52 action: STATE {"label": "long_10_duplicate_reload", "marker": "WEBWRIGHT_LONG_10_1780075121", "bodyCount": 0, "transcriptCount": 0, "bodyLines": [], "transcriptLines": [], "failed": false, "syncing": false, "thinking": false, "url": "http://127.0.0.1:3000/chat_mpr6rr0e_89093p", "elapsed": 333.8}
+step 52 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_052_long_10_duplicate_reload.png
+step 53 action: scenario rapid two chats start WEBWRIGHT_RAPID_A_11_1780075155 WEBWRIGHT_RAPID_B_11_1780075155
+step 55 action: STATE {"label": "rapid_11_a", "marker": "WEBWRIGHT_RAPID_A_11_1780075155", "bodyCount": 2, "transcriptCount": 2, "bodyLines": ["WEBWRIGHT_RAPID_A_11_1780075155 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_11_1780075155 first rapid chat. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_A_11_1780075155 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_11_1780075155 first rapid chat. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6scn8_s8rlye", "elapsed": 370.8}
+step 56 action: STATE {"label": "rapid_11_b", "marker": "WEBWRIGHT_RAPID_B_11_1780075155", "bodyCount": 4, "transcriptCount": 4, "bodyLines": ["WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while firs", "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while firs", "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while first may run. Reply marker only.", "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while first may run. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while firs", "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while firs", "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while first may run. Reply marker only.", "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while first may run. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6se1f_djh7hi", "elapsed": 370.9}
+step 56 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_056_rapid_11_b_possible_duplicate.png
+step 56 action: ISSUE {"kind": "possible_duplicate_marker_transcript", "detail": "rapid_11_b: transcript marker count 4", "elapsed": 371.2, "step": 56, "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_056_rapid_11_b_possible_duplicate.png"}
+step 55 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_055_rapid_11_a_final.png
+step 56 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_056_rapid_11_b_final.png
+step 57 action: scenario long duplicate start marker=WEBWRIGHT_LONG_12_1780075183
+step 57 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_057_long_12_after_send.png
+step 58 action: STATE {"label": "long_12_early", "marker": "WEBWRIGHT_LONG_12_1780075183", "bodyCount": 1, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_12_1780075183 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_12_1780075183 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6t2p4_ex3j8k", "elapsed": 378.7}
+step 59 action: STATE {"label": "long_12_after_answer", "marker": "WEBWRIGHT_LONG_12_1780075183", "bodyCount": 3, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_12_1780075183 long-message high-expectation u", "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation u", "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_12_1780075183 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6t2p4_ex3j8k", "elapsed": 384.9}
+step 59 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_059_long_12_after_answer.png
+step 60 action: STATE {"label": "long_12_duplicate_window", "marker": "WEBWRIGHT_LONG_12_1780075183", "bodyCount": 3, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_12_1780075183 long-message high-expectation u", "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation u", "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_12_1780075183 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6t2p4_ex3j8k", "elapsed": 392.7}
+step 60 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_060_long_12_duplicate_window.png
+step 61 action: STATE {"label": "long_12_duplicate_reload", "marker": "WEBWRIGHT_LONG_12_1780075183", "bodyCount": 0, "transcriptCount": 0, "bodyLines": [], "transcriptLines": [], "failed": false, "syncing": false, "thinking": false, "url": "http://127.0.0.1:3000/chat_mpr6t2p4_ex3j8k", "elapsed": 396.6}
+step 61 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_061_long_12_duplicate_reload.png
+step 62 action: scenario rapid two chats start WEBWRIGHT_RAPID_A_13_1780075217 WEBWRIGHT_RAPID_B_13_1780075217
+step 64 action: STATE {"label": "rapid_13_a", "marker": "WEBWRIGHT_RAPID_A_13_1780075217", "bodyCount": 3, "transcriptCount": 3, "bodyLines": ["WEBWRIGHT_RAPID_A_13_1780075217 first rapid chat. Reply mark", "WEBWRIGHT_RAPID_A_13_1780075217 first rapid chat. Reply mark", "WEBWRIGHT_RAPID_A_13_1780075217 first rapid chat. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_A_13_1780075217 first rapid chat. Reply mark", "WEBWRIGHT_RAPID_A_13_1780075217 first rapid chat. Reply mark", "WEBWRIGHT_RAPID_A_13_1780075217 first rapid chat. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6tp0w_9nfp3h", "elapsed": 421.2}
+step 65 action: STATE {"label": "rapid_13_b", "marker": "WEBWRIGHT_RAPID_B_13_1780075217", "bodyCount": 3, "transcriptCount": 3, "bodyLines": ["WEBWRIGHT_RAPID_B_13_1780075217 second rapid chat while firs", "WEBWRIGHT_RAPID_B_13_1780075217 second rapid chat while firs", "WEBWRIGHT_RAPID_B_13_1780075217 second rapid chat while first may run. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_B_13_1780075217 second rapid chat while firs", "WEBWRIGHT_RAPID_B_13_1780075217 second rapid chat while firs", "WEBWRIGHT_RAPID_B_13_1780075217 second rapid chat while first may run. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6tqel_gimc9f", "elapsed": 421.2}
+step 65 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_065_rapid_13_b_leak.png
+step 65 action: ISSUE {"kind": "cross_chat_leak", "detail": "chat B body contains marker A WEBWRIGHT_RAPID_A_13_1780075217", "elapsed": 421.6, "step": 65, "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_065_rapid_13_b_leak.png"}
+step 64 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_064_rapid_13_a_final.png
+step 65 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_065_rapid_13_b_final.png
+step 66 action: scenario long duplicate start marker=WEBWRIGHT_LONG_14_1780075233
+step 66 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_066_long_14_after_send.png
+step 67 action: STATE {"label": "long_14_early", "marker": "WEBWRIGHT_LONG_14_1780075233", "bodyCount": 1, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_14_1780075233 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_14_1780075233 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6u51y_qik82u", "elapsed": 428.6}
+step 68 action: STATE {"label": "long_14_after_answer", "marker": "WEBWRIGHT_LONG_14_1780075233", "bodyCount": 3, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_14_1780075233 long-message high-expectation u", "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation u", "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_14_1780075233 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6u51y_qik82u", "elapsed": 439.9}
+step 68 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_068_long_14_after_answer.png
+step 69 action: STATE {"label": "long_14_duplicate_window", "marker": "WEBWRIGHT_LONG_14_1780075233", "bodyCount": 3, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_14_1780075233 long-message high-expectation u", "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation u", "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_14_1780075233 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6u51y_qik82u", "elapsed": 447.6}
+step 69 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_069_long_14_duplicate_window.png
+step 70 action: STATE {"label": "long_14_duplicate_reload", "marker": "WEBWRIGHT_LONG_14_1780075233", "bodyCount": 0, "transcriptCount": 0, "bodyLines": [], "transcriptLines": [], "failed": false, "syncing": false, "thinking": false, "url": "http://127.0.0.1:3000/chat_mpr6u51y_qik82u", "elapsed": 452.3}
+step 70 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_070_long_14_duplicate_reload.png
+step 71 action: scenario rapid two chats start WEBWRIGHT_RAPID_A_15_1780075274 WEBWRIGHT_RAPID_B_15_1780075274
+step 73 action: STATE {"label": "rapid_15_a", "marker": "WEBWRIGHT_RAPID_A_15_1780075274", "bodyCount": 2, "transcriptCount": 2, "bodyLines": ["WEBWRIGHT_RAPID_A_15_1780075274 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_15_1780075274 first rapid chat. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_A_15_1780075274 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_15_1780075274 first rapid chat. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6ux2b_nbx4a6", "elapsed": 492.9}
+step 74 action: STATE {"label": "rapid_15_b", "marker": "WEBWRIGHT_RAPID_B_15_1780075274", "bodyCount": 3, "transcriptCount": 3, "bodyLines": ["WEBWRIGHT_RAPID_B_15_1780075274 second rapid chat while firs", "WEBWRIGHT_RAPID_B_15_1780075274 second rapid chat while firs", "WEBWRIGHT_RAPID_B_15_1780075274 second rapid chat while first may run. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_B_15_1780075274 second rapid chat while firs", "WEBWRIGHT_RAPID_B_15_1780075274 second rapid chat while firs", "WEBWRIGHT_RAPID_B_15_1780075274 second rapid chat while first may run. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6uyz9_0iu2n4", "elapsed": 493.0}
+step 73 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_073_rapid_15_a_final.png
+step 74 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_074_rapid_15_b_final.png
+step 75 action: scenario long duplicate start marker=WEBWRIGHT_LONG_16_1780075305
+step 75 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_075_long_16_after_send.png
+step 76 action: STATE {"label": "long_16_early", "marker": "WEBWRIGHT_LONG_16_1780075305", "bodyCount": 1, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_16_1780075305 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_16_1780075305 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6vo6p_ztv0y0", "elapsed": 499.8}
+step 77 action: STATE {"label": "long_16_after_answer", "marker": "WEBWRIGHT_LONG_16_1780075305", "bodyCount": 2, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_16_1780075305 long-message high-expectation u", "WEBWRIGHT_LONG_16_1780075305 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_16_1780075305 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6vo6p_ztv0y0", "elapsed": 507.0}
+step 77 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_077_long_16_after_answer.png
+step 78 action: STATE {"label": "long_16_duplicate_window", "marker": "WEBWRIGHT_LONG_16_1780075305", "bodyCount": 3, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_16_1780075305 long-message high-expectation u", "WEBWRIGHT_LONG_16_1780075305 long-message high-expectation u", "WEBWRIGHT_LONG_16_1780075305 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_16_1780075305 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6vo6p_ztv0y0", "elapsed": 514.6}
+step 78 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_078_long_16_duplicate_window.png
+step 79 action: STATE {"label": "long_16_duplicate_reload", "marker": "WEBWRIGHT_LONG_16_1780075305", "bodyCount": 0, "transcriptCount": 0, "bodyLines": [], "transcriptLines": [], "failed": false, "syncing": false, "thinking": false, "url": "http://127.0.0.1:3000/chat_mpr6vo6p_ztv0y0", "elapsed": 519.2}
+step 79 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_079_long_16_duplicate_reload.png
+step 80 action: scenario rapid two chats start WEBWRIGHT_RAPID_A_17_1780075340 WEBWRIGHT_RAPID_B_17_1780075340
+step 82 action: STATE {"label": "rapid_17_a", "marker": "WEBWRIGHT_RAPID_A_17_1780075340", "bodyCount": 2, "transcriptCount": 2, "bodyLines": ["WEBWRIGHT_RAPID_A_17_1780075340 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_17_1780075340 first rapid chat. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_A_17_1780075340 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_17_1780075340 first rapid chat. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6wbpx_i8tywa", "elapsed": 560.0}
+step 83 action: STATE {"label": "rapid_17_b", "marker": "WEBWRIGHT_RAPID_B_17_1780075340", "bodyCount": 3, "transcriptCount": 3, "bodyLines": ["WEBWRIGHT_RAPID_B_17_1780075340 second rapid chat while firs", "WEBWRIGHT_RAPID_B_17_1780075340 second rapid chat while firs", "WEBWRIGHT_RAPID_B_17_1780075340 second rapid chat while first may run. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_B_17_1780075340 second rapid chat while firs", "WEBWRIGHT_RAPID_B_17_1780075340 second rapid chat while firs", "WEBWRIGHT_RAPID_B_17_1780075340 second rapid chat while first may run. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6wd1d_e01hy2", "elapsed": 560.0}
+step 82 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_082_rapid_17_a_final.png
+step 83 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_083_rapid_17_b_final.png
+step 84 action: scenario long duplicate start marker=WEBWRIGHT_LONG_18_1780075371
+step 84 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_084_long_18_after_send.png
+step 85 action: STATE {"label": "long_18_early", "marker": "WEBWRIGHT_LONG_18_1780075371", "bodyCount": 1, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_18_1780075371 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_18_1780075371 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6x4b1_vhnhda", "elapsed": 567.4}
+step 86 action: STATE {"label": "long_18_after_answer", "marker": "WEBWRIGHT_LONG_18_1780075371", "bodyCount": 3, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_18_1780075371 long-message high-expectation u", "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation u", "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_18_1780075371 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6x4b1_vhnhda", "elapsed": 573.6}
+step 86 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_086_long_18_after_answer.png
+step 87 action: STATE {"label": "long_18_duplicate_window", "marker": "WEBWRIGHT_LONG_18_1780075371", "bodyCount": 3, "transcriptCount": 1, "bodyLines": ["WEBWRIGHT_LONG_18_1780075371 long-message high-expectation u", "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation u", "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation user test. Reply with the exact marker once."], "transcriptLines": ["WEBWRIGHT_LONG_18_1780075371 long-message high-expectation user test. Reply with the exact marker once."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6x4b1_vhnhda", "elapsed": 581.5}
+step 87 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_087_long_18_duplicate_window.png
+step 88 action: STATE {"label": "long_18_duplicate_reload", "marker": "WEBWRIGHT_LONG_18_1780075371", "bodyCount": 0, "transcriptCount": 0, "bodyLines": [], "transcriptLines": [], "failed": false, "syncing": false, "thinking": false, "url": "http://127.0.0.1:3000/chat_mpr6x4b1_vhnhda", "elapsed": 586.6}
+step 88 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_088_long_18_duplicate_reload.png
+step 89 action: scenario rapid two chats start WEBWRIGHT_RAPID_A_19_1780075408 WEBWRIGHT_RAPID_B_19_1780075408
+step 91 action: STATE {"label": "rapid_19_a", "marker": "WEBWRIGHT_RAPID_A_19_1780075408", "bodyCount": 2, "transcriptCount": 2, "bodyLines": ["WEBWRIGHT_RAPID_A_19_1780075408 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_19_1780075408 first rapid chat. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_A_19_1780075408 first rapid chat. Reply marker only.", "WEBWRIGHT_RAPID_A_19_1780075408 first rapid chat. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6xs4a_xm3axu", "elapsed": 628.5}
+step 92 action: STATE {"label": "rapid_19_b", "marker": "WEBWRIGHT_RAPID_B_19_1780075408", "bodyCount": 4, "transcriptCount": 4, "bodyLines": ["WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while firs", "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while firs", "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while first may run. Reply marker only.", "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while first may run. Reply marker only."], "transcriptLines": ["WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while firs", "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while firs", "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while first may run. Reply marker only.", "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while first may run. Reply marker only."], "failed": false, "syncing": false, "thinking": true, "url": "http://127.0.0.1:3000/chat_mpr6xtmd_clky4d", "elapsed": 628.5}
+step 92 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_092_rapid_19_b_possible_duplicate.png
+step 92 action: ISSUE {"kind": "possible_duplicate_marker_transcript", "detail": "rapid_19_b: transcript marker count 4", "elapsed": 628.7, "step": 92, "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_092_rapid_19_b_possible_duplicate.png"}
+step 91 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_091_rapid_19_a_final.png
+step 92 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_092_rapid_19_b_final.png
+FINAL_SUMMARY={
+  "durationSeconds": 629.8,
+  "issues": [
+    {
+      "kind": "cross_chat_leak",
+      "detail": "chat A body contains marker B WEBWRIGHT_RAPID_B_2_1780074839",
+      "elapsed": 41.6,
+      "step": 8,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_008_rapid_2_a_leak.png"
+    },
+    {
+      "kind": "cross_chat_leak",
+      "detail": "chat B body contains marker A WEBWRIGHT_RAPID_A_2_1780074839",
+      "elapsed": 41.7,
+      "step": 9,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_009_rapid_2_b_leak.png"
+    },
+    {
+      "kind": "possible_duplicate_marker_transcript",
+      "detail": "subagent_3_2: transcript marker count 4",
+      "elapsed": 71.9,
+      "step": 13,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_013_subagent_3_2_possible_duplicate.png"
+    },
+    {
+      "kind": "possible_duplicate_marker_transcript",
+      "detail": "subagent_3_3: transcript marker count 4",
+      "elapsed": 80.1,
+      "step": 14,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_014_subagent_3_3_possible_duplicate.png"
+    },
+    {
+      "kind": "possible_duplicate_marker_transcript",
+      "detail": "subagent_3_4: transcript marker count 4",
+      "elapsed": 88.3,
+      "step": 15,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_015_subagent_3_4_possible_duplicate.png"
+    },
+    {
+      "kind": "possible_duplicate_marker_transcript",
+      "detail": "subagent_3_5: transcript marker count 4",
+      "elapsed": 96.5,
+      "step": 16,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_016_subagent_3_5_possible_duplicate.png"
+    },
+    {
+      "kind": "possible_duplicate_marker_transcript",
+      "detail": "rapid_7_b: transcript marker count 4",
+      "elapsed": 250.0,
+      "step": 38,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_038_rapid_7_b_possible_duplicate.png"
+    },
+    {
+      "kind": "possible_duplicate_marker_transcript",
+      "detail": "rapid_9_b: transcript marker count 4",
+      "elapsed": 310.1,
+      "step": 47,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_047_rapid_9_b_possible_duplicate.png"
+    },
+    {
+      "kind": "possible_duplicate_marker_transcript",
+      "detail": "rapid_11_b: transcript marker count 4",
+      "elapsed": 371.2,
+      "step": 56,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_056_rapid_11_b_possible_duplicate.png"
+    },
+    {
+      "kind": "cross_chat_leak",
+      "detail": "chat B body contains marker A WEBWRIGHT_RAPID_A_13_1780075217",
+      "elapsed": 421.6,
+      "step": 65,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_065_rapid_13_b_leak.png"
+    },
+    {
+      "kind": "possible_duplicate_marker_transcript",
+      "detail": "rapid_19_b: transcript marker count 4",
+      "elapsed": 628.7,
+      "step": 92,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/webwright-desktop-long-20260529T171221Z/final_runs/run_1/screenshots/final_execution_092_rapid_19_b_possible_duplicate.png"
+    }
+  ],
+  "observationsCount": 60
+}
+FINAL_OBSERVATIONS=[
+  {
+    "label": "long_1_early",
+    "marker": "WEBWRIGHT_LONG_1_1780074812",
+    "bodyCount": 2,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_1_1780074812...",
+      "WEBWRIGHT_LONG_1_1780074812 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_1_1780074812 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6l4d3_nv76dm",
+    "elapsed": 7.7
+  },
+  {
+    "label": "long_1_after_answer",
+    "marker": "WEBWRIGHT_LONG_1_1780074812",
+    "bodyCount": 2,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_1_1780074812...",
+      "WEBWRIGHT_LONG_1_1780074812 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_1_1780074812 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6l4d3_nv76dm",
+    "elapsed": 7.7
+  },
+  {
+    "label": "long_1_duplicate_window",
+    "marker": "WEBWRIGHT_LONG_1_1780074812",
+    "bodyCount": 3,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_1_1780074812 long-message high-expectation us",
+      "WEBWRIGHT_LONG_1_1780074812 long-message high-expectation us",
+      "WEBWRIGHT_LONG_1_1780074812 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_1_1780074812 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6l4d3_nv76dm",
+    "elapsed": 15.0
+  },
+  {
+    "label": "long_1_duplicate_reload",
+    "marker": "WEBWRIGHT_LONG_1_1780074812",
+    "bodyCount": 0,
+    "transcriptCount": 0,
+    "bodyLines": [],
+    "transcriptLines": [],
+    "failed": false,
+    "syncing": false,
+    "thinking": false,
+    "url": "http://127.0.0.1:3000/chat_mpr6l4d3_nv76dm",
+    "elapsed": 18.8
+  },
+  {
+    "label": "rapid_2_a",
+    "marker": "WEBWRIGHT_RAPID_A_2_1780074839",
+    "bodyCount": 3,
+    "transcriptCount": 3,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_A_2_1780074839 first rapid chat. Reply marke",
+      "WEBWRIGHT_RAPID_A_2_1780074839 first rapid chat. Reply marke",
+      "WEBWRIGHT_RAPID_A_2_1780074839 first rapid chat. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_A_2_1780074839 first rapid chat. Reply marke",
+      "WEBWRIGHT_RAPID_A_2_1780074839 first rapid chat. Reply marke",
+      "WEBWRIGHT_RAPID_A_2_1780074839 first rapid chat. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": true,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6lkzo_n11hig",
+    "elapsed": 41.0
+  },
+  {
+    "label": "rapid_2_b",
+    "marker": "WEBWRIGHT_RAPID_B_2_1780074839",
+    "bodyCount": 3,
+    "transcriptCount": 3,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_B_2_1780074839 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_2_1780074839 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_2_1780074839 second rapid chat while first may run. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_B_2_1780074839 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_2_1780074839 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_2_1780074839 second rapid chat while first may run. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6lmhu_5rghlj",
+    "elapsed": 41.1
+  },
+  {
+    "label": "subagent_3_0",
+    "marker": "WEBWRIGHT_SUBAGENT_3_1780074853",
+    "bodyCount": 1,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6lzf4_o4wekc",
+    "elapsed": 55.7
+  },
+  {
+    "label": "subagent_3_1",
+    "marker": "WEBWRIGHT_SUBAGENT_3_1780074853",
+    "bodyCount": 3,
+    "transcriptCount": 3,
+    "bodyLines": [
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6lzf4_o4wekc",
+    "elapsed": 63.7
+  },
+  {
+    "label": "subagent_3_2",
+    "marker": "WEBWRIGHT_SUBAGENT_3_1780074853",
+    "bodyCount": 4,
+    "transcriptCount": 4,
+    "bodyLines": [
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6lzf4_o4wekc",
+    "elapsed": 71.7
+  },
+  {
+    "label": "subagent_3_3",
+    "marker": "WEBWRIGHT_SUBAGENT_3_1780074853",
+    "bodyCount": 4,
+    "transcriptCount": 4,
+    "bodyLines": [
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6lzf4_o4wekc",
+    "elapsed": 79.9
+  },
+  {
+    "label": "subagent_3_4",
+    "marker": "WEBWRIGHT_SUBAGENT_3_1780074853",
+    "bodyCount": 4,
+    "transcriptCount": 4,
+    "bodyLines": [
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6lzf4_o4wekc",
+    "elapsed": 88.2
+  },
+  {
+    "label": "subagent_3_5",
+    "marker": "WEBWRIGHT_SUBAGENT_3_1780074853",
+    "bodyCount": 4,
+    "transcriptCount": 4,
+    "bodyLines": [
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents wi",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker.",
+      "WEBWRIGHT_SUBAGENT_3_1780074853 spawn exactly 3 subagents with labels ww-a ww-b ww-c. Each should read AGENTS.md then reply done. Also run session_status first. After children finish, summarize with marker."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": false,
+    "url": "http://127.0.0.1:3000/chat_mpr6lzf4_o4wekc",
+    "elapsed": 96.4
+  },
+  {
+    "label": "long_4_early",
+    "marker": "WEBWRIGHT_LONG_4_1780074908",
+    "bodyCount": 2,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_4_1780074908...",
+      "WEBWRIGHT_LONG_4_1780074908 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_4_1780074908 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6n5tt_s3sdo2",
+    "elapsed": 102.9
+  },
+  {
+    "label": "long_4_after_answer",
+    "marker": "WEBWRIGHT_LONG_4_1780074908",
+    "bodyCount": 2,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_4_1780074908...",
+      "WEBWRIGHT_LONG_4_1780074908 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_4_1780074908 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6n5tt_s3sdo2",
+    "elapsed": 102.9
+  },
+  {
+    "label": "long_4_duplicate_window",
+    "marker": "WEBWRIGHT_LONG_4_1780074908",
+    "bodyCount": 3,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_4_1780074908...",
+      "WEBWRIGHT_LONG_4_1780074908...",
+      "WEBWRIGHT_LONG_4_1780074908 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_4_1780074908 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": true,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6n5tt_s3sdo2",
+    "elapsed": 109.5
+  },
+  {
+    "label": "long_4_duplicate_reload",
+    "marker": "WEBWRIGHT_LONG_4_1780074908",
+    "bodyCount": 0,
+    "transcriptCount": 0,
+    "bodyLines": [],
+    "transcriptLines": [],
+    "failed": false,
+    "syncing": false,
+    "thinking": false,
+    "url": "http://127.0.0.1:3000/chat_mpr6n5tt_s3sdo2",
+    "elapsed": 113.9
+  },
+  {
+    "label": "rapid_5_a",
+    "marker": "WEBWRIGHT_RAPID_A_5_1780074935",
+    "bodyCount": 2,
+    "transcriptCount": 2,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_A_5_1780074935 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_5_1780074935 first rapid chat. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_A_5_1780074935 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_5_1780074935 first rapid chat. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6nn67_c9yiuj",
+    "elapsed": 178.8
+  },
+  {
+    "label": "rapid_5_b",
+    "marker": "WEBWRIGHT_RAPID_B_5_1780074935",
+    "bodyCount": 2,
+    "transcriptCount": 2,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_B_5_1780074935 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_5_1780074935 second rapid chat while first may run. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_B_5_1780074935 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_5_1780074935 second rapid chat while first may run. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6non0_q186v6",
+    "elapsed": 178.9
+  },
+  {
+    "label": "long_6_early",
+    "marker": "WEBWRIGHT_LONG_6_1780074991",
+    "bodyCount": 2,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_6_1780074991...",
+      "WEBWRIGHT_LONG_6_1780074991 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_6_1780074991 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6oyi4_dsmc1o",
+    "elapsed": 186.8
+  },
+  {
+    "label": "long_6_after_answer",
+    "marker": "WEBWRIGHT_LONG_6_1780074991",
+    "bodyCount": 2,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_6_1780074991...",
+      "WEBWRIGHT_LONG_6_1780074991 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_6_1780074991 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6oyi4_dsmc1o",
+    "elapsed": 186.8
+  },
+  {
+    "label": "long_6_duplicate_window",
+    "marker": "WEBWRIGHT_LONG_6_1780074991",
+    "bodyCount": 3,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_6_1780074991...",
+      "WEBWRIGHT_LONG_6_1780074991...",
+      "WEBWRIGHT_LONG_6_1780074991 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_6_1780074991 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": false,
+    "url": "http://127.0.0.1:3000/chat_mpr6oyi4_dsmc1o",
+    "elapsed": 194.5
+  },
+  {
+    "label": "long_6_duplicate_reload",
+    "marker": "WEBWRIGHT_LONG_6_1780074991",
+    "bodyCount": 0,
+    "transcriptCount": 0,
+    "bodyLines": [],
+    "transcriptLines": [],
+    "failed": false,
+    "syncing": false,
+    "thinking": false,
+    "url": "http://127.0.0.1:3000/chat_mpr6oyi4_dsmc1o",
+    "elapsed": 198.8
+  },
+  {
+    "label": "rapid_7_a",
+    "marker": "WEBWRIGHT_RAPID_A_7_1780075022",
+    "bodyCount": 2,
+    "transcriptCount": 2,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_A_7_1780075022 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_7_1780075022 first rapid chat. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_A_7_1780075022 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_7_1780075022 first rapid chat. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6pilu_ny8u66",
+    "elapsed": 249.8
+  },
+  {
+    "label": "rapid_7_b",
+    "marker": "WEBWRIGHT_RAPID_B_7_1780075022",
+    "bodyCount": 4,
+    "transcriptCount": 4,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first may run. Reply marker only.",
+      "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first may run. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first may run. Reply marker only.",
+      "WEBWRIGHT_RAPID_B_7_1780075022 second rapid chat while first may run. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6pk0y_qedb9x",
+    "elapsed": 249.9
+  },
+  {
+    "label": "long_8_early",
+    "marker": "WEBWRIGHT_LONG_8_1780075062",
+    "bodyCount": 2,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_8_1780075062...",
+      "WEBWRIGHT_LONG_8_1780075062 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_8_1780075062 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6qh4t_5tjva0",
+    "elapsed": 257.5
+  },
+  {
+    "label": "long_8_after_answer",
+    "marker": "WEBWRIGHT_LONG_8_1780075062",
+    "bodyCount": 2,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_8_1780075062...",
+      "WEBWRIGHT_LONG_8_1780075062 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_8_1780075062 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6qh4t_5tjva0",
+    "elapsed": 257.5
+  },
+  {
+    "label": "long_8_duplicate_window",
+    "marker": "WEBWRIGHT_LONG_8_1780075062",
+    "bodyCount": 3,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_8_1780075062...",
+      "WEBWRIGHT_LONG_8_1780075062...",
+      "WEBWRIGHT_LONG_8_1780075062 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_8_1780075062 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": false,
+    "url": "http://127.0.0.1:3000/chat_mpr6qh4t_5tjva0",
+    "elapsed": 265.0
+  },
+  {
+    "label": "long_8_duplicate_reload",
+    "marker": "WEBWRIGHT_LONG_8_1780075062",
+    "bodyCount": 0,
+    "transcriptCount": 0,
+    "bodyLines": [],
+    "transcriptLines": [],
+    "failed": false,
+    "syncing": false,
+    "thinking": false,
+    "url": "http://127.0.0.1:3000/chat_mpr6qh4t_5tjva0",
+    "elapsed": 270.1
+  },
+  {
+    "label": "rapid_9_a",
+    "marker": "WEBWRIGHT_RAPID_A_9_1780075092",
+    "bodyCount": 2,
+    "transcriptCount": 2,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_A_9_1780075092 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_9_1780075092 first rapid chat. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_A_9_1780075092 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_9_1780075092 first rapid chat. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6r09u_odgew2",
+    "elapsed": 310.0
+  },
+  {
+    "label": "rapid_9_b",
+    "marker": "WEBWRIGHT_RAPID_B_9_1780075092",
+    "bodyCount": 4,
+    "transcriptCount": 4,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first may run. Reply marker only.",
+      "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first may run. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first",
+      "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first may run. Reply marker only.",
+      "WEBWRIGHT_RAPID_B_9_1780075092 second rapid chat while first may run. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6r1qd_wx1v50",
+    "elapsed": 310.0
+  },
+  {
+    "label": "long_10_early",
+    "marker": "WEBWRIGHT_LONG_10_1780075121",
+    "bodyCount": 1,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_10_1780075121 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_10_1780075121 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6rr0e_89093p",
+    "elapsed": 317.0
+  },
+  {
+    "label": "long_10_after_answer",
+    "marker": "WEBWRIGHT_LONG_10_1780075121",
+    "bodyCount": 2,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_10_1780075121 long-message high-expectation u",
+      "WEBWRIGHT_LONG_10_1780075121 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_10_1780075121 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6rr0e_89093p",
+    "elapsed": 322.2
+  },
+  {
+    "label": "long_10_duplicate_window",
+    "marker": "WEBWRIGHT_LONG_10_1780075121",
+    "bodyCount": 3,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_10_1780075121 long-message high-expectation u",
+      "WEBWRIGHT_LONG_10_1780075121 long-message high-expectation u",
+      "WEBWRIGHT_LONG_10_1780075121 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_10_1780075121 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6rr0e_89093p",
+    "elapsed": 329.9
+  },
+  {
+    "label": "long_10_duplicate_reload",
+    "marker": "WEBWRIGHT_LONG_10_1780075121",
+    "bodyCount": 0,
+    "transcriptCount": 0,
+    "bodyLines": [],
+    "transcriptLines": [],
+    "failed": false,
+    "syncing": false,
+    "thinking": false,
+    "url": "http://127.0.0.1:3000/chat_mpr6rr0e_89093p",
+    "elapsed": 333.8
+  },
+  {
+    "label": "rapid_11_a",
+    "marker": "WEBWRIGHT_RAPID_A_11_1780075155",
+    "bodyCount": 2,
+    "transcriptCount": 2,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_A_11_1780075155 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_11_1780075155 first rapid chat. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_A_11_1780075155 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_11_1780075155 first rapid chat. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6scn8_s8rlye",
+    "elapsed": 370.8
+  },
+  {
+    "label": "rapid_11_b",
+    "marker": "WEBWRIGHT_RAPID_B_11_1780075155",
+    "bodyCount": 4,
+    "transcriptCount": 4,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while first may run. Reply marker only.",
+      "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while first may run. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while first may run. Reply marker only.",
+      "WEBWRIGHT_RAPID_B_11_1780075155 second rapid chat while first may run. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6se1f_djh7hi",
+    "elapsed": 370.9
+  },
+  {
+    "label": "long_12_early",
+    "marker": "WEBWRIGHT_LONG_12_1780075183",
+    "bodyCount": 1,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6t2p4_ex3j8k",
+    "elapsed": 378.7
+  },
+  {
+    "label": "long_12_after_answer",
+    "marker": "WEBWRIGHT_LONG_12_1780075183",
+    "bodyCount": 3,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation u",
+      "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation u",
+      "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6t2p4_ex3j8k",
+    "elapsed": 384.9
+  },
+  {
+    "label": "long_12_duplicate_window",
+    "marker": "WEBWRIGHT_LONG_12_1780075183",
+    "bodyCount": 3,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation u",
+      "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation u",
+      "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_12_1780075183 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6t2p4_ex3j8k",
+    "elapsed": 392.7
+  },
+  {
+    "label": "long_12_duplicate_reload",
+    "marker": "WEBWRIGHT_LONG_12_1780075183",
+    "bodyCount": 0,
+    "transcriptCount": 0,
+    "bodyLines": [],
+    "transcriptLines": [],
+    "failed": false,
+    "syncing": false,
+    "thinking": false,
+    "url": "http://127.0.0.1:3000/chat_mpr6t2p4_ex3j8k",
+    "elapsed": 396.6
+  },
+  {
+    "label": "rapid_13_a",
+    "marker": "WEBWRIGHT_RAPID_A_13_1780075217",
+    "bodyCount": 3,
+    "transcriptCount": 3,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_A_13_1780075217 first rapid chat. Reply mark",
+      "WEBWRIGHT_RAPID_A_13_1780075217 first rapid chat. Reply mark",
+      "WEBWRIGHT_RAPID_A_13_1780075217 first rapid chat. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_A_13_1780075217 first rapid chat. Reply mark",
+      "WEBWRIGHT_RAPID_A_13_1780075217 first rapid chat. Reply mark",
+      "WEBWRIGHT_RAPID_A_13_1780075217 first rapid chat. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6tp0w_9nfp3h",
+    "elapsed": 421.2
+  },
+  {
+    "label": "rapid_13_b",
+    "marker": "WEBWRIGHT_RAPID_B_13_1780075217",
+    "bodyCount": 3,
+    "transcriptCount": 3,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_B_13_1780075217 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_13_1780075217 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_13_1780075217 second rapid chat while first may run. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_B_13_1780075217 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_13_1780075217 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_13_1780075217 second rapid chat while first may run. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6tqel_gimc9f",
+    "elapsed": 421.2
+  },
+  {
+    "label": "long_14_early",
+    "marker": "WEBWRIGHT_LONG_14_1780075233",
+    "bodyCount": 1,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6u51y_qik82u",
+    "elapsed": 428.6
+  },
+  {
+    "label": "long_14_after_answer",
+    "marker": "WEBWRIGHT_LONG_14_1780075233",
+    "bodyCount": 3,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation u",
+      "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation u",
+      "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6u51y_qik82u",
+    "elapsed": 439.9
+  },
+  {
+    "label": "long_14_duplicate_window",
+    "marker": "WEBWRIGHT_LONG_14_1780075233",
+    "bodyCount": 3,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation u",
+      "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation u",
+      "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_14_1780075233 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6u51y_qik82u",
+    "elapsed": 447.6
+  },
+  {
+    "label": "long_14_duplicate_reload",
+    "marker": "WEBWRIGHT_LONG_14_1780075233",
+    "bodyCount": 0,
+    "transcriptCount": 0,
+    "bodyLines": [],
+    "transcriptLines": [],
+    "failed": false,
+    "syncing": false,
+    "thinking": false,
+    "url": "http://127.0.0.1:3000/chat_mpr6u51y_qik82u",
+    "elapsed": 452.3
+  },
+  {
+    "label": "rapid_15_a",
+    "marker": "WEBWRIGHT_RAPID_A_15_1780075274",
+    "bodyCount": 2,
+    "transcriptCount": 2,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_A_15_1780075274 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_15_1780075274 first rapid chat. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_A_15_1780075274 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_15_1780075274 first rapid chat. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6ux2b_nbx4a6",
+    "elapsed": 492.9
+  },
+  {
+    "label": "rapid_15_b",
+    "marker": "WEBWRIGHT_RAPID_B_15_1780075274",
+    "bodyCount": 3,
+    "transcriptCount": 3,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_B_15_1780075274 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_15_1780075274 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_15_1780075274 second rapid chat while first may run. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_B_15_1780075274 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_15_1780075274 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_15_1780075274 second rapid chat while first may run. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6uyz9_0iu2n4",
+    "elapsed": 493.0
+  },
+  {
+    "label": "long_16_early",
+    "marker": "WEBWRIGHT_LONG_16_1780075305",
+    "bodyCount": 1,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_16_1780075305 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_16_1780075305 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6vo6p_ztv0y0",
+    "elapsed": 499.8
+  },
+  {
+    "label": "long_16_after_answer",
+    "marker": "WEBWRIGHT_LONG_16_1780075305",
+    "bodyCount": 2,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_16_1780075305 long-message high-expectation u",
+      "WEBWRIGHT_LONG_16_1780075305 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_16_1780075305 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6vo6p_ztv0y0",
+    "elapsed": 507.0
+  },
+  {
+    "label": "long_16_duplicate_window",
+    "marker": "WEBWRIGHT_LONG_16_1780075305",
+    "bodyCount": 3,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_16_1780075305 long-message high-expectation u",
+      "WEBWRIGHT_LONG_16_1780075305 long-message high-expectation u",
+      "WEBWRIGHT_LONG_16_1780075305 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_16_1780075305 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6vo6p_ztv0y0",
+    "elapsed": 514.6
+  },
+  {
+    "label": "long_16_duplicate_reload",
+    "marker": "WEBWRIGHT_LONG_16_1780075305",
+    "bodyCount": 0,
+    "transcriptCount": 0,
+    "bodyLines": [],
+    "transcriptLines": [],
+    "failed": false,
+    "syncing": false,
+    "thinking": false,
+    "url": "http://127.0.0.1:3000/chat_mpr6vo6p_ztv0y0",
+    "elapsed": 519.2
+  },
+  {
+    "label": "rapid_17_a",
+    "marker": "WEBWRIGHT_RAPID_A_17_1780075340",
+    "bodyCount": 2,
+    "transcriptCount": 2,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_A_17_1780075340 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_17_1780075340 first rapid chat. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_A_17_1780075340 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_17_1780075340 first rapid chat. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6wbpx_i8tywa",
+    "elapsed": 560.0
+  },
+  {
+    "label": "rapid_17_b",
+    "marker": "WEBWRIGHT_RAPID_B_17_1780075340",
+    "bodyCount": 3,
+    "transcriptCount": 3,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_B_17_1780075340 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_17_1780075340 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_17_1780075340 second rapid chat while first may run. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_B_17_1780075340 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_17_1780075340 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_17_1780075340 second rapid chat while first may run. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6wd1d_e01hy2",
+    "elapsed": 560.0
+  },
+  {
+    "label": "long_18_early",
+    "marker": "WEBWRIGHT_LONG_18_1780075371",
+    "bodyCount": 1,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6x4b1_vhnhda",
+    "elapsed": 567.4
+  },
+  {
+    "label": "long_18_after_answer",
+    "marker": "WEBWRIGHT_LONG_18_1780075371",
+    "bodyCount": 3,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation u",
+      "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation u",
+      "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6x4b1_vhnhda",
+    "elapsed": 573.6
+  },
+  {
+    "label": "long_18_duplicate_window",
+    "marker": "WEBWRIGHT_LONG_18_1780075371",
+    "bodyCount": 3,
+    "transcriptCount": 1,
+    "bodyLines": [
+      "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation u",
+      "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation u",
+      "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_LONG_18_1780075371 long-message high-expectation user test. Reply with the exact marker once."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6x4b1_vhnhda",
+    "elapsed": 581.5
+  },
+  {
+    "label": "long_18_duplicate_reload",
+    "marker": "WEBWRIGHT_LONG_18_1780075371",
+    "bodyCount": 0,
+    "transcriptCount": 0,
+    "bodyLines": [],
+    "transcriptLines": [],
+    "failed": false,
+    "syncing": false,
+    "thinking": false,
+    "url": "http://127.0.0.1:3000/chat_mpr6x4b1_vhnhda",
+    "elapsed": 586.6
+  },
+  {
+    "label": "rapid_19_a",
+    "marker": "WEBWRIGHT_RAPID_A_19_1780075408",
+    "bodyCount": 2,
+    "transcriptCount": 2,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_A_19_1780075408 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_19_1780075408 first rapid chat. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_A_19_1780075408 first rapid chat. Reply marker only.",
+      "WEBWRIGHT_RAPID_A_19_1780075408 first rapid chat. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6xs4a_xm3axu",
+    "elapsed": 628.5
+  },
+  {
+    "label": "rapid_19_b",
+    "marker": "WEBWRIGHT_RAPID_B_19_1780075408",
+    "bodyCount": 4,
+    "transcriptCount": 4,
+    "bodyLines": [
+      "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while first may run. Reply marker only.",
+      "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while first may run. Reply marker only."
+    ],
+    "transcriptLines": [
+      "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while firs",
+      "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while first may run. Reply marker only.",
+      "WEBWRIGHT_RAPID_B_19_1780075408 second rapid chat while first may run. Reply marker only."
+    ],
+    "failed": false,
+    "syncing": false,
+    "thinking": true,
+    "url": "http://127.0.0.1:3000/chat_mpr6xtmd_clky4d",
+    "elapsed": 628.5
+  }
+]

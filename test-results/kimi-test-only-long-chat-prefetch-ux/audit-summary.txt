@@ -1,0 +1,10 @@
+Audit Summary
+=============
+URL: http://127.0.0.1:3000/audit-long-chat
+Jumps detected: 22
+Suspicious jumps: 22
+Text disappearances: 22
+Blank frames: 0
+Console errors: 0
+Loader appeared: false
+Console errors: 0

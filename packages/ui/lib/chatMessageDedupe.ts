@@ -75,6 +75,10 @@ function mergeToolCalls(
     const current = merged.get(tool.id)
     const terminalCurrent = current?.status === "success" || current?.status === "error"
     const staleRunningIncoming = terminalCurrent && tool.status === "running"
+    // Skip duplicate tool calls that are already in terminal state
+    if (terminalCurrent && staleRunningIncoming) {
+      continue
+    }
     merged.set(tool.id, staleRunningIncoming
       ? { ...tool, ...current }
       : { ...(current ?? {}), ...tool }

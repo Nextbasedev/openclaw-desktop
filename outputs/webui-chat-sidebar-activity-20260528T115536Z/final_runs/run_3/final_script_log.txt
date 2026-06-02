@@ -1,0 +1,2248 @@
+2026-05-28T12:17:20.606Z step 1 action: open local OpenClaw Desktop web UI and seed middleware URL
+2026-05-28T12:17:23.929Z console.error: [JavaScript Error: "Cross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource at http://127.0.0.1:8790/api/stream/cron?token=devtest. (Reason: CORS request did not succeed). Status code: (null)."]
+2026-05-28T12:17:23.931Z console.error: [JavaScript Error: "Cross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource at http://127.0.0.1:8790/api/stream/cron?token=devtest. (Reason: CORS header ‘Access-Control-Allow-Origin’ missing). Status code: 200."]
+2026-05-28T12:17:23.996Z console.error: [JavaScript Error: "Firefox can’t establish a connection to the server at http://127.0.0.1:8790/api/stream/cron?token=devtest." {file: "http://127.0.0.1:3000/_next/static/chunks/_openclaw_workspace_openclaw-desktop_packages_ui_lib_c2f8ca88._.js" line: 1759}]
+2026-05-28T12:17:23.997Z console.warning: [OpenClaw frontend:stream] sse.unavailable {"url":"http://127.0.0.1:8790/api/stream/cron","readyState":"closed"}
+2026-05-28T12:17:24.023Z console.error: [JavaScript Error: "The Notification permission may only be requested from inside a short running user-generated event handler." {file: "http://127.0.0.1:3000/" line: 0}]
+2026-05-28T12:17:24.023Z console.error: [JavaScript Error: "The Notification permission may only be requested from inside a short running user-generated event handler." {file: "http://127.0.0.1:3000/" line: 0}]
+2026-05-28T12:17:26.793Z checkpoint CP1 loaded body includes OpenClaw=true Chat=true Activity=true
+2026-05-28T12:17:26.880Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_01_loaded_chat_workspace.png
+2026-05-28T12:17:26.880Z step 2 action: exercise sidebar collapse, hover preview, project rail, and reopen
+2026-05-28T12:17:27.055Z action: clicked Collapse sidebar
+2026-05-28T12:17:27.918Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_02_sidebar_collapsed.png
+2026-05-28T12:17:30.920Z warn: project rail hover failed TimeoutError: locator.hover: Timeout 3000ms exceeded.
+Call log:
+  - waiting for getByLabel(/Open project/).nth(1)
+
+2026-05-28T12:17:31.408Z console.warning: [JavaScript Warning: "The resource at “http://127.0.0.1:3000/_next/static/media/70bc3e132a0a741e-s.p.15008bfb.woff2” preloaded with link preload was not used within a few seconds. Make sure all attributes of the preload tag are set correctly." {file: "http://127.0.0.1:3000/" line: 0}]
+2026-05-28T12:17:31.408Z console.warning: [JavaScript Warning: "The resource at “http://127.0.0.1:3000/_next/static/media/797e433ab948586e-s.p.479bea2b.woff2” preloaded with link preload was not used within a few seconds. Make sure all attributes of the preload tag are set correctly." {file: "http://127.0.0.1:3000/" line: 0}]
+2026-05-28T12:17:32.186Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_03_sidebar_hover_preview.png
+2026-05-28T12:17:32.422Z action: clicked Open first project
+2026-05-28T12:17:33.992Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_04_project_switch_general.png
+2026-05-28T12:17:34.151Z action: clicked re-collapse/reopen sidebar toggle fallback
+2026-05-28T12:17:34.151Z step 3 action: switch chats repeatedly and measure visible responsiveness
+2026-05-28T12:17:34.163Z warn: no chat buttons found for switch loop
+2026-05-28T12:17:34.164Z checkpoint CP3 chat/project switch loop durationMs=13
+2026-05-28T12:17:34.277Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_05_after_chat_switch_loop.png
+2026-05-28T12:17:34.277Z step 4 action: create/use new chat and send harmless smoke prompt
+2026-05-28T12:17:36.792Z warn: could not click New chat: TimeoutError: locator.click: Timeout 2500ms exceeded.
+Call log:
+  - waiting for locator('button[title="New chat"]').first().first()
+    - locator resolved to <button type="button" 
+2026-05-28T12:17:37.859Z action: filled composer with 101 chars
+2026-05-28T12:17:37.947Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_06_composer_filled.png
+2026-05-28T12:17:38.188Z action: clicked Send message
+2026-05-28T12:17:38.726Z console.warning: [OpenClaw frontend:stream] patch-stream.bootstrap-recovery {"afterCursor":0,"replayCount":0,"replayHasMore":true}
+2026-05-28T12:17:38.726Z console.warning: [OpenClaw frontend:stream] chat.stream.recovery-decision {"windowId":"main","instanceId":null,"viewGeneration":null,"source":"patch","targetSessionKey":null,"activeSessionKey":null,"renderedSessionKey":null,"cursor":0,"requestId":null,"requestGeneration":null,"willApply":true,"reason":"replay-window-exceeded","replayCount":0,"replayHasMore":true}
+2026-05-28T12:17:38.726Z console.warning: [OpenClaw frontend:stream] chat.stream.recovery-decision {"windowId":"main","instanceId":"06f4c70d-88a0-4865-b214-18b2725b9230","viewGeneration":2,"source":"patch","targetSessionKey":null,"activeSessionKey":"agent:main:desktop:mppgklu7-r6lkl0","renderedSessionKey":"agent:main:desktop:mppgklu7-r6lkl0","cursor":0,"requestId":null,"requestGeneration":null,"willApply":true,"reason":"replay-window-exceeded"}
+2026-05-28T12:17:38.726Z console.warning: [OpenClaw frontend:stream] chat.bootstrap-recovery.reload {"sessionKey":"agent:main:desktop:mppgklu7-r6lkl0","detail":{"sessionKey":null,"reason":"replay-window-exceeded","cursor":0,"projectionGeneration":null},"windowId":"main","viewGeneration":2}
+2026-05-28T12:17:43.256Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_07_message_sent_initial_run.png
+2026-05-28T12:17:43.256Z step 5 action: test chat scroll/jump/history behavior
+2026-05-28T12:17:43.262Z diagnostic: overflow-y-auto containers=3
+2026-05-28T12:17:45.480Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_08_scrolled_up_history.png
+2026-05-28T12:17:45.488Z checkpoint CP5 visible Loading earlier messages text=false
+2026-05-28T12:17:47.091Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_09_scrolled_back_latest.png
+2026-05-28T12:17:47.092Z step 6 action: open activity/inspector tabs and switch between activity/terminal/workspace/git
+2026-05-28T12:17:47.271Z action: clicked Toggle inspector panel
+2026-05-28T12:17:48.566Z action: clicked Activity tab
+2026-05-28T12:17:49.422Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_10_activity_tab.png
+2026-05-28T12:17:51.922Z warn: could not click Workspace tab: TimeoutError: locator.waitFor: Timeout 2500ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    10 × locator resolved to hidden <span cla
+2026-05-28T12:17:52.993Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_11_workspace_tab.png
+2026-05-28T12:17:53.079Z action: clicked Git tab
+2026-05-28T12:17:54.154Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_12_git_tab.png
+2026-05-28T12:17:54.390Z action: clicked Terminal tab
+2026-05-28T12:17:55.451Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_13_terminal_tab.png
+2026-05-28T12:17:55.451Z step 7 action: sustained rapid power-user loop for remaining test window
+2026-05-28T12:17:57.109Z warn: could not click cycle 2 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:17:57.768Z action: clicked cycle 3 project rail switch
+2026-05-28T12:17:58.370Z action: clicked cycle 4 sidebar toggle
+2026-05-28T12:17:58.600Z action: clicked cycle 4 activity
+2026-05-28T12:18:00.285Z warn: could not click cycle 5 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    5 × locator resolved to hidden <span clas
+2026-05-28T12:18:02.111Z warn: could not click cycle 6 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:18:02.267Z action: clicked cycle 6 project rail switch
+2026-05-28T12:18:02.408Z action: clicked cycle 6 git
+2026-05-28T12:18:04.068Z warn: could not click cycle 7 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:18:04.696Z action: clicked cycle 8 sidebar toggle
+2026-05-28T12:18:04.848Z action: clicked cycle 8 activity
+2026-05-28T12:18:05.479Z action: clicked cycle 9 project rail switch
+2026-05-28T12:18:06.110Z action: clicked cycle 10 sidebar toggle
+2026-05-28T12:18:07.342Z warn: could not click cycle 10 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:18:07.796Z checkpoint CP7 cycle=10 elapsedMs=48515 requests=206 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:18:07.858Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_21_power_loop_cycle_10.png
+2026-05-28T12:18:09.511Z warn: could not click cycle 12 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:18:09.667Z action: clicked cycle 12 project rail switch
+2026-05-28T12:18:09.825Z action: clicked cycle 12 activity
+2026-05-28T12:18:09.957Z action: clicked cycle 12 git
+2026-05-28T12:18:11.046Z action: clicked cycle 14 sidebar toggle
+2026-05-28T12:18:12.246Z warn: could not click cycle 14 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:18:12.858Z action: clicked cycle 15 project rail switch
+2026-05-28T12:18:13.338Z action: clicked cycle 15 workspace
+2026-05-28T12:18:13.911Z action: clicked cycle 16 sidebar toggle
+2026-05-28T12:18:14.054Z action: clicked cycle 16 activity
+2026-05-28T12:18:16.187Z warn: could not click cycle 18 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:18:16.324Z action: clicked cycle 18 project rail switch
+2026-05-28T12:18:16.439Z action: clicked cycle 18 git
+2026-05-28T12:18:17.473Z action: clicked cycle 20 sidebar toggle
+2026-05-28T12:18:17.632Z action: clicked cycle 20 activity
+2026-05-28T12:18:18.833Z warn: could not click cycle 20 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:18:19.287Z checkpoint CP7 cycle=20 elapsedMs=60006 requests=214 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:18:19.358Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_22_power_loop_cycle_20.png
+2026-05-28T12:18:19.482Z action: clicked cycle 21 project rail switch
+2026-05-28T12:18:20.681Z warn: could not click cycle 21 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:18:21.263Z action: clicked cycle 22 sidebar toggle
+2026-05-28T12:18:23.383Z warn: could not click cycle 24 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:18:23.498Z action: clicked cycle 24 project rail switch
+2026-05-28T12:18:23.624Z action: clicked cycle 24 activity
+2026-05-28T12:18:23.770Z action: clicked cycle 24 git
+2026-05-28T12:18:24.404Z action: clicked cycle 25 workspace
+2026-05-28T12:18:25.021Z action: clicked cycle 26 sidebar toggle
+2026-05-28T12:18:25.649Z action: clicked cycle 27 project rail switch
+2026-05-28T12:18:26.262Z action: clicked cycle 28 sidebar toggle
+2026-05-28T12:18:26.415Z action: clicked cycle 28 activity
+2026-05-28T12:18:27.615Z warn: could not click cycle 28 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:18:29.720Z warn: could not click cycle 30 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:18:29.868Z action: clicked cycle 30 project rail switch
+2026-05-28T12:18:30.306Z action: clicked cycle 30 workspace
+2026-05-28T12:18:30.424Z action: clicked cycle 30 git
+2026-05-28T12:18:30.881Z checkpoint CP7 cycle=30 elapsedMs=71600 requests=218 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:18:30.959Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_23_power_loop_cycle_30.png
+2026-05-28T12:18:31.534Z action: clicked cycle 32 sidebar toggle
+2026-05-28T12:18:31.660Z action: clicked cycle 32 activity
+2026-05-28T12:18:32.272Z action: clicked cycle 33 project rail switch
+2026-05-28T12:18:32.872Z action: clicked cycle 34 sidebar toggle
+2026-05-28T12:18:34.528Z warn: could not click cycle 35 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:18:35.727Z warn: could not click cycle 35 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:18:36.182Z lag: cycle 35 took 2854ms
+2026-05-28T12:18:37.382Z warn: could not click cycle 36 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:18:37.568Z action: clicked cycle 36 project rail switch
+2026-05-28T12:18:37.688Z action: clicked cycle 36 activity
+2026-05-28T12:18:37.816Z action: clicked cycle 36 git
+2026-05-28T12:18:38.881Z action: clicked cycle 38 sidebar toggle
+2026-05-28T12:18:39.486Z action: clicked cycle 39 project rail switch
+2026-05-28T12:18:40.129Z action: clicked cycle 40 sidebar toggle
+2026-05-28T12:18:40.285Z action: clicked cycle 40 activity
+2026-05-28T12:18:41.486Z warn: could not click cycle 40 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:18:41.942Z checkpoint CP7 cycle=40 elapsedMs=82660 requests=226 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:18:42.010Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_24_power_loop_cycle_40.png
+2026-05-28T12:18:43.677Z warn: could not click cycle 42 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:18:43.805Z action: clicked cycle 42 project rail switch
+2026-05-28T12:18:43.938Z action: clicked cycle 42 git
+2026-05-28T12:18:45.138Z warn: could not click cycle 42 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:18:45.592Z lag: cycle 42 took 3115ms
+2026-05-28T12:18:46.181Z action: clicked cycle 44 sidebar toggle
+2026-05-28T12:18:46.336Z action: clicked cycle 44 activity
+2026-05-28T12:18:46.936Z action: clicked cycle 45 project rail switch
+2026-05-28T12:18:47.436Z action: clicked cycle 45 workspace
+2026-05-28T12:18:48.054Z action: clicked cycle 46 sidebar toggle
+2026-05-28T12:18:50.167Z warn: could not click cycle 48 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:18:50.335Z action: clicked cycle 48 project rail switch
+2026-05-28T12:18:50.446Z action: clicked cycle 48 activity
+2026-05-28T12:18:50.582Z action: clicked cycle 48 git
+2026-05-28T12:18:52.252Z warn: could not click cycle 49 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:18:52.876Z action: clicked cycle 50 sidebar toggle
+2026-05-28T12:18:54.115Z warn: could not click cycle 50 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:18:54.569Z checkpoint CP7 cycle=50 elapsedMs=95287 requests=230 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:18:54.647Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_25_power_loop_cycle_50.png
+2026-05-28T12:18:54.787Z action: clicked cycle 51 project rail switch
+2026-05-28T12:18:55.382Z action: clicked cycle 52 sidebar toggle
+2026-05-28T12:18:55.553Z action: clicked cycle 52 activity
+2026-05-28T12:18:57.693Z warn: could not click cycle 54 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:18:57.862Z action: clicked cycle 54 project rail switch
+2026-05-28T12:18:58.012Z action: clicked cycle 54 git
+2026-05-28T12:18:58.579Z action: clicked cycle 55 workspace
+2026-05-28T12:18:59.164Z action: clicked cycle 56 sidebar toggle
+2026-05-28T12:18:59.304Z action: clicked cycle 56 activity
+2026-05-28T12:19:00.504Z warn: could not click cycle 56 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:19:01.079Z action: clicked cycle 57 project rail switch
+2026-05-28T12:19:01.663Z action: clicked cycle 58 sidebar toggle
+2026-05-28T12:19:03.781Z warn: could not click cycle 60 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:19:03.898Z action: clicked cycle 60 project rail switch
+2026-05-28T12:19:04.026Z action: clicked cycle 60 activity
+2026-05-28T12:19:04.432Z action: clicked cycle 60 workspace
+2026-05-28T12:19:04.556Z action: clicked cycle 60 git
+2026-05-28T12:19:05.011Z checkpoint CP7 cycle=60 elapsedMs=105730 requests=238 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:19:05.092Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_26_power_loop_cycle_60.png
+2026-05-28T12:19:05.703Z action: clicked cycle 62 sidebar toggle
+2026-05-28T12:19:06.323Z action: clicked cycle 63 project rail switch
+2026-05-28T12:19:07.522Z warn: could not click cycle 63 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:19:08.113Z action: clicked cycle 64 sidebar toggle
+2026-05-28T12:19:08.254Z action: clicked cycle 64 activity
+2026-05-28T12:19:09.915Z warn: could not click cycle 65 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:19:11.570Z warn: could not click cycle 66 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:19:11.786Z action: clicked cycle 66 project rail switch
+2026-05-28T12:19:11.940Z action: clicked cycle 66 git
+2026-05-28T12:19:13.022Z action: clicked cycle 68 sidebar toggle
+2026-05-28T12:19:13.175Z action: clicked cycle 68 activity
+2026-05-28T12:19:13.821Z action: clicked cycle 69 project rail switch
+2026-05-28T12:19:14.429Z action: clicked cycle 70 sidebar toggle
+2026-05-28T12:19:15.657Z warn: could not click cycle 70 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:19:16.858Z warn: could not click cycle 70 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:19:17.312Z lag: cycle 70 took 3031ms
+2026-05-28T12:19:17.312Z checkpoint CP7 cycle=70 elapsedMs=118031 requests=246 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:19:17.382Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_27_power_loop_cycle_70.png
+2026-05-28T12:19:19.045Z warn: could not click cycle 72 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:19:19.207Z action: clicked cycle 72 project rail switch
+2026-05-28T12:19:19.327Z action: clicked cycle 72 activity
+2026-05-28T12:19:19.458Z action: clicked cycle 72 git
+2026-05-28T12:19:20.531Z action: clicked cycle 74 sidebar toggle
+2026-05-28T12:19:21.166Z action: clicked cycle 75 project rail switch
+2026-05-28T12:19:21.683Z action: clicked cycle 75 workspace
+2026-05-28T12:19:22.280Z action: clicked cycle 76 sidebar toggle
+2026-05-28T12:19:22.441Z action: clicked cycle 76 activity
+2026-05-28T12:19:24.101Z warn: could not click cycle 77 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:19:25.758Z warn: could not click cycle 78 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:19:25.874Z action: clicked cycle 78 project rail switch
+2026-05-28T12:19:25.995Z action: clicked cycle 78 git
+2026-05-28T12:19:27.071Z action: clicked cycle 80 sidebar toggle
+2026-05-28T12:19:27.197Z action: clicked cycle 80 activity
+2026-05-28T12:19:28.397Z warn: could not click cycle 80 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:19:28.853Z checkpoint CP7 cycle=80 elapsedMs=129571 requests=254 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:19:28.918Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_28_power_loop_cycle_80.png
+2026-05-28T12:19:29.022Z action: clicked cycle 81 project rail switch
+2026-05-28T12:19:29.584Z action: clicked cycle 82 sidebar toggle
+2026-05-28T12:19:31.697Z warn: could not click cycle 84 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:19:31.828Z action: clicked cycle 84 project rail switch
+2026-05-28T12:19:31.955Z action: clicked cycle 84 activity
+2026-05-28T12:19:32.081Z action: clicked cycle 84 git
+2026-05-28T12:19:33.280Z warn: could not click cycle 84 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:19:33.733Z lag: cycle 84 took 3236ms
+2026-05-28T12:19:33.921Z action: clicked cycle 85 workspace
+2026-05-28T12:19:34.535Z action: clicked cycle 86 sidebar toggle
+2026-05-28T12:19:35.147Z action: clicked cycle 87 project rail switch
+2026-05-28T12:19:35.777Z action: clicked cycle 88 sidebar toggle
+2026-05-28T12:19:35.917Z action: clicked cycle 88 activity
+2026-05-28T12:19:38.041Z warn: could not click cycle 90 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:19:38.186Z action: clicked cycle 90 project rail switch
+2026-05-28T12:19:38.633Z action: clicked cycle 90 workspace
+2026-05-28T12:19:38.743Z action: clicked cycle 90 git
+2026-05-28T12:19:39.211Z checkpoint CP7 cycle=90 elapsedMs=139929 requests=258 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:19:39.283Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_29_power_loop_cycle_90.png
+2026-05-28T12:19:40.483Z warn: could not click cycle 91 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:19:41.075Z action: clicked cycle 92 sidebar toggle
+2026-05-28T12:19:41.222Z action: clicked cycle 92 activity
+2026-05-28T12:19:41.847Z action: clicked cycle 93 project rail switch
+2026-05-28T12:19:42.439Z action: clicked cycle 94 sidebar toggle
+2026-05-28T12:19:44.094Z warn: could not click cycle 95 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:19:45.749Z warn: could not click cycle 96 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:19:45.935Z action: clicked cycle 96 project rail switch
+2026-05-28T12:19:46.058Z action: clicked cycle 96 activity
+2026-05-28T12:19:46.190Z action: clicked cycle 96 git
+2026-05-28T12:19:47.247Z action: clicked cycle 98 sidebar toggle
+2026-05-28T12:19:48.448Z warn: could not click cycle 98 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:19:49.017Z action: clicked cycle 99 project rail switch
+2026-05-28T12:19:49.604Z action: clicked cycle 100 sidebar toggle
+2026-05-28T12:19:49.738Z action: clicked cycle 100 activity
+2026-05-28T12:19:50.938Z warn: could not click cycle 100 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:19:51.393Z checkpoint CP7 cycle=100 elapsedMs=152111 requests=266 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:19:51.483Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_30_power_loop_cycle_100.png
+2026-05-28T12:19:53.144Z warn: could not click cycle 102 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:19:53.280Z action: clicked cycle 102 project rail switch
+2026-05-28T12:19:53.412Z action: clicked cycle 102 git
+2026-05-28T12:19:54.463Z action: clicked cycle 104 sidebar toggle
+2026-05-28T12:19:54.608Z action: clicked cycle 104 activity
+2026-05-28T12:19:55.194Z action: clicked cycle 105 project rail switch
+2026-05-28T12:19:55.689Z action: clicked cycle 105 workspace
+2026-05-28T12:19:56.889Z warn: could not click cycle 105 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:19:57.492Z action: clicked cycle 106 sidebar toggle
+2026-05-28T12:19:59.613Z warn: could not click cycle 108 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:19:59.748Z action: clicked cycle 108 project rail switch
+2026-05-28T12:19:59.890Z action: clicked cycle 108 activity
+2026-05-28T12:20:00.063Z action: clicked cycle 108 git
+2026-05-28T12:20:01.122Z action: clicked cycle 110 sidebar toggle
+2026-05-28T12:20:02.365Z warn: could not click cycle 110 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:20:02.818Z checkpoint CP7 cycle=110 elapsedMs=163537 requests=270 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:20:02.918Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_31_power_loop_cycle_110.png
+2026-05-28T12:20:03.098Z action: clicked cycle 111 project rail switch
+2026-05-28T12:20:03.702Z action: clicked cycle 112 sidebar toggle
+2026-05-28T12:20:03.849Z action: clicked cycle 112 activity
+2026-05-28T12:20:05.048Z warn: could not click cycle 112 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:20:07.156Z warn: could not click cycle 114 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:20:07.322Z action: clicked cycle 114 project rail switch
+2026-05-28T12:20:07.443Z action: clicked cycle 114 git
+2026-05-28T12:20:08.047Z action: clicked cycle 115 workspace
+2026-05-28T12:20:08.629Z action: clicked cycle 116 sidebar toggle
+2026-05-28T12:20:08.774Z action: clicked cycle 116 activity
+2026-05-28T12:20:09.402Z action: clicked cycle 117 project rail switch
+2026-05-28T12:20:09.977Z action: clicked cycle 118 sidebar toggle
+2026-05-28T12:20:11.645Z warn: could not click cycle 119 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:20:13.298Z warn: could not click cycle 120 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:20:13.474Z action: clicked cycle 120 project rail switch
+2026-05-28T12:20:13.581Z action: clicked cycle 120 activity
+2026-05-28T12:20:14.016Z action: clicked cycle 120 workspace
+2026-05-28T12:20:14.139Z action: clicked cycle 120 git
+2026-05-28T12:20:14.598Z checkpoint CP7 cycle=120 elapsedMs=175316 requests=278 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:20:14.674Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_32_power_loop_cycle_120.png
+2026-05-28T12:20:15.317Z action: clicked cycle 122 sidebar toggle
+2026-05-28T12:20:15.921Z action: clicked cycle 123 project rail switch
+2026-05-28T12:20:16.525Z action: clicked cycle 124 sidebar toggle
+2026-05-28T12:20:16.658Z action: clicked cycle 124 activity
+2026-05-28T12:20:18.345Z warn: could not click cycle 125 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:20:20.001Z warn: could not click cycle 126 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:20:20.149Z action: clicked cycle 126 project rail switch
+2026-05-28T12:20:20.281Z action: clicked cycle 126 git
+2026-05-28T12:20:21.481Z warn: could not click cycle 126 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:20:21.934Z lag: cycle 126 took 3134ms
+2026-05-28T12:20:22.566Z action: clicked cycle 128 sidebar toggle
+2026-05-28T12:20:22.722Z action: clicked cycle 128 activity
+2026-05-28T12:20:23.347Z action: clicked cycle 129 project rail switch
+2026-05-28T12:20:23.946Z action: clicked cycle 130 sidebar toggle
+2026-05-28T12:20:25.174Z warn: could not click cycle 130 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:20:25.628Z checkpoint CP7 cycle=130 elapsedMs=186346 requests=286 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:20:25.709Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_33_power_loop_cycle_130.png
+2026-05-28T12:20:27.376Z warn: could not click cycle 132 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:20:27.553Z action: clicked cycle 132 project rail switch
+2026-05-28T12:20:27.657Z action: clicked cycle 132 activity
+2026-05-28T12:20:27.795Z action: clicked cycle 132 git
+2026-05-28T12:20:29.459Z warn: could not click cycle 133 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:20:30.064Z action: clicked cycle 134 sidebar toggle
+2026-05-28T12:20:30.682Z action: clicked cycle 135 project rail switch
+2026-05-28T12:20:31.191Z action: clicked cycle 135 workspace
+2026-05-28T12:20:31.782Z action: clicked cycle 136 sidebar toggle
+2026-05-28T12:20:31.923Z action: clicked cycle 136 activity
+2026-05-28T12:20:34.034Z warn: could not click cycle 138 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:20:34.219Z action: clicked cycle 138 project rail switch
+2026-05-28T12:20:34.366Z action: clicked cycle 138 git
+2026-05-28T12:20:35.401Z action: clicked cycle 140 sidebar toggle
+2026-05-28T12:20:35.567Z action: clicked cycle 140 activity
+2026-05-28T12:20:36.767Z warn: could not click cycle 140 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:20:37.966Z warn: could not click cycle 140 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:20:38.420Z lag: cycle 140 took 3142ms
+2026-05-28T12:20:38.421Z checkpoint CP7 cycle=140 elapsedMs=199139 requests=294 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:20:38.480Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_34_power_loop_cycle_140.png
+2026-05-28T12:20:38.674Z action: clicked cycle 141 project rail switch
+2026-05-28T12:20:39.271Z action: clicked cycle 142 sidebar toggle
+2026-05-28T12:20:41.378Z warn: could not click cycle 144 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:20:41.515Z action: clicked cycle 144 project rail switch
+2026-05-28T12:20:41.626Z action: clicked cycle 144 activity
+2026-05-28T12:20:41.746Z action: clicked cycle 144 git
+2026-05-28T12:20:42.354Z action: clicked cycle 145 workspace
+2026-05-28T12:20:42.971Z action: clicked cycle 146 sidebar toggle
+2026-05-28T12:20:43.575Z action: clicked cycle 147 project rail switch
+2026-05-28T12:20:44.775Z warn: could not click cycle 147 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:20:45.405Z action: clicked cycle 148 sidebar toggle
+2026-05-28T12:20:45.537Z action: clicked cycle 148 activity
+2026-05-28T12:20:47.674Z warn: could not click cycle 150 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:20:47.824Z action: clicked cycle 150 project rail switch
+2026-05-28T12:20:48.266Z action: clicked cycle 150 workspace
+2026-05-28T12:20:48.379Z action: clicked cycle 150 git
+2026-05-28T12:20:48.845Z checkpoint CP7 cycle=150 elapsedMs=209564 requests=298 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:20:48.932Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_35_power_loop_cycle_150.png
+2026-05-28T12:20:49.508Z action: clicked cycle 152 sidebar toggle
+2026-05-28T12:20:49.669Z action: clicked cycle 152 activity
+2026-05-28T12:20:50.275Z action: clicked cycle 153 project rail switch
+2026-05-28T12:20:50.877Z action: clicked cycle 154 sidebar toggle
+2026-05-28T12:20:52.077Z warn: could not click cycle 154 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:20:53.732Z warn: could not click cycle 155 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:20:55.387Z warn: could not click cycle 156 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:20:55.604Z action: clicked cycle 156 project rail switch
+2026-05-28T12:20:55.717Z action: clicked cycle 156 activity
+2026-05-28T12:20:55.848Z action: clicked cycle 156 git
+2026-05-28T12:20:56.907Z action: clicked cycle 158 sidebar toggle
+2026-05-28T12:20:57.483Z action: clicked cycle 159 project rail switch
+2026-05-28T12:20:58.069Z action: clicked cycle 160 sidebar toggle
+2026-05-28T12:20:58.204Z action: clicked cycle 160 activity
+2026-05-28T12:20:59.405Z warn: could not click cycle 160 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:20:59.859Z checkpoint CP7 cycle=160 elapsedMs=220577 requests=306 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:20:59.921Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_36_power_loop_cycle_160.png
+2026-05-28T12:21:01.120Z warn: could not click cycle 161 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:21:02.774Z warn: could not click cycle 162 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:21:02.908Z action: clicked cycle 162 project rail switch
+2026-05-28T12:21:03.033Z action: clicked cycle 162 git
+2026-05-28T12:21:04.106Z action: clicked cycle 164 sidebar toggle
+2026-05-28T12:21:04.244Z action: clicked cycle 164 activity
+2026-05-28T12:21:04.848Z action: clicked cycle 165 project rail switch
+2026-05-28T12:21:05.472Z action: clicked cycle 165 workspace
+2026-05-28T12:21:06.082Z action: clicked cycle 166 sidebar toggle
+2026-05-28T12:21:08.199Z warn: could not click cycle 168 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:21:08.383Z action: clicked cycle 168 project rail switch
+2026-05-28T12:21:08.530Z action: clicked cycle 168 activity
+2026-05-28T12:21:08.678Z action: clicked cycle 168 git
+2026-05-28T12:21:09.877Z warn: could not click cycle 168 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:21:10.331Z lag: cycle 168 took 3332ms
+2026-05-28T12:21:10.947Z action: clicked cycle 170 sidebar toggle
+2026-05-28T12:21:12.187Z warn: could not click cycle 170 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:21:12.642Z checkpoint CP7 cycle=170 elapsedMs=233360 requests=310 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:21:12.706Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_37_power_loop_cycle_170.png
+2026-05-28T12:21:12.863Z action: clicked cycle 171 project rail switch
+2026-05-28T12:21:13.491Z action: clicked cycle 172 sidebar toggle
+2026-05-28T12:21:13.648Z action: clicked cycle 172 activity
+2026-05-28T12:21:15.767Z warn: could not click cycle 174 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:21:15.897Z action: clicked cycle 174 project rail switch
+2026-05-28T12:21:16.052Z action: clicked cycle 174 git
+2026-05-28T12:21:16.631Z action: clicked cycle 175 workspace
+2026-05-28T12:21:17.831Z warn: could not click cycle 175 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:21:18.413Z action: clicked cycle 176 sidebar toggle
+2026-05-28T12:21:18.545Z action: clicked cycle 176 activity
+2026-05-28T12:21:19.139Z action: clicked cycle 177 project rail switch
+2026-05-28T12:21:19.722Z action: clicked cycle 178 sidebar toggle
+2026-05-28T12:21:21.829Z warn: could not click cycle 180 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:21:21.952Z action: clicked cycle 180 project rail switch
+2026-05-28T12:21:22.088Z action: clicked cycle 180 activity
+2026-05-28T12:21:22.492Z action: clicked cycle 180 workspace
+2026-05-28T12:21:22.615Z action: clicked cycle 180 git
+2026-05-28T12:21:23.079Z checkpoint CP7 cycle=180 elapsedMs=243797 requests=318 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:21:23.151Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_38_power_loop_cycle_180.png
+2026-05-28T12:21:23.800Z action: clicked cycle 182 sidebar toggle
+2026-05-28T12:21:25.000Z warn: could not click cycle 182 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:21:25.614Z action: clicked cycle 183 project rail switch
+2026-05-28T12:21:26.223Z action: clicked cycle 184 sidebar toggle
+2026-05-28T12:21:26.363Z action: clicked cycle 184 activity
+2026-05-28T12:21:28.046Z warn: could not click cycle 185 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:21:29.699Z warn: could not click cycle 186 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:21:29.909Z action: clicked cycle 186 project rail switch
+2026-05-28T12:21:30.046Z action: clicked cycle 186 git
+2026-05-28T12:21:31.170Z action: clicked cycle 188 sidebar toggle
+2026-05-28T12:21:31.389Z action: clicked cycle 188 activity
+2026-05-28T12:21:32.015Z action: clicked cycle 189 project rail switch
+2026-05-28T12:21:33.215Z warn: could not click cycle 189 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:21:33.841Z action: clicked cycle 190 sidebar toggle
+2026-05-28T12:21:35.080Z warn: could not click cycle 190 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:21:35.535Z checkpoint CP7 cycle=190 elapsedMs=256252 requests=326 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:21:35.609Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_39_power_loop_cycle_190.png
+2026-05-28T12:21:37.276Z warn: could not click cycle 192 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:21:37.506Z action: clicked cycle 192 project rail switch
+2026-05-28T12:21:37.659Z action: clicked cycle 192 activity
+2026-05-28T12:21:37.801Z action: clicked cycle 192 git
+2026-05-28T12:21:38.864Z action: clicked cycle 194 sidebar toggle
+2026-05-28T12:21:39.481Z action: clicked cycle 195 project rail switch
+2026-05-28T12:21:40.016Z action: clicked cycle 195 workspace
+2026-05-28T12:21:40.619Z action: clicked cycle 196 sidebar toggle
+2026-05-28T12:21:40.776Z action: clicked cycle 196 activity
+2026-05-28T12:21:41.977Z warn: could not click cycle 196 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:21:44.085Z warn: could not click cycle 198 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:21:44.214Z action: clicked cycle 198 project rail switch
+2026-05-28T12:21:44.362Z action: clicked cycle 198 git
+2026-05-28T12:21:45.414Z action: clicked cycle 200 sidebar toggle
+2026-05-28T12:21:45.563Z action: clicked cycle 200 activity
+2026-05-28T12:21:46.762Z warn: could not click cycle 200 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:21:47.218Z checkpoint CP7 cycle=200 elapsedMs=267936 requests=334 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:21:47.294Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_40_power_loop_cycle_200.png
+2026-05-28T12:21:47.415Z action: clicked cycle 201 project rail switch
+2026-05-28T12:21:48.015Z action: clicked cycle 202 sidebar toggle
+2026-05-28T12:21:49.677Z warn: could not click cycle 203 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:21:51.334Z warn: could not click cycle 204 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:21:51.464Z action: clicked cycle 204 project rail switch
+2026-05-28T12:21:51.592Z action: clicked cycle 204 activity
+2026-05-28T12:21:51.718Z action: clicked cycle 204 git
+2026-05-28T12:21:52.365Z action: clicked cycle 205 workspace
+2026-05-28T12:21:52.992Z action: clicked cycle 206 sidebar toggle
+2026-05-28T12:21:53.620Z action: clicked cycle 207 project rail switch
+2026-05-28T12:21:54.230Z action: clicked cycle 208 sidebar toggle
+2026-05-28T12:21:54.381Z action: clicked cycle 208 activity
+2026-05-28T12:21:56.499Z warn: could not click cycle 210 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:21:56.652Z action: clicked cycle 210 project rail switch
+2026-05-28T12:21:57.168Z action: clicked cycle 210 workspace
+2026-05-28T12:21:57.281Z action: clicked cycle 210 git
+2026-05-28T12:21:58.480Z warn: could not click cycle 210 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:21:58.935Z lag: cycle 210 took 3636ms
+2026-05-28T12:21:58.936Z checkpoint CP7 cycle=210 elapsedMs=279654 requests=338 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:21:59.012Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_41_power_loop_cycle_210.png
+2026-05-28T12:21:59.613Z action: clicked cycle 212 sidebar toggle
+2026-05-28T12:21:59.768Z action: clicked cycle 212 activity
+2026-05-28T12:22:00.384Z action: clicked cycle 213 project rail switch
+2026-05-28T12:22:00.982Z action: clicked cycle 214 sidebar toggle
+2026-05-28T12:22:02.644Z warn: could not click cycle 215 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:22:04.301Z warn: could not click cycle 216 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:22:04.499Z action: clicked cycle 216 project rail switch
+2026-05-28T12:22:04.649Z action: clicked cycle 216 activity
+2026-05-28T12:22:04.782Z action: clicked cycle 216 git
+2026-05-28T12:22:06.440Z warn: could not click cycle 217 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:22:07.022Z action: clicked cycle 218 sidebar toggle
+2026-05-28T12:22:07.608Z action: clicked cycle 219 project rail switch
+2026-05-28T12:22:08.211Z action: clicked cycle 220 sidebar toggle
+2026-05-28T12:22:08.349Z action: clicked cycle 220 activity
+2026-05-28T12:22:09.550Z warn: could not click cycle 220 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:22:10.005Z checkpoint CP7 cycle=220 elapsedMs=290723 requests=346 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:22:10.071Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_42_power_loop_cycle_220.png
+2026-05-28T12:22:11.727Z warn: could not click cycle 222 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:22:11.934Z action: clicked cycle 222 project rail switch
+2026-05-28T12:22:12.087Z action: clicked cycle 222 git
+2026-05-28T12:22:13.149Z action: clicked cycle 224 sidebar toggle
+2026-05-28T12:22:13.283Z action: clicked cycle 224 activity
+2026-05-28T12:22:14.483Z warn: could not click cycle 224 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:22:15.049Z action: clicked cycle 225 project rail switch
+2026-05-28T12:22:15.568Z action: clicked cycle 225 workspace
+2026-05-28T12:22:16.206Z action: clicked cycle 226 sidebar toggle
+2026-05-28T12:22:18.316Z warn: could not click cycle 228 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:22:18.483Z action: clicked cycle 228 project rail switch
+2026-05-28T12:22:18.594Z action: clicked cycle 228 activity
+2026-05-28T12:22:18.730Z action: clicked cycle 228 git
+2026-05-28T12:22:19.790Z action: clicked cycle 230 sidebar toggle
+2026-05-28T12:22:21.015Z warn: could not click cycle 230 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:22:21.472Z checkpoint CP7 cycle=230 elapsedMs=302189 requests=350 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:22:21.530Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_43_power_loop_cycle_230.png
+2026-05-28T12:22:21.680Z action: clicked cycle 231 project rail switch
+2026-05-28T12:22:22.880Z warn: could not click cycle 231 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:22:23.480Z action: clicked cycle 232 sidebar toggle
+2026-05-28T12:22:23.633Z action: clicked cycle 232 activity
+2026-05-28T12:22:25.764Z warn: could not click cycle 234 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:22:25.907Z action: clicked cycle 234 project rail switch
+2026-05-28T12:22:26.041Z action: clicked cycle 234 git
+2026-05-28T12:22:26.579Z action: clicked cycle 235 workspace
+2026-05-28T12:22:27.159Z action: clicked cycle 236 sidebar toggle
+2026-05-28T12:22:27.300Z action: clicked cycle 236 activity
+2026-05-28T12:22:27.890Z action: clicked cycle 237 project rail switch
+2026-05-28T12:22:28.483Z action: clicked cycle 238 sidebar toggle
+2026-05-28T12:22:29.682Z warn: could not click cycle 238 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:22:31.789Z warn: could not click cycle 240 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:22:31.915Z action: clicked cycle 240 project rail switch
+2026-05-28T12:22:32.028Z action: clicked cycle 240 activity
+2026-05-28T12:22:32.455Z action: clicked cycle 240 workspace
+2026-05-28T12:22:32.589Z action: clicked cycle 240 git
+2026-05-28T12:22:33.046Z checkpoint CP7 cycle=240 elapsedMs=313764 requests=358 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:22:33.129Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_44_power_loop_cycle_240.png
+2026-05-28T12:22:33.754Z action: clicked cycle 242 sidebar toggle
+2026-05-28T12:22:34.352Z action: clicked cycle 243 project rail switch
+2026-05-28T12:22:34.958Z action: clicked cycle 244 sidebar toggle
+2026-05-28T12:22:35.111Z action: clicked cycle 244 activity
+2026-05-28T12:22:36.782Z warn: could not click cycle 245 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:22:37.982Z warn: could not click cycle 245 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:22:38.435Z lag: cycle 245 took 2853ms
+2026-05-28T12:22:39.636Z warn: could not click cycle 246 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:22:39.870Z action: clicked cycle 246 project rail switch
+2026-05-28T12:22:40.012Z action: clicked cycle 246 git
+2026-05-28T12:22:41.230Z action: clicked cycle 248 sidebar toggle
+2026-05-28T12:22:41.393Z action: clicked cycle 248 activity
+2026-05-28T12:22:42.042Z action: clicked cycle 249 project rail switch
+2026-05-28T12:22:42.649Z action: clicked cycle 250 sidebar toggle
+2026-05-28T12:22:43.882Z warn: could not click cycle 250 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:22:44.337Z checkpoint CP7 cycle=250 elapsedMs=325055 requests=366 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:22:44.403Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_45_power_loop_cycle_250.png
+2026-05-28T12:22:46.060Z warn: could not click cycle 252 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:22:46.226Z action: clicked cycle 252 project rail switch
+2026-05-28T12:22:46.358Z action: clicked cycle 252 activity
+2026-05-28T12:22:46.488Z action: clicked cycle 252 git
+2026-05-28T12:22:47.688Z warn: could not click cycle 252 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:22:48.143Z lag: cycle 252 took 3282ms
+2026-05-28T12:22:48.739Z action: clicked cycle 254 sidebar toggle
+2026-05-28T12:22:49.335Z action: clicked cycle 255 project rail switch
+2026-05-28T12:22:49.768Z action: clicked cycle 255 workspace
+2026-05-28T12:22:50.337Z action: clicked cycle 256 sidebar toggle
+2026-05-28T12:22:50.497Z action: clicked cycle 256 activity
+2026-05-28T12:22:52.637Z warn: could not click cycle 258 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:22:52.741Z action: clicked cycle 258 project rail switch
+2026-05-28T12:22:52.859Z action: clicked cycle 258 git
+2026-05-28T12:22:54.516Z warn: could not click cycle 259 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:22:55.079Z action: clicked cycle 260 sidebar toggle
+2026-05-28T12:22:55.232Z action: clicked cycle 260 activity
+2026-05-28T12:22:56.433Z warn: could not click cycle 260 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:22:56.888Z checkpoint CP7 cycle=260 elapsedMs=337606 requests=374 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:22:56.954Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_46_power_loop_cycle_260.png
+2026-05-28T12:22:57.077Z action: clicked cycle 261 project rail switch
+2026-05-28T12:22:57.669Z action: clicked cycle 262 sidebar toggle
+2026-05-28T12:22:59.800Z warn: could not click cycle 264 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:22:59.913Z action: clicked cycle 264 project rail switch
+2026-05-28T12:23:00.036Z action: clicked cycle 264 activity
+2026-05-28T12:23:00.186Z action: clicked cycle 264 git
+2026-05-28T12:23:00.823Z action: clicked cycle 265 workspace
+2026-05-28T12:23:01.417Z action: clicked cycle 266 sidebar toggle
+2026-05-28T12:23:02.616Z warn: could not click cycle 266 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:23:03.216Z action: clicked cycle 267 project rail switch
+2026-05-28T12:23:03.818Z action: clicked cycle 268 sidebar toggle
+2026-05-28T12:23:03.983Z action: clicked cycle 268 activity
+2026-05-28T12:23:06.099Z warn: could not click cycle 270 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:23:06.353Z action: clicked cycle 270 project rail switch
+2026-05-28T12:23:06.887Z action: clicked cycle 270 workspace
+2026-05-28T12:23:07.020Z action: clicked cycle 270 git
+2026-05-28T12:23:07.477Z lag: cycle 270 took 2577ms
+2026-05-28T12:23:07.478Z checkpoint CP7 cycle=270 elapsedMs=348196 requests=378 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:23:07.548Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_47_power_loop_cycle_270.png
+2026-05-28T12:23:08.154Z action: clicked cycle 272 sidebar toggle
+2026-05-28T12:23:08.336Z action: clicked cycle 272 activity
+2026-05-28T12:23:08.930Z action: clicked cycle 273 project rail switch
+2026-05-28T12:23:10.131Z warn: could not click cycle 273 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:23:10.715Z action: clicked cycle 274 sidebar toggle
+2026-05-28T12:23:12.376Z warn: could not click cycle 275 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:23:14.030Z warn: could not click cycle 276 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:23:14.159Z action: clicked cycle 276 project rail switch
+2026-05-28T12:23:14.283Z action: clicked cycle 276 activity
+2026-05-28T12:23:14.446Z action: clicked cycle 276 git
+2026-05-28T12:23:15.481Z action: clicked cycle 278 sidebar toggle
+2026-05-28T12:23:16.075Z action: clicked cycle 279 project rail switch
+2026-05-28T12:23:16.681Z action: clicked cycle 280 sidebar toggle
+2026-05-28T12:23:16.817Z action: clicked cycle 280 activity
+2026-05-28T12:23:18.018Z warn: could not click cycle 280 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:23:19.218Z warn: could not click cycle 280 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:23:19.673Z lag: cycle 280 took 3111ms
+2026-05-28T12:23:19.675Z checkpoint CP7 cycle=280 elapsedMs=360392 requests=386 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:23:19.753Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_48_power_loop_cycle_280.png
+2026-05-28T12:23:21.412Z warn: could not click cycle 282 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:23:21.595Z action: clicked cycle 282 project rail switch
+2026-05-28T12:23:21.729Z action: clicked cycle 282 git
+2026-05-28T12:23:22.802Z action: clicked cycle 284 sidebar toggle
+2026-05-28T12:23:22.954Z action: clicked cycle 284 activity
+2026-05-28T12:23:23.611Z action: clicked cycle 285 project rail switch
+2026-05-28T12:23:24.172Z action: clicked cycle 285 workspace
+2026-05-28T12:23:24.804Z action: clicked cycle 286 sidebar toggle
+2026-05-28T12:23:26.460Z warn: could not click cycle 287 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:23:28.115Z warn: could not click cycle 288 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:23:28.257Z action: clicked cycle 288 project rail switch
+2026-05-28T12:23:28.376Z action: clicked cycle 288 activity
+2026-05-28T12:23:28.516Z action: clicked cycle 288 git
+2026-05-28T12:23:29.572Z action: clicked cycle 290 sidebar toggle
+2026-05-28T12:23:30.797Z warn: could not click cycle 290 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:23:31.250Z checkpoint CP7 cycle=290 elapsedMs=371968 requests=390 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:23:31.315Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_49_power_loop_cycle_290.png
+2026-05-28T12:23:31.458Z action: clicked cycle 291 project rail switch
+2026-05-28T12:23:32.100Z action: clicked cycle 292 sidebar toggle
+2026-05-28T12:23:32.258Z action: clicked cycle 292 activity
+2026-05-28T12:23:34.383Z warn: could not click cycle 294 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:23:34.533Z action: clicked cycle 294 project rail switch
+2026-05-28T12:23:34.706Z action: clicked cycle 294 git
+2026-05-28T12:23:35.906Z warn: could not click cycle 294 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:23:36.360Z lag: cycle 294 took 3176ms
+2026-05-28T12:23:36.463Z action: clicked cycle 295 workspace
+2026-05-28T12:23:37.064Z action: clicked cycle 296 sidebar toggle
+2026-05-28T12:23:37.207Z action: clicked cycle 296 activity
+2026-05-28T12:23:37.799Z action: clicked cycle 297 project rail switch
+2026-05-28T12:23:38.379Z action: clicked cycle 298 sidebar toggle
+2026-05-28T12:23:40.498Z warn: could not click cycle 300 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:23:40.617Z action: clicked cycle 300 project rail switch
+2026-05-28T12:23:40.731Z action: clicked cycle 300 activity
+2026-05-28T12:23:41.133Z action: clicked cycle 300 workspace
+2026-05-28T12:23:41.248Z action: clicked cycle 300 git
+2026-05-28T12:23:41.712Z checkpoint CP7 cycle=300 elapsedMs=382430 requests=398 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:23:41.778Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_50_power_loop_cycle_300.png
+2026-05-28T12:23:42.978Z warn: could not click cycle 301 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:23:43.566Z action: clicked cycle 302 sidebar toggle
+2026-05-28T12:23:44.158Z action: clicked cycle 303 project rail switch
+2026-05-28T12:23:44.822Z action: clicked cycle 304 sidebar toggle
+2026-05-28T12:23:45.003Z action: clicked cycle 304 activity
+2026-05-28T12:23:46.671Z warn: could not click cycle 305 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:23:48.326Z warn: could not click cycle 306 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:23:48.485Z action: clicked cycle 306 project rail switch
+2026-05-28T12:23:48.606Z action: clicked cycle 306 git
+2026-05-28T12:23:49.682Z action: clicked cycle 308 sidebar toggle
+2026-05-28T12:23:49.813Z action: clicked cycle 308 activity
+2026-05-28T12:23:51.014Z warn: could not click cycle 308 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:23:51.598Z action: clicked cycle 309 project rail switch
+2026-05-28T12:23:52.283Z action: clicked cycle 310 sidebar toggle
+2026-05-28T12:23:53.513Z warn: could not click cycle 310 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:23:53.969Z checkpoint CP7 cycle=310 elapsedMs=394687 requests=406 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:23:54.039Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_51_power_loop_cycle_310.png
+2026-05-28T12:23:55.694Z warn: could not click cycle 312 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:23:55.853Z action: clicked cycle 312 project rail switch
+2026-05-28T12:23:55.998Z action: clicked cycle 312 activity
+2026-05-28T12:23:56.131Z action: clicked cycle 312 git
+2026-05-28T12:23:57.204Z action: clicked cycle 314 sidebar toggle
+2026-05-28T12:23:57.815Z action: clicked cycle 315 project rail switch
+2026-05-28T12:23:58.284Z action: clicked cycle 315 workspace
+2026-05-28T12:23:59.484Z warn: could not click cycle 315 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:24:00.072Z action: clicked cycle 316 sidebar toggle
+2026-05-28T12:24:00.197Z action: clicked cycle 316 activity
+2026-05-28T12:24:02.347Z warn: could not click cycle 318 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:24:02.482Z action: clicked cycle 318 project rail switch
+2026-05-28T12:24:02.603Z action: clicked cycle 318 git
+2026-05-28T12:24:03.647Z action: clicked cycle 320 sidebar toggle
+2026-05-28T12:24:03.766Z action: clicked cycle 320 activity
+2026-05-28T12:24:04.966Z warn: could not click cycle 320 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:24:05.422Z checkpoint CP7 cycle=320 elapsedMs=406139 requests=414 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:24:05.500Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_52_power_loop_cycle_320.png
+2026-05-28T12:24:05.641Z action: clicked cycle 321 project rail switch
+2026-05-28T12:24:06.229Z action: clicked cycle 322 sidebar toggle
+2026-05-28T12:24:07.429Z warn: could not click cycle 322 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:24:09.536Z warn: could not click cycle 324 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:24:09.642Z action: clicked cycle 324 project rail switch
+2026-05-28T12:24:09.774Z action: clicked cycle 324 activity
+2026-05-28T12:24:09.897Z action: clicked cycle 324 git
+2026-05-28T12:24:10.525Z action: clicked cycle 325 workspace
+2026-05-28T12:24:11.148Z action: clicked cycle 326 sidebar toggle
+2026-05-28T12:24:11.755Z action: clicked cycle 327 project rail switch
+2026-05-28T12:24:12.371Z action: clicked cycle 328 sidebar toggle
+2026-05-28T12:24:12.522Z action: clicked cycle 328 activity
+2026-05-28T12:24:14.180Z warn: could not click cycle 329 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:24:15.835Z warn: could not click cycle 330 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:24:16.021Z action: clicked cycle 330 project rail switch
+2026-05-28T12:24:16.476Z action: clicked cycle 330 workspace
+2026-05-28T12:24:16.597Z action: clicked cycle 330 git
+2026-05-28T12:24:17.062Z checkpoint CP7 cycle=330 elapsedMs=417780 requests=418 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:24:17.143Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_53_power_loop_cycle_330.png
+2026-05-28T12:24:17.733Z action: clicked cycle 332 sidebar toggle
+2026-05-28T12:24:17.878Z action: clicked cycle 332 activity
+2026-05-28T12:24:18.494Z action: clicked cycle 333 project rail switch
+2026-05-28T12:24:19.098Z action: clicked cycle 334 sidebar toggle
+2026-05-28T12:24:20.761Z warn: could not click cycle 335 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:24:22.416Z warn: could not click cycle 336 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:24:22.528Z action: clicked cycle 336 project rail switch
+2026-05-28T12:24:22.646Z action: clicked cycle 336 activity
+2026-05-28T12:24:22.773Z action: clicked cycle 336 git
+2026-05-28T12:24:23.973Z warn: could not click cycle 336 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:24:24.427Z lag: cycle 336 took 3211ms
+2026-05-28T12:24:25.002Z action: clicked cycle 338 sidebar toggle
+2026-05-28T12:24:25.669Z action: clicked cycle 339 project rail switch
+2026-05-28T12:24:26.264Z action: clicked cycle 340 sidebar toggle
+2026-05-28T12:24:26.423Z action: clicked cycle 340 activity
+2026-05-28T12:24:27.624Z warn: could not click cycle 340 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:24:28.081Z checkpoint CP7 cycle=340 elapsedMs=428798 requests=426 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:24:28.154Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_54_power_loop_cycle_340.png
+2026-05-28T12:24:29.811Z warn: could not click cycle 342 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:24:29.984Z action: clicked cycle 342 project rail switch
+2026-05-28T12:24:30.119Z action: clicked cycle 342 git
+2026-05-28T12:24:31.783Z warn: could not click cycle 343 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:24:32.373Z action: clicked cycle 344 sidebar toggle
+2026-05-28T12:24:32.517Z action: clicked cycle 344 activity
+2026-05-28T12:24:33.112Z action: clicked cycle 345 project rail switch
+2026-05-28T12:24:33.693Z action: clicked cycle 345 workspace
+2026-05-28T12:24:34.319Z action: clicked cycle 346 sidebar toggle
+2026-05-28T12:24:36.430Z warn: could not click cycle 348 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:24:36.621Z action: clicked cycle 348 project rail switch
+2026-05-28T12:24:36.765Z action: clicked cycle 348 activity
+2026-05-28T12:24:36.903Z action: clicked cycle 348 git
+2026-05-28T12:24:37.952Z action: clicked cycle 350 sidebar toggle
+2026-05-28T12:24:39.177Z warn: could not click cycle 350 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:24:40.377Z warn: could not click cycle 350 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:24:40.831Z lag: cycle 350 took 3016ms
+2026-05-28T12:24:40.832Z checkpoint CP7 cycle=350 elapsedMs=441550 requests=430 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:24:40.891Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_55_power_loop_cycle_350.png
+2026-05-28T12:24:41.046Z action: clicked cycle 351 project rail switch
+2026-05-28T12:24:41.650Z action: clicked cycle 352 sidebar toggle
+2026-05-28T12:24:41.783Z action: clicked cycle 352 activity
+2026-05-28T12:24:43.922Z warn: could not click cycle 354 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:24:44.118Z action: clicked cycle 354 project rail switch
+2026-05-28T12:24:44.281Z action: clicked cycle 354 git
+2026-05-28T12:24:44.869Z action: clicked cycle 355 workspace
+2026-05-28T12:24:45.456Z action: clicked cycle 356 sidebar toggle
+2026-05-28T12:24:45.597Z action: clicked cycle 356 activity
+2026-05-28T12:24:46.178Z action: clicked cycle 357 project rail switch
+2026-05-28T12:24:47.378Z warn: could not click cycle 357 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:24:47.961Z action: clicked cycle 358 sidebar toggle
+2026-05-28T12:24:50.082Z warn: could not click cycle 360 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:24:50.195Z action: clicked cycle 360 project rail switch
+2026-05-28T12:24:50.320Z action: clicked cycle 360 activity
+2026-05-28T12:24:50.731Z action: clicked cycle 360 workspace
+2026-05-28T12:24:50.841Z action: clicked cycle 360 git
+2026-05-28T12:24:51.312Z checkpoint CP7 cycle=360 elapsedMs=452029 requests=438 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:24:51.383Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_56_power_loop_cycle_360.png
+2026-05-28T12:24:52.000Z action: clicked cycle 362 sidebar toggle
+2026-05-28T12:24:52.607Z action: clicked cycle 363 project rail switch
+2026-05-28T12:24:53.197Z action: clicked cycle 364 sidebar toggle
+2026-05-28T12:24:53.337Z action: clicked cycle 364 activity
+2026-05-28T12:24:54.538Z warn: could not click cycle 364 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:24:56.192Z warn: could not click cycle 365 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:24:57.847Z warn: could not click cycle 366 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:24:57.989Z action: clicked cycle 366 project rail switch
+2026-05-28T12:24:58.106Z action: clicked cycle 366 git
+2026-05-28T12:24:59.182Z action: clicked cycle 368 sidebar toggle
+2026-05-28T12:24:59.322Z action: clicked cycle 368 activity
+2026-05-28T12:24:59.963Z action: clicked cycle 369 project rail switch
+2026-05-28T12:25:00.598Z action: clicked cycle 370 sidebar toggle
+2026-05-28T12:25:01.834Z warn: could not click cycle 370 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:25:02.290Z checkpoint CP7 cycle=370 elapsedMs=463008 requests=446 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:25:02.352Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_57_power_loop_cycle_370.png
+2026-05-28T12:25:03.551Z warn: could not click cycle 371 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:25:05.205Z warn: could not click cycle 372 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:25:05.451Z action: clicked cycle 372 project rail switch
+2026-05-28T12:25:05.562Z action: clicked cycle 372 activity
+2026-05-28T12:25:05.735Z action: clicked cycle 372 git
+2026-05-28T12:25:06.812Z action: clicked cycle 374 sidebar toggle
+2026-05-28T12:25:07.448Z action: clicked cycle 375 project rail switch
+2026-05-28T12:25:07.902Z action: clicked cycle 375 workspace
+2026-05-28T12:25:08.495Z action: clicked cycle 376 sidebar toggle
+2026-05-28T12:25:08.657Z action: clicked cycle 376 activity
+2026-05-28T12:25:10.808Z warn: could not click cycle 378 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:25:10.938Z action: clicked cycle 378 project rail switch
+2026-05-28T12:25:11.075Z action: clicked cycle 378 git
+2026-05-28T12:25:12.277Z warn: could not click cycle 378 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:25:12.730Z lag: cycle 378 took 3121ms
+2026-05-28T12:25:13.307Z action: clicked cycle 380 sidebar toggle
+2026-05-28T12:25:13.447Z action: clicked cycle 380 activity
+2026-05-28T12:25:14.647Z warn: could not click cycle 380 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:25:15.104Z checkpoint CP7 cycle=380 elapsedMs=475821 requests=454 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:25:15.165Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_58_power_loop_cycle_380.png
+2026-05-28T12:25:15.279Z action: clicked cycle 381 project rail switch
+2026-05-28T12:25:15.862Z action: clicked cycle 382 sidebar toggle
+2026-05-28T12:25:17.981Z warn: could not click cycle 384 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:25:18.102Z action: clicked cycle 384 project rail switch
+2026-05-28T12:25:18.217Z action: clicked cycle 384 activity
+2026-05-28T12:25:18.343Z action: clicked cycle 384 git
+2026-05-28T12:25:18.983Z action: clicked cycle 385 workspace
+2026-05-28T12:25:20.183Z warn: could not click cycle 385 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:25:20.795Z action: clicked cycle 386 sidebar toggle
+2026-05-28T12:25:21.419Z action: clicked cycle 387 project rail switch
+2026-05-28T12:25:22.024Z action: clicked cycle 388 sidebar toggle
+2026-05-28T12:25:22.168Z action: clicked cycle 388 activity
+2026-05-28T12:25:24.301Z warn: could not click cycle 390 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:25:24.436Z action: clicked cycle 390 project rail switch
+2026-05-28T12:25:24.964Z action: clicked cycle 390 workspace
+2026-05-28T12:25:25.085Z action: clicked cycle 390 git
+2026-05-28T12:25:25.546Z checkpoint CP7 cycle=390 elapsedMs=486263 requests=458 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:25:25.616Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_59_power_loop_cycle_390.png
+2026-05-28T12:25:26.208Z action: clicked cycle 392 sidebar toggle
+2026-05-28T12:25:26.330Z action: clicked cycle 392 activity
+2026-05-28T12:25:27.531Z warn: could not click cycle 392 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:25:28.093Z action: clicked cycle 393 project rail switch
+2026-05-28T12:25:28.682Z action: clicked cycle 394 sidebar toggle
+2026-05-28T12:25:30.344Z warn: could not click cycle 395 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:25:32.001Z warn: could not click cycle 396 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:25:32.131Z action: clicked cycle 396 project rail switch
+2026-05-28T12:25:32.264Z action: clicked cycle 396 activity
+2026-05-28T12:25:32.389Z action: clicked cycle 396 git
+2026-05-28T12:25:33.432Z action: clicked cycle 398 sidebar toggle
+2026-05-28T12:25:34.025Z action: clicked cycle 399 project rail switch
+2026-05-28T12:25:35.227Z warn: could not click cycle 399 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:25:35.802Z action: clicked cycle 400 sidebar toggle
+2026-05-28T12:25:35.934Z action: clicked cycle 400 activity
+2026-05-28T12:25:37.133Z warn: could not click cycle 400 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:25:37.589Z checkpoint CP7 cycle=400 elapsedMs=498306 requests=466 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:25:37.660Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_60_power_loop_cycle_400.png
+2026-05-28T12:25:39.328Z warn: could not click cycle 402 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:25:39.516Z action: clicked cycle 402 project rail switch
+2026-05-28T12:25:39.658Z action: clicked cycle 402 git
+2026-05-28T12:25:40.726Z action: clicked cycle 404 sidebar toggle
+2026-05-28T12:25:40.887Z action: clicked cycle 404 activity
+2026-05-28T12:25:41.463Z action: clicked cycle 405 project rail switch
+2026-05-28T12:25:41.969Z action: clicked cycle 405 workspace
+2026-05-28T12:25:42.584Z action: clicked cycle 406 sidebar toggle
+2026-05-28T12:25:43.784Z warn: could not click cycle 406 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:25:45.893Z warn: could not click cycle 408 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:25:46.043Z action: clicked cycle 408 project rail switch
+2026-05-28T12:25:46.173Z action: clicked cycle 408 activity
+2026-05-28T12:25:46.314Z action: clicked cycle 408 git
+2026-05-28T12:25:47.412Z action: clicked cycle 410 sidebar toggle
+2026-05-28T12:25:48.646Z warn: could not click cycle 410 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:25:49.101Z checkpoint CP7 cycle=410 elapsedMs=509818 requests=470 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:25:49.162Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_61_power_loop_cycle_410.png
+2026-05-28T12:25:49.315Z action: clicked cycle 411 project rail switch
+2026-05-28T12:25:49.932Z action: clicked cycle 412 sidebar toggle
+2026-05-28T12:25:50.091Z action: clicked cycle 412 activity
+2026-05-28T12:25:51.751Z warn: could not click cycle 413 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:25:53.404Z warn: could not click cycle 414 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:25:53.567Z action: clicked cycle 414 project rail switch
+2026-05-28T12:25:53.728Z action: clicked cycle 414 git
+2026-05-28T12:25:54.293Z action: clicked cycle 415 workspace
+2026-05-28T12:25:54.880Z action: clicked cycle 416 sidebar toggle
+2026-05-28T12:25:55.051Z action: clicked cycle 416 activity
+2026-05-28T12:25:55.656Z action: clicked cycle 417 project rail switch
+2026-05-28T12:25:56.239Z action: clicked cycle 418 sidebar toggle
+2026-05-28T12:25:58.347Z warn: could not click cycle 420 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:25:58.465Z action: clicked cycle 420 project rail switch
+2026-05-28T12:25:58.576Z action: clicked cycle 420 activity
+2026-05-28T12:25:58.996Z action: clicked cycle 420 workspace
+2026-05-28T12:25:59.126Z action: clicked cycle 420 git
+2026-05-28T12:26:00.326Z warn: could not click cycle 420 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:26:00.781Z lag: cycle 420 took 3633ms
+2026-05-28T12:26:00.784Z checkpoint CP7 cycle=420 elapsedMs=521501 requests=478 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:26:00.864Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_62_power_loop_cycle_420.png
+2026-05-28T12:26:01.472Z action: clicked cycle 422 sidebar toggle
+2026-05-28T12:26:02.095Z action: clicked cycle 423 project rail switch
+2026-05-28T12:26:02.722Z action: clicked cycle 424 sidebar toggle
+2026-05-28T12:26:02.858Z action: clicked cycle 424 activity
+2026-05-28T12:26:04.535Z warn: could not click cycle 425 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:26:06.188Z warn: could not click cycle 426 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:26:06.348Z action: clicked cycle 426 project rail switch
+2026-05-28T12:26:06.493Z action: clicked cycle 426 git
+2026-05-28T12:26:08.151Z warn: could not click cycle 427 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:26:08.754Z action: clicked cycle 428 sidebar toggle
+2026-05-28T12:26:08.904Z action: clicked cycle 428 activity
+2026-05-28T12:26:09.518Z action: clicked cycle 429 project rail switch
+2026-05-28T12:26:10.120Z action: clicked cycle 430 sidebar toggle
+2026-05-28T12:26:11.354Z warn: could not click cycle 430 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:26:11.809Z checkpoint CP7 cycle=430 elapsedMs=532527 requests=486 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:26:11.879Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_63_power_loop_cycle_430.png
+2026-05-28T12:26:13.544Z warn: could not click cycle 432 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:26:13.772Z action: clicked cycle 432 project rail switch
+2026-05-28T12:26:13.918Z action: clicked cycle 432 activity
+2026-05-28T12:26:14.090Z action: clicked cycle 432 git
+2026-05-28T12:26:15.165Z action: clicked cycle 434 sidebar toggle
+2026-05-28T12:26:16.365Z warn: could not click cycle 434 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:26:16.975Z action: clicked cycle 435 project rail switch
+2026-05-28T12:26:17.433Z action: clicked cycle 435 workspace
+2026-05-28T12:26:18.047Z action: clicked cycle 436 sidebar toggle
+2026-05-28T12:26:18.214Z action: clicked cycle 436 activity
+2026-05-28T12:26:20.335Z warn: could not click cycle 438 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:26:20.511Z action: clicked cycle 438 project rail switch
+2026-05-28T12:26:20.646Z action: clicked cycle 438 git
+2026-05-28T12:26:21.698Z action: clicked cycle 440 sidebar toggle
+2026-05-28T12:26:21.837Z action: clicked cycle 440 activity
+2026-05-28T12:26:23.038Z warn: could not click cycle 440 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:26:23.494Z checkpoint CP7 cycle=440 elapsedMs=544211 requests=494 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:26:23.559Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_64_power_loop_cycle_440.png
+2026-05-28T12:26:23.706Z action: clicked cycle 441 project rail switch
+2026-05-28T12:26:24.905Z warn: could not click cycle 441 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:26:25.502Z action: clicked cycle 442 sidebar toggle
+2026-05-28T12:26:27.614Z warn: could not click cycle 444 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:26:27.755Z action: clicked cycle 444 project rail switch
+2026-05-28T12:26:27.871Z action: clicked cycle 444 activity
+2026-05-28T12:26:27.988Z action: clicked cycle 444 git
+2026-05-28T12:26:28.646Z action: clicked cycle 445 workspace
+2026-05-28T12:26:29.263Z action: clicked cycle 446 sidebar toggle
+2026-05-28T12:26:29.914Z action: clicked cycle 447 project rail switch
+2026-05-28T12:26:30.530Z action: clicked cycle 448 sidebar toggle
+2026-05-28T12:26:30.670Z action: clicked cycle 448 activity
+2026-05-28T12:26:31.870Z warn: could not click cycle 448 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:26:33.978Z warn: could not click cycle 450 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:26:34.136Z action: clicked cycle 450 project rail switch
+2026-05-28T12:26:34.666Z action: clicked cycle 450 workspace
+2026-05-28T12:26:34.775Z action: clicked cycle 450 git
+2026-05-28T12:26:35.247Z checkpoint CP7 cycle=450 elapsedMs=555964 requests=498 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:26:35.315Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_65_power_loop_cycle_450.png
+2026-05-28T12:26:35.898Z action: clicked cycle 452 sidebar toggle
+2026-05-28T12:26:36.027Z action: clicked cycle 452 activity
+2026-05-28T12:26:36.628Z action: clicked cycle 453 project rail switch
+2026-05-28T12:26:37.230Z action: clicked cycle 454 sidebar toggle
+2026-05-28T12:26:38.894Z warn: could not click cycle 455 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:26:40.094Z warn: could not click cycle 455 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:26:40.548Z lag: cycle 455 took 2854ms
+2026-05-28T12:26:41.749Z warn: could not click cycle 456 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:26:41.936Z action: clicked cycle 456 project rail switch
+2026-05-28T12:26:42.060Z action: clicked cycle 456 activity
+2026-05-28T12:26:42.189Z action: clicked cycle 456 git
+2026-05-28T12:26:43.225Z action: clicked cycle 458 sidebar toggle
+2026-05-28T12:26:43.845Z action: clicked cycle 459 project rail switch
+2026-05-28T12:26:44.432Z action: clicked cycle 460 sidebar toggle
+2026-05-28T12:26:44.581Z action: clicked cycle 460 activity
+2026-05-28T12:26:45.781Z warn: could not click cycle 460 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:26:46.237Z checkpoint CP7 cycle=460 elapsedMs=566954 requests=506 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:26:46.302Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_66_power_loop_cycle_460.png
+2026-05-28T12:26:47.961Z warn: could not click cycle 462 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:26:48.084Z action: clicked cycle 462 project rail switch
+2026-05-28T12:26:48.213Z action: clicked cycle 462 git
+2026-05-28T12:26:49.413Z warn: could not click cycle 462 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:26:49.868Z lag: cycle 462 took 3107ms
+2026-05-28T12:26:50.549Z action: clicked cycle 464 sidebar toggle
+2026-05-28T12:26:50.688Z action: clicked cycle 464 activity
+2026-05-28T12:26:51.288Z action: clicked cycle 465 project rail switch
+2026-05-28T12:26:51.827Z action: clicked cycle 465 workspace
+2026-05-28T12:26:52.436Z action: clicked cycle 466 sidebar toggle
+2026-05-28T12:26:54.548Z warn: could not click cycle 468 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:26:54.738Z action: clicked cycle 468 project rail switch
+2026-05-28T12:26:54.932Z action: clicked cycle 468 activity
+2026-05-28T12:26:55.082Z action: clicked cycle 468 git
+2026-05-28T12:26:56.762Z warn: could not click cycle 469 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:26:57.372Z action: clicked cycle 470 sidebar toggle
+2026-05-28T12:26:58.599Z warn: could not click cycle 470 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:26:59.055Z checkpoint CP7 cycle=470 elapsedMs=579771 requests=510 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:26:59.128Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_67_power_loop_cycle_470.png
+2026-05-28T12:26:59.290Z action: clicked cycle 471 project rail switch
+2026-05-28T12:26:59.916Z action: clicked cycle 472 sidebar toggle
+2026-05-28T12:27:00.091Z action: clicked cycle 472 activity
+2026-05-28T12:27:02.232Z warn: could not click cycle 474 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:27:02.473Z action: clicked cycle 474 project rail switch
+2026-05-28T12:27:02.640Z action: clicked cycle 474 git
+2026-05-28T12:27:03.233Z action: clicked cycle 475 workspace
+2026-05-28T12:27:03.824Z action: clicked cycle 476 sidebar toggle
+2026-05-28T12:27:04.002Z action: clicked cycle 476 activity
+2026-05-28T12:27:05.202Z warn: could not click cycle 476 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:27:05.789Z action: clicked cycle 477 project rail switch
+2026-05-28T12:27:06.384Z action: clicked cycle 478 sidebar toggle
+2026-05-28T12:27:08.498Z warn: could not click cycle 480 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:27:08.641Z action: clicked cycle 480 project rail switch
+2026-05-28T12:27:08.747Z action: clicked cycle 480 activity
+2026-05-28T12:27:09.191Z action: clicked cycle 480 workspace
+2026-05-28T12:27:09.318Z action: clicked cycle 480 git
+2026-05-28T12:27:09.779Z checkpoint CP7 cycle=480 elapsedMs=590496 requests=518 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:27:09.844Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_68_power_loop_cycle_480.png
+2026-05-28T12:27:10.464Z action: clicked cycle 482 sidebar toggle
+2026-05-28T12:27:11.074Z action: clicked cycle 483 project rail switch
+2026-05-28T12:27:12.274Z warn: could not click cycle 483 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:27:12.878Z action: clicked cycle 484 sidebar toggle
+2026-05-28T12:27:13.021Z action: clicked cycle 484 activity
+2026-05-28T12:27:14.693Z warn: could not click cycle 485 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:27:16.347Z warn: could not click cycle 486 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:27:16.498Z action: clicked cycle 486 project rail switch
+2026-05-28T12:27:16.677Z action: clicked cycle 486 git
+2026-05-28T12:27:17.748Z action: clicked cycle 488 sidebar toggle
+2026-05-28T12:27:17.900Z action: clicked cycle 488 activity
+2026-05-28T12:27:18.505Z action: clicked cycle 489 project rail switch
+2026-05-28T12:27:19.182Z action: clicked cycle 490 sidebar toggle
+2026-05-28T12:27:20.406Z warn: could not click cycle 490 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:27:21.606Z warn: could not click cycle 490 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:27:22.060Z lag: cycle 490 took 3098ms
+2026-05-28T12:27:22.062Z checkpoint CP7 cycle=490 elapsedMs=602779 requests=526 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:27:22.127Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_69_power_loop_cycle_490.png
+2026-05-28T12:27:23.793Z warn: could not click cycle 492 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:27:24.004Z action: clicked cycle 492 project rail switch
+2026-05-28T12:27:24.140Z action: clicked cycle 492 activity
+2026-05-28T12:27:24.260Z action: clicked cycle 492 git
+2026-05-28T12:27:25.363Z action: clicked cycle 494 sidebar toggle
+2026-05-28T12:27:25.997Z action: clicked cycle 495 project rail switch
+2026-05-28T12:27:26.441Z action: clicked cycle 495 workspace
+2026-05-28T12:27:27.065Z action: clicked cycle 496 sidebar toggle
+2026-05-28T12:27:27.235Z action: clicked cycle 496 activity
+2026-05-28T12:27:28.896Z warn: could not click cycle 497 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:27:30.551Z warn: could not click cycle 498 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:27:30.718Z action: clicked cycle 498 project rail switch
+2026-05-28T12:27:30.843Z action: clicked cycle 498 git
+2026-05-28T12:27:31.904Z action: clicked cycle 500 sidebar toggle
+2026-05-28T12:27:32.028Z action: clicked cycle 500 activity
+2026-05-28T12:27:33.229Z warn: could not click cycle 500 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:27:33.685Z checkpoint CP7 cycle=500 elapsedMs=614402 requests=534 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:27:33.746Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_70_power_loop_cycle_500.png
+2026-05-28T12:27:33.868Z action: clicked cycle 501 project rail switch
+2026-05-28T12:27:34.440Z action: clicked cycle 502 sidebar toggle
+2026-05-28T12:27:36.545Z warn: could not click cycle 504 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:27:36.744Z action: clicked cycle 504 project rail switch
+2026-05-28T12:27:36.880Z action: clicked cycle 504 activity
+2026-05-28T12:27:37.057Z action: clicked cycle 504 git
+2026-05-28T12:27:38.257Z warn: could not click cycle 504 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:27:38.710Z lag: cycle 504 took 3364ms
+2026-05-28T12:27:38.899Z action: clicked cycle 505 workspace
+2026-05-28T12:27:39.521Z action: clicked cycle 506 sidebar toggle
+2026-05-28T12:27:40.118Z action: clicked cycle 507 project rail switch
+2026-05-28T12:27:40.751Z action: clicked cycle 508 sidebar toggle
+2026-05-28T12:27:40.897Z action: clicked cycle 508 activity
+2026-05-28T12:27:43.025Z warn: could not click cycle 510 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:27:43.257Z action: clicked cycle 510 project rail switch
+2026-05-28T12:27:43.756Z action: clicked cycle 510 workspace
+2026-05-28T12:27:43.858Z action: clicked cycle 510 git
+2026-05-28T12:27:44.328Z lag: cycle 510 took 2503ms
+2026-05-28T12:27:44.330Z checkpoint CP7 cycle=510 elapsedMs=625047 requests=538 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:27:44.401Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_71_power_loop_cycle_510.png
+2026-05-28T12:27:45.601Z warn: could not click cycle 511 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:27:46.186Z action: clicked cycle 512 sidebar toggle
+2026-05-28T12:27:46.317Z action: clicked cycle 512 activity
+2026-05-28T12:27:46.915Z action: clicked cycle 513 project rail switch
+2026-05-28T12:27:47.501Z action: clicked cycle 514 sidebar toggle
+2026-05-28T12:27:49.160Z warn: could not click cycle 515 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:27:50.814Z warn: could not click cycle 516 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:27:51.012Z action: clicked cycle 516 project rail switch
+2026-05-28T12:27:51.132Z action: clicked cycle 516 activity
+2026-05-28T12:27:51.263Z action: clicked cycle 516 git
+2026-05-28T12:27:52.307Z action: clicked cycle 518 sidebar toggle
+2026-05-28T12:27:53.507Z warn: could not click cycle 518 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:27:54.102Z action: clicked cycle 519 project rail switch
+2026-05-28T12:27:54.681Z action: clicked cycle 520 sidebar toggle
+2026-05-28T12:27:54.839Z action: clicked cycle 520 activity
+2026-05-28T12:27:56.039Z warn: could not click cycle 520 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:27:56.495Z checkpoint CP7 cycle=520 elapsedMs=637212 requests=546 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:27:56.568Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_72_power_loop_cycle_520.png
+2026-05-28T12:27:58.229Z warn: could not click cycle 522 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:27:58.421Z action: clicked cycle 522 project rail switch
+2026-05-28T12:27:58.566Z action: clicked cycle 522 git
+2026-05-28T12:27:59.615Z action: clicked cycle 524 sidebar toggle
+2026-05-28T12:27:59.755Z action: clicked cycle 524 activity
+2026-05-28T12:28:00.377Z action: clicked cycle 525 project rail switch
+2026-05-28T12:28:00.886Z action: clicked cycle 525 workspace
+2026-05-28T12:28:02.087Z warn: could not click cycle 525 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:28:02.707Z action: clicked cycle 526 sidebar toggle
+2026-05-28T12:28:04.833Z warn: could not click cycle 528 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:28:05.040Z action: clicked cycle 528 project rail switch
+2026-05-28T12:28:05.187Z action: clicked cycle 528 activity
+2026-05-28T12:28:05.317Z action: clicked cycle 528 git
+2026-05-28T12:28:06.417Z action: clicked cycle 530 sidebar toggle
+2026-05-28T12:28:07.646Z warn: could not click cycle 530 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:28:08.103Z checkpoint CP7 cycle=530 elapsedMs=648819 requests=550 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:28:08.183Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_73_power_loop_cycle_530.png
+2026-05-28T12:28:08.376Z action: clicked cycle 531 project rail switch
+2026-05-28T12:28:09.008Z action: clicked cycle 532 sidebar toggle
+2026-05-28T12:28:09.179Z action: clicked cycle 532 activity
+2026-05-28T12:28:10.379Z warn: could not click cycle 532 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:28:12.484Z warn: could not click cycle 534 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:28:12.623Z action: clicked cycle 534 project rail switch
+2026-05-28T12:28:12.808Z action: clicked cycle 534 git
+2026-05-28T12:28:13.364Z action: clicked cycle 535 workspace
+2026-05-28T12:28:13.935Z action: clicked cycle 536 sidebar toggle
+2026-05-28T12:28:14.077Z action: clicked cycle 536 activity
+2026-05-28T12:28:14.657Z action: clicked cycle 537 project rail switch
+2026-05-28T12:28:15.247Z action: clicked cycle 538 sidebar toggle
+2026-05-28T12:28:16.913Z warn: could not click cycle 539 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:28:18.566Z warn: could not click cycle 540 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:28:18.697Z action: clicked cycle 540 project rail switch
+2026-05-28T12:28:18.814Z action: clicked cycle 540 activity
+2026-05-28T12:28:19.204Z action: clicked cycle 540 workspace
+2026-05-28T12:28:19.330Z action: clicked cycle 540 git
+2026-05-28T12:28:19.796Z checkpoint CP7 cycle=540 elapsedMs=660513 requests=558 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:28:19.872Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_74_power_loop_cycle_540.png
+2026-05-28T12:28:20.490Z action: clicked cycle 542 sidebar toggle
+2026-05-28T12:28:21.099Z action: clicked cycle 543 project rail switch
+2026-05-28T12:28:21.699Z action: clicked cycle 544 sidebar toggle
+2026-05-28T12:28:21.845Z action: clicked cycle 544 activity
+2026-05-28T12:28:23.513Z warn: could not click cycle 545 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:28:25.167Z warn: could not click cycle 546 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:28:25.360Z action: clicked cycle 546 project rail switch
+2026-05-28T12:28:25.513Z action: clicked cycle 546 git
+2026-05-28T12:28:26.714Z warn: could not click cycle 546 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:28:27.168Z lag: cycle 546 took 3201ms
+2026-05-28T12:28:27.783Z action: clicked cycle 548 sidebar toggle
+2026-05-28T12:28:27.917Z action: clicked cycle 548 activity
+2026-05-28T12:28:28.632Z action: clicked cycle 549 project rail switch
+2026-05-28T12:28:29.283Z action: clicked cycle 550 sidebar toggle
+2026-05-28T12:28:30.515Z warn: could not click cycle 550 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:28:30.972Z checkpoint CP7 cycle=550 elapsedMs=671689 requests=566 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:28:31.044Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_75_power_loop_cycle_550.png
+2026-05-28T12:28:32.712Z warn: could not click cycle 552 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:28:32.966Z action: clicked cycle 552 project rail switch
+2026-05-28T12:28:33.080Z action: clicked cycle 552 activity
+2026-05-28T12:28:33.205Z action: clicked cycle 552 git
+2026-05-28T12:28:34.863Z warn: could not click cycle 553 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:28:35.488Z action: clicked cycle 554 sidebar toggle
+2026-05-28T12:28:36.094Z action: clicked cycle 555 project rail switch
+2026-05-28T12:28:36.571Z action: clicked cycle 555 workspace
+2026-05-28T12:28:37.168Z action: clicked cycle 556 sidebar toggle
+2026-05-28T12:28:37.306Z action: clicked cycle 556 activity
+2026-05-28T12:28:39.443Z warn: could not click cycle 558 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:28:39.584Z action: clicked cycle 558 project rail switch
+2026-05-28T12:28:39.705Z action: clicked cycle 558 git
+2026-05-28T12:28:40.754Z action: clicked cycle 560 sidebar toggle
+2026-05-28T12:28:40.883Z action: clicked cycle 560 activity
+2026-05-28T12:28:42.083Z warn: could not click cycle 560 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:28:43.282Z warn: could not click cycle 560 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:28:43.735Z lag: cycle 560 took 3117ms
+2026-05-28T12:28:43.737Z checkpoint CP7 cycle=560 elapsedMs=684454 requests=574 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:28:43.807Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_76_power_loop_cycle_560.png
+2026-05-28T12:28:43.953Z action: clicked cycle 561 project rail switch
+2026-05-28T12:28:44.536Z action: clicked cycle 562 sidebar toggle
+2026-05-28T12:28:46.656Z warn: could not click cycle 564 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:28:46.787Z action: clicked cycle 564 project rail switch
+2026-05-28T12:28:46.908Z action: clicked cycle 564 activity
+2026-05-28T12:28:47.082Z action: clicked cycle 564 git
+2026-05-28T12:28:47.730Z action: clicked cycle 565 workspace
+2026-05-28T12:28:48.398Z action: clicked cycle 566 sidebar toggle
+2026-05-28T12:28:49.026Z action: clicked cycle 567 project rail switch
+2026-05-28T12:28:50.226Z warn: could not click cycle 567 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:28:50.860Z action: clicked cycle 568 sidebar toggle
+2026-05-28T12:28:51.067Z action: clicked cycle 568 activity
+2026-05-28T12:28:53.222Z warn: could not click cycle 570 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:28:53.403Z action: clicked cycle 570 project rail switch
+2026-05-28T12:28:53.851Z action: clicked cycle 570 workspace
+2026-05-28T12:28:53.968Z action: clicked cycle 570 git
+2026-05-28T12:28:54.430Z checkpoint CP7 cycle=570 elapsedMs=695146 requests=578 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:28:54.502Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_77_power_loop_cycle_570.png
+2026-05-28T12:28:55.077Z action: clicked cycle 572 sidebar toggle
+2026-05-28T12:28:55.196Z action: clicked cycle 572 activity
+2026-05-28T12:28:55.798Z action: clicked cycle 573 project rail switch
+2026-05-28T12:28:56.394Z action: clicked cycle 574 sidebar toggle
+2026-05-28T12:28:57.595Z warn: could not click cycle 574 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:28:59.248Z warn: could not click cycle 575 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:29:00.902Z warn: could not click cycle 576 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:29:01.026Z action: clicked cycle 576 project rail switch
+2026-05-28T12:29:01.149Z action: clicked cycle 576 activity
+2026-05-28T12:29:01.273Z action: clicked cycle 576 git
+2026-05-28T12:29:02.315Z action: clicked cycle 578 sidebar toggle
+2026-05-28T12:29:02.896Z action: clicked cycle 579 project rail switch
+2026-05-28T12:29:03.502Z action: clicked cycle 580 sidebar toggle
+2026-05-28T12:29:03.648Z action: clicked cycle 580 activity
+2026-05-28T12:29:04.848Z warn: could not click cycle 580 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:29:05.304Z checkpoint CP7 cycle=580 elapsedMs=706021 requests=586 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:29:05.366Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_78_power_loop_cycle_580.png
+2026-05-28T12:29:06.567Z warn: could not click cycle 581 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:29:08.221Z warn: could not click cycle 582 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:29:08.420Z action: clicked cycle 582 project rail switch
+2026-05-28T12:29:08.592Z action: clicked cycle 582 git
+2026-05-28T12:29:09.623Z action: clicked cycle 584 sidebar toggle
+2026-05-28T12:29:09.873Z action: clicked cycle 584 activity
+2026-05-28T12:29:10.483Z action: clicked cycle 585 project rail switch
+2026-05-28T12:29:11.017Z action: clicked cycle 585 workspace
+2026-05-28T12:29:11.642Z action: clicked cycle 586 sidebar toggle
+2026-05-28T12:29:13.766Z warn: could not click cycle 588 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:29:13.911Z action: clicked cycle 588 project rail switch
+2026-05-28T12:29:14.053Z action: clicked cycle 588 activity
+2026-05-28T12:29:14.184Z action: clicked cycle 588 git
+2026-05-28T12:29:15.385Z warn: could not click cycle 588 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:29:15.843Z lag: cycle 588 took 3276ms
+2026-05-28T12:29:16.482Z action: clicked cycle 590 sidebar toggle
+2026-05-28T12:29:17.706Z warn: could not click cycle 590 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:29:18.163Z checkpoint CP7 cycle=590 elapsedMs=718879 requests=590 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:29:18.226Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_79_power_loop_cycle_590.png
+2026-05-28T12:29:18.401Z action: clicked cycle 591 project rail switch
+2026-05-28T12:29:19.089Z action: clicked cycle 592 sidebar toggle
+2026-05-28T12:29:19.295Z action: clicked cycle 592 activity
+2026-05-28T12:29:21.425Z warn: could not click cycle 594 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:29:21.579Z action: clicked cycle 594 project rail switch
+2026-05-28T12:29:21.711Z action: clicked cycle 594 git
+2026-05-28T12:29:22.273Z action: clicked cycle 595 workspace
+2026-05-28T12:29:23.472Z warn: could not click cycle 595 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:29:24.053Z action: clicked cycle 596 sidebar toggle
+2026-05-28T12:29:24.188Z action: clicked cycle 596 activity
+2026-05-28T12:29:24.783Z action: clicked cycle 597 project rail switch
+2026-05-28T12:29:25.382Z action: clicked cycle 598 sidebar toggle
+2026-05-28T12:29:27.498Z warn: could not click cycle 600 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:29:27.613Z action: clicked cycle 600 project rail switch
+2026-05-28T12:29:27.720Z action: clicked cycle 600 activity
+2026-05-28T12:29:28.167Z action: clicked cycle 600 workspace
+2026-05-28T12:29:28.282Z action: clicked cycle 600 git
+2026-05-28T12:29:28.747Z checkpoint CP7 cycle=600 elapsedMs=729464 requests=598 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:29:28.815Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_80_power_loop_cycle_600.png
+2026-05-28T12:29:29.429Z action: clicked cycle 602 sidebar toggle
+2026-05-28T12:29:30.629Z warn: could not click cycle 602 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:29:31.236Z action: clicked cycle 603 project rail switch
+2026-05-28T12:29:31.891Z action: clicked cycle 604 sidebar toggle
+2026-05-28T12:29:32.066Z action: clicked cycle 604 activity
+2026-05-28T12:29:33.726Z warn: could not click cycle 605 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:29:35.381Z warn: could not click cycle 606 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:29:35.523Z action: clicked cycle 606 project rail switch
+2026-05-28T12:29:35.695Z action: clicked cycle 606 git
+2026-05-28T12:29:36.751Z action: clicked cycle 608 sidebar toggle
+2026-05-28T12:29:36.891Z action: clicked cycle 608 activity
+2026-05-28T12:29:37.498Z action: clicked cycle 609 project rail switch
+2026-05-28T12:29:38.700Z warn: could not click cycle 609 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:29:39.303Z action: clicked cycle 610 sidebar toggle
+2026-05-28T12:29:40.533Z warn: could not click cycle 610 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:29:40.990Z checkpoint CP7 cycle=610 elapsedMs=741706 requests=606 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:29:41.057Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_81_power_loop_cycle_610.png
+2026-05-28T12:29:42.711Z warn: could not click cycle 612 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:29:42.930Z action: clicked cycle 612 project rail switch
+2026-05-28T12:29:43.057Z action: clicked cycle 612 activity
+2026-05-28T12:29:43.189Z action: clicked cycle 612 git
+2026-05-28T12:29:44.247Z action: clicked cycle 614 sidebar toggle
+2026-05-28T12:29:44.904Z action: clicked cycle 615 project rail switch
+2026-05-28T12:29:45.356Z action: clicked cycle 615 workspace
+2026-05-28T12:29:45.932Z action: clicked cycle 616 sidebar toggle
+2026-05-28T12:29:46.067Z action: clicked cycle 616 activity
+2026-05-28T12:29:47.268Z warn: could not click cycle 616 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:29:49.376Z warn: could not click cycle 618 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:29:49.516Z action: clicked cycle 618 project rail switch
+2026-05-28T12:29:49.655Z action: clicked cycle 618 git
+2026-05-28T12:29:50.680Z action: clicked cycle 620 sidebar toggle
+2026-05-28T12:29:50.804Z action: clicked cycle 620 activity
+2026-05-28T12:29:52.004Z warn: could not click cycle 620 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:29:52.461Z checkpoint CP7 cycle=620 elapsedMs=753177 requests=614 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:29:52.530Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_82_power_loop_cycle_620.png
+2026-05-28T12:29:52.666Z action: clicked cycle 621 project rail switch
+2026-05-28T12:29:53.269Z action: clicked cycle 622 sidebar toggle
+2026-05-28T12:29:54.929Z warn: could not click cycle 623 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:29:56.583Z warn: could not click cycle 624 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:29:56.698Z action: clicked cycle 624 project rail switch
+2026-05-28T12:29:56.820Z action: clicked cycle 624 activity
+2026-05-28T12:29:56.950Z action: clicked cycle 624 git
+2026-05-28T12:29:57.586Z action: clicked cycle 625 workspace
+2026-05-28T12:29:58.205Z action: clicked cycle 626 sidebar toggle
+2026-05-28T12:29:58.829Z action: clicked cycle 627 project rail switch
+2026-05-28T12:29:59.449Z action: clicked cycle 628 sidebar toggle
+2026-05-28T12:29:59.606Z action: clicked cycle 628 activity
+2026-05-28T12:30:01.738Z warn: could not click cycle 630 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:30:01.988Z action: clicked cycle 630 project rail switch
+2026-05-28T12:30:02.444Z action: clicked cycle 630 workspace
+2026-05-28T12:30:02.590Z action: clicked cycle 630 git
+2026-05-28T12:30:03.790Z warn: could not click cycle 630 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:30:04.244Z lag: cycle 630 took 3707ms
+2026-05-28T12:30:04.247Z checkpoint CP7 cycle=630 elapsedMs=764963 requests=618 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:30:04.323Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_83_power_loop_cycle_630.png
+2026-05-28T12:30:04.907Z action: clicked cycle 632 sidebar toggle
+2026-05-28T12:30:05.055Z action: clicked cycle 632 activity
+2026-05-28T12:30:05.682Z action: clicked cycle 633 project rail switch
+2026-05-28T12:30:06.273Z action: clicked cycle 634 sidebar toggle
+2026-05-28T12:30:07.927Z warn: could not click cycle 635 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:30:09.579Z warn: could not click cycle 636 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:30:09.715Z action: clicked cycle 636 project rail switch
+2026-05-28T12:30:09.838Z action: clicked cycle 636 activity
+2026-05-28T12:30:09.964Z action: clicked cycle 636 git
+2026-05-28T12:30:11.645Z warn: could not click cycle 637 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:30:12.259Z action: clicked cycle 638 sidebar toggle
+2026-05-28T12:30:12.882Z action: clicked cycle 639 project rail switch
+2026-05-28T12:30:13.466Z action: clicked cycle 640 sidebar toggle
+2026-05-28T12:30:13.607Z action: clicked cycle 640 activity
+2026-05-28T12:30:14.807Z warn: could not click cycle 640 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:30:15.262Z checkpoint CP7 cycle=640 elapsedMs=775979 requests=626 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:30:15.329Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_84_power_loop_cycle_640.png
+2026-05-28T12:30:16.994Z warn: could not click cycle 642 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:30:17.113Z action: clicked cycle 642 project rail switch
+2026-05-28T12:30:17.249Z action: clicked cycle 642 git
+2026-05-28T12:30:18.287Z action: clicked cycle 644 sidebar toggle
+2026-05-28T12:30:18.419Z action: clicked cycle 644 activity
+2026-05-28T12:30:19.619Z warn: could not click cycle 644 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:30:20.207Z action: clicked cycle 645 project rail switch
+2026-05-28T12:30:20.703Z action: clicked cycle 645 workspace
+2026-05-28T12:30:21.303Z action: clicked cycle 646 sidebar toggle
+2026-05-28T12:30:23.414Z warn: could not click cycle 648 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:30:23.648Z action: clicked cycle 648 project rail switch
+2026-05-28T12:30:23.772Z action: clicked cycle 648 activity
+2026-05-28T12:30:23.950Z action: clicked cycle 648 git
+2026-05-28T12:30:25.021Z action: clicked cycle 650 sidebar toggle
+2026-05-28T12:30:26.247Z warn: could not click cycle 650 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:30:26.704Z checkpoint CP7 cycle=650 elapsedMs=787420 requests=630 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:30:26.766Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_85_power_loop_cycle_650.png
+2026-05-28T12:30:26.934Z action: clicked cycle 651 project rail switch
+2026-05-28T12:30:28.133Z warn: could not click cycle 651 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:30:28.750Z action: clicked cycle 652 sidebar toggle
+2026-05-28T12:30:28.892Z action: clicked cycle 652 activity
+2026-05-28T12:30:31.025Z warn: could not click cycle 654 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:30:31.173Z action: clicked cycle 654 project rail switch
+2026-05-28T12:30:31.318Z action: clicked cycle 654 git
+2026-05-28T12:30:31.883Z action: clicked cycle 655 workspace
+2026-05-28T12:30:32.470Z action: clicked cycle 656 sidebar toggle
+2026-05-28T12:30:32.603Z action: clicked cycle 656 activity
+2026-05-28T12:30:33.192Z action: clicked cycle 657 project rail switch
+2026-05-28T12:30:33.775Z action: clicked cycle 658 sidebar toggle
+2026-05-28T12:30:34.975Z warn: could not click cycle 658 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:30:37.082Z warn: could not click cycle 660 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:30:37.213Z action: clicked cycle 660 project rail switch
+2026-05-28T12:30:37.323Z action: clicked cycle 660 activity
+2026-05-28T12:30:37.733Z action: clicked cycle 660 workspace
+2026-05-28T12:30:37.848Z action: clicked cycle 660 git
+2026-05-28T12:30:38.313Z checkpoint CP7 cycle=660 elapsedMs=799030 requests=638 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:30:38.392Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_86_power_loop_cycle_660.png
+2026-05-28T12:30:39.009Z action: clicked cycle 662 sidebar toggle
+2026-05-28T12:30:39.639Z action: clicked cycle 663 project rail switch
+2026-05-28T12:30:40.260Z action: clicked cycle 664 sidebar toggle
+2026-05-28T12:30:40.414Z action: clicked cycle 664 activity
+2026-05-28T12:30:42.079Z warn: could not click cycle 665 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:30:43.278Z warn: could not click cycle 665 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:30:43.732Z lag: cycle 665 took 2852ms
+2026-05-28T12:30:44.932Z warn: could not click cycle 666 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:30:45.073Z action: clicked cycle 666 project rail switch
+2026-05-28T12:30:45.201Z action: clicked cycle 666 git
+2026-05-28T12:30:46.274Z action: clicked cycle 668 sidebar toggle
+2026-05-28T12:30:46.437Z action: clicked cycle 668 activity
+2026-05-28T12:30:47.029Z action: clicked cycle 669 project rail switch
+2026-05-28T12:30:47.650Z action: clicked cycle 670 sidebar toggle
+2026-05-28T12:30:48.894Z warn: could not click cycle 670 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:30:49.351Z checkpoint CP7 cycle=670 elapsedMs=810067 requests=646 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:30:49.429Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_87_power_loop_cycle_670.png
+2026-05-28T12:30:51.093Z warn: could not click cycle 672 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:30:51.245Z action: clicked cycle 672 project rail switch
+2026-05-28T12:30:51.364Z action: clicked cycle 672 activity
+2026-05-28T12:30:51.506Z action: clicked cycle 672 git
+2026-05-28T12:30:52.706Z warn: could not click cycle 672 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:30:53.160Z lag: cycle 672 took 3266ms
+2026-05-28T12:30:53.761Z action: clicked cycle 674 sidebar toggle
+2026-05-28T12:30:54.379Z action: clicked cycle 675 project rail switch
+2026-05-28T12:30:54.932Z action: clicked cycle 675 workspace
+2026-05-28T12:30:55.520Z action: clicked cycle 676 sidebar toggle
+2026-05-28T12:30:55.656Z action: clicked cycle 676 activity
+2026-05-28T12:30:57.788Z warn: could not click cycle 678 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:30:57.970Z action: clicked cycle 678 project rail switch
+2026-05-28T12:30:58.105Z action: clicked cycle 678 git
+2026-05-28T12:30:59.761Z warn: could not click cycle 679 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:31:00.341Z action: clicked cycle 680 sidebar toggle
+2026-05-28T12:31:00.483Z action: clicked cycle 680 activity
+2026-05-28T12:31:01.683Z warn: could not click cycle 680 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:31:02.142Z checkpoint CP7 cycle=680 elapsedMs=822858 requests=654 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:31:02.219Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_88_power_loop_cycle_680.png
+2026-05-28T12:31:02.333Z action: clicked cycle 681 project rail switch
+2026-05-28T12:31:02.921Z action: clicked cycle 682 sidebar toggle
+2026-05-28T12:31:05.030Z warn: could not click cycle 684 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:31:05.166Z action: clicked cycle 684 project rail switch
+2026-05-28T12:31:05.288Z action: clicked cycle 684 activity
+2026-05-28T12:31:05.448Z action: clicked cycle 684 git
+2026-05-28T12:31:06.071Z action: clicked cycle 685 workspace
+2026-05-28T12:31:06.705Z action: clicked cycle 686 sidebar toggle
+2026-05-28T12:31:07.906Z warn: could not click cycle 686 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:31:08.516Z action: clicked cycle 687 project rail switch
+2026-05-28T12:31:09.119Z action: clicked cycle 688 sidebar toggle
+2026-05-28T12:31:09.253Z action: clicked cycle 688 activity
+2026-05-28T12:31:11.367Z warn: could not click cycle 690 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:31:11.504Z action: clicked cycle 690 project rail switch
+2026-05-28T12:31:11.939Z action: clicked cycle 690 workspace
+2026-05-28T12:31:12.064Z action: clicked cycle 690 git
+2026-05-28T12:31:12.528Z checkpoint CP7 cycle=690 elapsedMs=833244 requests=658 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:31:12.595Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_89_power_loop_cycle_690.png
+2026-05-28T12:31:13.178Z action: clicked cycle 692 sidebar toggle
+2026-05-28T12:31:13.314Z action: clicked cycle 692 activity
+2026-05-28T12:31:13.933Z action: clicked cycle 693 project rail switch
+2026-05-28T12:31:15.132Z warn: could not click cycle 693 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:31:15.709Z action: clicked cycle 694 sidebar toggle
+2026-05-28T12:31:17.377Z warn: could not click cycle 695 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:31:19.030Z warn: could not click cycle 696 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:31:19.164Z action: clicked cycle 696 project rail switch
+2026-05-28T12:31:19.281Z action: clicked cycle 696 activity
+2026-05-28T12:31:19.414Z action: clicked cycle 696 git
+2026-05-28T12:31:20.472Z action: clicked cycle 698 sidebar toggle
+2026-05-28T12:31:21.081Z action: clicked cycle 699 project rail switch
+2026-05-28T12:31:21.669Z action: clicked cycle 700 sidebar toggle
+2026-05-28T12:31:21.839Z action: clicked cycle 700 activity
+2026-05-28T12:31:23.038Z warn: could not click cycle 700 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:31:24.238Z warn: could not click cycle 700 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:31:24.692Z lag: cycle 700 took 3146ms
+2026-05-28T12:31:24.695Z checkpoint CP7 cycle=700 elapsedMs=845411 requests=666 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:31:24.766Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_90_power_loop_cycle_700.png
+2026-05-28T12:31:26.427Z warn: could not click cycle 702 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:31:26.555Z action: clicked cycle 702 project rail switch
+2026-05-28T12:31:26.711Z action: clicked cycle 702 git
+2026-05-28T12:31:27.815Z action: clicked cycle 704 sidebar toggle
+2026-05-28T12:31:27.940Z action: clicked cycle 704 activity
+2026-05-28T12:31:28.587Z action: clicked cycle 705 project rail switch
+2026-05-28T12:31:29.091Z action: clicked cycle 705 workspace
+2026-05-28T12:31:29.703Z action: clicked cycle 706 sidebar toggle
+2026-05-28T12:31:31.360Z warn: could not click cycle 707 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:31:33.014Z warn: could not click cycle 708 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:31:33.184Z action: clicked cycle 708 project rail switch
+2026-05-28T12:31:33.299Z action: clicked cycle 708 activity
+2026-05-28T12:31:33.461Z action: clicked cycle 708 git
+2026-05-28T12:31:34.530Z action: clicked cycle 710 sidebar toggle
+2026-05-28T12:31:35.763Z warn: could not click cycle 710 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:31:36.219Z checkpoint CP7 cycle=710 elapsedMs=856935 requests=670 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:31:36.284Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_91_power_loop_cycle_710.png
+2026-05-28T12:31:36.431Z action: clicked cycle 711 project rail switch
+2026-05-28T12:31:37.081Z action: clicked cycle 712 sidebar toggle
+2026-05-28T12:31:37.264Z action: clicked cycle 712 activity
+2026-05-28T12:31:39.395Z warn: could not click cycle 714 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:31:39.615Z action: clicked cycle 714 project rail switch
+2026-05-28T12:31:39.757Z action: clicked cycle 714 git
+2026-05-28T12:31:40.957Z warn: could not click cycle 714 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:31:41.410Z lag: cycle 714 took 3215ms
+2026-05-28T12:31:41.499Z action: clicked cycle 715 workspace
+2026-05-28T12:31:42.138Z action: clicked cycle 716 sidebar toggle
+2026-05-28T12:31:42.281Z action: clicked cycle 716 activity
+2026-05-28T12:31:42.888Z action: clicked cycle 717 project rail switch
+2026-05-28T12:31:43.466Z action: clicked cycle 718 sidebar toggle
+2026-05-28T12:31:45.580Z warn: could not click cycle 720 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:31:45.706Z action: clicked cycle 720 project rail switch
+2026-05-28T12:31:45.813Z action: clicked cycle 720 activity
+2026-05-28T12:31:46.248Z action: clicked cycle 720 workspace
+2026-05-28T12:31:46.360Z action: clicked cycle 720 git
+2026-05-28T12:31:46.829Z checkpoint CP7 cycle=720 elapsedMs=867545 requests=678 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:31:46.933Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_92_power_loop_cycle_720.png
+2026-05-28T12:31:48.134Z warn: could not click cycle 721 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:31:48.773Z action: clicked cycle 722 sidebar toggle
+2026-05-28T12:31:49.409Z action: clicked cycle 723 project rail switch
+2026-05-28T12:31:50.015Z action: clicked cycle 724 sidebar toggle
+2026-05-28T12:31:50.157Z action: clicked cycle 724 activity
+2026-05-28T12:31:51.815Z warn: could not click cycle 725 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:31:53.469Z warn: could not click cycle 726 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:31:53.614Z action: clicked cycle 726 project rail switch
+2026-05-28T12:31:53.740Z action: clicked cycle 726 git
+2026-05-28T12:31:54.807Z action: clicked cycle 728 sidebar toggle
+2026-05-28T12:31:54.980Z action: clicked cycle 728 activity
+2026-05-28T12:31:56.180Z warn: could not click cycle 728 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:31:56.846Z action: clicked cycle 729 project rail switch
+2026-05-28T12:31:57.455Z action: clicked cycle 730 sidebar toggle
+2026-05-28T12:31:58.679Z warn: could not click cycle 730 workspace: TimeoutError: locator.click: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first()
+    - locator resolved to <span class="min-w-0 truncate">My W
+2026-05-28T12:31:59.136Z checkpoint CP7 cycle=730 elapsedMs=879852 requests=686 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:31:59.198Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_93_power_loop_cycle_730.png
+2026-05-28T12:32:00.860Z warn: could not click cycle 732 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:32:01.085Z action: clicked cycle 732 project rail switch
+2026-05-28T12:32:01.200Z action: clicked cycle 732 activity
+2026-05-28T12:32:01.363Z action: clicked cycle 732 git
+2026-05-28T12:32:02.448Z action: clicked cycle 734 sidebar toggle
+2026-05-28T12:32:03.095Z action: clicked cycle 735 project rail switch
+2026-05-28T12:32:03.538Z action: clicked cycle 735 workspace
+2026-05-28T12:32:04.738Z warn: could not click cycle 735 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:32:05.336Z action: clicked cycle 736 sidebar toggle
+2026-05-28T12:32:05.500Z action: clicked cycle 736 activity
+2026-05-28T12:32:07.628Z warn: could not click cycle 738 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:32:07.755Z action: clicked cycle 738 project rail switch
+2026-05-28T12:32:07.869Z action: clicked cycle 738 git
+2026-05-28T12:32:08.922Z action: clicked cycle 740 sidebar toggle
+2026-05-28T12:32:09.057Z action: clicked cycle 740 activity
+2026-05-28T12:32:10.259Z warn: could not click cycle 740 workspace: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByText('Workspace').first().first() to be visible
+    7 × locator resolved to hidden <span clas
+2026-05-28T12:32:10.718Z checkpoint CP7 cycle=740 elapsedMs=891434 requests=694 consoleErrors=5 pageErrors=0 failedRequests=82
+2026-05-28T12:32:10.786Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_94_power_loop_cycle_740.png
+2026-05-28T12:32:10.941Z action: clicked cycle 741 project rail switch
+2026-05-28T12:32:11.529Z action: clicked cycle 742 sidebar toggle
+2026-05-28T12:32:12.727Z warn: could not click cycle 742 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:32:14.835Z warn: could not click cycle 744 sidebar toggle: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for getByLabel('Collapse sidebar').first() to be visible
+
+2026-05-28T12:32:14.977Z action: clicked cycle 744 project rail switch
+2026-05-28T12:32:15.093Z action: clicked cycle 744 activity
+2026-05-28T12:32:15.229Z action: clicked cycle 744 git
+2026-05-28T12:32:15.921Z action: clicked cycle 745 workspace
+2026-05-28T12:32:16.532Z action: clicked cycle 746 sidebar toggle
+2026-05-28T12:32:17.135Z action: clicked cycle 747 project rail switch
+2026-05-28T12:32:17.753Z action: clicked cycle 748 sidebar toggle
+2026-05-28T12:32:17.921Z action: clicked cycle 748 activity
+2026-05-28T12:32:19.595Z warn: could not click cycle 749 chat select: TimeoutError: locator.waitFor: Timeout 1200ms exceeded.
+Call log:
+  - waiting for locator('button').filter({ hasText: /UI tool audit|fastqa|v2type|understand|what shall/i }).first(
+2026-05-28T12:32:20.050Z step 8 action: final diagnostics and screenshot
+2026-05-28T12:32:20.115Z screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_3/screenshots/final_execution_99_final_state_after_15_min_power_loop.png
+2026-05-28T12:32:20.130Z final datum: elapsedMs=900849
+2026-05-28T12:32:20.130Z final datum: totalRequests=698
+2026-05-28T12:32:20.130Z final datum: topEndpoints=[["/api/commands/middleware_chat_history",252],["/api/sessions",252],["/api/chats",4],["/",2],["/_next/static/media/70bc3e132a0a741e-s.p.15008bfb.woff2",2],["/_next/static/media/797e433ab948586e-s.p.479bea2b.woff2",2],["/_next/static/media/caa3a2e1cccd8315-s.p.3b6cae6d.woff2",2],["/_next/static/chunks/%5Broot-of-the-server%5D__41104c67._.css",2],["/_next/static/chunks/%5Bturbopack%5D_browser_dev_hmr-client_hmr-client_ts_45eadcf4._.js",2],["/_next/static/chunks/13b71_next_dist_compiled_react-dom_f9c27e0f._.js",2],["/_next/static/chunks/13b71_next_dist_compiled_react-server-dom-turbopack_cf33b4e1._.js",2],["/_next/static/chunks/13b71_next_dist_compiled_next-devtools_index_c18cecbb.js",2],["/_next/static/chunks/13b71_next_dist_compiled_2627bc20._.js",2],["/_next/static/chunks/13b71_next_dist_client_54937569._.js",2],["/_next/static/chunks/13b71_next_dist_2e4a1719._.js",2],["/_next/static/chunks/0cf1f_%40swc_helpers_cjs_e7f21db2._.js",2],["/_next/static/chunks/_openclaw_workspace_openclaw-desktop_packages_ui_a0ff3932._.js",2],["/_next/static/chunks/turbopack-_openclaw_workspace_openclaw-desktop_packages_ui_b4ba87b7._.js",2],["/_next/static/chunks/13b71_next_dist_8081fcb7._.js",2],["/_next/static/chunks/_openclaw_workspace_openclaw-desktop_packages_ui_app_favicon_ico_mjs_28d6ce41._.js",2],["/_next/static/chunks/bc44e__pnpm_a3e11f6b._.js",2],["/_next/static/chunks/_openclaw_workspace_openclaw-desktop_packages_ui_95eddad5._.js",2],["/_next/static/chunks/_openclaw_workspace_openclaw-desktop_packages_ui_app_layout_tsx_fe8abcc0._.js",2],["/_next/static/chunks/_openclaw_workspace_openclaw-desktop_ec88f073._.js",2],["/_next/static/chunks/_openclaw_workspace_openclaw-desktop_packages_ui_lib_c2f8ca88._.js",2],["/_next/static/chunks/ddd5b_workspace_openclaw-desktop_packages_ui_components_notifications_aaef55e2._.js",2],["/_next/static/chunks/_openclaw_workspace_openclaw-desktop_packages_ui_components_sidebar_d0ba520b._.js",2],["/_next/static/chunks/_openclaw_workspace_openclaw-desktop_packages_ui_components_ChatBox_5d281665._.js",2],["/_next/static/chunks/_openclaw_workspace_openclaw-desktop_packages_ui_components_inspector_af7b5215._.js",2],["/_next/static/chunks/_openclaw_workspace_openclaw-desktop_packages_ui_components_ChatView_a6539464._.js",2]]
+2026-05-28T12:32:20.130Z final datum: consoleErrorLikeCount=26
+2026-05-28T12:32:20.130Z final datum: pageErrors=[]
+2026-05-28T12:32:20.131Z final datum: failedRequests=[{"t":1779970640978,"url":"http://127.0.0.1:3000/_next/static/chunks/%5Bturbopack%5D_browser_dev_hmr-client_hmr-client_ts_45eadcf4._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640978,"url":"http://127.0.0.1:3000/_next/static/chunks/%5Broot-of-the-server%5D__41104c67._.css","failure":"NS_BINDING_ABORTED"},{"t":1779970640980,"url":"http://127.0.0.1:3000/_next/static/chunks/13b71_next_dist_compiled_react-dom_f9c27e0f._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640982,"url":"http://127.0.0.1:3000/_next/static/chunks/13b71_next_dist_compiled_next-devtools_index_c18cecbb.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640982,"url":"http://127.0.0.1:3000/_next/static/chunks/13b71_next_dist_compiled_react-server-dom-turbopack_cf33b4e1._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640983,"url":"http://127.0.0.1:3000/_next/static/chunks/13b71_next_dist_compiled_2627bc20._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640988,"url":"http://127.0.0.1:3000/_next/static/chunks/f32ea_antd_es__util_6bcd2d1f._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640988,"url":"http://127.0.0.1:3000/_next/static/chunks/08085_%40ant-design_cssinjs_es_096bbea1._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640988,"url":"http://127.0.0.1:3000/_next/static/chunks/bc44e__pnpm_b58fce5c._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640988,"url":"http://127.0.0.1:3000/_next/static/chunks/05d35_react-icons_lib_027ff42b._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640988,"url":"http://127.0.0.1:3000/_next/static/chunks/_openclaw_workspace_openclaw-desktop_packages_ui_95eddad5._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640988,"url":"http://127.0.0.1:3000/_next/static/chunks/b2fe9_recharts_es6_component_c9bffb81._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640988,"url":"http://127.0.0.1:3000/_next/static/chunks/9a2af_%40rc-component_trigger_es_818fd5af._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640988,"url":"http://127.0.0.1:3000/_next/static/chunks/95b38_antd-style_es_9ea2b213._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640988,"url":"http://127.0.0.1:3000/_next/static/chunks/bb6c6_%40lobehub_icons_es_AionLabs_7c83d32e._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640992,"url":"http://127.0.0.1:3000/_next/static/chunks/b566d_%40rc-component_form_es_db1af119._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640992,"url":"http://127.0.0.1:3000/_next/static/chunks/b2fe9_recharts_es6_cartesian_7e24507e._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640992,"url":"http://127.0.0.1:3000/_next/static/chunks/13b71_next_8ca07a22._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640992,"url":"http://127.0.0.1:3000/_next/static/chunks/_openclaw_workspace_openclaw-desktop_packages_ui_components_connect_437c7774._.js","failure":"NS_BINDING_ABORTED"},{"t":1779970640992,"url":"http://127.0.0.1:3000/_next/static/chunks/13b71_next_dist_8081fcb7._.js","failure":"NS_BINDING_ABORTED"}]

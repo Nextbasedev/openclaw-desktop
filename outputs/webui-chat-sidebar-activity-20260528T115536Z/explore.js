@@ -1,0 +1,25 @@
+const { firefox } = require('/usr/lib/node_modules/playwright');
+const fs = require('node:fs');
+const OUT='outputs/webui-chat-sidebar-activity-20260528T115536Z';
+fs.mkdirSync(`${OUT}/screenshots`, {recursive:true});
+(async()=>{
+ const browser=await firefox.launch({headless:true});
+ const page=await browser.newPage({viewport:{width:1280,height:1800}});
+ const logs=[]; const errors=[]; const requests=[];
+ page.on('console', msg=>logs.push({type:msg.type(), text:msg.text().slice(0,500)}));
+ page.on('pageerror', e=>errors.push(String(e)));
+ page.on('request', req=>requests.push(req.url()));
+ await page.goto('http://127.0.0.1:3000/', {waitUntil:'commit', timeout:30000});
+ await page.evaluate(() => { localStorage.setItem('openclaw.middleware.url','http://127.0.0.1:8787'); localStorage.setItem('openclaw.onboarding.done','true'); });
+ await page.reload({waitUntil:'commit', timeout:30000});
+ await page.waitForTimeout(5000);
+ await page.screenshot({path:`${OUT}/screenshots/explore_01_loaded.png`});
+ console.log('TITLE', await page.title());
+ console.log('URL', page.url());
+ console.log('BODY\n', (await page.locator('body').innerText({timeout:5000})).slice(0,4000));
+ console.log('CONSOLE', JSON.stringify(logs.slice(-40), null, 2));
+ console.log('ERRORS', JSON.stringify(errors, null, 2));
+ console.log('REQ_COUNT', requests.length);
+ console.log('REQ_SAMPLE', JSON.stringify(requests.slice(0,50), null, 2));
+ await browser.close();
+})().catch(e=>{console.error(e); process.exit(1)});

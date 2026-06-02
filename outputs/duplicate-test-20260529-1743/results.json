@@ -1,0 +1,29 @@
+{
+  "chat_load": {
+    "total": 2,
+    "dupes": 0,
+    "pass": true
+  },
+  "dual_tab": {
+    "orig": 2,
+    "second": 2,
+    "dO": 0,
+    "d2": 0,
+    "pass": true
+  },
+  "reload": {
+    "total": 2,
+    "dupes": 0,
+    "pass": true
+  },
+  "rapid": {
+    "total": 2,
+    "dupes": 0,
+    "pass": true
+  },
+  "send": {
+    "total": 2,
+    "dupes": 0,
+    "pass": true
+  }
+}

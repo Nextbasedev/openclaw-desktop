@@ -266,13 +266,14 @@ describe("method interaction pairs", () => {
     expect(store.getSnapshot().messages).toHaveLength(2)
   })
 
-  it("applyBootstrap after patches clears patch data", () => {
+  it("applyBootstrap after patches keeps newer patch data (bootstrap is lower cursor)", () => {
     store.applyPatchMessage(msg("p1", "live", 1), 15)
     store.flushSync()
     store.applyBootstrap([msg("b1", "fresh", 1)], 10)
     store.flushSync()
-    // patch message cleared by bootstrap (bootstrap is authoritative set)
-    expect(store.getSnapshot().messages).toHaveLength(1)
-    expect(store.getSnapshot().messages[0].messageId).toBe("b1")
+    // patch message kept because bootstrap cursor (10) is lower than live patch cursor (15)
+    expect(store.getSnapshot().messages).toHaveLength(2)
+    expect(store.getSnapshot().messages.map((m) => m.messageId)).toContain("b1")
+    expect(store.getSnapshot().messages.map((m) => m.messageId)).toContain("p1")
   })
 })

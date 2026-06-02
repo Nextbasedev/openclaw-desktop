@@ -1279,8 +1279,7 @@ describe("global V2 chat engine store", () => {
     const state = getGlobalChatSession("s1")
     expect(state).toMatchObject({ status: "done", pendingTools: [] })
     expect(state?.messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ role: "assistant", text: "", toolCalls: [expect.objectContaining({ id: "tc-stale", tool: "exec", status: "success" })] }),
-      expect.objectContaining({ role: "assistant", text: "Done — I checked the files.", toolCalls: undefined }),
+      expect.objectContaining({ role: "assistant", text: "Done — I checked the files.", toolCalls: [expect.objectContaining({ id: "tc-stale", tool: "exec", status: "success" })] }),
     ]))
   })
 
@@ -2479,16 +2478,10 @@ describe("global V2 chat engine store", () => {
     expect(state).toMatchObject({ status: "done", statusLabel: null, pendingTools: [] })
     expect(state?.messages).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        messageId: "a-tools",
-        role: "assistant",
-        text: "",
-        toolCalls: [expect.objectContaining({ id: "tool-1", tool: "exec", status: "success" })],
-      }),
-      expect.objectContaining({
         messageId: "a-final",
         role: "assistant",
         text: "Fixed.",
-        toolCalls: undefined,
+        toolCalls: [expect.objectContaining({ id: "tool-1", tool: "exec", status: "success" })],
       }),
     ]))
   })

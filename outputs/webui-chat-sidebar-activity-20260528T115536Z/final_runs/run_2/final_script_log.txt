@@ -1,0 +1,2 @@
+2026-05-28T12:07:27.521Z fatal: browser.newPage: Target page, context or browser has been closed
+    at /root/.openclaw/workspace/openclaw-desktop/outputs/webui-chat-sidebar-activity-20260528T115536Z/final_runs/run_2/power_user_smoke.js:24:30

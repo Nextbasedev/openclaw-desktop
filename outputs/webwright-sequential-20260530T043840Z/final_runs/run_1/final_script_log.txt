@@ -1,0 +1,1 @@
+step 1 action: launch fresh browser and configure middleware URL

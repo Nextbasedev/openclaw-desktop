@@ -1,0 +1,2464 @@
+{
+  "report": {
+    "setup": {
+      "scrollTop": 324179,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "rows": 2000
+    },
+    "events": 304,
+    "jumps": [
+      {
+        "t": 14295.10000038147,
+        "scrollTop": 323279,
+        "delta": 14400,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "first": "user:10zdxyb"
+      }
+    ],
+    "maxAbsDelta": 14400,
+    "final": {
+      "t": 28799.69999885559,
+      "scrollTop": 324179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1merotf:assistant:turn"
+    }
+  },
+  "trace": [
+    {
+      "t": 10396.79999923706,
+      "scrollTop": 324179,
+      "delta": 0,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1merotf:assistant:turn"
+    },
+    {
+      "t": 11013.69999885559,
+      "scrollTop": 323279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:10zdxyb"
+    },
+    {
+      "t": 11069.5,
+      "scrollTop": 322379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1uor7ts:assistant:turn"
+    },
+    {
+      "t": 11261.39999961853,
+      "scrollTop": 321479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:m9lqmh"
+    },
+    {
+      "t": 11397.29999923706,
+      "scrollTop": 320579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1hzf3ab:assistant:turn"
+    },
+    {
+      "t": 11531.39999961853,
+      "scrollTop": 319679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1k6ipjs"
+    },
+    {
+      "t": 11660.60000038147,
+      "scrollTop": 318779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:94k1hu"
+    },
+    {
+      "t": 11792.69999885559,
+      "scrollTop": 317879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1h8z6pd:assistant:turn"
+    },
+    {
+      "t": 11923.60000038147,
+      "scrollTop": 316979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1xu6hz3:assistant:turn"
+    },
+    {
+      "t": 12051.89999961853,
+      "scrollTop": 316079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:16q2waw:assistant:turn"
+    },
+    {
+      "t": 12182.69999885559,
+      "scrollTop": 315179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1fow94"
+    },
+    {
+      "t": 12306.5,
+      "scrollTop": 314279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:6e983u:assistant:turn"
+    },
+    {
+      "t": 12440.5,
+      "scrollTop": 313379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1zf4bu:assistant:turn"
+    },
+    {
+      "t": 12578.5,
+      "scrollTop": 312479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:vzknze"
+    },
+    {
+      "t": 12710.29999923706,
+      "scrollTop": 311579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1nez114:assistant:turn"
+    },
+    {
+      "t": 12842.10000038147,
+      "scrollTop": 310679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:13hs1a0:assistant:turn"
+    },
+    {
+      "t": 12965,
+      "scrollTop": 309779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:te27s:assistant:turn"
+    },
+    {
+      "t": 13093.69999885559,
+      "scrollTop": 308879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1rhvqbc:assistant:turn"
+    },
+    {
+      "t": 14295.10000038147,
+      "scrollTop": 323279,
+      "delta": 14400,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:10zdxyb"
+    },
+    {
+      "t": 14548.10000038147,
+      "scrollTop": 324179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1merotf:assistant:turn"
+    },
+    {
+      "t": 15208.60000038147,
+      "scrollTop": 323279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:10zdxyb"
+    },
+    {
+      "t": 18972.60000038147,
+      "scrollTop": 322379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1uor7ts:assistant:turn"
+    },
+    {
+      "t": 19016.5,
+      "scrollTop": 321479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:m9lqmh"
+    },
+    {
+      "t": 19067.10000038147,
+      "scrollTop": 320579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1hzf3ab:assistant:turn"
+    },
+    {
+      "t": 19116.29999923706,
+      "scrollTop": 319679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1k6ipjs"
+    },
+    {
+      "t": 19167.60000038147,
+      "scrollTop": 318779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:94k1hu"
+    },
+    {
+      "t": 19218.5,
+      "scrollTop": 317879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1h8z6pd:assistant:turn"
+    },
+    {
+      "t": 19263.89999961853,
+      "scrollTop": 316979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1xu6hz3:assistant:turn"
+    },
+    {
+      "t": 19300,
+      "scrollTop": 316079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:16q2waw:assistant:turn"
+    },
+    {
+      "t": 19332,
+      "scrollTop": 315179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1fow94"
+    },
+    {
+      "t": 19362.19999885559,
+      "scrollTop": 314279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:6e983u:assistant:turn"
+    },
+    {
+      "t": 19400.79999923706,
+      "scrollTop": 313379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1zf4bu:assistant:turn"
+    },
+    {
+      "t": 19451.10000038147,
+      "scrollTop": 312479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:vzknze"
+    },
+    {
+      "t": 19486.5,
+      "scrollTop": 311579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1nez114:assistant:turn"
+    },
+    {
+      "t": 19519.29999923706,
+      "scrollTop": 310679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:13hs1a0:assistant:turn"
+    },
+    {
+      "t": 19545.5,
+      "scrollTop": 309779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:te27s:assistant:turn"
+    },
+    {
+      "t": 19584.79999923706,
+      "scrollTop": 308879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1rhvqbc:assistant:turn"
+    },
+    {
+      "t": 19617.60000038147,
+      "scrollTop": 307979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:wihmgw"
+    },
+    {
+      "t": 19654.89999961853,
+      "scrollTop": 307079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:xy446m"
+    },
+    {
+      "t": 19683.39999961853,
+      "scrollTop": 306179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:hvt2el:assistant:turn"
+    },
+    {
+      "t": 19713.39999961853,
+      "scrollTop": 305279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:thc11e:assistant:turn"
+    },
+    {
+      "t": 19751.79999923706,
+      "scrollTop": 304379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:9ub23s:assistant:turn"
+    },
+    {
+      "t": 19783.10000038147,
+      "scrollTop": 303479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:rab8hf"
+    },
+    {
+      "t": 19812.39999961853,
+      "scrollTop": 302579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:l8acft"
+    },
+    {
+      "t": 19850.60000038147,
+      "scrollTop": 301679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1uwxk0k:assistant:turn"
+    },
+    {
+      "t": 19884.39999961853,
+      "scrollTop": 300779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:7noyu2:assistant:turn"
+    },
+    {
+      "t": 19921.60000038147,
+      "scrollTop": 299879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1cgg031"
+    },
+    {
+      "t": 19951.60000038147,
+      "scrollTop": 298979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:17iv3wt:assistant:turn"
+    },
+    {
+      "t": 19980.79999923706,
+      "scrollTop": 298079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:n7usy5:assistant:turn"
+    },
+    {
+      "t": 20017.69999885559,
+      "scrollTop": 297179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1frx99p:assistant:turn"
+    },
+    {
+      "t": 20053.5,
+      "scrollTop": 296279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:ilan65:assistant:turn"
+    },
+    {
+      "t": 20083.19999885559,
+      "scrollTop": 295379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:cicun1"
+    },
+    {
+      "t": 20116.5,
+      "scrollTop": 294479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1oelp9:assistant:turn"
+    },
+    {
+      "t": 20146.5,
+      "scrollTop": 293579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:dkpr4t:assistant:turn"
+    },
+    {
+      "t": 20182.60000038147,
+      "scrollTop": 292679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1qxlhwd:assistant:turn"
+    },
+    {
+      "t": 20216.69999885559,
+      "scrollTop": 291779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:hxpzvw"
+    },
+    {
+      "t": 20245.39999961853,
+      "scrollTop": 290879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:90h6yq:assistant:turn"
+    },
+    {
+      "t": 20283,
+      "scrollTop": 289979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:9lo5kx:assistant:turn"
+    },
+    {
+      "t": 20318.10000038147,
+      "scrollTop": 289079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:sjx9uw:assistant:turn"
+    },
+    {
+      "t": 20351.10000038147,
+      "scrollTop": 288179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1omxyyq:assistant:turn"
+    },
+    {
+      "t": 20385.39999961853,
+      "scrollTop": 287279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:k9ek61:assistant:turn"
+    },
+    {
+      "t": 20412.89999961853,
+      "scrollTop": 286379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:rf0e6r:assistant:turn"
+    },
+    {
+      "t": 20452.39999961853,
+      "scrollTop": 285479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1de5e40:assistant:turn"
+    },
+    {
+      "t": 20499.39999961853,
+      "scrollTop": 284579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:9sb7y6:assistant:turn"
+    },
+    {
+      "t": 20532.19999885559,
+      "scrollTop": 283679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1updgax"
+    },
+    {
+      "t": 20566.39999961853,
+      "scrollTop": 282779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1bb8489:assistant:turn"
+    },
+    {
+      "t": 20616.19999885559,
+      "scrollTop": 281879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1k4ntrf:assistant:turn"
+    },
+    {
+      "t": 20685.39999961853,
+      "scrollTop": 280979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1mafcej:assistant:turn"
+    },
+    {
+      "t": 20735.10000038147,
+      "scrollTop": 280079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:i5kjt7"
+    },
+    {
+      "t": 20782.39999961853,
+      "scrollTop": 279179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:6mss6x"
+    },
+    {
+      "t": 20815.60000038147,
+      "scrollTop": 278279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:sjjiih:assistant:turn"
+    },
+    {
+      "t": 20854.10000038147,
+      "scrollTop": 277379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1wixveh:assistant:turn"
+    },
+    {
+      "t": 20901.60000038147,
+      "scrollTop": 276479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:jalwc9:assistant:turn"
+    },
+    {
+      "t": 20932.89999961853,
+      "scrollTop": 275579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:u5y2e9"
+    },
+    {
+      "t": 20963.10000038147,
+      "scrollTop": 274679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:2c5swf:assistant:turn"
+    },
+    {
+      "t": 20999,
+      "scrollTop": 273779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1wn71os:assistant:turn"
+    },
+    {
+      "t": 21034,
+      "scrollTop": 272879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1fslfj7:assistant:turn"
+    },
+    {
+      "t": 21070.60000038147,
+      "scrollTop": 271979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:ikmbvv"
+    },
+    {
+      "t": 21099.10000038147,
+      "scrollTop": 271079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:62fx6a:assistant:turn"
+    },
+    {
+      "t": 21132.60000038147,
+      "scrollTop": 270179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:22olq0:assistant:turn"
+    },
+    {
+      "t": 21170.89999961853,
+      "scrollTop": 269279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:q1l2z9:assistant:turn"
+    },
+    {
+      "t": 21217.60000038147,
+      "scrollTop": 268379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:11ksx5l"
+    },
+    {
+      "t": 21250.79999923706,
+      "scrollTop": 267479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:13y44p8"
+    },
+    {
+      "t": 21282.79999923706,
+      "scrollTop": 266579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:bi0e98:assistant:turn"
+    },
+    {
+      "t": 21317.5,
+      "scrollTop": 265679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:7brooc:assistant:turn"
+    },
+    {
+      "t": 21348.89999961853,
+      "scrollTop": 264779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:8ld43w:assistant:turn"
+    },
+    {
+      "t": 21384,
+      "scrollTop": 263879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:10lo4lo:assistant:turn"
+    },
+    {
+      "t": 21415.29999923706,
+      "scrollTop": 262979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1use1jw"
+    },
+    {
+      "t": 21450.29999923706,
+      "scrollTop": 262079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1xv1dss:assistant:turn"
+    },
+    {
+      "t": 21485.5,
+      "scrollTop": 261179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1slt5ek"
+    },
+    {
+      "t": 21523.5,
+      "scrollTop": 260279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:x76li4"
+    },
+    {
+      "t": 21566.79999923706,
+      "scrollTop": 259379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:jjbk3n:assistant:turn"
+    },
+    {
+      "t": 21595.69999885559,
+      "scrollTop": 258479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1cxnfu5:assistant:turn"
+    },
+    {
+      "t": 21633.29999923706,
+      "scrollTop": 257579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1nd3qcu:assistant:turn"
+    },
+    {
+      "t": 21666.5,
+      "scrollTop": 256679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1jlhj3i"
+    },
+    {
+      "t": 21695.69999885559,
+      "scrollTop": 255779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1mzyrrj"
+    },
+    {
+      "t": 21732.79999923706,
+      "scrollTop": 254879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:nv2r12:assistant:turn"
+    },
+    {
+      "t": 21765.79999923706,
+      "scrollTop": 253979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:16poqho:assistant:turn"
+    },
+    {
+      "t": 21799.69999885559,
+      "scrollTop": 253079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1jndz27:assistant:turn"
+    },
+    {
+      "t": 21832.89999961853,
+      "scrollTop": 252179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:8ogkz7:assistant:turn"
+    },
+    {
+      "t": 21862.29999923706,
+      "scrollTop": 251279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:5il0h2:assistant:turn"
+    },
+    {
+      "t": 21901.29999923706,
+      "scrollTop": 250379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:vhu492:assistant:turn"
+    },
+    {
+      "t": 21936.5,
+      "scrollTop": 249479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:17fd344:assistant:turn"
+    },
+    {
+      "t": 21966.69999885559,
+      "scrollTop": 248579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1jke7no"
+    },
+    {
+      "t": 22000.29999923706,
+      "scrollTop": 247679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:cv3rqc:assistant:turn"
+    },
+    {
+      "t": 22035.69999885559,
+      "scrollTop": 246779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1yj3g6u:assistant:turn"
+    },
+    {
+      "t": 22082.29999923706,
+      "scrollTop": 245879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1vbj01i:assistant:turn"
+    },
+    {
+      "t": 22116.29999923706,
+      "scrollTop": 244979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:ejx7jq"
+    },
+    {
+      "t": 22145.79999923706,
+      "scrollTop": 244079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:19d3ik6"
+    },
+    {
+      "t": 22184,
+      "scrollTop": 243179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1e8ig9a:assistant:turn"
+    },
+    {
+      "t": 22216.79999923706,
+      "scrollTop": 242279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:5o209s:assistant:turn"
+    },
+    {
+      "t": 22250,
+      "scrollTop": 241379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:nlfdv:assistant:turn"
+    },
+    {
+      "t": 22282.29999923706,
+      "scrollTop": 240479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:zewusj:assistant:turn"
+    },
+    {
+      "t": 22312.29999923706,
+      "scrollTop": 239579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1jc005g:assistant:turn"
+    },
+    {
+      "t": 22349.60000038147,
+      "scrollTop": 238679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1pm6it9:assistant:turn"
+    },
+    {
+      "t": 22383.69999885559,
+      "scrollTop": 237779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1xv6s1j:assistant:turn"
+    },
+    {
+      "t": 22416.89999961853,
+      "scrollTop": 236879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:24htgc"
+    },
+    {
+      "t": 22448.89999961853,
+      "scrollTop": 235979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1pb1ija:assistant:turn"
+    },
+    {
+      "t": 22481.10000038147,
+      "scrollTop": 235079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1jo73c3:assistant:turn"
+    },
+    {
+      "t": 22517.69999885559,
+      "scrollTop": 234179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:117z803:assistant:turn"
+    },
+    {
+      "t": 22550.79999923706,
+      "scrollTop": 233279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1xkf0mb"
+    },
+    {
+      "t": 22588.79999923706,
+      "scrollTop": 232379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1s4p3sz:assistant:turn"
+    },
+    {
+      "t": 22634.39999961853,
+      "scrollTop": 231479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:9mq9sz:assistant:turn"
+    },
+    {
+      "t": 22668.60000038147,
+      "scrollTop": 230579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:pvdqc3:assistant:turn"
+    },
+    {
+      "t": 22703.29999923706,
+      "scrollTop": 229679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:uq6g2b:assistant:turn"
+    },
+    {
+      "t": 22734.69999885559,
+      "scrollTop": 228779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:k42amr"
+    },
+    {
+      "t": 22765.79999923706,
+      "scrollTop": 227879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:gkk7mb:assistant:turn"
+    },
+    {
+      "t": 22801.19999885559,
+      "scrollTop": 226979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:bm9qjm:assistant:turn"
+    },
+    {
+      "t": 22834.39999961853,
+      "scrollTop": 226079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:12t7n7w:assistant:turn"
+    },
+    {
+      "t": 22868.29999923706,
+      "scrollTop": 225179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:8odug1"
+    },
+    {
+      "t": 22901.19999885559,
+      "scrollTop": 224279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:8a5e7"
+    },
+    {
+      "t": 22930,
+      "scrollTop": 223379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:opsdny:assistant:turn"
+    },
+    {
+      "t": 22967.89999961853,
+      "scrollTop": 222479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1irwwev:assistant:turn"
+    },
+    {
+      "t": 23000,
+      "scrollTop": 221579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:13kujj"
+    },
+    {
+      "t": 23034.29999923706,
+      "scrollTop": 220679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:5hyy9k"
+    },
+    {
+      "t": 23066.5,
+      "scrollTop": 219779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:15wmyia:assistant:turn"
+    },
+    {
+      "t": 23100.39999961853,
+      "scrollTop": 218879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:ofqhhj:assistant:turn"
+    },
+    {
+      "t": 23140.39999961853,
+      "scrollTop": 217979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:lvivqf:assistant:turn"
+    },
+    {
+      "t": 23184.29999923706,
+      "scrollTop": 217079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1uiybet"
+    },
+    {
+      "t": 23215.89999961853,
+      "scrollTop": 216179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:zg8hgl"
+    },
+    {
+      "t": 23250.19999885559,
+      "scrollTop": 215279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1npn7k5:assistant:turn"
+    },
+    {
+      "t": 23283.69999885559,
+      "scrollTop": 214379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:jsqibb:assistant:turn"
+    },
+    {
+      "t": 23317.29999923706,
+      "scrollTop": 213479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:l33kqf"
+    },
+    {
+      "t": 23351.19999885559,
+      "scrollTop": 212579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:6fby47:assistant:turn"
+    },
+    {
+      "t": 23379,
+      "scrollTop": 211679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1qur2uv:assistant:turn"
+    },
+    {
+      "t": 23416.69999885559,
+      "scrollTop": 210779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1nf5g8f:assistant:turn"
+    },
+    {
+      "t": 23449.29999923706,
+      "scrollTop": 209879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1arh6eb"
+    },
+    {
+      "t": 23482.89999961853,
+      "scrollTop": 208979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:p3u9f0"
+    },
+    {
+      "t": 23517.60000038147,
+      "scrollTop": 208079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:10wgeki:assistant:turn"
+    },
+    {
+      "t": 23551.39999961853,
+      "scrollTop": 207179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1re25id:assistant:turn"
+    },
+    {
+      "t": 23590.39999961853,
+      "scrollTop": 206279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1672e2k:assistant:turn"
+    },
+    {
+      "t": 23633.39999961853,
+      "scrollTop": 205379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:ias378:assistant:turn"
+    },
+    {
+      "t": 23668,
+      "scrollTop": 204479,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1wnb82l"
+    },
+    {
+      "t": 23700.19999885559,
+      "scrollTop": 203579,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:rmz55j:assistant:turn"
+    },
+    {
+      "t": 23732.39999961853,
+      "scrollTop": 202679,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1jd3ria:assistant:turn"
+    },
+    {
+      "t": 23767,
+      "scrollTop": 201779,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:14lz3ya"
+    },
+    {
+      "t": 23799.29999923706,
+      "scrollTop": 200879,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1m1me2q:assistant:turn"
+    },
+    {
+      "t": 23828.79999923706,
+      "scrollTop": 199979,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:t1nx2a:assistant:turn"
+    },
+    {
+      "t": 23865.79999923706,
+      "scrollTop": 199079,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1plx81u:assistant:turn"
+    },
+    {
+      "t": 23901.60000038147,
+      "scrollTop": 198179,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:ir481u"
+    },
+    {
+      "t": 23941,
+      "scrollTop": 197279,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:mzdutu"
+    },
+    {
+      "t": 23967.10000038147,
+      "scrollTop": 196379,
+      "delta": -900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1po85jm:assistant:turn"
+    },
+    {
+      "t": 23999.10000038147,
+      "scrollTop": 197279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:mzdutu"
+    },
+    {
+      "t": 24032.10000038147,
+      "scrollTop": 198179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:ir481u"
+    },
+    {
+      "t": 24067,
+      "scrollTop": 199079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1plx81u:assistant:turn"
+    },
+    {
+      "t": 24095.29999923706,
+      "scrollTop": 199979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:t1nx2a:assistant:turn"
+    },
+    {
+      "t": 24133.5,
+      "scrollTop": 200879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1m1me2q:assistant:turn"
+    },
+    {
+      "t": 24166.60000038147,
+      "scrollTop": 201779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:14lz3ya"
+    },
+    {
+      "t": 24199.79999923706,
+      "scrollTop": 202679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1jd3ria:assistant:turn"
+    },
+    {
+      "t": 24233.79999923706,
+      "scrollTop": 203579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:rmz55j:assistant:turn"
+    },
+    {
+      "t": 24266.10000038147,
+      "scrollTop": 204479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1wnb82l"
+    },
+    {
+      "t": 24300.10000038147,
+      "scrollTop": 205379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:ias378:assistant:turn"
+    },
+    {
+      "t": 24332.60000038147,
+      "scrollTop": 206279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1672e2k:assistant:turn"
+    },
+    {
+      "t": 24363.29999923706,
+      "scrollTop": 207179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1re25id:assistant:turn"
+    },
+    {
+      "t": 24399.69999885559,
+      "scrollTop": 208079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:10wgeki:assistant:turn"
+    },
+    {
+      "t": 24432.60000038147,
+      "scrollTop": 208979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:p3u9f0"
+    },
+    {
+      "t": 24466.79999923706,
+      "scrollTop": 209879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1arh6eb"
+    },
+    {
+      "t": 24499.5,
+      "scrollTop": 210779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1nf5g8f:assistant:turn"
+    },
+    {
+      "t": 24528.69999885559,
+      "scrollTop": 211679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1qur2uv:assistant:turn"
+    },
+    {
+      "t": 24566.10000038147,
+      "scrollTop": 212579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:6fby47:assistant:turn"
+    },
+    {
+      "t": 24599.29999923706,
+      "scrollTop": 213479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:l33kqf"
+    },
+    {
+      "t": 24633.5,
+      "scrollTop": 214379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:jsqibb:assistant:turn"
+    },
+    {
+      "t": 24667.10000038147,
+      "scrollTop": 215279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1npn7k5:assistant:turn"
+    },
+    {
+      "t": 24700.19999885559,
+      "scrollTop": 216179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:zg8hgl"
+    },
+    {
+      "t": 24733.89999961853,
+      "scrollTop": 217079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1uiybet"
+    },
+    {
+      "t": 24767.10000038147,
+      "scrollTop": 217979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:lvivqf:assistant:turn"
+    },
+    {
+      "t": 24800.89999961853,
+      "scrollTop": 218879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:ofqhhj:assistant:turn"
+    },
+    {
+      "t": 24834.19999885559,
+      "scrollTop": 219779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:15wmyia:assistant:turn"
+    },
+    {
+      "t": 24866.69999885559,
+      "scrollTop": 220679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:5hyy9k"
+    },
+    {
+      "t": 24899.29999923706,
+      "scrollTop": 221579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:13kujj"
+    },
+    {
+      "t": 24934.5,
+      "scrollTop": 222479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1irwwev:assistant:turn"
+    },
+    {
+      "t": 24963.10000038147,
+      "scrollTop": 223379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:opsdny:assistant:turn"
+    },
+    {
+      "t": 25001.29999923706,
+      "scrollTop": 224279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:8a5e7"
+    },
+    {
+      "t": 25033.79999923706,
+      "scrollTop": 225179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:8odug1"
+    },
+    {
+      "t": 25066.89999961853,
+      "scrollTop": 226079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:12t7n7w:assistant:turn"
+    },
+    {
+      "t": 25100.19999885559,
+      "scrollTop": 226979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:bm9qjm:assistant:turn"
+    },
+    {
+      "t": 25134,
+      "scrollTop": 227879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:gkk7mb:assistant:turn"
+    },
+    {
+      "t": 25167.69999885559,
+      "scrollTop": 228779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:k42amr"
+    },
+    {
+      "t": 25201.89999961853,
+      "scrollTop": 229679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:uq6g2b:assistant:turn"
+    },
+    {
+      "t": 25232.69999885559,
+      "scrollTop": 230579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:pvdqc3:assistant:turn"
+    },
+    {
+      "t": 25267.69999885559,
+      "scrollTop": 231479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:9mq9sz:assistant:turn"
+    },
+    {
+      "t": 25299.19999885559,
+      "scrollTop": 232379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1s4p3sz:assistant:turn"
+    },
+    {
+      "t": 25334.29999923706,
+      "scrollTop": 233279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1xkf0mb"
+    },
+    {
+      "t": 25368,
+      "scrollTop": 234179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:117z803:assistant:turn"
+    },
+    {
+      "t": 25397.29999923706,
+      "scrollTop": 235079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1jo73c3:assistant:turn"
+    },
+    {
+      "t": 25433.69999885559,
+      "scrollTop": 235979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1pb1ija:assistant:turn"
+    },
+    {
+      "t": 25470.10000038147,
+      "scrollTop": 236879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:24htgc"
+    },
+    {
+      "t": 25518.10000038147,
+      "scrollTop": 237779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1xv6s1j:assistant:turn"
+    },
+    {
+      "t": 25550.89999961853,
+      "scrollTop": 238679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1pm6it9:assistant:turn"
+    },
+    {
+      "t": 25581.89999961853,
+      "scrollTop": 239579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1jc005g:assistant:turn"
+    },
+    {
+      "t": 25616.10000038147,
+      "scrollTop": 240479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:zewusj:assistant:turn"
+    },
+    {
+      "t": 25650.29999923706,
+      "scrollTop": 241379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:nlfdv:assistant:turn"
+    },
+    {
+      "t": 25684.69999885559,
+      "scrollTop": 242279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:5o209s:assistant:turn"
+    },
+    {
+      "t": 25716.69999885559,
+      "scrollTop": 243179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1e8ig9a:assistant:turn"
+    },
+    {
+      "t": 25745.5,
+      "scrollTop": 244079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:19d3ik6"
+    },
+    {
+      "t": 25783.89999961853,
+      "scrollTop": 244979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:ejx7jq"
+    },
+    {
+      "t": 25817.19999885559,
+      "scrollTop": 245879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1vbj01i:assistant:turn"
+    },
+    {
+      "t": 25846.69999885559,
+      "scrollTop": 246779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1yj3g6u:assistant:turn"
+    },
+    {
+      "t": 25883.29999923706,
+      "scrollTop": 247679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:cv3rqc:assistant:turn"
+    },
+    {
+      "t": 25916.39999961853,
+      "scrollTop": 248579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1jke7no"
+    },
+    {
+      "t": 25951.69999885559,
+      "scrollTop": 249479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:17fd344:assistant:turn"
+    },
+    {
+      "t": 25986.10000038147,
+      "scrollTop": 250379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:vhu492:assistant:turn"
+    },
+    {
+      "t": 26017.69999885559,
+      "scrollTop": 251279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:5il0h2:assistant:turn"
+    },
+    {
+      "t": 26052.39999961853,
+      "scrollTop": 252179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:8ogkz7:assistant:turn"
+    },
+    {
+      "t": 26083.89999961853,
+      "scrollTop": 253079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1jndz27:assistant:turn"
+    },
+    {
+      "t": 26117,
+      "scrollTop": 253979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:16poqho:assistant:turn"
+    },
+    {
+      "t": 26150.10000038147,
+      "scrollTop": 254879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:nv2r12:assistant:turn"
+    },
+    {
+      "t": 26178.5,
+      "scrollTop": 255779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1mzyrrj"
+    },
+    {
+      "t": 26215.89999961853,
+      "scrollTop": 256679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1jlhj3i"
+    },
+    {
+      "t": 26251.60000038147,
+      "scrollTop": 257579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1nd3qcu:assistant:turn"
+    },
+    {
+      "t": 26284.79999923706,
+      "scrollTop": 258479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1cxnfu5:assistant:turn"
+    },
+    {
+      "t": 26318.79999923706,
+      "scrollTop": 259379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:jjbk3n:assistant:turn"
+    },
+    {
+      "t": 26353.19999885559,
+      "scrollTop": 260279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:x76li4"
+    },
+    {
+      "t": 26384.79999923706,
+      "scrollTop": 261179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1slt5ek"
+    },
+    {
+      "t": 26415.5,
+      "scrollTop": 262079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1xv1dss:assistant:turn"
+    },
+    {
+      "t": 26451.19999885559,
+      "scrollTop": 262979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1use1jw"
+    },
+    {
+      "t": 26485.19999885559,
+      "scrollTop": 263879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:10lo4lo:assistant:turn"
+    },
+    {
+      "t": 26517.89999961853,
+      "scrollTop": 264779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:8ld43w:assistant:turn"
+    },
+    {
+      "t": 26552,
+      "scrollTop": 265679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:7brooc:assistant:turn"
+    },
+    {
+      "t": 26586.60000038147,
+      "scrollTop": 266579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:bi0e98:assistant:turn"
+    },
+    {
+      "t": 26618.29999923706,
+      "scrollTop": 267479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:13y44p8"
+    },
+    {
+      "t": 26649.79999923706,
+      "scrollTop": 268379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:11ksx5l"
+    },
+    {
+      "t": 26683.5,
+      "scrollTop": 269279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:q1l2z9:assistant:turn"
+    },
+    {
+      "t": 26714,
+      "scrollTop": 270179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:22olq0:assistant:turn"
+    },
+    {
+      "t": 26750.10000038147,
+      "scrollTop": 271079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:62fx6a:assistant:turn"
+    },
+    {
+      "t": 26784,
+      "scrollTop": 271979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:ikmbvv"
+    },
+    {
+      "t": 26817.19999885559,
+      "scrollTop": 272879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1fslfj7:assistant:turn"
+    },
+    {
+      "t": 26850.69999885559,
+      "scrollTop": 273779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1wn71os:assistant:turn"
+    },
+    {
+      "t": 26885.29999923706,
+      "scrollTop": 274679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:2c5swf:assistant:turn"
+    },
+    {
+      "t": 26932.19999885559,
+      "scrollTop": 275579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:u5y2e9"
+    },
+    {
+      "t": 26966.69999885559,
+      "scrollTop": 276479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:jalwc9:assistant:turn"
+    },
+    {
+      "t": 27000.79999923706,
+      "scrollTop": 277379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1wixveh:assistant:turn"
+    },
+    {
+      "t": 27031.89999961853,
+      "scrollTop": 278279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:sjjiih:assistant:turn"
+    },
+    {
+      "t": 27068.5,
+      "scrollTop": 279179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:6mss6x"
+    },
+    {
+      "t": 27104.10000038147,
+      "scrollTop": 280079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:i5kjt7"
+    },
+    {
+      "t": 27149.79999923706,
+      "scrollTop": 280979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1mafcej:assistant:turn"
+    },
+    {
+      "t": 27179.79999923706,
+      "scrollTop": 281879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1k4ntrf:assistant:turn"
+    },
+    {
+      "t": 27216.10000038147,
+      "scrollTop": 282779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1bb8489:assistant:turn"
+    },
+    {
+      "t": 27266.5,
+      "scrollTop": 283679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1updgax"
+    },
+    {
+      "t": 27316,
+      "scrollTop": 284579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:9sb7y6:assistant:turn"
+    },
+    {
+      "t": 27365.60000038147,
+      "scrollTop": 285479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1de5e40:assistant:turn"
+    },
+    {
+      "t": 27397.79999923706,
+      "scrollTop": 286379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:rf0e6r:assistant:turn"
+    },
+    {
+      "t": 27433.69999885559,
+      "scrollTop": 287279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:k9ek61:assistant:turn"
+    },
+    {
+      "t": 27469.10000038147,
+      "scrollTop": 288179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1omxyyq:assistant:turn"
+    },
+    {
+      "t": 27499,
+      "scrollTop": 289079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:sjx9uw:assistant:turn"
+    },
+    {
+      "t": 27532.79999923706,
+      "scrollTop": 289979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:9lo5kx:assistant:turn"
+    },
+    {
+      "t": 27561.60000038147,
+      "scrollTop": 290879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:90h6yq:assistant:turn"
+    },
+    {
+      "t": 27600.79999923706,
+      "scrollTop": 291779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:hxpzvw"
+    },
+    {
+      "t": 27633.10000038147,
+      "scrollTop": 292679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1qxlhwd:assistant:turn"
+    },
+    {
+      "t": 27663.10000038147,
+      "scrollTop": 293579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:dkpr4t:assistant:turn"
+    },
+    {
+      "t": 27699.89999961853,
+      "scrollTop": 294479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1oelp9:assistant:turn"
+    },
+    {
+      "t": 27733.10000038147,
+      "scrollTop": 295379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:cicun1"
+    },
+    {
+      "t": 27765.60000038147,
+      "scrollTop": 296279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:ilan65:assistant:turn"
+    },
+    {
+      "t": 27799.19999885559,
+      "scrollTop": 297179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1frx99p:assistant:turn"
+    },
+    {
+      "t": 27829.79999923706,
+      "scrollTop": 298079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:n7usy5:assistant:turn"
+    },
+    {
+      "t": 27867.19999885559,
+      "scrollTop": 298979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:17iv3wt:assistant:turn"
+    },
+    {
+      "t": 27900.79999923706,
+      "scrollTop": 299879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1cgg031"
+    },
+    {
+      "t": 27933.39999961853,
+      "scrollTop": 300779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:7noyu2:assistant:turn"
+    },
+    {
+      "t": 27966,
+      "scrollTop": 301679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1uwxk0k:assistant:turn"
+    },
+    {
+      "t": 27994.89999961853,
+      "scrollTop": 302579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:l8acft"
+    },
+    {
+      "t": 28031.89999961853,
+      "scrollTop": 303479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:rab8hf"
+    },
+    {
+      "t": 28066.5,
+      "scrollTop": 304379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:9ub23s:assistant:turn"
+    },
+    {
+      "t": 28096,
+      "scrollTop": 305279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:thc11e:assistant:turn"
+    },
+    {
+      "t": 28135.39999961853,
+      "scrollTop": 306179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:hvt2el:assistant:turn"
+    },
+    {
+      "t": 28167.79999923706,
+      "scrollTop": 307079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:xy446m"
+    },
+    {
+      "t": 28200.5,
+      "scrollTop": 307979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:wihmgw"
+    },
+    {
+      "t": 28232.10000038147,
+      "scrollTop": 308879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1rhvqbc:assistant:turn"
+    },
+    {
+      "t": 28261.69999885559,
+      "scrollTop": 309779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:te27s:assistant:turn"
+    },
+    {
+      "t": 28299,
+      "scrollTop": 310679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:13hs1a0:assistant:turn"
+    },
+    {
+      "t": 28332.79999923706,
+      "scrollTop": 311579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1nez114:assistant:turn"
+    },
+    {
+      "t": 28366.10000038147,
+      "scrollTop": 312479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:vzknze"
+    },
+    {
+      "t": 28399.69999885559,
+      "scrollTop": 313379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1zf4bu:assistant:turn"
+    },
+    {
+      "t": 28428.5,
+      "scrollTop": 314279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:6e983u:assistant:turn"
+    },
+    {
+      "t": 28464.79999923706,
+      "scrollTop": 315179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1fow94"
+    },
+    {
+      "t": 28498.5,
+      "scrollTop": 316079,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:16q2waw:assistant:turn"
+    },
+    {
+      "t": 28529.19999885559,
+      "scrollTop": 316979,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1xu6hz3:assistant:turn"
+    },
+    {
+      "t": 28566.10000038147,
+      "scrollTop": 317879,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1h8z6pd:assistant:turn"
+    },
+    {
+      "t": 28599.69999885559,
+      "scrollTop": 318779,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:94k1hu"
+    },
+    {
+      "t": 28631.89999961853,
+      "scrollTop": 319679,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1k6ipjs"
+    },
+    {
+      "t": 28666.39999961853,
+      "scrollTop": 320579,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1hzf3ab:assistant:turn"
+    },
+    {
+      "t": 28700.39999961853,
+      "scrollTop": 321479,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:m9lqmh"
+    },
+    {
+      "t": 28732.69999885559,
+      "scrollTop": 322379,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1uor7ts:assistant:turn"
+    },
+    {
+      "t": 28767.39999961853,
+      "scrollTop": 323279,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:10zdxyb"
+    },
+    {
+      "t": 28799.69999885559,
+      "scrollTop": 324179,
+      "delta": 900,
+      "scrollHeight": 324899,
+      "clientHeight": 720,
+      "first": "user:1merotf:assistant:turn"
+    }
+  ]
+}

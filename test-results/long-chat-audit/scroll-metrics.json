@@ -1,0 +1,42 @@
+{
+  "messageCount": 2000,
+  "scrollConfig": {
+    "duration": 8000,
+    "step": 60,
+    "interval": 16
+  },
+  "scrollResult": {
+    "finalScrollTop": 353962,
+    "finalScrollHeight": 383122,
+    "finalClientHeight": 720,
+    "totalScrollDistance": 28440
+  },
+  "metrics": {
+    "scrollJumpCount": 0,
+    "scrollJumps": [],
+    "domMutationCount": 0,
+    "domMutations": [],
+    "visibleRowSampleCount": 80,
+    "firstVisibleSample": {
+      "time": 1349.8999996185303,
+      "ids": [
+        "message-msg-1995",
+        "message-msg-1996",
+        "message-msg-1997",
+        "message-msg-1998",
+        "message-msg-1999"
+      ],
+      "count": 5
+    },
+    "lastVisibleSample": {
+      "time": 9251.60000038147,
+      "ids": [
+        "message-msg-1855",
+        "message-msg-1856",
+        "message-msg-1857",
+        "message-msg-1858"
+      ],
+      "count": 4
+    }
+  }
+}

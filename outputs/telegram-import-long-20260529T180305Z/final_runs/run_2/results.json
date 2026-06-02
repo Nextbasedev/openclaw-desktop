@@ -1,0 +1,12 @@
+{
+  "issues": [
+    {
+      "kind": "long_marker_missing_after_reload",
+      "detail": "Long message marker missing after duplicate reload",
+      "step": 7,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/telegram-import-long-20260529T180305Z/final_runs/run_2/screenshots/final_execution_07_long_marker_missing_reload.png"
+    }
+  ],
+  "marker": "WEBWRIGHT_IMPORTED_LONG_1780078662",
+  "chatId": "chat_mpr8tjaf_wdcj5x"
+}

@@ -1,0 +1,28 @@
+step 1 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/telegram-import-long-20260529T180305Z/final_runs/run_2/screenshots/final_execution_01_imported_chat_loaded.png
+step 1 action: STATE imported_chat_loaded bodyLen=97317 transcriptLen=96975 bubbles=20 dups=[] markerCount=0 syncing=False thinking=True
+step 2 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/telegram-import-long-20260529T180305Z/final_runs/run_2/screenshots/final_execution_02_duplicate_window_imported.png
+step 2 action: STATE duplicate_window_imported bodyLen=97317 transcriptLen=96975 bubbles=20 dups=[] markerCount=0 syncing=False thinking=True
+step 3 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/telegram-import-long-20260529T180305Z/final_runs/run_2/screenshots/final_execution_03_duplicate_reload_imported.png
+step 3 action: STATE duplicate_reload_imported bodyLen=97317 transcriptLen=96975 bubbles=20 dups=[] markerCount=0 syncing=False thinking=True
+step 4 action: sent long message marker=WEBWRIGHT_IMPORTED_LONG_1780078662
+step 4 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/telegram-import-long-20260529T180305Z/final_runs/run_2/screenshots/final_execution_04_long_message_sent.png
+step 5 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/telegram-import-long-20260529T180305Z/final_runs/run_2/screenshots/final_execution_05_after_long_wait.png
+step 5 action: STATE after_long_wait bodyLen=106999 transcriptLen=106657 bubbles=21 dups=[] markerCount=1 syncing=False thinking=True
+step 6 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/telegram-import-long-20260529T180305Z/final_runs/run_2/screenshots/final_execution_06_after_long_duplicate_window.png
+step 6 action: STATE after_long_duplicate_window bodyLen=97428 transcriptLen=97085 bubbles=20 dups=[] markerCount=0 syncing=True thinking=True
+step 7 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/telegram-import-long-20260529T180305Z/final_runs/run_2/screenshots/final_execution_07_after_long_duplicate_reload.png
+step 7 action: STATE after_long_duplicate_reload bodyLen=97427 transcriptLen=97085 bubbles=20 dups=[] markerCount=0 syncing=True thinking=True
+step 7 action: screenshot saved /root/.openclaw/workspace/openclaw-desktop/outputs/telegram-import-long-20260529T180305Z/final_runs/run_2/screenshots/final_execution_07_long_marker_missing_reload.png
+step 7 action: ISSUE {"kind": "long_marker_missing_after_reload", "detail": "Long message marker missing after duplicate reload", "step": 7, "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/telegram-import-long-20260529T180305Z/final_runs/run_2/screenshots/final_execution_07_long_marker_missing_reload.png"}
+FINAL_SUMMARY={
+  "issues": [
+    {
+      "kind": "long_marker_missing_after_reload",
+      "detail": "Long message marker missing after duplicate reload",
+      "step": 7,
+      "screenshot": "/root/.openclaw/workspace/openclaw-desktop/outputs/telegram-import-long-20260529T180305Z/final_runs/run_2/screenshots/final_execution_07_long_marker_missing_reload.png"
+    }
+  ],
+  "marker": "WEBWRIGHT_IMPORTED_LONG_1780078662",
+  "chatId": "chat_mpr8tjaf_wdcj5x"
+}

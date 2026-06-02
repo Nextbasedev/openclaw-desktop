@@ -1,0 +1,1114 @@
+{
+  "url": "http://127.0.0.1:3000/audit-long-chat",
+  "timestamp": "2026-05-31T13:07:55.958Z",
+  "metrics": {
+    "scrollPositions": [
+      {
+        "scrollTop": 0,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "initial",
+        "time": 1780232874125
+      },
+      {
+        "scrollTop": 324179,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "bottom",
+        "time": 1780232874139
+      },
+      {
+        "scrollTop": 307970,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-1",
+        "time": 1780232874214
+      },
+      {
+        "scrollTop": 291761,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-2",
+        "time": 1780232874263
+      },
+      {
+        "scrollTop": 275552,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-3",
+        "time": 1780232874313
+      },
+      {
+        "scrollTop": 259343,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-4",
+        "time": 1780232874368
+      },
+      {
+        "scrollTop": 243134,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-5",
+        "time": 1780232874433
+      },
+      {
+        "scrollTop": 226925,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-6",
+        "time": 1780232874500
+      },
+      {
+        "scrollTop": 210716,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-7",
+        "time": 1780232874550
+      },
+      {
+        "scrollTop": 194507,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-8",
+        "time": 1780232874602
+      },
+      {
+        "scrollTop": 178298,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-9",
+        "time": 1780232874663
+      },
+      {
+        "scrollTop": 162090,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-10",
+        "time": 1780232874715
+      },
+      {
+        "scrollTop": 145881,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-11",
+        "time": 1780232874765
+      },
+      {
+        "scrollTop": 129672,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-12",
+        "time": 1780232874820
+      },
+      {
+        "scrollTop": 113463,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-13",
+        "time": 1780232874886
+      },
+      {
+        "scrollTop": 97254,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-14",
+        "time": 1780232874947
+      },
+      {
+        "scrollTop": 81045,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-15",
+        "time": 1780232875001
+      },
+      {
+        "scrollTop": 64836,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-16",
+        "time": 1780232875071
+      },
+      {
+        "scrollTop": 48627,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-17",
+        "time": 1780232875123
+      },
+      {
+        "scrollTop": 32418,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-18",
+        "time": 1780232875175
+      },
+      {
+        "scrollTop": 16209,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-19",
+        "time": 1780232875223
+      },
+      {
+        "scrollTop": 0,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "upward-step-20",
+        "time": 1780232875276
+      },
+      {
+        "scrollTop": 0,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "top",
+        "time": 1780232875353
+      },
+      {
+        "scrollTop": 0,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "top-waited",
+        "time": 1780232875869
+      },
+      {
+        "scrollTop": 97254,
+        "scrollHeight": 324899,
+        "clientHeight": 720,
+        "label": "downward",
+        "time": 1780232875882
+      }
+    ],
+    "visibleSamples": [
+      {
+        "ids": [
+          "audit-msg-0",
+          "audit-msg-1",
+          "audit-msg-2",
+          "audit-msg-3",
+          "audit-msg-4"
+        ],
+        "texts": [
+          "User prompt 0: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor ",
+          "Steps1 tool usedexec0.2sInput{\n  \"command\": \"echo audit\"\n}OutputauditAssistant response 0: Lorem ipsum dolor sit amet, c",
+          "User prompt 1: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor ",
+          "Assistant response 1: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labor",
+          "User prompt 2: repeated stress prompt 2. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor "
+        ],
+        "count": 5,
+        "label": "initial",
+        "time": 1780232874133
+      },
+      {
+        "ids": [
+          "audit-msg-1995",
+          "audit-msg-1996",
+          "audit-msg-1997",
+          "audit-msg-1998",
+          "audit-msg-1999"
+        ],
+        "texts": [
+          "Assistant response 997: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 998: repeated stress prompt 23. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 998: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 999: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 999: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab"
+        ],
+        "count": 5,
+        "label": "bottom",
+        "time": 1780232874145
+      },
+      {
+        "ids": [
+          "audit-msg-1896",
+          "audit-msg-1897",
+          "audit-msg-1898",
+          "audit-msg-1899",
+          "audit-msg-1900"
+        ],
+        "texts": [
+          "User prompt 948: repeated stress prompt 23. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 948: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 949: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Steps1 tool usedexec0.2sInput{\n  \"command\": \"echo audit\"\n}OutputauditAssistant response 949: Lorem ipsum dolor sit amet,",
+          "User prompt 950: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo"
+        ],
+        "count": 5,
+        "label": "upward-step-1",
+        "time": 1780232874222
+      },
+      {
+        "ids": [
+          "audit-msg-1796",
+          "audit-msg-1797",
+          "audit-msg-1798",
+          "audit-msg-1799",
+          "audit-msg-1800"
+        ],
+        "texts": [
+          "User prompt 898: repeated stress prompt 23. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 898: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 899: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 899: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 900: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo"
+        ],
+        "count": 5,
+        "label": "upward-step-2",
+        "time": 1780232874269
+      },
+      {
+        "ids": [
+          "audit-msg-1696",
+          "audit-msg-1697",
+          "audit-msg-1698",
+          "audit-msg-1699",
+          "audit-msg-1700",
+          "audit-msg-1701"
+        ],
+        "texts": [
+          "User prompt 848: repeated stress prompt 23. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 848: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 849: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 849: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 850: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 850: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab"
+        ],
+        "count": 6,
+        "label": "upward-step-3",
+        "time": 1780232874321
+      },
+      {
+        "ids": [
+          "audit-msg-1596",
+          "audit-msg-1597",
+          "audit-msg-1598",
+          "audit-msg-1599",
+          "audit-msg-1600",
+          "audit-msg-1601"
+        ],
+        "texts": [
+          "User prompt 798: repeated stress prompt 23. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 798: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 799: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 799: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 800: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 800: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab"
+        ],
+        "count": 6,
+        "label": "upward-step-4",
+        "time": 1780232874375
+      },
+      {
+        "ids": [
+          "audit-msg-1497",
+          "audit-msg-1498",
+          "audit-msg-1499",
+          "audit-msg-1500",
+          "audit-msg-1501"
+        ],
+        "texts": [
+          "Assistant response 748: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 749: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 749: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 750: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 750: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab"
+        ],
+        "count": 5,
+        "label": "upward-step-5",
+        "time": 1780232874440
+      },
+      {
+        "ids": [
+          "audit-msg-1397",
+          "audit-msg-1398",
+          "audit-msg-1399",
+          "audit-msg-1400",
+          "audit-msg-1401"
+        ],
+        "texts": [
+          "Assistant response 698: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 699: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 699: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 700: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 700: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab"
+        ],
+        "count": 5,
+        "label": "upward-step-6",
+        "time": 1780232874506
+      },
+      {
+        "ids": [
+          "audit-msg-1297",
+          "audit-msg-1298",
+          "audit-msg-1299",
+          "audit-msg-1300",
+          "audit-msg-1301"
+        ],
+        "texts": [
+          "Assistant response 648: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 649: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 649: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 650: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Steps1 tool usedexec0.2sInput{\n  \"command\": \"echo audit\"\n}OutputauditAssistant response 650: Lorem ipsum dolor sit amet,"
+        ],
+        "count": 5,
+        "label": "upward-step-7",
+        "time": 1780232874556
+      },
+      {
+        "ids": [
+          "audit-msg-1197",
+          "audit-msg-1198",
+          "audit-msg-1199",
+          "audit-msg-1200",
+          "audit-msg-1201"
+        ],
+        "texts": [
+          "Steps1 tool usedexec0.2sInput{\n  \"command\": \"echo audit\"\n}OutputauditAssistant response 598: Lorem ipsum dolor sit amet,",
+          "User prompt 599: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 599: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 600: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 600: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab"
+        ],
+        "count": 5,
+        "label": "upward-step-8",
+        "time": 1780232874611
+      },
+      {
+        "ids": [
+          "audit-msg-1097",
+          "audit-msg-1098",
+          "audit-msg-1099",
+          "audit-msg-1100",
+          "audit-msg-1101"
+        ],
+        "texts": [
+          "Assistant response 548: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 549: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 549: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 550: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 550: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab"
+        ],
+        "count": 5,
+        "label": "upward-step-9",
+        "time": 1780232874669
+      },
+      {
+        "ids": [
+          "audit-msg-997",
+          "audit-msg-998",
+          "audit-msg-999",
+          "audit-msg-1000",
+          "audit-msg-1001",
+          "audit-msg-1002"
+        ],
+        "texts": [
+          "Assistant response 498: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 499: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 499: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 500: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 500: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 501: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo"
+        ],
+        "count": 6,
+        "label": "upward-step-10",
+        "time": 1780232874721
+      },
+      {
+        "ids": [
+          "audit-msg-897",
+          "audit-msg-898",
+          "audit-msg-899",
+          "audit-msg-900",
+          "audit-msg-901",
+          "audit-msg-902"
+        ],
+        "texts": [
+          "Assistant response 448: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 449: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 449: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 450: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 450: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 451: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo"
+        ],
+        "count": 6,
+        "label": "upward-step-11",
+        "time": 1780232874771
+      },
+      {
+        "ids": [
+          "audit-msg-798",
+          "audit-msg-799",
+          "audit-msg-800",
+          "audit-msg-801",
+          "audit-msg-802"
+        ],
+        "texts": [
+          "User prompt 399: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 399: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 400: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 400: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 401: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo"
+        ],
+        "count": 5,
+        "label": "upward-step-12",
+        "time": 1780232874828
+      },
+      {
+        "ids": [
+          "audit-msg-698",
+          "audit-msg-699",
+          "audit-msg-700",
+          "audit-msg-701",
+          "audit-msg-702",
+          "audit-msg-703"
+        ],
+        "texts": [
+          "User prompt 349: repeated stress prompt 24. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod temp",
+          "Assistant response 349: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 350: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 350: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 351: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Steps1 tool usedexec0.2sInput{\n  \"command\": \"echo audit\"\n}OutputauditAssistant response 351: Lorem ipsum dolor sit amet,"
+        ],
+        "count": 6,
+        "label": "upward-step-13",
+        "time": 1780232874892
+      },
+      {
+        "ids": [
+          "audit-msg-599",
+          "audit-msg-600",
+          "audit-msg-601",
+          "audit-msg-602",
+          "audit-msg-603"
+        ],
+        "texts": [
+          "Steps1 tool usedexec0.2sInput{\n  \"command\": \"echo audit\"\n}OutputauditAssistant response 299: Lorem ipsum dolor sit amet,",
+          "User prompt 300: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 300: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 301: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 301: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab"
+        ],
+        "count": 5,
+        "label": "upward-step-14",
+        "time": 1780232874954
+      },
+      {
+        "ids": [
+          "audit-msg-499",
+          "audit-msg-500",
+          "audit-msg-501",
+          "audit-msg-502",
+          "audit-msg-503"
+        ],
+        "texts": [
+          "Assistant response 249: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 250: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 250: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 251: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 251: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab"
+        ],
+        "count": 5,
+        "label": "upward-step-15",
+        "time": 1780232875007
+      },
+      {
+        "ids": [
+          "audit-msg-399",
+          "audit-msg-400",
+          "audit-msg-401",
+          "audit-msg-402",
+          "audit-msg-403"
+        ],
+        "texts": [
+          "Assistant response 199: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 200: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 200: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 201: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 201: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab"
+        ],
+        "count": 5,
+        "label": "upward-step-16",
+        "time": 1780232875079
+      },
+      {
+        "ids": [
+          "audit-msg-299",
+          "audit-msg-300",
+          "audit-msg-301",
+          "audit-msg-302",
+          "audit-msg-303"
+        ],
+        "texts": [
+          "Assistant response 149: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 150: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 150: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 151: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 151: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab"
+        ],
+        "count": 5,
+        "label": "upward-step-17",
+        "time": 1780232875130
+      },
+      {
+        "ids": [
+          "audit-msg-199",
+          "audit-msg-200",
+          "audit-msg-201",
+          "audit-msg-202",
+          "audit-msg-203",
+          "audit-msg-204"
+        ],
+        "texts": [
+          "Assistant response 99: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labo",
+          "User prompt 100: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 100: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 101: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 101: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 102: repeated stress prompt 2. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo"
+        ],
+        "count": 6,
+        "label": "upward-step-18",
+        "time": 1780232875181
+      },
+      {
+        "ids": [
+          "audit-msg-100",
+          "audit-msg-101",
+          "audit-msg-102",
+          "audit-msg-103",
+          "audit-msg-104"
+        ],
+        "texts": [
+          "User prompt 50: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor",
+          "Assistant response 50: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labo",
+          "User prompt 51: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor",
+          "Assistant response 51: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labo",
+          "User prompt 52: repeated stress prompt 2. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor"
+        ],
+        "count": 5,
+        "label": "upward-step-19",
+        "time": 1780232875230
+      },
+      {
+        "ids": [
+          "audit-msg-0",
+          "audit-msg-1",
+          "audit-msg-2",
+          "audit-msg-3",
+          "audit-msg-4"
+        ],
+        "texts": [
+          "User prompt 0: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor ",
+          "Steps1 tool usedexec0.2sInput{\n  \"command\": \"echo audit\"\n}OutputauditAssistant response 0: Lorem ipsum dolor sit amet, c",
+          "User prompt 1: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor ",
+          "Assistant response 1: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labor",
+          "User prompt 2: repeated stress prompt 2. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor "
+        ],
+        "count": 5,
+        "label": "upward-step-20",
+        "time": 1780232875283
+      },
+      {
+        "ids": [
+          "audit-msg-0",
+          "audit-msg-1",
+          "audit-msg-2",
+          "audit-msg-3",
+          "audit-msg-4"
+        ],
+        "texts": [
+          "User prompt 0: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor ",
+          "Steps1 tool usedexec0.2sInput{\n  \"command\": \"echo audit\"\n}OutputauditAssistant response 0: Lorem ipsum dolor sit amet, c",
+          "User prompt 1: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor ",
+          "Assistant response 1: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labor",
+          "User prompt 2: repeated stress prompt 2. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor "
+        ],
+        "count": 5,
+        "label": "top",
+        "time": 1780232875360
+      },
+      {
+        "ids": [
+          "audit-msg-0",
+          "audit-msg-1",
+          "audit-msg-2",
+          "audit-msg-3",
+          "audit-msg-4"
+        ],
+        "texts": [
+          "User prompt 0: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor ",
+          "Steps1 tool usedexec0.2sInput{\n  \"command\": \"echo audit\"\n}OutputauditAssistant response 0: Lorem ipsum dolor sit amet, c",
+          "User prompt 1: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor ",
+          "Assistant response 1: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labor",
+          "User prompt 2: repeated stress prompt 2. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor "
+        ],
+        "count": 5,
+        "label": "top-waited",
+        "time": 1780232875875
+      },
+      {
+        "ids": [
+          "audit-msg-599",
+          "audit-msg-600",
+          "audit-msg-601",
+          "audit-msg-602",
+          "audit-msg-603"
+        ],
+        "texts": [
+          "Steps1 tool usedexec0.2sInput{\n  \"command\": \"echo audit\"\n}OutputauditAssistant response 299: Lorem ipsum dolor sit amet,",
+          "User prompt 300: repeated stress prompt 0. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 300: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab",
+          "User prompt 301: repeated stress prompt 1. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempo",
+          "Assistant response 301: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut lab"
+        ],
+        "count": 5,
+        "label": "downward",
+        "time": 1780232875890
+      }
+    ],
+    "jumpCount": 22,
+    "jumps": [
+      {
+        "from": 0,
+        "to": 324179,
+        "delta": 324179,
+        "label": "bottom",
+        "time": 1780232874139
+      },
+      {
+        "from": 324179,
+        "to": 307970,
+        "delta": -16209,
+        "label": "upward-step-1",
+        "time": 1780232874214
+      },
+      {
+        "from": 307970,
+        "to": 291761,
+        "delta": -16209,
+        "label": "upward-step-2",
+        "time": 1780232874263
+      },
+      {
+        "from": 291761,
+        "to": 275552,
+        "delta": -16209,
+        "label": "upward-step-3",
+        "time": 1780232874313
+      },
+      {
+        "from": 275552,
+        "to": 259343,
+        "delta": -16209,
+        "label": "upward-step-4",
+        "time": 1780232874368
+      },
+      {
+        "from": 259343,
+        "to": 243134,
+        "delta": -16209,
+        "label": "upward-step-5",
+        "time": 1780232874433
+      },
+      {
+        "from": 243134,
+        "to": 226925,
+        "delta": -16209,
+        "label": "upward-step-6",
+        "time": 1780232874500
+      },
+      {
+        "from": 226925,
+        "to": 210716,
+        "delta": -16209,
+        "label": "upward-step-7",
+        "time": 1780232874550
+      },
+      {
+        "from": 210716,
+        "to": 194507,
+        "delta": -16209,
+        "label": "upward-step-8",
+        "time": 1780232874602
+      },
+      {
+        "from": 194507,
+        "to": 178298,
+        "delta": -16209,
+        "label": "upward-step-9",
+        "time": 1780232874663
+      },
+      {
+        "from": 178298,
+        "to": 162090,
+        "delta": -16208,
+        "label": "upward-step-10",
+        "time": 1780232874715
+      },
+      {
+        "from": 162090,
+        "to": 145881,
+        "delta": -16209,
+        "label": "upward-step-11",
+        "time": 1780232874765
+      },
+      {
+        "from": 145881,
+        "to": 129672,
+        "delta": -16209,
+        "label": "upward-step-12",
+        "time": 1780232874820
+      },
+      {
+        "from": 129672,
+        "to": 113463,
+        "delta": -16209,
+        "label": "upward-step-13",
+        "time": 1780232874886
+      },
+      {
+        "from": 113463,
+        "to": 97254,
+        "delta": -16209,
+        "label": "upward-step-14",
+        "time": 1780232874947
+      },
+      {
+        "from": 97254,
+        "to": 81045,
+        "delta": -16209,
+        "label": "upward-step-15",
+        "time": 1780232875001
+      },
+      {
+        "from": 81045,
+        "to": 64836,
+        "delta": -16209,
+        "label": "upward-step-16",
+        "time": 1780232875071
+      },
+      {
+        "from": 64836,
+        "to": 48627,
+        "delta": -16209,
+        "label": "upward-step-17",
+        "time": 1780232875123
+      },
+      {
+        "from": 48627,
+        "to": 32418,
+        "delta": -16209,
+        "label": "upward-step-18",
+        "time": 1780232875175
+      },
+      {
+        "from": 32418,
+        "to": 16209,
+        "delta": -16209,
+        "label": "upward-step-19",
+        "time": 1780232875223
+      },
+      {
+        "from": 16209,
+        "to": 0,
+        "delta": -16209,
+        "label": "upward-step-20",
+        "time": 1780232875276
+      },
+      {
+        "from": 0,
+        "to": 97254,
+        "delta": 97254,
+        "label": "downward",
+        "time": 1780232875882
+      }
+    ],
+    "textDisappearances": 22,
+    "rowCountHistory": [
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874133,
+        "label": "initial"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874145,
+        "label": "bottom"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874222,
+        "label": "upward-step-1"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874269,
+        "label": "upward-step-2"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874321,
+        "label": "upward-step-3"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874375,
+        "label": "upward-step-4"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874440,
+        "label": "upward-step-5"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874506,
+        "label": "upward-step-6"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874556,
+        "label": "upward-step-7"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874611,
+        "label": "upward-step-8"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874669,
+        "label": "upward-step-9"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874721,
+        "label": "upward-step-10"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874771,
+        "label": "upward-step-11"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874828,
+        "label": "upward-step-12"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874892,
+        "label": "upward-step-13"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232874954,
+        "label": "upward-step-14"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232875007,
+        "label": "upward-step-15"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232875079,
+        "label": "upward-step-16"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232875130,
+        "label": "upward-step-17"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232875181,
+        "label": "upward-step-18"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232875230,
+        "label": "upward-step-19"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232875283,
+        "label": "upward-step-20"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232875360,
+        "label": "top"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232875875,
+        "label": "top-waited"
+      },
+      {
+        "t": "sample",
+        "count": 2000,
+        "time": 1780232875890,
+        "label": "downward"
+      }
+    ],
+    "scrollHeightHistory": [
+      {
+        "scrollHeight": 324899,
+        "label": "initial",
+        "time": 1780232874125
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "bottom",
+        "time": 1780232874139
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-1",
+        "time": 1780232874214
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-2",
+        "time": 1780232874263
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-3",
+        "time": 1780232874313
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-4",
+        "time": 1780232874368
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-5",
+        "time": 1780232874433
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-6",
+        "time": 1780232874500
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-7",
+        "time": 1780232874550
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-8",
+        "time": 1780232874602
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-9",
+        "time": 1780232874663
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-10",
+        "time": 1780232874715
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-11",
+        "time": 1780232874765
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-12",
+        "time": 1780232874820
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-13",
+        "time": 1780232874886
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-14",
+        "time": 1780232874947
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-15",
+        "time": 1780232875001
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-16",
+        "time": 1780232875071
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-17",
+        "time": 1780232875123
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-18",
+        "time": 1780232875175
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-19",
+        "time": 1780232875223
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "upward-step-20",
+        "time": 1780232875276
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "top",
+        "time": 1780232875353
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "top-waited",
+        "time": 1780232875869
+      },
+      {
+        "scrollHeight": 324899,
+        "label": "downward",
+        "time": 1780232875882
+      }
+    ],
+    "blankFrames": 0,
+    "loaderAppeared": false,
+    "loaderAppearedAt": null,
+    "loaderVisibleSamples": 0
+  },
+  "consoleErrors": []
+}

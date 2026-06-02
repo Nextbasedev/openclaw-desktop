@@ -1,0 +1,4 @@
+step 1 action: launch fresh browser and configure middleware URL
+screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-sequential-20260530T043840Z/final_runs/run_2/screenshots/final_execution_1_composer_visible.png
+CP1 PASS: Desktop web UI loaded and composer is visible
+step 2 action: send first message: WEBWRIGHT_SEQ_FIRST_3902978646

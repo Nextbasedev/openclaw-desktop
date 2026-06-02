@@ -1,0 +1,20 @@
+step 1 action: launch fresh browser and configure middleware URL
+screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-sequential-20260530T043840Z/final_runs/run_4/screenshots/final_execution_1_composer_visible.png
+CP1 PASS: Desktop web UI loaded and composer is visible
+step 2 action: send first message: WEBWRIGHT_SEQ_FIRST_4559877573
+screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-sequential-20260530T043840Z/final_runs/run_4/screenshots/final_execution_2_first_message_completed.png
+CP2 PASS: first message completed before second send; ids_after_first=['1b9215c8', 'e7ff1f07', 'e207e770']
+step 3 action: send second message after first completion: WEBWRIGHT_SEQ_SECOND_4559878492
+screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-sequential-20260530T043840Z/final_runs/run_4/screenshots/final_execution_3_second_message_completed.png
+CP3 PASS: second message completed after sequential send; ids_after_second=['1b9215c8', 'e7ff1f07', 'e207e770', 'ca4f474a', '3e379c8a']
+FINAL_DATUM: {
+  "message_count": 5,
+  "duplicate_ids": {},
+  "first_user_message_occurrences": 4,
+  "second_user_message_occurrences": 2,
+  "order_ok": true,
+  "first_message": "WEBWRIGHT_SEQ_FIRST_4559877573",
+  "second_message": "WEBWRIGHT_SEQ_SECOND_4559878492"
+}
+screenshot: /root/.openclaw/workspace/openclaw-desktop/outputs/webwright-sequential-20260530T043840Z/final_runs/run_4/screenshots/final_execution_4_final_no_duplicates.png
+CP4 PASS: final conversation has no duplicate ids and both sequential user messages are present in order
