@@ -149,9 +149,6 @@ async function clearAllConnectionCaches() {
     // Clear startup bootstrap cache
     const { invalidateMiddlewareStartupBootstrap } = await import("./startupBootstrap")
     invalidateMiddlewareStartupBootstrap()
-    // Clear chat list cache
-    const { invalidateChatListCache } = await import("./chatListCache")
-    invalidateChatListCache()
     // Clear request dedupe
     const { clearDedupeForTests: clearDedupe } = await import("./requestDedupe")
     clearDedupe()

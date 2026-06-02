@@ -4,7 +4,6 @@ import { useEffect, type RefObject } from "react"
 import { createPortal } from "react-dom"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
-import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
 
 type Props = {
   menuRef: RefObject<HTMLDivElement | null>
@@ -60,14 +59,17 @@ export function AppContextMenu({
         "backdrop-blur-[40px] backdrop-saturate-[180%]",
       )}
     >
-      <MenuAction
-        label="Reload"
-        icon={<Icons.Refresh size={14} strokeWidth={1.5} />}
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground hover:bg-secondary/60"
         onClick={() => {
           onClose()
           onReload()
         }}
-      />
+      >
+        <Icons.Refresh size={14} strokeWidth={1.5} />
+        Reload
+      </button>
     </div>,
     document.body,
   )

@@ -6,7 +6,6 @@ import { invoke } from "@/lib/ipc"
 import { VscGitCommit, VscSourceControl, VscRefresh, VscArrowLeft, VscFile, VscMarkdown } from "react-icons/vsc"
 import { LuChevronDown, LuFolderGit2 } from "react-icons/lu"
 import { BranchDropdown } from "./BranchDropdown"
-import { RepoPickerDialog } from "@/components/sidebar/RepoPickerDialog"
 import {
   type FileState, type GitFile, type GitContextResponse, type BranchesResponse,
   STATE_CONFIG, parseStatusLine, parseCommitLine, parseGitShow, type FileDiff, type DiffLine, type GitDiffResponse,
@@ -539,11 +538,6 @@ export function GitTab({ projectId, selection, onSelectionChange, inspectorScope
         >
           Connect Repository
         </button>
-        <RepoPickerDialog
-          open={repoPickerOpen}
-          onClose={() => setRepoPickerOpen(false)}
-          onSelect={handleRepoSelect}
-        />
       </div>
     )
   }
@@ -569,11 +563,6 @@ export function GitTab({ projectId, selection, onSelectionChange, inspectorScope
         >
           Connect Repository
         </button>
-        <RepoPickerDialog
-          open={repoPickerOpen}
-          onClose={() => setRepoPickerOpen(false)}
-          onSelect={handleRepoSelect}
-        />
       </div>
     )
   }
@@ -791,12 +780,6 @@ export function GitTab({ projectId, selection, onSelectionChange, inspectorScope
           </div>
         </div>
       )}
-
-      <RepoPickerDialog
-        open={repoPickerOpen}
-        onClose={() => setRepoPickerOpen(false)}
-        onSelect={handleRepoSelect}
-      />
     </div>
   )
 }

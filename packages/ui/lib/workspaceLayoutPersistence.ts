@@ -1,7 +1,6 @@
 "use client"
 
-import type { ActiveChat, ActiveTopic } from "@/components/sidebar"
-import type { EditorGroupsState } from "@/lib/editorGroups"
+import type { ActiveChat, ActiveTopic, EditorGroupsState } from "@/lib/editorGroups"
 import { persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
 
 const LEGACY_LAYOUT_CACHE_KEY = "workspace:last-layout:v1"

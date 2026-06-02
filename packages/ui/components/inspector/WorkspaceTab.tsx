@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useCallback, useEffect, useMemo } from "react"
+import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from "react"
 import { emit, on } from "@/lib/events"
 import { cn } from "@/lib/utils"
 import {
@@ -63,10 +63,34 @@ import {
   saveRemoteWorkspaceFile,
 } from "./workspace-api"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
-import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
-import { RepoPickerDialog } from "@/components/sidebar/RepoPickerDialog"
 import type { InspectorScope } from "./inspectorScope"
 import { InspectorScopePicker } from "./InspectorScopePicker"
+
+function MenuAction({
+  label,
+  icon,
+  onClick,
+  danger,
+}: {
+  label: string
+  icon?: ReactNode
+  onClick?: () => void
+  danger?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-secondary/60",
+        danger ? "text-red-400" : "text-foreground",
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
 
 /* ── Types ── */
 
@@ -1530,12 +1554,6 @@ export function WorkspaceTab({
           </div>
         </div>
       )}
-
-      <RepoPickerDialog
-        open={repoPickerOpen}
-        onClose={() => setRepoPickerOpen(false)}
-        onSelect={handleWorkspaceRepoSelect}
-      />
 
       {/* Left: file tree sidebar */}
       <div 
