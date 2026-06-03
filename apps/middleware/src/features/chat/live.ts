@@ -9,6 +9,11 @@ import { canonicalPatchPayload } from "./projection.js";
 import { SubagentCorrelation, type SpawnLink } from "./subagent-correlation.js";
 import { extractSubagentSessionKey, isSubagentSessionKey } from "./subagent-session.js";
 
+/** Yield control to the event loop so a large backfill burst can't block requests. */
+const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
+/** Yield every N processed items during a tight, potentially-large loop. */
+const BACKFILL_YIELD_EVERY = 8;
+
 type ChatHistoryResponse = {
   sessionKey?: string;
   sessionId?: string;
@@ -885,7 +890,12 @@ export class ChatLiveIngest {
         }
       }
       const projection = this.context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+      // Let any pending requests (e.g. /health, bootstrap) through before the
+      // potentially-large per-message projection/broadcast loop below.
+      await yieldToEventLoop();
+      let processedChanges = 0;
       for (const projected of projection.changedMessages) {
+        if (++processedChanges % BACKFILL_YIELD_EVERY === 0) { await yieldToEventLoop(); if (!this.context.db.open) return; }
         if (run && projected.messageId !== finalAssistant?.messageId && !this.messageWithinRunBackfillScope(projected, run, runStartSeq, runEndSeq)) {
           this.log.info("history.backfill.changed-message.skip_outside_run_scope", { sessionKey, runId: run.runId, messageId: projected.messageId, messageSeq: projected.openclawSeq, runStartSeq, runEndSeq, reason });
           continue;

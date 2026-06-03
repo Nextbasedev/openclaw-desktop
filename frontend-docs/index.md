@@ -43,6 +43,7 @@ virtualizer.
 | 0005 | [0005-phase3b-timeline-ui.md](commits/0005-phase3b-timeline-ui.md) | Phase 3b: visible timeline UI — virtual history + live tail + tool/reasoning cards + composer + /chat-v5 route; production build green |
 | 0006 | [0006-session-sidebar-app-shell.md](commits/0006-session-sidebar-app-shell.md) | Session sidebar (/api/chats) + app shell (SessionList + ChatScreen); root / now shows selectable chats + new-chat; build green |
 | 0007 | [0007-middleware-archived-history-nonblocking.md](commits/0007-middleware-archived-history-nonblocking.md) | Middleware: fix event-loop freeze on cold-cache archived-history import (bounded line-read + non-blocking chunked scan/import); 175/175 mw tests pass |
+| 0008 | [0008-middleware-backfill-nonblocking.md](commits/0008-middleware-backfill-nonblocking.md) | Middleware: non-blocking live history backfill (yield in changedMessages loop) — fixes 12s /health timeout bursts during ~18s backfills |
 
 > Note: the table above is the only place a markdown table is acceptable (docs file,
 > not a chat surface).
