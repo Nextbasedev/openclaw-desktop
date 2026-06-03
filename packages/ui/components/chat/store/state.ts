@@ -58,8 +58,8 @@ export interface RunRow {
   status: RunStatus;
   statusLabel?: string | null;
   startedAtMs?: number | null;
-  /** the assistant row key that holds this run's output. */
-  assistantKey: RowKey;
+  /** the assistant row key that holds this run's output (null until a row exists). */
+  assistantKey: RowKey | null;
 }
 
 export interface ToolRow {

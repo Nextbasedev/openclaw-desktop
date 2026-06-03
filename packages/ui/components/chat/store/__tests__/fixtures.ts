@@ -131,7 +131,11 @@ export function toolResult(name: string, output: string): ChatPatch {
   });
 }
 
-/** Canonical assistant final body. */
+/**
+ * Canonical assistant final body. Mirrors the REAL wire: the success terminal
+ * (runStatus:done, activeRun:null) is embedded HERE — there is no separate
+ * chat.run.done frame. (Verified against captured /api/patches golden streams.)
+ */
 export function assistantFinal(text: string, seq: number): ChatPatch {
   return patch(
     "chat.assistant.final",
@@ -139,6 +143,9 @@ export function assistantFinal(text: string, seq: number): ChatPatch {
       runId: RUN,
       messageId: CANONICAL_ASSISTANT_ID,
       messageSeq: seq,
+      runStatus: "done" as never,
+      status: "done",
+      activeRun: null,
       message: {
         role: "assistant", text, model: "test-model", stopReason: "stop",
         __openclaw: { id: CANONICAL_ASSISTANT_ID, seq, runId: RUN },

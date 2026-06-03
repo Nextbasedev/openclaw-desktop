@@ -1,7 +1,7 @@
 import type { ChatPatch, ChatPatchPayload } from "../sync/types.contract";
 import { cloneState, reorder, type ChatSessionState } from "./state";
 import { handleAssistantDelta, handleCanonicalMessage, handleReasoningDelta } from "./handlers/assistantHandlers";
-import { handleRunStatus } from "./handlers/runHandlers";
+import { reconcileRunState } from "./handlers/runHandlers";
 import { handleTool } from "./handlers/toolHandlers";
 import { handleUserConfirmed, handleUserCreated } from "./handlers/userHandlers";
 
@@ -27,12 +27,8 @@ const HANDLERS: Record<string, Handler> = {
   "chat.tool.update": handleTool,
   "chat.tool.result": handleTool,
   "chat.tool.error": handleTool,
-  "chat.run.status": handleRunStatus,
-  "chat.run.streaming": handleRunStatus,
-  "chat.run.done": handleRunStatus,
-  "chat.run.error": handleRunStatus,
-  "chat.run.aborted": handleRunStatus,
-  "chat.status": handleRunStatus,
+  // chat.run.* / chat.status carry no message content; run lifecycle for ALL
+  // frames is applied centrally via reconcileRunState() below.
 };
 
 /** Apply a single patch. Pure: returns a new state (clone-on-write). */
@@ -60,7 +56,12 @@ export function applyPatch(prevState: ChatSessionState, patch: ChatPatch): Apply
 
   // Unknown / structural-only types (chat.bootstrap, chat.history, session.upsert)
   // are no-ops here; canonical data arrives via subsequent message.upsert patches.
-  const membershipChanged = handler ? handler(state, payload, Date.now()) : false;
+  const now = Date.now();
+  let membershipChanged = handler ? handler(state, payload, now) : false;
+  // Run lifecycle is authoritative on EVERY patch (the wire embeds runStatus +
+  // activeRun in every frame and ships the success terminal inside
+  // chat.assistant.final, not a chat.run.done frame).
+  if (reconcileRunState(state, payload, now)) membershipChanged = true;
 
   if (membershipChanged) reorder(state);
   state.cursor = patch.cursor;
