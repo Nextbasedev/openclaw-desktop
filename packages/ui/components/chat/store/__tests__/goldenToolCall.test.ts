@@ -48,3 +48,15 @@ describe("golden replay — real tool-call stream (session_status)", () => {
     expect(text).not.toContain("awaitingResult");
   });
 });
+
+describe("golden replay — tool args clean after the bug-3 middleware fix (deployed)", () => {
+  const frames = loadGolden("tool-call-session-status-clean.jsonl");
+  const state = applyPatches(emptyChatState(frames[0].sessionKey ?? "agent:main:golden"), frames).state;
+
+  it("argsMeta carries NO timeline-item descriptor (no title/itemId/kind)", () => {
+    const tool = [...state.tools.values()][0];
+    const args = JSON.stringify(tool.argsMeta ?? {});
+    expect(args).not.toContain("itemId");
+    expect(args).not.toContain("kind");
+  });
+});
