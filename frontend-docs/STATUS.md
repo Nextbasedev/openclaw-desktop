@@ -1,11 +1,16 @@
-# STATUS / RESUME — Chat v5 (compaction 2026-06-03)
+# STATUS / RESUME — Chat v5 (updated 2026-06-03 ~15:55 UTC)
 
 Single entry point to resume work in a fresh, low-context session. Read this +
 `index.md` + the cited commit docs, then continue. Do NOT re-explore the whole repo.
 
+## TL;DR — SHIPPABLE for normal single-user desktop usage.
+Engine ✅ · UI read path ✅ · UI write path ✅ · deploy verified ✅ · box healthy under
+normal use ✅. One known limitation parked by owner decision (background-sync wedge under
+pathological multi-bootstrap load — not a real single-user scenario). See bottom.
+
 ## Where things stand (branch v5, openclaw-desktop, all pushed)
 
-**Frontend (DONE, engine proven, UI live-verified vs mock):**
+**Frontend (DONE — live-verified against the REAL prod box in Chrome, read AND write):**
 - Engine = `packages/ui/components/chat/{store,sync}` — cursor-ordered projection of
   the middleware patch stream. Tested (26 vitest), proven against the REAL patch
   stream (user.created→run.status→user.confirmed→run.streaming→assistant.delta→final).
@@ -14,7 +19,23 @@ Single entry point to resume work in a fresh, low-context session. Read this +
   (`VirtualHistory`+`LiveTail`) + `ToolCard` + composer. Root `/` (AppPage) renders the
   chat; ConnectPage shown when middleware unreachable; default-on (NEXT_PUBLIC_CHAT_V5=0
   disables). Commits 0001–0006, UI polish 0009 (scroll-anchor pagination) + 0010
-  (ToolCard/markdown/composer). Verified in a browser against a mock (prod box was down).
+  (ToolCard/markdown/composer), bugfix 0017 (POST 415).
+- **LIVE VERIFICATION (2026-06-03, prod box, Chrome via webwright) — ALL PASS:**
+  - Read path: root renders chat shell (not ConnectPage); history in order; markdown
+    (code/diff) renders; tool cards render (name + DONE + args/result + view-full/copy);
+    scroll-up pagination loads older with NO viewport jump (scrollTop auto-compensated).
+  - Write path: `POST /api/chat/send` → 200; optimistic user msg persists; assistant
+    streams (Thinking→deltas) → finalizes ("PONG"); sidebar preview updates.
+  - v4 regression class: NONE — exactly one user + one assistant row every frame, no
+    duplicate/flicker/reorder, streaming row migrates into history cleanly on done.
+  - Box health during normal single-user use: `/health` 0.09–0.11s before/during/after.
+  - Reports: `webwright-runs/chat-v5-realuse/REPORT.md`,
+    `webwright-runs/chat-v5-send-reverify/REPORT.md`.
+- **0017 fix (commit `0ae1f509`):** dropped a duplicate lowercase `content-type` in
+  `components/chat/runtime/transport.ts` — `middlewareFetch` already sets Content-Type,
+  so fetch was merging the two case-different keys to `application/json, application/json`
+  → Fastify 415 on EVERY POST (send/abort/createChat/resolveApproval). One-line fix;
+  26/26 + typecheck + build green; re-verified live (single CT on the wire → 200).
 
 **Middleware fixes (DONE, 184/184 tests, pushed):**
 - 0007 bounded line-read + non-blocking archived-history scan/import.
@@ -26,25 +47,35 @@ Single entry point to resume work in a fresh, low-context session. Read this +
   scopes tools to activeRun (historical null-run cards now render).
 - Plan: `MIDDLEWARE_STABILITY_AND_PROJECTION_PLAN.md`.
 
-## OPEN / BLOCKERS (resume here, in order)
+## RESOLVED since last status
 
-1. **Deploy is suspect.** Prod box `oc-234eeeae.tail094d3a.ts.net` wedged again after
-   restart and was slow EVEN AT IDLE (/health 1–10s, /api/version 11.5s) — a box running
-   0011–0016 should idle <200ms. → Likely the running `dist/` is NOT the fixed build, or
-   it didn't restart clean. **Action: clean rebuild+restart `apps/middleware`, then
-   confirm idle `/health` <200ms before trusting anything.** The static `/health.build`
-   label CANNOT confirm a commit is deployed — only behavior can.
+1. **Deploy — RESOLVED.** Dixit rebuilt+restarted `apps/middleware`. Verified by behavior:
+   idle `/health` 0.08–0.2s, `/api/version` 0.09s, `/api/chats` 0.5s, single bootstrap
+   0.2–0.4s. The fixed `dist/` IS running now. (Reminder: only behavior confirms a deploy,
+   never the static `/health.build` label.)
 
-2. **Remaining code gap (NOT fixed).** Real concurrency, after a session's first thin
-   bootstrap, hits the **local-first background-sync path (`features/chat/routes.ts`
-   ~1305+)** which has NO yields and NO dedupe (the plan deferred it). 8 concurrent
-   bootstraps came back staggered (15/38/50/62s) = dedupe not on this path → wedge.
-   **Action: apply the same yields + per-session dedupe to the local-first background
-   sync path** (mirror 0011/0013: `yieldToEventLoop`, the `coldBootstrapJobs`/
-   `archiveProjectionJobs` single-flight pattern).
+2. **POST 415 — RESOLVED (0017).** Was a hard blocker on all writes; fixed + live-verified
+   (see Frontend section).
 
-3. **Deferred (0013):** bound foreground bootstrap window to ≤300 msgs (default is 1000).
-   Needs live frontend verification of windowing/`hasOlder` before flipping.
+## KNOWN LIMITATION (parked — owner decision 2026-06-03, do NOT spend a cycle unless asked)
+
+**Background-sync-path wedge under pathological load.** Real concurrency, after a session's
+first thin bootstrap, hits the **local-first background-sync path (`features/chat/routes.ts`
+~1305+)** which has NO yields and NO dedupe (the plan deferred it). 8 concurrent
+bootstraps came back staggered (15/38/50/62s) = dedupe not on this path → wedge. A
+sequential scan of ~92 sessions also wedged it and didn't self-recover for minutes.
+- **Why parked:** this is a multi-user/server-load pattern. This is a SINGLE-USER desktop
+  app — one person on one machine does not fire 8–12 concurrent bootstraps of one giant
+  session. Normal single-user use is fast and healthy (verified above). The wedge only
+  reproduces under synthetic load no real desktop user generates.
+- **If it ever needs fixing** (e.g. this middleware gets repurposed for multi-user serving):
+  apply the same yields + per-session dedupe to the background-sync path (mirror 0011/0013:
+  `yieldToEventLoop`, the `coldBootstrapJobs`/`archiveProjectionJobs` single-flight pattern).
+
+## DEFERRED (optional, not blocking ship)
+
+- **0013 window bound:** bound foreground bootstrap window to ≤300 msgs (default is 1000).
+  Needs live frontend verification of windowing/`hasOlder` before flipping.
 
 ## Verification protocol (Dixit's standing rule)
 - **curl-first.** Verify with curl whenever possible — health, bootstrap, send, /api/patches,
