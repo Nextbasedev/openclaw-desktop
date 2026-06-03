@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createChatStore } from "../store";
 import { orderedRows } from "../selectors";
-import { assistantDelta, patch, resetCursor, runStatus, userCreated } from "./fixtures";
+import { SESSION, assistantDelta, patch, resetCursor, runStatus, userCreated } from "./fixtures";
 import { snapshot } from "../../sync/__tests__/fakeSocket";
 import type { ChatPatch } from "../../sync/types.contract";
 
@@ -9,7 +9,7 @@ beforeEach(() => resetCursor());
 
 function manualStore(onNeedBootstrap?: () => void) {
   let flush: (() => void) | null = null;
-  const store = createChatStore("s", {
+  const store = createChatStore(SESSION, {
     schedule: (fn) => { flush = fn; return () => { flush = null; }; },
     onNeedBootstrap,
   });

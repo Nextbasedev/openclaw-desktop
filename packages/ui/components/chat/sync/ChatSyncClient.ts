@@ -103,6 +103,11 @@ export class ChatSyncClient {
         return;
       }
       this.lastCursor = cursor;
+      // The /api/stream/ws feed is GLOBAL (no per-session scoping server-side):
+      // it carries patches for every session. Advance the cursor for foreign
+      // patches (so the gap guard stays correct) but never dispatch them into
+      // THIS session's store, or other chats' messages bleed in.
+      if (frame.patch.sessionKey && frame.patch.sessionKey !== this.sessionKey) return;
       this.handlers.onPatch(frame.patch);
     }
   }

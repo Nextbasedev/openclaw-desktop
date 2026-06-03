@@ -45,6 +45,14 @@ export function applyPatch(prevState: ChatSessionState, patch: ChatPatch): Apply
   if (prevState.cursor > 0 && patch.cursor > prevState.cursor + 1) {
     return { state: prevState, needsBootstrap: true, ignored: false };
   }
+  // Session guard (defense-in-depth): the patch stream is global; a patch for a
+  // DIFFERENT session must never mutate this store (cross-session message bleed).
+  // Still advance the cursor so the global-contiguous stream stays in sync.
+  if (patch.sessionKey && prevState.sessionKey && patch.sessionKey !== prevState.sessionKey) {
+    const skipped = cloneState(prevState);
+    skipped.cursor = patch.cursor;
+    return { state: skipped, needsBootstrap: false, ignored: true };
+  }
 
   const payload = patch.payload ?? ({} as ChatPatchPayload);
   const handler = HANDLERS[payload.semanticType];

@@ -56,6 +56,21 @@ describe("ChatSyncClient", () => {
     expect(h.client.cursor).toBe(12);
   });
 
+  it("drops foreign-session frames (global stream) but still advances the cursor", async () => {
+    const h = harness([10]);
+    await h.client.start();
+    h.last().emitOpen();
+    // A patch for ANOTHER session arrives on the global feed at cursor 11.
+    const foreign = patchFrame(11);
+    foreign.patch.sessionKey = "other-session";
+    h.last().emitFrame(foreign);
+    // Our own next patch at 12 must still apply WITHOUT a false gap re-bootstrap.
+    h.last().emitFrame(patchFrame(12));
+    expect(h.patches.map((p) => p.cursor)).toEqual([12]); // foreign 11 not forwarded
+    expect(h.client.cursor).toBe(12);                     // cursor advanced past 11
+    expect(h.bootstrapCalls).toBe(1);                     // no gap-triggered rebootstrap
+  });
+
   it("ignores duplicate / already-applied cursors", async () => {
     const h = harness([10]);
     await h.client.start();
