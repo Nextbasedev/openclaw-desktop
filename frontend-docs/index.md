@@ -23,6 +23,17 @@ virtualized history + non-virtualized live tail. Identity comes from the server
 (never content); run status has one owner; the streaming turn renders outside the
 virtualizer.
 
+## Live-verification note (2026-06-03)
+The production middleware at `oc-234eeeae.tail094d3a.ts.net` became **app-level wedged**
+mid-session (TLS connects, host pings, but `/health` + `/api/chats` hang indefinitely)
+— consistent with the backfill/event-loop pressure 0007/0008 address, likely triggered
+by large (5MB) concurrent bootstrap fetches while probing for tool-rich sessions. No SSH
+to that host to restart it. Commits 0009–0010 were therefore live-verified in real
+Firefox DOM against a **local mock** (`webwright-runs/chat-v5-polish/mock-mw.cjs`) that
+serves contract-accurate `/api/chats`, `/api/chat/bootstrap` (tools in running/success/
+error), `/api/chat/messages` (older pages), and `/api/chat/tool-result`. This verifies
+the **UI layer** (the task scope); re-run against the live middleware once it recovers.
+
 ## Phase status
 - [x] **Phase 1 — Headless store** (reducer, bootstrap, selectors, tests)
 - [x] **Phase 2 — ChatSyncClient** (WS lifecycle + gap/reconnect recovery)
@@ -44,6 +55,8 @@ virtualizer.
 | 0006 | [0006-session-sidebar-app-shell.md](commits/0006-session-sidebar-app-shell.md) | Session sidebar (/api/chats) + app shell (SessionList + ChatScreen); root / now shows selectable chats + new-chat; build green |
 | 0007 | [0007-middleware-archived-history-nonblocking.md](commits/0007-middleware-archived-history-nonblocking.md) | Middleware: fix event-loop freeze on cold-cache archived-history import (bounded line-read + non-blocking chunked scan/import); 175/175 mw tests pass |
 | 0008 | [0008-middleware-backfill-nonblocking.md](commits/0008-middleware-backfill-nonblocking.md) | Middleware: non-blocking live history backfill (yield in changedMessages loop) — fixes 12s /health timeout bursts during ~18s backfills |
+| 0009 | [0009-scroll-anchor-older-load.md](commits/0009-scroll-anchor-older-load.md) | Scroll-anchor on older-page load (two-way ResizeObserver delta compensation) — older history prepends with no viewport jump; live-verified (3130px grew, 12px row move) |
+| 0010 | [0010-toolcard-and-timeline-polish.md](commits/0010-toolcard-and-timeline-polish.md) | UI polish: redesigned ToolCard (status color/pill/dot, labeled args/result, copy + view-full), AI-avatar assistant turns + hover meta, real markdown styling (no typography plugin), auto-grow composer, jump-to-latest; live-verified via mock |
 
 > Note: the table above is the only place a markdown table is acceptable (docs file,
 > not a chat surface).

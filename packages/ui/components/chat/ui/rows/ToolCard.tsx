@@ -1,13 +1,15 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import type { ToolRow } from "../../store/state";
+import { CopyButton } from "../CopyButton";
 
-const STATUS_STYLE: Record<string, string> = {
-  running: "text-amber-500 border-amber-500/30",
-  success: "text-emerald-500 border-emerald-500/30",
-  error: "text-red-500 border-red-500/30",
+/** Status → border / pill / dot color tokens (power-dashboard model). */
+const STATUS: Record<string, { border: string; pill: string; dot: string; label: string }> = {
+  running: { border: "border-amber-500/30", pill: "bg-amber-500/10 text-amber-600 dark:text-amber-400", dot: "bg-amber-500", label: "running" },
+  success: { border: "border-emerald-500/25", pill: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400", dot: "bg-emerald-500", label: "done" },
+  error: { border: "border-red-500/30", pill: "bg-red-500/10 text-red-600 dark:text-red-400", dot: "bg-red-500", label: "error" },
 };
 
 function pretty(value: unknown): string {
@@ -16,18 +18,34 @@ function pretty(value: unknown): string {
   try { return JSON.stringify(value, null, 2); } catch { return String(value); }
 }
 
+function Block({ label, body, accent, action }: { label: string; body: string; accent?: string; action?: ReactNode }) {
+  return (
+    <div className="border-t bg-background/60 px-3 py-2">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className={cn("font-mono text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70", accent)}>{label}</span>
+        <span className="flex items-center gap-1">
+          {action}
+          <CopyButton text={body} />
+        </span>
+      </div>
+      <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/80">{body || "(empty)"}</pre>
+    </div>
+  );
+}
+
 /**
- * Collapsible tool card — interaction model ported from openclaw-power-dashboard:
- * collapsed by default once a result exists, expanded while pending; args + result
- * blocks; status color; "view full result" fetch.
+ * Collapsible tool card. Collapsed by default once a result exists; expanded while
+ * pending or for an orphan result. Status color on border + pill; labeled args/result
+ * blocks with copy; "view full" fetches the untruncated result.
  */
 function ToolCardImpl({ tool, onFetchFull }: { tool: ToolRow; onFetchFull?: (id: string) => Promise<{ text: string }> }) {
   const pending = tool.status === "running" || tool.awaitingResult;
   const [open, setOpen] = useState(pending);
   const [full, setFull] = useState<string | null>(null);
+  const style = STATUS[tool.status] ?? STATUS.running;
 
-  const result = full ?? pretty(tool.resultMeta) ?? pretty(tool.output);
   const args = pretty(tool.argsMeta);
+  const result = full ?? pretty(tool.resultMeta ?? tool.output);
 
   const loadFull = async () => {
     if (!onFetchFull || full != null) return;
@@ -35,37 +53,35 @@ function ToolCardImpl({ tool, onFetchFull }: { tool: ToolRow; onFetchFull?: (id:
   };
 
   return (
-    <div className={cn("my-2 overflow-hidden rounded-md border bg-card", STATUS_STYLE[tool.status]?.split(" ")[1])}>
+    <div className={cn("my-1.5 overflow-hidden rounded-lg border bg-card shadow-sm", style.border)}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 bg-muted/40 px-3 py-1.5 text-left"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40"
       >
-        <span className="font-mono text-xs font-medium text-muted-foreground">{tool.name}</span>
-        <span className="flex items-center gap-2">
-          <span className={cn("rounded px-1.5 py-0.5 font-mono text-[9px] uppercase", STATUS_STYLE[tool.status])}>
-            {tool.status}
-          </span>
-          <span className={cn("text-[10px] text-muted-foreground transition-transform", open && "rotate-180")}>▾</span>
-        </span>
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", style.dot, pending && "animate-pulse")} />
+        <span className="font-mono text-xs font-medium text-foreground/90">{tool.name}</span>
+        <span className={cn("rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide", style.pill)}>{style.label}</span>
+        <span className="ml-auto text-[10px] text-muted-foreground/60">{open ? "Hide" : "Details"}</span>
+        <span className={cn("text-[10px] text-muted-foreground transition-transform", open && "rotate-180")}>▾</span>
       </button>
       {open && (
-        <div className="text-xs">
-          {args && <pre className="overflow-x-auto whitespace-pre-wrap break-words border-b bg-background px-3 py-2 font-mono text-muted-foreground">{args}</pre>}
+        <div>
+          {args ? <Block label="arguments" body={args} /> : null}
           {pending ? (
-            <div className="px-3 py-2 font-mono italic text-muted-foreground">waiting for result…</div>
-          ) : (
-            <div className="px-3 py-2">
-              <div className="mb-1 flex items-center justify-between">
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-wide text-emerald-500">result</span>
-                {onFetchFull && full == null && (
-                  <button type="button" onClick={loadFull} className="text-[10px] text-muted-foreground hover:text-foreground">
-                    view full
-                  </button>
-                )}
-              </div>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-muted-foreground">{result || "(empty)"}</pre>
+            <div className="border-t px-3 py-2.5 font-mono text-[11px] italic text-muted-foreground">
+              <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500 align-middle" />
+              waiting for result…
             </div>
+          ) : (
+            <Block
+              label={tool.status === "error" ? "error" : "result"}
+              body={result}
+              accent={tool.status === "error" ? "text-red-500" : "text-emerald-600 dark:text-emerald-400"}
+              action={onFetchFull && full == null ? (
+                <button type="button" onClick={loadFull} className="rounded px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground/70 hover:bg-muted hover:text-foreground">view full</button>
+              ) : null}
+            />
           )}
         </div>
       )}

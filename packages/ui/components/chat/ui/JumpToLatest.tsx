@@ -7,9 +7,9 @@ export function JumpToLatest({ visible, onClick }: { visible: boolean; onClick: 
     <button
       type="button"
       onClick={onClick}
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border bg-card px-3 py-1.5 text-xs text-foreground shadow-md hover:bg-muted"
+      className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border bg-card/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-lg backdrop-blur transition-colors hover:bg-muted"
     >
-      ↓ Latest
+      ↓ Jump to latest
     </button>
   );
 }
