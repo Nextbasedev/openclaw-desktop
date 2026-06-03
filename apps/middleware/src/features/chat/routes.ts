@@ -53,6 +53,15 @@ const archiveProjectionJobs = new Map<string, Promise<void>>();
 // huge session collapse into ONE synchronous build instead of K parallel ones.
 type ChatBootstrapSnapshot = ReturnType<typeof buildChatBootstrapSnapshot>;
 const coldBootstrapJobs = new Map<string, Promise<ChatBootstrapSnapshot>>();
+// Above this message count we skip the per-message `messageFactorSummary` on the
+// hot bootstrap log line (it re-projects every message just to emit a log).
+const BOOTSTRAP_FACTOR_SUMMARY_LIMIT = 1500;
+// Chunk size for the final serialize loop so a huge window can't block the loop.
+const BOOTSTRAP_SERIALIZE_YIELD_EVERY = 200;
+// Default newest-message window read back for the foreground snapshot. Kept at
+// 1000 (no behavior change); `hasOlder`/older-pagination already supports a
+// smaller window if we later tune this down once verified live.
+const BOOTSTRAP_PROJECTION_LIMIT = 1000;
 
 
 // Hard cap on bytes read for a bounded (maxLines) probe so a multi-MB archive
@@ -1432,11 +1441,15 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       ...(parsed.data.limit ? { limit: parsed.data.limit } : {}),
       ...(parsed.data.maxChars ? { maxChars: parsed.data.maxChars } : {}),
     });
-    log.info("bootstrap.gateway.history", { sessionKey: history.sessionKey ?? parsed.data.sessionKey, sessionId: history.sessionId ?? null, durationMs: elapsedMs(gatewayHistoryStartedAtMs), messageFactors: messageFactorSummary(history.messages ?? []), status: history.status ?? null });
+    const historyMessageCount = history.messages?.length ?? 0;
+    log.info("bootstrap.gateway.history", { sessionKey: history.sessionKey ?? parsed.data.sessionKey, sessionId: history.sessionId ?? null, durationMs: elapsedMs(gatewayHistoryStartedAtMs), messageFactors: historyMessageCount <= BOOTSTRAP_FACTOR_SUMMARY_LIMIT ? messageFactorSummary(history.messages ?? []) : { total: historyMessageCount, summarySkipped: true }, status: history.status ?? null });
 
     const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
     const messages = history.messages ?? [];
     const normalized = normalizeHistoryMessages(sessionKey, messages);
+    // Yield after the (synchronous) normalize so concurrent requests (incl. /health)
+    // are served before the heavy SQLite stages start.
+    await yieldToEventLoop();
     const existingSession = context.messages.getSession(sessionKey);
     const segment = context.messages.ensureActiveSegment({
       sessionKey,
@@ -1459,7 +1472,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
     log.info("bootstrap.session.persist", { sessionKey, sessionId: history.sessionId ?? existingSession?.sessionId ?? null, status: typeof sessionData.status === "string" ? sessionData.status : null });
     const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+    await yieldToEventLoop();
     const bootstrapPruned = context.runs.findLatestPendingRun(sessionKey) ? 0 : context.messages.pruneSegmentToCanonicalMessages({ sessionKey, segmentId: segment.segmentId, baseSeq: segment.baseSeq, canonicalMessages: normalized });
+    await yieldToEventLoop();
     const bootstrapLastSeq = context.messages.nextMessageSeq(sessionKey) - 1;
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, pruned: bootstrapPruned, lastSeq: bootstrapLastSeq });
     void scheduleArchivedHistoryProjection({ context, log, sessionKey, history });
@@ -1511,8 +1526,15 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       }
     }
 
-    const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }).map(serializeProjectedMessage);
-    log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length, limit: parsed.data.limit ?? 1000 });
+    const projectionLimit = parsed.data.limit ?? BOOTSTRAP_PROJECTION_LIMIT;
+    const rawProjected = context.messages.listMessages(sessionKey, { limit: projectionLimit, latest: true });
+    const projectedMessages: ReturnType<typeof serializeProjectedMessage>[] = [];
+    for (let i = 0; i < rawProjected.length; i += 1) {
+      projectedMessages.push(serializeProjectedMessage(rawProjected[i]!));
+      // Chunk the serialize so a 1000-message window can't block the event loop.
+      if (i % BOOTSTRAP_SERIALIZE_YIELD_EVERY === BOOTSTRAP_SERIALIZE_YIELD_EVERY - 1) await yieldToEventLoop();
+    }
+    log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length, limit: projectionLimit });
     void context.chatLive.ensureSessionSubscribed(sessionKey).catch((error) => {
       log.warn("bootstrap.live-subscribe.background.fail", { sessionKey, error: errorMeta(error) });
     });
