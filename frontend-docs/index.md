@@ -57,6 +57,7 @@ the **UI layer** (the task scope); re-run against the live middleware once it re
 | 0008 | [0008-middleware-backfill-nonblocking.md](commits/0008-middleware-backfill-nonblocking.md) | Middleware: non-blocking live history backfill (yield in changedMessages loop) — fixes 12s /health timeout bursts during ~18s backfills |
 | 0009 | [0009-scroll-anchor-older-load.md](commits/0009-scroll-anchor-older-load.md) | Scroll-anchor on older-page load (two-way ResizeObserver delta compensation) — older history prepends with no viewport jump; live-verified (3130px grew, 12px row move) |
 | 0010 | [0010-toolcard-and-timeline-polish.md](commits/0010-toolcard-and-timeline-polish.md) | UI polish: redesigned ToolCard (status color/pill/dot, labeled args/result, copy + view-full), AI-avatar assistant turns + hover meta, real markdown styling (no typography plugin), auto-grow composer, jump-to-latest; live-verified via mock |
+| 0011 | [0011-middleware-cold-bootstrap-dedupe.md](commits/0011-middleware-cold-bootstrap-dedupe.md) | Middleware P1.1: per-session in-flight cold-bootstrap dedupe (`coldBootstrapJobs` single-flight, reject+clear on failure) — collapses K concurrent first-bootstraps into one build; 177/177 mw tests |
 
 > Note: the table above is the only place a markdown table is acceptable (docs file,
 > not a chat surface).

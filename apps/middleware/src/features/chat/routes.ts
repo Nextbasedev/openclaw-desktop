@@ -38,6 +38,7 @@ const localFirstSqliteBlocked = new Set<string>();
 /** Clear local-first cache — for test isolation only. */
 export function clearLocalFirstBootstrapCache() {
   localFirstBootstrapTimestamps.clear();
+  coldBootstrapJobs.clear();
   // Block SQLite-first for all known sessions until next Gateway bootstrap
   // stamps them fresh. This ensures test sequential bootstraps go to Gateway.
   localFirstSqliteBlocked.clear();
@@ -47,6 +48,11 @@ export function clearLocalFirstBootstrapCache() {
 const MIN_REAL_TIMESTAMP_MS = 1_700_000_000_000;
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
 const archiveProjectionJobs = new Map<string, Promise<void>>();
+// Per-session in-flight dedupe for the cold (non-local-first) bootstrap build.
+// Mirrors archiveProjectionJobs so K concurrent first-bootstraps for the same
+// huge session collapse into ONE synchronous build instead of K parallel ones.
+type ChatBootstrapSnapshot = ReturnType<typeof buildChatBootstrapSnapshot>;
+const coldBootstrapJobs = new Map<string, Promise<ChatBootstrapSnapshot>>();
 
 
 // Hard cap on bytes read for a bounded (maxLines) probe so a multi-MB archive
@@ -1357,6 +1363,16 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }
     // ── End local-first fast path ──
 
+    // Per-session in-flight dedupe (mirrors archiveProjectionJobs): collapse K
+    // concurrent cold first-bootstraps for the same session into ONE build so a
+    // huge session can't run the full synchronous chain K times in parallel.
+    const coldKey = parsed.data.sessionKey;
+    const existingColdJob = coldBootstrapJobs.get(coldKey);
+    if (existingColdJob) {
+      log.info("bootstrap.cold.dedupe", { sessionKey: coldKey, durationMs: elapsedMs(bootstrapStartedAtMs) });
+      return existingColdJob;
+    }
+    const coldJob = (async (): Promise<ChatBootstrapSnapshot> => {
     const gatewayHistoryStartedAtMs = nowMs();
     const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
       sessionKey: parsed.data.sessionKey,
@@ -1470,6 +1486,13 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: false },
       historyMeta: { thinkingLevel: history.thinkingLevel, fastMode: history.fastMode, verboseLevel: history.verboseLevel },
     });
+    })().finally(() => {
+      // On success OR failure clear the entry so a bad build can't wedge future
+      // callers; awaiters still receive the same resolved snapshot or rejection.
+      if (coldBootstrapJobs.get(coldKey) === coldJob) coldBootstrapJobs.delete(coldKey);
+    });
+    coldBootstrapJobs.set(coldKey, coldJob);
+    return coldJob;
   });
 
   app.get("/api/chat/messages", async (request) => {
