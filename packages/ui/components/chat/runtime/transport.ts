@@ -21,9 +21,9 @@ export function createMiddlewareTransport(): ChatTransport {
       const hasBody = init?.body !== undefined && method !== "GET";
       return middlewareFetch<T>(url, {
         method,
-        ...(hasBody
-          ? { headers: { "content-type": "application/json" }, body: JSON.stringify(init?.body) }
-          : {}),
+        // Content-Type is set by middlewareFetch; don't add a second (case-different)
+        // header here or fetch merges them into "application/json, application/json" -> 415.
+        ...(hasBody ? { body: JSON.stringify(init?.body) } : {}),
       });
     },
   };
