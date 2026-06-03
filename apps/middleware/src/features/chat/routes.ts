@@ -262,12 +262,12 @@ function serializeProjectedMessage(message: ProjectedMessage) {
  * toolResult blocks by toolCallId in a single pass; idempotent via the
  * ON CONFLICT(session_key, tool_call_id) upsert + terminal-state guard.
  */
-export async function projectArchivedSegmentToolCalls(context: AppContext, sessionKey: string, messages: ProjectedMessage[]): Promise<number> {
-  // Pass 1: collect tool results keyed by toolCallId (first occurrence wins).
-  const resultById = new Map<string, { status: "success" | "error"; resultMeta: unknown; finishedAtMs: number | null }>();
+type ArchivedToolResult = { status: "success" | "error"; resultMeta: unknown; finishedAtMs: number | null };
+
+/** Collect tool results keyed by toolCallId (first occurrence wins) from a batch. */
+function collectArchivedToolResults(messages: ProjectedMessage[], resultById: Map<string, ArchivedToolResult>) {
   for (const message of messages) {
-    const data = message.data as Record<string, unknown>;
-    const ts = historyTimestampMs(data);
+    const ts = historyTimestampMs(message.data as Record<string, unknown>);
     for (const event of extractToolEventsFromMessage(message.data)) {
       if (event.phase !== "result" && event.phase !== "error") continue;
       if (resultById.has(event.toolCallId)) continue;
@@ -279,7 +279,10 @@ export async function projectArchivedSegmentToolCalls(context: AppContext, sessi
       });
     }
   }
-  // Pass 2: upsert one row per toolCall, attaching its paired result.
+}
+
+/** Upsert one tool row per toolCall block in a batch, attaching its paired result. */
+async function upsertArchivedToolCalls(context: AppContext, sessionKey: string, messages: ProjectedMessage[], resultById: Map<string, ArchivedToolResult>): Promise<number> {
   let projected = 0;
   let processed = 0;
   for (const message of messages) {
@@ -307,10 +310,50 @@ export async function projectArchivedSegmentToolCalls(context: AppContext, sessi
       });
       projected += 1;
     }
-    // Same non-blocking discipline as 0007: yield on tool-dense files.
+    // Same non-blocking discipline as 0007: yield on tool-dense batches.
     if (++processed % 25 === 0) await yieldToEventLoop();
   }
   return projected;
+}
+
+export async function projectArchivedSegmentToolCalls(context: AppContext, sessionKey: string, messages: ProjectedMessage[]): Promise<number> {
+  const resultById = new Map<string, ArchivedToolResult>();
+  collectArchivedToolResults(messages, resultById);
+  return upsertArchivedToolCalls(context, sessionKey, messages, resultById);
+}
+
+/**
+ * One-shot, idempotent backfill of v2_tool_calls for an ALREADY-imported session
+ * (messages projected to SQLite before 0014 — message rows but zero tool rows).
+ * Reads projected messages in bounded chunks (two paged passes so toolCall/result
+ * pairing is session-wide and correct across chunk boundaries), yielding between
+ * pages. Idempotent via upsertToolCall's ON CONFLICT + terminal-state guard.
+ */
+export async function backfillArchivedToolCalls(context: AppContext, sessionKey: string): Promise<number> {
+  const CHUNK = 300;
+  // Pass 1: collect all tool results across the session.
+  const resultById = new Map<string, ArchivedToolResult>();
+  let afterSeq = 0;
+  for (;;) {
+    const page = context.messages.listMessages(sessionKey, { afterSeq, limit: CHUNK });
+    if (page.length === 0) break;
+    collectArchivedToolResults(page, resultById);
+    afterSeq = page[page.length - 1]!.openclawSeq;
+    if (page.length < CHUNK) break;
+    await yieldToEventLoop();
+  }
+  // Pass 2: upsert one row per toolCall block, attaching its (session-wide) result.
+  let total = 0;
+  afterSeq = 0;
+  for (;;) {
+    const page = context.messages.listMessages(sessionKey, { afterSeq, limit: CHUNK });
+    if (page.length === 0) break;
+    total += await upsertArchivedToolCalls(context, sessionKey, page, resultById);
+    afterSeq = page[page.length - 1]!.openclawSeq;
+    if (page.length < CHUNK) break;
+    await yieldToEventLoop();
+  }
+  return total;
 }
 
 async function persistArchivedHistorySegments(context: AppContext, sessionKey: string, history: ChatHistoryResponse) {
@@ -767,9 +810,19 @@ function scheduleArchivedHistoryProjection(params: {
             background: true,
           });
         }
+        // Lazy backfill for sessions imported BEFORE 0014 (messages projected but
+        // zero tool rows). Idempotent + bounded; only runs when the session has no
+        // tool rows at all, so post-0014 imports skip it.
+        let backfilledTools = 0;
+        if (params.context.db.open && params.context.runs.countToolCalls(params.sessionKey) === 0) {
+          backfilledTools = await backfillArchivedToolCalls(params.context, params.sessionKey);
+          if (backfilledTools > 0) {
+            params.log.info("bootstrap.archived-history.tools.backfill", { sessionKey: params.sessionKey, backfilledTools });
+          }
+        }
         // Broadcast a bootstrap-refresh event so the UI knows archived
-        // messages are now available and can refetch/update the chat.
-        if (archivedProjection.changed && params.context.db.open) {
+        // messages (and now tool cards) are available and can refetch/update.
+        if ((archivedProjection.changed || backfilledTools > 0) && params.context.db.open) {
           const projectedMessages = params.context.messages.listMessages(params.sessionKey, { limit: 1000, latest: true });
           const refreshEvent = params.context.messages.appendProjectionEvent({
             sessionKey: params.sessionKey,
