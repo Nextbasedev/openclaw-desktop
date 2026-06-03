@@ -53,6 +53,12 @@ export class ChatSyncClient {
     this.emitConn("idle");
   }
 
+  /** Force a clean re-bootstrap (e.g. store detected a gap). */
+  resync(): void {
+    if (this.stopped) return;
+    void this.doBootstrap("rebootstrapping");
+  }
+
   private async doBootstrap(conn: ConnState): Promise<void> {
     if (this.stopped) return;
     this.emitConn(conn);
