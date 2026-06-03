@@ -802,12 +802,12 @@ export class ChatLiveIngest {
       toolCallId,
       name,
       phase,
-      args: {
-        ...(typeof data.title === "string" ? { title: data.title } : {}),
-        ...(typeof data.meta === "string" ? { meta: data.meta } : {}),
-        ...(typeof data.itemId === "string" ? { itemId: data.itemId } : {}),
-        ...(kind ? { kind } : {}),
-      },
+      // Do NOT pass the gateway timeline-item descriptor (title/meta/itemId/kind)
+      // as `args`: it is navigation metadata, not tool arguments. Sending it here
+      // clobbered the real argsMeta from the function-call stream (the repo upsert
+      // COALESCEs, so the descriptor overwrote the genuine args) -> the UI showed
+      // {title,itemId,kind} under "ARGUMENTS". Omitting `args` preserves the real
+      // args already stored for this tool call.
       ...(resultMeta !== null ? { result: resultMeta } : {}),
     });
 
