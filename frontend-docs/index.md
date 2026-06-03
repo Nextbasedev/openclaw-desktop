@@ -31,6 +31,7 @@ virtualizer.
 | # | Doc | Summary |
 |---|-----|---------|
 | 0001 | [0001-phase1-headless-chat-store.md](commits/0001-phase1-headless-chat-store.md) | Phase 1 headless store: contract types, reducer, bootstrap, selectors, tests; split all files ≤200 lines |
+| 0002 | [0002-toolcall-ui-reference-from-power-dashboard.md](commits/0002-toolcall-ui-reference-from-power-dashboard.md) | Plan update: ported proven Tool/Reasoning/Subagent UX patterns from openclaw-power-dashboard into Approach A §6.1 |
 
 > Note: the table above is the only place a markdown table is acceptable (docs file,
 > not a chat surface).

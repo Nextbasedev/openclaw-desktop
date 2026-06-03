@@ -251,6 +251,52 @@ Animations (Framer Motion / optional transitions.dev): row enter (new only),
 reasoning expand/collapse, tool card height, turn finalize migration. Reduced-motion
 = instant.
 
+### 6.1 Tool / Reasoning / Subagent UI — reference patterns (openclaw-power-dashboard)
+
+The power dashboard (`openclaw-power-dashboard/session.html`) already ships a compact,
+proven transcript renderer. We port its *interaction model* (not its markup) into the
+AI-Elements-based components. Proven patterns to adopt:
+
+**ToolCard** (from `.tool-call` / `renderTranscript`):
+- Collapsible card: header row = tool name (mono) + chevron toggle; body = args + result.
+- **Default collapsed** once a result exists; **expanded** while pending or for an
+  orphan result. Click header toggles (`.expanded`).
+- Body = two stacked blocks: **args** (mono, pretty-printed JSON, dim background) and
+  **result** (labeled `RESULT`, with a copy button). Map to our `ToolRow.argsMeta` /
+  `resultMeta`; "view full result" fetches untruncated via `GET /api/chat/tool-result`.
+- **Pending state**: italic "waiting for result…" placeholder when no result yet —
+  drive from our `phase`/`status` (`running`) and `awaitingResult`.
+- **Status color tokens**: running = green, success/completed = blue/green,
+  error = red. Apply to the card border + a small status pill.
+- **Result correlation**: the dashboard pairs `type:'tool'`(id) with `type:'result'`(id)
+  via a `resultMap`, and renders standalone results whose call is missing. Our store
+  already correlates by `toolCallId` (so this is free) — but keep the orphan-result
+  fallback (render a result-only card if its call never arrived).
+- Copy buttons on result text (and assistant text) with `event.stopPropagation()` so
+  copying doesn't toggle the card.
+
+**Reasoning / thinking** (from `.thinking-block`):
+- Distinct block: italic, dim text, accent left-border (purple). Collapsible.
+  Feed from `MessageRow.reasoning` (our `chat.reasoning.delta`).
+
+**Subagent cards** (from `.subagent-card`):
+- Card with name + meta (mono, small) + a status pill (`running`/`completed`/`error`
+  → green/blue/red). Clickable to drill into the child session. Informs `SubagentBar`
+  / `SubagentCard`; wire to our subagent correlation (`subagent-correlation.ts`).
+
+**Per-message meta**: show `model` + optional `cost` inline under the assistant turn
+(dashboard shows `log-model` + `log-cost`). We have `MessageRow.model`/`usage`.
+
+**Content types to support** (dashboard handles all): text (markdown), image,
+attachment (image/audio/video/file with inline players), tool, result, thinking.
+The composer/renderer must cover these — already enumerated in §6 parity.
+
+Net effect on the plan: `ToolCard.tsx`, `rows/AssistantTurn.tsx` (reasoning + meta),
+and `overlays/SubagentBar` get concrete, already-validated UX specs instead of
+greenfield guesses. Visual styling still uses AI Elements + our theme tokens; only the
+*behavior* (collapse rules, pending/orphan handling, status colors, copy semantics) is
+lifted from the dashboard.
+
 ---
 
 ## 7. Virtualization & scroll specifics
