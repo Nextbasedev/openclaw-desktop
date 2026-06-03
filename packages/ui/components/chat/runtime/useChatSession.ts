@@ -30,6 +30,11 @@ export function useChatSession() {
 
   const abort = useCallback(() => api.abort(state.sessionKey), [api, state.sessionKey]);
 
+  const toolResult = useCallback(
+    (toolCallId: string) => api.toolResult(state.sessionKey, toolCallId),
+    [api, state.sessionKey],
+  );
+
   const loadOlder = useCallback(async () => {
     const s = store.getState();
     const { hasOlder, loadingOlder, oldestLoadedSeq } = s.pagination;
@@ -53,10 +58,12 @@ export function useChatSession() {
       generating: isGenerating(state),
       thinking: thinkingPlaceholderVisible(state),
       pagination: state.pagination,
+      tools: state.tools,
       send,
       abort,
       loadOlder,
+      toolResult,
     }),
-    [state, send, abort, loadOlder],
+    [state, send, abort, loadOlder, toolResult],
   );
 }
