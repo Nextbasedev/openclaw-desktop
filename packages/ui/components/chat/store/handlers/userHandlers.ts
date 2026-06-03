@@ -1,7 +1,7 @@
 import type { ChatPatchPayload } from "../../sync/types.contract";
 import { msgKey, userKey, type ChatSessionState, type MessageRow, type RowKey } from "../state";
 import { readMessageId, textFromMessage } from "../text";
-import { setMessageIdIndex } from "./rowHelpers";
+import { noteSeq, setMessageIdIndex } from "./rowHelpers";
 
 /** chat.user.created — insert/refresh the optimistic user row (key=client:<id>). */
 export function handleUserCreated(state: ChatSessionState, payload: ChatPatchPayload, now: number): boolean {
@@ -53,6 +53,7 @@ export function handleUserConfirmed(state: ChatSessionState, payload: ChatPatchP
     if (seq != null) {
       row.seq = seq;
       row.ephemeralSeq = false;
+      noteSeq(state, seq);
       membershipChanged = true;
     }
     if (textFromMessage(message)) row.text = textFromMessage(message);
@@ -70,10 +71,8 @@ export function handleUserConfirmed(state: ChatSessionState, payload: ChatPatchP
   if (!newKey) return false;
   const existing = state.rows.get(newKey);
   const rowSeq = seq ?? existing?.seq ?? state.maxSeq + 1;
-  if (!existing) {
-    state.maxSeq = Math.max(state.maxSeq, rowSeq);
-    membershipChanged = true;
-  }
+  noteSeq(state, rowSeq);
+  if (!existing) membershipChanged = true;
   state.rows.set(newKey, {
     key: newKey,
     kind: "user",

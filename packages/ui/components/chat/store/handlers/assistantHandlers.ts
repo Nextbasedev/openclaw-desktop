@@ -1,7 +1,7 @@
 import type { ChatPatchPayload } from "../../sync/types.contract";
 import { msgKey, runKey, type ChatSessionState, type MessageRow, type RowKey } from "../state";
 import { readMessageId, readRole, textFromMessage } from "../text";
-import { ensureAssistantRow, setMessageIdIndex } from "./rowHelpers";
+import { ensureAssistantRow, noteSeq, setMessageIdIndex } from "./rowHelpers";
 
 /** chat.assistant.delta — cumulative full text into the run row (set, not append). */
 export function handleAssistantDelta(state: ChatSessionState, payload: ChatPatchPayload, now: number): boolean {
@@ -54,7 +54,8 @@ function upsertCanonicalUser(
   const existing = state.rows.get(key);
   const rowSeq = seq ?? existing?.seq ?? state.maxSeq + 1;
   let membershipChanged = false;
-  if (!existing) { state.maxSeq = Math.max(state.maxSeq, rowSeq); membershipChanged = true; }
+  noteSeq(state, rowSeq);
+  if (!existing) membershipChanged = true;
   state.rows.set(key, {
     key, kind: "user", seq: rowSeq, ephemeralSeq: false, messageId: canonicalId, runId,
     text: textFromMessage(message),
@@ -82,7 +83,7 @@ function finalizeAssistant(
   const existing = state.rows.get(key);
   const rowSeq = seq ?? existing?.seq ?? state.maxSeq + 1;
   if (seq != null && existing && existing.ephemeralSeq) membershipChanged = true;
-  if (!existing) state.maxSeq = Math.max(state.maxSeq, rowSeq);
+  noteSeq(state, rowSeq);
 
   const row: MessageRow = {
     key,
