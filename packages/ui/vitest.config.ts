@@ -9,6 +9,6 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["lib/**/*.test.ts", "hooks/**/*.test.ts", "components/inspector/**/*.test.ts"],
+    include: ["lib/**/*.test.ts", "hooks/**/*.test.ts", "components/inspector/**/*.test.ts", "components/chat/**/*.test.ts"],
   },
 })
