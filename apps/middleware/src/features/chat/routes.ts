@@ -381,39 +381,91 @@ function oldestRunningToolAgeMs(context: AppContext, sessionKey: string, runId: 
   return Math.max(0, Date.now() - Math.min(...startedAtMs));
 }
 
-function inferToolResultFromHistory(messages: unknown[], messageIndex: number, toolCallId?: string | null) {
-  for (let index = messageIndex + 1; index < messages.length; index += 1) {
-    const message = messages[index];
+type InferredToolResult = {
+  status: "success" | "error";
+  finishedAtMs: number | null;
+  resultMeta: unknown;
+};
+
+type ToolResultIndex = {
+  /** First forward index of a tool-role result message carrying this toolCallId. */
+  idResultIndex: Map<string, number>;
+  /** Per-index parsed tool-role result info (null when not a tool-role message). */
+  resultInfo: Array<InferredToolResult | null>;
+  /** Suffix array: nearest index >= i that is an id-less tool result OR assistant-final. */
+  nextStopAtOrAfter: Int32Array;
+  /** historyTimestampMs per message index. */
+  finishedAtMs: Array<number | null>;
+};
+
+/**
+ * Single forward pass that replaces the old O(n) per-tool `inferToolResultFromHistory`
+ * scan with O(1) lookups. For 600+ tools over thousands of messages this turns the
+ * old O(n²) into O(n). Yields every ~25 messages so a huge history can't freeze the loop.
+ */
+async function buildToolResultIndex(messages: unknown[]): Promise<ToolResultIndex> {
+  const n = messages.length;
+  const idResultIndex = new Map<string, number>();
+  const resultInfo: Array<InferredToolResult | null> = new Array(n).fill(null);
+  const finishedAtMs: Array<number | null> = new Array(n).fill(null);
+  const isStop: boolean[] = new Array(n).fill(false);
+  for (let i = 0; i < n; i += 1) {
+    const message = messages[i];
     if (!message || typeof message !== "object" || Array.isArray(message)) continue;
     const data = message as Record<string, unknown>;
+    finishedAtMs[i] = historyTimestampMs(data);
     if (data.role === "tool" || data.role === "tool_result" || data.role === "toolResult") {
       const resultToolCallId = readToolCallId(data);
-      if (!toolCallId || !resultToolCallId || resultToolCallId === toolCallId) {
-        const resultMeta = safeResultMeta(data.result ?? data.output ?? data.text ?? data.content ?? data.message ?? data.value);
-        return {
-          status: isErrorToolResult(resultMeta) ? "error" as const : "success" as const,
-          finishedAtMs: historyTimestampMs(data),
-          resultMeta,
-        };
-      }
-    }
-    if (projectGatewayMessage(data).assistantHasFinalText) {
-      return {
-        status: "success" as const,
-        finishedAtMs: historyTimestampMs(data),
-        resultMeta: undefined,
+      const resultMeta = safeResultMeta(data.result ?? data.output ?? data.text ?? data.content ?? data.message ?? data.value);
+      resultInfo[i] = {
+        status: isErrorToolResult(resultMeta) ? "error" : "success",
+        finishedAtMs: finishedAtMs[i],
+        resultMeta,
       };
+      if (resultToolCallId) {
+        if (!idResultIndex.has(resultToolCallId)) idResultIndex.set(resultToolCallId, i);
+      } else {
+        // Id-less tool result — matches the next tool call forward (original behavior).
+        isStop[i] = true;
+      }
+    } else if (projectGatewayMessage(data).assistantHasFinalText) {
+      isStop[i] = true;
     }
+    if (i % 25 === 24) await yieldToEventLoop();
+  }
+  const nextStopAtOrAfter = new Int32Array(n + 1).fill(-1);
+  for (let i = n - 1; i >= 0; i -= 1) {
+    nextStopAtOrAfter[i] = isStop[i] ? i : nextStopAtOrAfter[i + 1];
+  }
+  return { idResultIndex, resultInfo, nextStopAtOrAfter, finishedAtMs };
+}
+
+/** O(1) replacement for the forward scan: nearest of {matching-id result, id-less result, assistant-final}. */
+function resolveInferredToolResult(index: ToolResultIndex, messageIndex: number, toolCallId: string): InferredToolResult | null {
+  const idIdxRaw = index.idResultIndex.get(toolCallId);
+  const idIdx = idIdxRaw !== undefined && idIdxRaw > messageIndex ? idIdxRaw : -1;
+  const stopIdxRaw = messageIndex + 1 < index.nextStopAtOrAfter.length ? index.nextStopAtOrAfter[messageIndex + 1] : -1;
+  const stopIdx = stopIdxRaw;
+  if (idIdx >= 0 && (stopIdx < 0 || idIdx <= stopIdx)) {
+    return index.resultInfo[idIdx];
+  }
+  if (stopIdx >= 0) {
+    const info = index.resultInfo[stopIdx];
+    if (info) return info; // id-less tool result
+    // assistant-final fallback
+    return { status: "success", finishedAtMs: index.finishedAtMs[stopIdx], resultMeta: undefined };
   }
   return null;
 }
 
-function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messages: unknown[], run: ProjectedRun | null, completed: boolean) {
+async function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messages: unknown[], run: ProjectedRun | null, completed: boolean) {
   let inferred = 0;
-  messages.forEach((message, messageIndex) => {
-    if (!message || typeof message !== "object" || Array.isArray(message)) return;
+  const index = await buildToolResultIndex(messages);
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+    const message = messages[messageIndex];
+    if (!message || typeof message !== "object" || Array.isArray(message)) continue;
     const data = message as Record<string, unknown>;
-    if (data.role !== "assistant") return;
+    if (data.role !== "assistant") continue;
     const openclaw = objectData(data.__openclaw);
     const messageId = typeof openclaw.id === "string" ? openclaw.id : typeof data.id === "string" ? data.id : typeof data.messageId === "string" ? data.messageId : null;
     for (const toolEvent of projectGatewayMessage(data).toolEvents) {
@@ -428,7 +480,7 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
       // a run_id; if those rows are replayed after a fresh user send, assigning
       // them to the current run resurrects ancient tool cards as live activity.
       if (existingTool && !existingTool.runId && run && existingTool.startedAtMs < run.startedAtMs - 1000) continue;
-      const result = inferToolResultFromHistory(messages, messageIndex, toolCallId) ?? (completed
+      const result = resolveInferredToolResult(index, messageIndex, toolCallId) ?? (completed
         ? { status: "success" as const, finishedAtMs: historyTimestampMs(data), resultMeta: undefined }
         : null);
       context.runs.upsertToolCall({
@@ -446,7 +498,8 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
       });
       inferred += 1;
     }
-  });
+    if (messageIndex % 25 === 24) await yieldToEventLoop();
+  }
   return inferred;
 }
 
@@ -1415,7 +1468,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const activeRun = context.runs.findLatestPendingRun(sessionKey);
     const bootstrapCompleted = isTerminalSendStatus(sessionData.status) || lastMessageIsAssistantText(messages);
     const inferenceRun = activeRun ?? latestRun;
-    const inferredToolCount = inferBootstrapToolCalls(context, sessionKey, messages, inferenceRun ?? null, bootstrapCompleted);
+    const inferredToolCount = await inferBootstrapToolCalls(context, sessionKey, messages, inferenceRun ?? null, bootstrapCompleted);
     if (inferredToolCount > 0) log.info("bootstrap.tools.inferred", { sessionKey, inferredToolCount, runId: inferenceRun?.runId ?? null, completed: bootstrapCompleted });
     if (activeRun && context.runs.hasRunningTools(sessionKey, activeRun.runId)) {
       context.runs.updateRunStatus(activeRun.runId, "tool_running", { statusLabel: context.runs.listRunningToolCalls(sessionKey, activeRun.runId)[0]?.name ?? activeRun.statusLabel ?? null });

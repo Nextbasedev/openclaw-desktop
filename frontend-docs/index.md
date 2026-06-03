@@ -58,6 +58,7 @@ the **UI layer** (the task scope); re-run against the live middleware once it re
 | 0009 | [0009-scroll-anchor-older-load.md](commits/0009-scroll-anchor-older-load.md) | Scroll-anchor on older-page load (two-way ResizeObserver delta compensation) — older history prepends with no viewport jump; live-verified (3130px grew, 12px row move) |
 | 0010 | [0010-toolcard-and-timeline-polish.md](commits/0010-toolcard-and-timeline-polish.md) | UI polish: redesigned ToolCard (status color/pill/dot, labeled args/result, copy + view-full), AI-avatar assistant turns + hover meta, real markdown styling (no typography plugin), auto-grow composer, jump-to-latest; live-verified via mock |
 | 0011 | [0011-middleware-cold-bootstrap-dedupe.md](commits/0011-middleware-cold-bootstrap-dedupe.md) | Middleware P1.1: per-session in-flight cold-bootstrap dedupe (`coldBootstrapJobs` single-flight, reject+clear on failure) — collapses K concurrent first-bootstraps into one build; 177/177 mw tests |
+| 0012 | [0012-middleware-bootstrap-tools-single-pass.md](commits/0012-middleware-bootstrap-tools-single-pass.md) | Middleware P1.2: async single-pass bootstrap tool inference (precomputed id/stop index, yields every 25) — kills O(n²) forward-scan over 600+ tools; 179/179 mw tests |
 
 > Note: the table above is the only place a markdown table is acceptable (docs file,
 > not a chat surface).
