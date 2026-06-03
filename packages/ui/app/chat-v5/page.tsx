@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { ChatScreen } from "@/components/chat";
 
 /**
- * Dev/preview route for the v5 chat rebuild. Gated behind NEXT_PUBLIC_CHAT_V5.
+ * Preview route for the v5 chat rebuild. Enabled by default.
  * Open /chat-v5?session=<sessionKey> (defaults to the main agent session).
+ * Set NEXT_PUBLIC_CHAT_V5=0 to explicitly disable.
  */
 export default function ChatV5Page() {
   const [sessionKey, setSessionKey] = useState<string | null>(null);
@@ -15,8 +16,8 @@ export default function ChatV5Page() {
     setSessionKey(params.get("session") || "agent:main");
   }, []);
 
-  if (process.env.NEXT_PUBLIC_CHAT_V5 !== "1") {
-    return <div className="p-8 text-sm text-muted-foreground">Chat v5 is disabled. Set NEXT_PUBLIC_CHAT_V5=1 to preview.</div>;
+  if (process.env.NEXT_PUBLIC_CHAT_V5 === "0") {
+    return <div className="p-8 text-sm text-muted-foreground">Chat v5 is disabled (NEXT_PUBLIC_CHAT_V5=0).</div>;
   }
   if (!sessionKey) return null;
 
