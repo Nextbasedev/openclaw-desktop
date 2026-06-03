@@ -4,6 +4,11 @@ Living index of the v5 chat frontend rebuild. **Every commit gets its own standa
 doc** in `commits/` describing: what changed, why, workarounds, what improved, and
 exactly what to test. This file is the table of contents.
 
+## Working method
+See [WORKFLOW.md](WORKFLOW.md) — RPI (Research → Plan → Implement) in isolated steps,
+compaction to avoid the context "dumb zone", and sub-agents used for context
+protection (not roles).
+
 ## Conventions
 - One file per commit: `commits/NNNN-short-slug.md` (zero-padded, incrementing).
 - Each commit doc is self-contained — readable without reading the others.
