@@ -25,7 +25,7 @@ virtualizer.
 
 ## Phase status
 - [x] **Phase 1 — Headless store** (reducer, bootstrap, selectors, tests)
-- [ ] Phase 2 — ChatSyncClient (WS lifecycle + gap/reconnect recovery)
+- [x] **Phase 2 — ChatSyncClient** (WS lifecycle + gap/reconnect recovery)
 - [ ] Phase 3 — Static timeline (bootstrap render + virtualization + older load)
 - [ ] Phase 4 — Live streaming (live tail, buffered reveal, RAF batching)
 - [ ] Phase 5 — Tools & approvals
@@ -37,6 +37,7 @@ virtualizer.
 |---|-----|---------|
 | 0001 | [0001-phase1-headless-chat-store.md](commits/0001-phase1-headless-chat-store.md) | Phase 1 headless store: contract types, reducer, bootstrap, selectors, tests; split all files ≤200 lines |
 | 0002 | [0002-toolcall-ui-reference-from-power-dashboard.md](commits/0002-toolcall-ui-reference-from-power-dashboard.md) | Plan update: ported proven Tool/Reasoning/Subagent UX patterns from openclaw-power-dashboard into Approach A §6.1 |
+| 0003 | [0003-phase2-chat-sync-client.md](commits/0003-phase2-chat-sync-client.md) | Phase 2: ChatSyncClient (bootstrap→WS, cursor gap + hello recovery re-bootstrap, reconnect backoff) + apiClient + socket; 8 tests |
 
 > Note: the table above is the only place a markdown table is acceptable (docs file,
 > not a chat surface).
