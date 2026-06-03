@@ -42,6 +42,7 @@ virtualizer.
 | 0004 | [0004-phase3a-store-runtime-bridge.md](commits/0004-phase3a-store-runtime-bridge.md) | Phase 3a: RAF-batched store + older-pagination merge + React provider/hook (useSyncExternalStore); 7 new tests |
 | 0005 | [0005-phase3b-timeline-ui.md](commits/0005-phase3b-timeline-ui.md) | Phase 3b: visible timeline UI — virtual history + live tail + tool/reasoning cards + composer + /chat-v5 route; production build green |
 | 0006 | [0006-session-sidebar-app-shell.md](commits/0006-session-sidebar-app-shell.md) | Session sidebar (/api/chats) + app shell (SessionList + ChatScreen); root / now shows selectable chats + new-chat; build green |
+| 0007 | [0007-middleware-archived-history-nonblocking.md](commits/0007-middleware-archived-history-nonblocking.md) | Middleware: fix event-loop freeze on cold-cache archived-history import (bounded line-read + non-blocking chunked scan/import); 175/175 mw tests pass |
 
 > Note: the table above is the only place a markdown table is acceptable (docs file,
 > not a chat surface).

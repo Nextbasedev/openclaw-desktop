@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
+
+/** Yield control back to the event loop so long imports never block request handling. */
+const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../../app.js";
@@ -45,11 +49,44 @@ const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming
 const archiveProjectionJobs = new Map<string, Promise<void>>();
 
 
+// Hard cap on bytes read for a bounded (maxLines) probe so a multi-MB archive
+// file can never be fully slurped just to inspect its first few lines.
+const BOUNDED_READ_MAX_BYTES = 512 * 1024;
+const BOUNDED_READ_CHUNK = 64 * 1024;
+
+/** Read up to `maxLines` lines without slurping the whole file (streamed, sync). */
+function readJsonlLinesBounded(file: string, maxLines: number): string[] {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(file, "r");
+    const buffer = Buffer.allocUnsafe(BOUNDED_READ_CHUNK);
+    const decoder = new StringDecoder("utf8");
+    const lines: string[] = [];
+    let leftover = "";
+    let readTotal = 0;
+    while (lines.length < maxLines && readTotal < BOUNDED_READ_MAX_BYTES) {
+      const bytes = fs.readSync(fd, buffer, 0, BOUNDED_READ_CHUNK, null);
+      if (bytes <= 0) break;
+      readTotal += bytes;
+      const parts = (leftover + decoder.write(buffer.subarray(0, bytes))).split(/\r?\n/);
+      leftover = parts.pop() ?? "";
+      for (const part of parts) {
+        if (part) lines.push(part);
+        if (lines.length >= maxLines) break;
+      }
+    }
+    if (lines.length < maxLines) { const tail = (leftover + decoder.end()).trim(); if (tail) lines.push(tail); }
+    return lines.slice(0, maxLines);
+  } catch { return []; }
+  finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* noop */ } } }
+}
+
 function readJsonlRecords(file: string, maxLines?: number): Record<string, unknown>[] {
   try {
-    const lines = fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean);
-    const selected = typeof maxLines === "number" && maxLines >= 0 ? lines.slice(0, maxLines) : lines;
-    return selected.flatMap((line) => {
+    const lines = typeof maxLines === "number" && maxLines >= 0
+      ? readJsonlLinesBounded(file, maxLines)
+      : fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean);
+    return lines.flatMap((line) => {
       try { return [JSON.parse(line) as Record<string, unknown>]; } catch { return []; }
     });
   } catch { return []; }
@@ -130,36 +167,39 @@ function agentIdFromSessionKey(sessionKey: string) {
   return match?.[1] || "main";
 }
 
-function archivedHistoryTranscriptFiles(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; messages: unknown[] }) {
+async function archivedHistoryTranscriptFiles(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; messages: unknown[] }): Promise<string[]> {
   if (!params.sessionFile && params.messages.length === 0) return [];
   const current = params.sessionFile ? path.resolve(params.sessionFile) : "";
   const agentId = agentIdFromSessionKey(params.sessionKey);
   const sessionsDir = current ? path.dirname(current) : path.join(os.homedir(), ".openclaw", "agents", agentId, "sessions");
   const candidateDirs = Array.from(new Set([sessionsDir, path.join(sessionsDir, "archive"), path.join(sessionsDir, "archives")].map((dir) => path.resolve(dir))));
   const currentIdentity = firstHistoryIdentity(params.messages, params.sessionKey);
-  const files = candidateDirs.flatMap((dir) => {
+  const archiveSuffixRe = /\.jsonl\.(?:reset|deleted)\.\d{4}-\d{2}-\d{2}T/;
+  const candidates = candidateDirs.flatMap((dir) => {
     try {
       return fs.readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => path.join(dir, entry.name));
     } catch { return [] as string[]; }
-  });
-  const archiveSuffixRe = /\.jsonl\.(?:reset|deleted)\.\d{4}-\d{2}-\d{2}T/;
-  return files
-    .filter((file) => archiveSuffixRe.test(path.basename(file)))
-    .filter((file) => path.resolve(file) !== current)
-    .filter((file) => {
-      const archivedSessionId = archiveSessionIdFromFile(file);
+  }).filter((file) => archiveSuffixRe.test(path.basename(file)) && path.resolve(file) !== current);
 
-      if (params.sessionId && archivedSessionId === params.sessionId && !current) return true;
-      if (!currentIdentity) return params.sessionId ? archivedSessionId === params.sessionId : false;
-      const archivedMessages = transcriptMessagesFromJsonl(file, 80);
-      const archivedIdentity = firstHistoryIdentity(archivedMessages, params.sessionKey);
-      return identitiesMatch(currentIdentity, archivedIdentity);
-    })
-    .sort((a, b) => {
-      const aMs = fs.statSync(a, { throwIfNoEntry: false })?.mtimeMs ?? 0;
-      const bMs = fs.statSync(b, { throwIfNoEntry: false })?.mtimeMs ?? 0;
-      return aMs - bMs || a.localeCompare(b);
-    });
+  // Identity-match per file, yielding to the event loop so scanning a large
+  // archive corpus (hundreds of files) never blocks request handling.
+  const matched: string[] = [];
+  let scanned = 0;
+  for (const file of candidates) {
+    const archivedSessionId = archiveSessionIdFromFile(file);
+    let keep: boolean;
+    if (params.sessionId && archivedSessionId === params.sessionId && !current) keep = true;
+    else if (!currentIdentity) keep = params.sessionId ? archivedSessionId === params.sessionId : false;
+    else keep = identitiesMatch(currentIdentity, firstHistoryIdentity(transcriptMessagesFromJsonl(file, 80), params.sessionKey));
+    if (keep) matched.push(file);
+    if (++scanned % 25 === 0) await yieldToEventLoop();
+  }
+
+  return matched.sort((a, b) => {
+    const aMs = fs.statSync(a, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+    const bMs = fs.statSync(b, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+    return aMs - bMs || a.localeCompare(b);
+  });
 }
 
 function cleanSerializedMessageData(data: Record<string, unknown>, role: string) {
@@ -199,8 +239,8 @@ function serializeProjectedMessage(message: ProjectedMessage) {
   } as OpenClawMessage;
 }
 
-function persistArchivedHistorySegments(context: AppContext, sessionKey: string, history: ChatHistoryResponse) {
-  const archivedFiles = archivedHistoryTranscriptFiles({
+async function persistArchivedHistorySegments(context: AppContext, sessionKey: string, history: ChatHistoryResponse) {
+  const archivedFiles = await archivedHistoryTranscriptFiles({
     sessionKey,
     sessionId: history.sessionId ?? null,
     sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
@@ -210,6 +250,7 @@ function persistArchivedHistorySegments(context: AppContext, sessionKey: string,
   let importedFiles = 0;
   let skippedFiles = 0;
   let changedFiles = 0;
+  let processed = 0;
   for (const file of archivedFiles) {
     const archivedSessionId = archiveSessionIdFromFile(file);
     if (archivedSessionId && archivedSessionId === history.sessionId && history.sessionFile) continue;
@@ -241,6 +282,9 @@ function persistArchivedHistorySegments(context: AppContext, sessionKey: string,
     context.messages.recordArchiveImport({ sessionKey, filePath, fileMtimeMs, fileSize, segmentId: segment.segmentId, messageCount: normalized.length });
     importedFiles += 1;
     if (staleImport) changedFiles += 1;
+    // Yield between (potentially large) file imports so a big corpus can't
+    // monopolise the event loop on a cold cache.
+    if (++processed % 3 === 0) await yieldToEventLoop();
   }
   return { fileCount: archivedFiles.length, importedFiles, skippedFiles, changedFiles, upserted, changed: importedFiles > 0 || changedFiles > 0 };
 }
@@ -541,7 +585,7 @@ export async function prewarmArchivedHistory(context: AppContext, sessionKey: st
   try {
     const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 200 }, 10_000);
     if (!history) return { ok: false, reason: "no-history" };
-    const result = persistArchivedHistorySegments(context, sessionKey, history);
+    const result = await persistArchivedHistorySegments(context, sessionKey, history);
     return { ok: true, ...result };
   } catch {
     return { ok: false, reason: "error" };
@@ -560,7 +604,7 @@ function scheduleArchivedHistoryProjection(params: {
     return existing;
   }
   const job = new Promise<void>((resolve, reject) => {
-    setImmediate(() => {
+    setImmediate(async () => {
       try {
         if (!params.context.db.open) {
           resolve();
@@ -568,7 +612,7 @@ function scheduleArchivedHistoryProjection(params: {
         }
         const startedAtMs = nowMs();
         params.log.info("bootstrap.archived-history.background.start", { sessionKey: params.sessionKey });
-        const archivedProjection = persistArchivedHistorySegments(params.context, params.sessionKey, params.history);
+        const archivedProjection = await persistArchivedHistorySegments(params.context, params.sessionKey, params.history);
         if (archivedProjection.fileCount > 0) {
           params.log.info("bootstrap.archived-history.persist", {
             sessionKey: params.sessionKey,
