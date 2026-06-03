@@ -11,7 +11,7 @@ import type { AppContext } from "../../app.js";
 import { HttpError } from "../../lib/errors.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import { cleanMessageDisplayText, messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
-import { classifyGatewayMessageSemanticType, isErrorToolResult, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
+import { classifyGatewayMessageSemanticType, extractToolEventsFromMessage, isErrorToolResult, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
@@ -254,6 +254,65 @@ function serializeProjectedMessage(message: ProjectedMessage) {
   } as OpenClawMessage;
 }
 
+/**
+ * Project tool calls from a batch of (already-normalized) archived messages into
+ * v2_tool_calls. The archived-import path persisted message rows but NEVER tool
+ * rows, so huge/historical sessions reconstructed from archives showed empty
+ * tools/toolCalls even with 600+ toolCall blocks in content. Pairs toolCall and
+ * toolResult blocks by toolCallId in a single pass; idempotent via the
+ * ON CONFLICT(session_key, tool_call_id) upsert + terminal-state guard.
+ */
+export async function projectArchivedSegmentToolCalls(context: AppContext, sessionKey: string, messages: ProjectedMessage[]): Promise<number> {
+  // Pass 1: collect tool results keyed by toolCallId (first occurrence wins).
+  const resultById = new Map<string, { status: "success" | "error"; resultMeta: unknown; finishedAtMs: number | null }>();
+  for (const message of messages) {
+    const data = message.data as Record<string, unknown>;
+    const ts = historyTimestampMs(data);
+    for (const event of extractToolEventsFromMessage(message.data)) {
+      if (event.phase !== "result" && event.phase !== "error") continue;
+      if (resultById.has(event.toolCallId)) continue;
+      const resultMeta = safeResultMeta(event.result);
+      resultById.set(event.toolCallId, {
+        status: event.phase === "error" || isErrorToolResult(resultMeta) ? "error" : "success",
+        resultMeta,
+        finishedAtMs: ts,
+      });
+    }
+  }
+  // Pass 2: upsert one row per toolCall, attaching its paired result.
+  let projected = 0;
+  let processed = 0;
+  for (const message of messages) {
+    const data = message.data as Record<string, unknown>;
+    const openclaw = objectData(data.__openclaw);
+    const messageId = message.messageId ?? (typeof openclaw.id === "string" ? openclaw.id : null);
+    const runId = typeof openclaw.runId === "string" ? openclaw.runId : null;
+    const ts = historyTimestampMs(data);
+    for (const event of extractToolEventsFromMessage(message.data)) {
+      if (event.phase !== "calling" && event.phase !== "start") continue;
+      if (!event.toolCallId || !event.name) continue;
+      const result = resultById.get(event.toolCallId);
+      context.runs.upsertToolCall({
+        sessionKey,
+        toolCallId: event.toolCallId,
+        runId,
+        messageId,
+        name: event.name,
+        phase: result ? "result" : "calling",
+        status: result?.status,
+        argsMeta: event.args,
+        resultMeta: result?.resultMeta,
+        startedAtMs: ts ?? undefined,
+        finishedAtMs: result?.finishedAtMs ?? undefined,
+      });
+      projected += 1;
+    }
+    // Same non-blocking discipline as 0007: yield on tool-dense files.
+    if (++processed % 25 === 0) await yieldToEventLoop();
+  }
+  return projected;
+}
+
 async function persistArchivedHistorySegments(context: AppContext, sessionKey: string, history: ChatHistoryResponse) {
   const archivedFiles = await archivedHistoryTranscriptFiles({
     sessionKey,
@@ -262,6 +321,7 @@ async function persistArchivedHistorySegments(context: AppContext, sessionKey: s
     messages: history.messages ?? [],
   });
   let upserted = 0;
+  let projectedTools = 0;
   let importedFiles = 0;
   let skippedFiles = 0;
   let changedFiles = 0;
@@ -294,6 +354,9 @@ async function persistArchivedHistorySegments(context: AppContext, sessionKey: s
     const normalized = normalizeHistoryMessages(sessionKey, archivedMessages);
     const importBaseSeq = staleImport ? context.messages.nextMessageSeq(sessionKey) - 1 : segment.baseSeq;
     upserted += context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: importBaseSeq }).upserted;
+    // Project tool calls for this file's messages — the missing step that left
+    // archived/historical sessions with empty tools/toolCalls.
+    projectedTools += await projectArchivedSegmentToolCalls(context, sessionKey, normalized);
     context.messages.recordArchiveImport({ sessionKey, filePath, fileMtimeMs, fileSize, segmentId: segment.segmentId, messageCount: normalized.length });
     importedFiles += 1;
     if (staleImport) changedFiles += 1;
@@ -301,7 +364,7 @@ async function persistArchivedHistorySegments(context: AppContext, sessionKey: s
     // monopolise the event loop on a cold cache.
     if (++processed % 3 === 0) await yieldToEventLoop();
   }
-  return { fileCount: archivedFiles.length, importedFiles, skippedFiles, changedFiles, upserted, changed: importedFiles > 0 || changedFiles > 0 };
+  return { fileCount: archivedFiles.length, importedFiles, skippedFiles, changedFiles, upserted, projectedTools, changed: importedFiles > 0 || changedFiles > 0 };
 }
 
 function lastMessageIsAssistantText(messages: unknown[]) {
@@ -689,6 +752,7 @@ function scheduleArchivedHistoryProjection(params: {
             skippedFiles: archivedProjection.skippedFiles,
             changedFiles: archivedProjection.changedFiles,
             upserted: archivedProjection.upserted,
+            projectedTools: archivedProjection.projectedTools,
             background: true,
           });
         }

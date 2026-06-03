@@ -1312,7 +1312,12 @@ describe("middleware app", () => {
     expect(res.statusCode).toBe(200);
     expect(secondRes.statusCode).toBe(200);
     expect(context.db.prepare("SELECT count(*) AS count FROM v2_messages WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 3 });
-    expect(context.db.prepare("SELECT count(*) AS count FROM v2_tool_calls WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 0 });
+    // Archived tool calls are now PROJECTED (Problem 2 fix) so historical cards
+    // render — but as a terminal, run-detached row, NOT resurrected as running.
+    const toolRows = context.db.prepare("SELECT tool_call_id, run_id, status FROM v2_tool_calls WHERE session_key = ?").all(sessionKey) as Array<{ tool_call_id: string; run_id: string | null; status: string }>;
+    expect(toolRows.length).toBe(1);
+    expect(toolRows[0]).toMatchObject({ tool_call_id: "old-tool", run_id: null, status: "success" });
+    expect(toolRows.every((row) => row.status !== "running")).toBe(true);
     await app.close();
   });
 

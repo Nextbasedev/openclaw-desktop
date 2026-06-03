@@ -60,6 +60,7 @@ the **UI layer** (the task scope); re-run against the live middleware once it re
 | 0011 | [0011-middleware-cold-bootstrap-dedupe.md](commits/0011-middleware-cold-bootstrap-dedupe.md) | Middleware P1.1: per-session in-flight cold-bootstrap dedupe (`coldBootstrapJobs` single-flight, reject+clear on failure) — collapses K concurrent first-bootstraps into one build; 177/177 mw tests |
 | 0012 | [0012-middleware-bootstrap-tools-single-pass.md](commits/0012-middleware-bootstrap-tools-single-pass.md) | Middleware P1.2: async single-pass bootstrap tool inference (precomputed id/stop index, yields every 25) — kills O(n²) forward-scan over 600+ tools; 179/179 mw tests |
 | 0013 | [0013-middleware-bootstrap-yields-and-gating.md](commits/0013-middleware-bootstrap-yields-and-gating.md) | Middleware P1.3/P1.4: yield between normalize/upsert/prune stages, chunked serialize (every 200), gated `messageFactorSummary` (>1500 msgs); window-bound deferred (frontend-visible); 179/179 |
+| 0014 | [0014-middleware-archived-import-tool-projection.md](commits/0014-middleware-archived-import-tool-projection.md) | Middleware P2.5: project tool calls during archived-history import (`projectArchivedSegmentToolCalls`, paired by toolCallId, run-detached, idempotent) — fixes empty tools on historical sessions; 181/181 |
 
 > Note: the table above is the only place a markdown table is acceptable (docs file,
 > not a chat surface).
