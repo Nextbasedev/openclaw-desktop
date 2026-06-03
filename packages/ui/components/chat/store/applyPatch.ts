@@ -4,6 +4,7 @@ import { handleAssistantDelta, handleCanonicalMessage, handleReasoningDelta } fr
 import { reconcileRunState } from "./handlers/runHandlers";
 import { handleTool } from "./handlers/toolHandlers";
 import { handleUserConfirmed, handleUserCreated } from "./handlers/userHandlers";
+import { handleSubagent } from "./handlers/subagentHandlers";
 
 export interface ApplyResult {
   state: ChatSessionState;
@@ -27,6 +28,11 @@ const HANDLERS: Record<string, Handler> = {
   "chat.tool.update": handleTool,
   "chat.tool.result": handleTool,
   "chat.tool.error": handleTool,
+  "chat.subagent.spawn_started": handleSubagent,
+  "chat.subagent.spawn_linked": handleSubagent,
+  "chat.subagent.spawn_done": handleSubagent,
+  "chat.subagent.spawn_failed": handleSubagent,
+  "chat.subagent.child_activity": handleSubagent,
   // chat.run.* / chat.status carry no message content; run lifecycle for ALL
   // frames is applied centrally via reconcileRunState() below.
 };
@@ -37,10 +43,13 @@ export function applyPatch(prevState: ChatSessionState, patch: ChatPatch): Apply
   if (patch.cursor <= prevState.cursor) {
     return { state: prevState, needsBootstrap: false, ignored: true };
   }
-  // Gap guard: a hole means missed patches; partial apply is worse than none.
-  if (prevState.cursor > 0 && patch.cursor > prevState.cursor + 1) {
-    return { state: prevState, needsBootstrap: true, ignored: false };
-  }
+  // NOTE: no gap guard here. The cursor is GLOBAL but this store consumes a
+  // session-FILTERED substream (see ChatSyncClient + the 0020 cross-session
+  // filter), so per-session cursors are legitimately non-contiguous (other
+  // sessions' frames advance the global cursor). Gap/recovery is owned by
+  // ChatSyncClient, which sees the contiguous global stream and re-bootstraps
+  // on a real hole. Flagging gaps here caused spurious re-bootstraps whenever a
+  // subagent or concurrent session was active.
   // Session guard (defense-in-depth): the patch stream is global; a patch for a
   // DIFFERENT session must never mutate this store (cross-session message bleed).
   // Still advance the cursor so the global-contiguous stream stays in sync.

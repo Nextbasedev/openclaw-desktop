@@ -39,14 +39,17 @@ describe("createChatStore — RAF batching", () => {
     expect(orderedRows(store.getState())).toHaveLength(0);
   });
 
-  it("calls onNeedBootstrap on a cursor gap", () => {
+  it("does NOT re-bootstrap on a forward cursor jump (gap recovery is the transport's job)", () => {
+    // Post-0020 the store consumes a session-filtered substream of a global
+    // cursor; forward jumps are normal. ChatSyncClient owns gap recovery.
     const onNeed = vi.fn();
     const { store, fire } = manualStore(onNeed);
     store.bootstrap(snapshot(10));
     const future: ChatPatch = { ...patch("chat.status", { runId: "r", runStatus: "thinking", status: "thinking" }), cursor: 99 };
     store.enqueuePatch(future);
     fire();
-    expect(onNeed).toHaveBeenCalledOnce();
+    expect(onNeed).not.toHaveBeenCalled();
+    expect(store.getState().cursor).toBe(99);
   });
 
   it("subscribe/unsubscribe controls notifications", () => {
