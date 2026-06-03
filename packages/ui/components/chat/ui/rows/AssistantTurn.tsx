@@ -2,10 +2,11 @@
 
 import { memo, useState } from "react";
 import { cn } from "@/lib/utils";
-import type { MessageRow, ToolRow } from "../../store/state";
+import type { MessageRow, SubagentRow, ToolRow } from "../../store/state";
 import { Markdown } from "../Markdown";
 import { CopyButton } from "../CopyButton";
 import { ToolCard } from "./ToolCard";
+import { SubagentCard } from "./SubagentCard";
 
 function Reasoning({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -36,20 +37,30 @@ function usageSummary(usage: unknown): string | null {
 function AssistantTurnImpl({
   row,
   tools,
+  subagents = [],
   onFetchToolResult,
 }: {
   row: MessageRow;
   tools: ToolRow[];
+  subagents?: SubagentRow[];
   onFetchToolResult?: (id: string) => Promise<{ text: string }>;
 }) {
   const usage = usageSummary(row.usage);
+  // A tool call that spawned a sub-agent renders as a SubagentCard, not raw JSON.
+  const subByTool = new Map(subagents.map((s) => [s.toolCallId, s]));
   return (
     <div className="group flex gap-3">
       <div className="mt-0.5 flex h-6 w-6 shrink-0 select-none items-center justify-center rounded-full bg-foreground/[0.06] text-[10px] font-semibold text-muted-foreground">AI</div>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         {row.reasoning ? <Reasoning text={row.reasoning} /> : null}
-        {tools.map((tool) => (
-          <ToolCard key={tool.toolCallId} tool={tool} onFetchFull={onFetchToolResult} />
+        {tools.map((tool) => {
+          const sub = subByTool.get(tool.toolCallId);
+          return sub
+            ? <SubagentCard key={tool.toolCallId} sub={sub} />
+            : <ToolCard key={tool.toolCallId} tool={tool} onFetchFull={onFetchToolResult} />;
+        })}
+        {subagents.filter((s) => !tools.some((t) => t.toolCallId === s.toolCallId)).map((sub) => (
+          <SubagentCard key={sub.toolCallId} sub={sub} />
         ))}
         {row.text ? (
           <div className="text-sm leading-relaxed">

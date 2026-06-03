@@ -77,6 +77,21 @@ export interface ToolRow {
   updatedAtMs: number;
 }
 
+export type SubagentStatus = "spawning" | "running" | "done" | "failed";
+
+/** A sub-agent spawned via sessions_spawn, keyed by the spawning tool call id. */
+export interface SubagentRow {
+  toolCallId: string;
+  runId: string | null;
+  label?: string;
+  task?: string;
+  childSessionKey?: string | null;
+  status: SubagentStatus;
+  activityCount: number;
+  error?: unknown;
+  updatedAtMs: number;
+}
+
 export interface ChatPagination {
   knownTotalMessages: number;
   oldestLoadedSeq: number | null;
@@ -99,6 +114,8 @@ export interface ChatSessionState {
   rows: Map<RowKey, MessageRow>;
   runs: Map<string, RunRow>;
   tools: Map<string, ToolRow>;
+  /** sub-agents keyed by spawning toolCallId. */
+  subagents: Map<string, SubagentRow>;
 
   // identity indexes
   byMessageId: Map<string, RowKey>;
@@ -123,6 +140,7 @@ export function emptyChatState(sessionKey: string): ChatSessionState {
     rows: new Map(),
     runs: new Map(),
     tools: new Map(),
+    subagents: new Map(),
     byMessageId: new Map(),
     byClientId: new Map(),
     byRunId: new Map(),
@@ -145,6 +163,7 @@ export function cloneState(state: ChatSessionState): ChatSessionState {
     rows: new Map(state.rows),
     runs: new Map(state.runs),
     tools: new Map(state.tools),
+    subagents: new Map(state.subagents),
     byMessageId: new Map(state.byMessageId),
     byClientId: new Map(state.byClientId),
     byRunId: new Map(state.byRunId),

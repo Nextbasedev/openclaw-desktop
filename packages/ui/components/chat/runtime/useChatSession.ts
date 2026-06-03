@@ -59,6 +59,7 @@ export function useChatSession() {
       thinking: thinkingPlaceholderVisible(state),
       pagination: state.pagination,
       tools: state.tools,
+      subagents: state.subagents,
       send,
       abort,
       loadOlder,

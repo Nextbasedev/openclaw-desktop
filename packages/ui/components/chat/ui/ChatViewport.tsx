@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import { useChatSession } from "../runtime/useChatSession";
 import { useStickToBottom } from "../runtime/useStickToBottom";
-import type { MessageRow, ToolRow } from "../store/state";
+import type { MessageRow, SubagentRow, ToolRow } from "../store/state";
 import { VirtualHistory } from "./VirtualHistory";
 import { LiveTail } from "./LiveTail";
 import { Composer } from "./Composer";
@@ -18,6 +18,11 @@ export function ChatViewport() {
   const resolveTools = useCallback(
     (row: MessageRow): ToolRow[] => row.toolCallIds.map((id) => session.tools.get(id)).filter((t): t is ToolRow => Boolean(t)),
     [session.tools],
+  );
+
+  const resolveSubagents = useCallback(
+    (row: MessageRow): SubagentRow[] => row.toolCallIds.map((id) => session.subagents.get(id)).filter((s): s is SubagentRow => Boolean(s)),
+    [session.subagents],
   );
 
   // Anchor scroll before prepending older history so the viewport doesn't jump.
@@ -35,12 +40,13 @@ export function ChatViewport() {
               <div className="py-1 text-center text-[11px] text-muted-foreground/60">Loading older messages…</div>
             ) : null}
             <LoadOlderSentinel enabled={session.pagination.hasOlder && !session.pagination.loadingOlder} onReach={loadOlder} />
-            <VirtualHistory rows={session.history} viewportRef={viewportRef} resolveTools={resolveTools} onFetchToolResult={session.toolResult} />
+            <VirtualHistory rows={session.history} viewportRef={viewportRef} resolveTools={resolveTools} resolveSubagents={resolveSubagents} onFetchToolResult={session.toolResult} />
             <LiveTail
               rows={session.live}
               activeRun={session.activeRun}
               showThinking={session.thinking}
               resolveTools={resolveTools}
+              resolveSubagents={resolveSubagents}
               onFetchToolResult={session.toolResult}
             />
           </div>

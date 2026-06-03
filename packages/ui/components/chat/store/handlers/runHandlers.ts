@@ -18,6 +18,13 @@ import { TERMINAL_RUN_STATUS } from "./rowHelpers";
  * delta / tool / final; a thinking placeholder covers the gap before then.
  */
 export function reconcileRunState(state: ChatSessionState, payload: ChatPatchPayload, now: number): boolean {
+  // chat.subagent.* frames carry a NON-authoritative idle run snapshot
+  // (runStatus:idle, activeRun:null, no runId) even while the PARENT run is still
+  // active. Honoring them would clear activeRun mid-run -> Composer flickers to
+  // "Send" and isGenerating drops while a subagent runs. They are sub-events, not
+  // parent run-lifecycle, so never reconcile run state from them.
+  if (typeof payload.semanticType === "string" && payload.semanticType.startsWith("chat.subagent.")) return false;
+
   const runStatus = (payload.runStatus as string | undefined) ?? (payload.status as string | undefined);
   const hasActiveRun = payload.activeRun !== undefined; // present (object or explicit null)
   if (runStatus === undefined && !hasActiveRun) return false; // frame carries no run info

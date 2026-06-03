@@ -2,7 +2,7 @@
 
 import { useRef, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { MessageRow, ToolRow } from "../store/state";
+import type { MessageRow, SubagentRow, ToolRow } from "../store/state";
 import { Row } from "./rows/Row";
 
 /**
@@ -14,11 +14,13 @@ export function VirtualHistory({
   rows,
   viewportRef,
   resolveTools,
+  resolveSubagents,
   onFetchToolResult,
 }: {
   rows: MessageRow[];
   viewportRef: RefObject<HTMLDivElement | null>;
   resolveTools: (row: MessageRow) => ToolRow[];
+  resolveSubagents?: (row: MessageRow) => SubagentRow[];
   onFetchToolResult?: (id: string) => Promise<{ text: string }>;
 }) {
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -51,7 +53,7 @@ export function VirtualHistory({
             }}
             className="py-2"
           >
-            <Row row={row} tools={row.kind === "assistant" ? resolveTools(row) : []} onFetchToolResult={onFetchToolResult} />
+            <Row row={row} tools={row.kind === "assistant" ? resolveTools(row) : []} subagents={row.kind === "assistant" ? resolveSubagents?.(row) : undefined} onFetchToolResult={onFetchToolResult} />
           </div>
         );
       })}

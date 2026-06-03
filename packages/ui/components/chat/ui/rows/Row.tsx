@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import type { MessageRow, ToolRow } from "../../store/state";
+import type { MessageRow, SubagentRow, ToolRow } from "../../store/state";
 import { UserRow } from "./UserRow";
 import { AssistantTurn } from "./AssistantTurn";
 
@@ -9,14 +9,16 @@ import { AssistantTurn } from "./AssistantTurn";
 function RowImpl({
   row,
   tools,
+  subagents,
   onFetchToolResult,
 }: {
   row: MessageRow;
   tools: ToolRow[];
+  subagents?: SubagentRow[];
   onFetchToolResult?: (id: string) => Promise<{ text: string }>;
 }) {
   if (row.kind === "user") return <UserRow row={row} />;
-  return <AssistantTurn row={row} tools={tools} onFetchToolResult={onFetchToolResult} />;
+  return <AssistantTurn row={row} tools={tools} subagents={subagents} onFetchToolResult={onFetchToolResult} />;
 }
 
 export const Row = memo(RowImpl);
