@@ -126,8 +126,12 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
   const latestRun = activeRun ?? context.runs.latestRun(params.sessionKey);
   const runStatus = latestRun?.status ?? canonicalRunStatusFromLegacy(params.sessionData.status);
   const statusLabel = runStatusLabel(runStatus, latestRun, params.sessionData.statusLabel);
-  const tools = (latestRun
-    ? context.runs.listToolCalls(params.sessionKey, latestRun.runId)
+  // Scope tools to the run ONLY while a run is actively live. For terminal /
+  // historical sessions (no active run) return session-wide tools so historical,
+  // run-detached (runId NULL) tool cards — e.g. those projected from archived
+  // segments — render instead of being hidden by a stale terminal latestRun scope.
+  const tools = (activeRun
+    ? context.runs.listToolCalls(params.sessionKey, activeRun.runId)
     : context.runs.listToolCalls(params.sessionKey)
   ).map(toolCallProjection);
   const sessionStatus = legacySessionStatusFromRunStatus(runStatus);

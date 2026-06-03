@@ -62,6 +62,7 @@ the **UI layer** (the task scope); re-run against the live middleware once it re
 | 0013 | [0013-middleware-bootstrap-yields-and-gating.md](commits/0013-middleware-bootstrap-yields-and-gating.md) | Middleware P1.3/P1.4: yield between normalize/upsert/prune stages, chunked serialize (every 200), gated `messageFactorSummary` (>1500 msgs); window-bound deferred (frontend-visible); 179/179 |
 | 0014 | [0014-middleware-archived-import-tool-projection.md](commits/0014-middleware-archived-import-tool-projection.md) | Middleware P2.5: project tool calls during archived-history import (`projectArchivedSegmentToolCalls`, paired by toolCallId, run-detached, idempotent) — fixes empty tools on historical sessions; 181/181 |
 | 0015 | [0015-middleware-archived-tool-backfill.md](commits/0015-middleware-archived-tool-backfill.md) | Middleware P2.6: idempotent `backfillArchivedToolCalls` (two paged passes, cross-page pairing) + lazy trigger from background job when `countToolCalls==0`, refresh broadcast on backfill; 182/182 |
+| 0016 | [0016-middleware-snapshot-tool-scoping.md](commits/0016-middleware-snapshot-tool-scoping.md) | Middleware P2.7: scope snapshot tools to `activeRun` (not terminal `latestRun`) — historical run-detached (runId NULL) tool cards render on terminal sessions; live run-scoping preserved; 184/184, build green |
 
 > Note: the table above is the only place a markdown table is acceptable (docs file,
 > not a chat surface).
