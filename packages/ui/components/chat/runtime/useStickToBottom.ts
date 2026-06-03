@@ -13,6 +13,13 @@ export function useStickToBottom() {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [pinned, setPinned] = useState(true);
   const pinnedRef = useRef(true);
+  // Older-page scroll anchor: while active, compensate scrollTop for content that
+  // grows ABOVE the viewport so prepended history doesn't make the view jump.
+  const anchorRef = useRef<{ active: boolean; lastHeight: number; until: number }>({
+    active: false,
+    lastHeight: 0,
+    until: 0,
+  });
 
   const isAtBottom = useCallback(() => {
     const el = viewportRef.current;
@@ -24,6 +31,19 @@ export function useStickToBottom() {
     const el = viewportRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior });
+  }, []);
+
+  /**
+   * Call right before loading an older page. Records current height; subsequent
+   * content growth (measured by the ResizeObserver below) is added to scrollTop so
+   * the previously-visible rows stay put. Auto-expires so live growth isn't affected.
+   */
+  const beginAnchor = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    // Window must outlast react-virtual's estimate→measure settle (which can shrink
+    // height a frame or two after the prepend), so we keep compensating both directions.
+    anchorRef.current = { active: true, lastHeight: el.scrollHeight, until: Date.now() + 1800 };
   }, []);
 
   // Track user intent.
@@ -44,11 +64,27 @@ export function useStickToBottom() {
     const content = contentRef.current;
     if (!content || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(() => {
+      const el = viewportRef.current;
+      const anchor = anchorRef.current;
+      if (el && anchor.active) {
+        if (Date.now() > anchor.until) {
+          anchor.active = false;
+        } else {
+          const delta = el.scrollHeight - anchor.lastHeight;
+          anchor.lastHeight = el.scrollHeight;
+          if (delta !== 0) {
+            // Compensate growth AND the subsequent measure-shrink so the rows the user
+            // was reading keep their exact screen position.
+            el.scrollTop = Math.max(0, el.scrollTop + delta);
+            return;
+          }
+        }
+      }
       if (pinnedRef.current) scrollToBottom("auto");
     });
     ro.observe(content);
     return () => ro.disconnect();
   }, [scrollToBottom]);
 
-  return { viewportRef, contentRef, pinned, scrollToBottom };
+  return { viewportRef, contentRef, pinned, scrollToBottom, beginAnchor };
 }
