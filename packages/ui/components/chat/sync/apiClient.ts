@@ -45,6 +45,23 @@ export interface PatchesPage {
   recovery: "bootstrap" | null;
 }
 
+/** A chat row from GET /api/chats (compat surface). */
+export interface ChatSummary {
+  id: string;
+  name: string;
+  sessionKey: string;
+  agentId?: string;
+  spaceId?: string | null;
+  archived?: boolean;
+  pinned?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  lastActiveAt?: string;
+  lastMessageAt?: string;
+  lastMessageText?: string;
+  unreadCount?: number;
+}
+
 /** Typed wrappers over the middleware REST surface. Thin — no logic. */
 export class ChatApiClient {
   constructor(private readonly transport: ChatTransport) {}
@@ -79,5 +96,13 @@ export class ChatApiClient {
 
   patchesAfter(afterCursor: number, limit = 1000): Promise<PatchesPage> {
     return this.transport.request("/api/patches", { query: { afterCursor, limit } });
+  }
+
+  listChats(): Promise<{ chats: ChatSummary[] }> {
+    return this.transport.request("/api/chats");
+  }
+
+  createChat(name: string, agentId = "main"): Promise<ChatSummary> {
+    return this.transport.request("/api/chats", { method: "POST", body: { name, agentId } });
   }
 }

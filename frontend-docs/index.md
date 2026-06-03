@@ -26,8 +26,8 @@ virtualizer.
 ## Phase status
 - [x] **Phase 1 — Headless store** (reducer, bootstrap, selectors, tests)
 - [x] **Phase 2 — ChatSyncClient** (WS lifecycle + gap/reconnect recovery)
-- [~] **Phase 3a — Store runtime bridge** (RAF store + provider/hook + older-merge) ✓
-- [ ] Phase 3b — Static timeline UI (virtualization + AI Elements + older load)
+- [x] **Phase 3a — Store runtime bridge** (RAF store + provider/hook + older-merge)
+- [x] **Phase 3b — Timeline UI** (virtual history + live tail + tool cards + composer; build green)
 - [ ] Phase 4 — Live streaming (live tail, buffered reveal, RAF batching)
 - [ ] Phase 5 — Tools & approvals
 - [ ] Phase 6 — Smoothness + composer parity
@@ -40,6 +40,8 @@ virtualizer.
 | 0002 | [0002-toolcall-ui-reference-from-power-dashboard.md](commits/0002-toolcall-ui-reference-from-power-dashboard.md) | Plan update: ported proven Tool/Reasoning/Subagent UX patterns from openclaw-power-dashboard into Approach A §6.1 |
 | 0003 | [0003-phase2-chat-sync-client.md](commits/0003-phase2-chat-sync-client.md) | Phase 2: ChatSyncClient (bootstrap→WS, cursor gap + hello recovery re-bootstrap, reconnect backoff) + apiClient + socket; 8 tests |
 | 0004 | [0004-phase3a-store-runtime-bridge.md](commits/0004-phase3a-store-runtime-bridge.md) | Phase 3a: RAF-batched store + older-pagination merge + React provider/hook (useSyncExternalStore); 7 new tests |
+| 0005 | [0005-phase3b-timeline-ui.md](commits/0005-phase3b-timeline-ui.md) | Phase 3b: visible timeline UI — virtual history + live tail + tool/reasoning cards + composer + /chat-v5 route; production build green |
+| 0006 | [0006-session-sidebar-app-shell.md](commits/0006-session-sidebar-app-shell.md) | Session sidebar (/api/chats) + app shell (SessionList + ChatScreen); root / now shows selectable chats + new-chat; build green |
 
 > Note: the table above is the only place a markdown table is acceptable (docs file,
 > not a chat surface).
