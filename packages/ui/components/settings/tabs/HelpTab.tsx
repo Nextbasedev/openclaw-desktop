@@ -22,10 +22,10 @@ const HELP_LINKS: HelpLink[] = [
   { label: "Keyboard Shortcuts", description: "View all shortcuts", url: "#", icon: LuKeyboard },
 ]
 
-const HELP_SECTION_CLASS = "rounded-2xl bg-white/[0.035] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
-const HELP_ICON_CLASS = "flex size-8 shrink-0 items-center justify-center rounded-xl bg-white/[0.055] text-muted-foreground"
-const HELP_FIELD_CLASS = "h-9 rounded-xl bg-black/20 px-3 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/45 hover:bg-white/[0.045] focus:bg-white/[0.065] disabled:cursor-not-allowed disabled:opacity-60"
-const HELP_SECONDARY_BUTTON_CLASS = "inline-flex cursor-pointer items-center gap-2 rounded-xl bg-white/[0.055] px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-white/[0.085] disabled:cursor-not-allowed disabled:opacity-60"
+const HELP_SECTION_CLASS = "rounded-2xl bg-black/[0.025] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.70)] dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
+const HELP_ICON_CLASS = "flex size-8 shrink-0 items-center justify-center rounded-xl bg-black/[0.04] text-muted-foreground dark:bg-white/[0.055]"
+const HELP_FIELD_CLASS = "h-9 rounded-xl bg-black/[0.04] px-3 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/45 hover:bg-black/[0.055] focus:bg-black/[0.065] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-black/20 dark:hover:bg-white/[0.045] dark:focus:bg-white/[0.065]"
+const HELP_SECONDARY_BUTTON_CLASS = "inline-flex cursor-pointer items-center gap-2 rounded-xl bg-black/[0.045] px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-black/[0.065] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white/[0.055] dark:hover:bg-white/[0.085]"
 const HELP_PRIMARY_BUTTON_CLASS = "inline-flex cursor-pointer items-center gap-2 rounded-xl bg-foreground px-3 py-2 text-[12px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-50"
 
 type HelpTabProps = {
@@ -165,7 +165,7 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
               key={link.label}
               type="button"
               onClick={() => handleClick(link)}
-              className="flex w-full cursor-pointer items-center gap-4 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-white/[0.045]"
+              className="flex w-full cursor-pointer items-center gap-4 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.045]"
             >
               <span className={HELP_ICON_CLASS}>
                 <Icon size={15} />
@@ -387,7 +387,7 @@ function MiddlewareUpdateCard() {
               sideOffset={8}
               className={cn(
                 "w-[min(340px,var(--radix-popover-content-available-width))] gap-0 overflow-hidden rounded-2xl p-1.5 ring-0",
-                "border border-black/70 bg-[var(--glass-bg)]",
+                "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
                 "backdrop-blur-[40px] backdrop-saturate-[180%]",
                 "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
               )}
@@ -404,7 +404,7 @@ function MiddlewareUpdateCard() {
                       type="button"
                       className={cn(
                         "flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[12px] text-foreground transition-colors",
-                        active ? "bg-white/[0.075]" : "hover:bg-white/[0.055]",
+                        active ? "bg-black/[0.055] dark:bg-white/[0.075]" : "hover:bg-black/[0.045] dark:hover:bg-white/[0.055]",
                       )}
                       onClick={() => {
                         setSelectedBranch(branch.name)
@@ -420,7 +420,7 @@ function MiddlewareUpdateCard() {
                   type="button"
                   className={cn(
                     "mt-1 flex w-full cursor-pointer items-center rounded-xl px-3 py-2 text-left text-[12px] text-foreground transition-colors",
-                    selectedBranch === "custom" ? "bg-white/[0.075]" : "hover:bg-white/[0.055]",
+                    selectedBranch === "custom" ? "bg-black/[0.055] dark:bg-white/[0.075]" : "hover:bg-black/[0.045] dark:hover:bg-white/[0.055]",
                   )}
                   onClick={() => {
                     setSelectedBranch("custom")
@@ -450,7 +450,7 @@ function MiddlewareUpdateCard() {
           type="button"
           onClick={() => refreshBranches().catch(() => undefined)}
           disabled={busy || branchesLoading}
-          className="rounded-lg bg-white/[0.045] px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-white/[0.075] disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-lg bg-black/[0.04] dark:bg-white/[0.045] px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-black/[0.055] dark:bg-white/[0.075] disabled:cursor-not-allowed disabled:opacity-60"
         >
           Refresh branches
         </button>
@@ -478,7 +478,7 @@ function MiddlewareUpdateCard() {
       </div>
 
       {status?.message && (
-        <div className={`mt-3 flex items-start gap-2 rounded-2xl px-3 py-2 text-[12px] ${success ? "bg-emerald-500/10 text-emerald-400" : failed ? "bg-red-500/10 text-red-400" : "bg-white/[0.045] text-muted-foreground"}`}>
+        <div className={`mt-3 flex items-start gap-2 rounded-2xl px-3 py-2 text-[12px] ${success ? "bg-emerald-500/10 text-emerald-400" : failed ? "bg-red-500/10 text-red-400" : "bg-black/[0.04] dark:bg-white/[0.045] text-muted-foreground"}`}>
           {success ? <LuCheck className="mt-0.5 shrink-0" size={14} /> : failed ? <LuCircleAlert className="mt-0.5 shrink-0" size={14} /> : <LuRefreshCw className="mt-0.5 shrink-0 animate-spin" size={14} />}
           <span>
             {status.message}
@@ -506,7 +506,7 @@ function MiddlewareUpdateCard() {
       )}
 
       {needsManualBootstrap && (
-        <div className="mt-3 rounded-2xl bg-white/[0.045] p-3">
+        <div className="mt-3 rounded-2xl bg-black/[0.04] dark:bg-white/[0.045] p-3">
           <p className="text-[11px] leading-relaxed text-muted-foreground">Run this once on the VPS:</p>
           <code className="mt-2 block overflow-x-auto rounded-xl bg-black/20 px-3 py-2 text-[11px] text-foreground">
             {`curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/${updateBranch || "main"}/apps/middleware/scripts/install.sh | sudo OPENCLAW_DESKTOP_BRANCH=${updateBranch || "main"} bash`}
@@ -570,7 +570,7 @@ function V1SqliteMigrationCard() {
       )}
 
       {result && (
-        <div className="mt-3 rounded-2xl bg-white/[0.045] p-3 text-[11px] text-muted-foreground">
+        <div className="mt-3 rounded-2xl bg-black/[0.04] dark:bg-white/[0.045] p-3 text-[11px] text-muted-foreground">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <Stat label="Spaces" value={result.summary.spaces} />
             <Stat label="Chats" value={result.summary.chats} />
@@ -698,7 +698,7 @@ function SessionMigrationCard({ platform }: { platform: SessionMigrationPlatform
       </div>
 
       {scan && (
-        <div className="mt-4 rounded-2xl bg-white/[0.045] p-3 text-[11px] text-muted-foreground">
+        <div className="mt-4 rounded-2xl bg-black/[0.04] dark:bg-white/[0.045] p-3 text-[11px] text-muted-foreground">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <Stat label="Sessions" value={scanSummary.total} />
             <Stat label="Direct" value={scanSummary.direct} />

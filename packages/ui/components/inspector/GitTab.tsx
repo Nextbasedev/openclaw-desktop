@@ -257,7 +257,7 @@ function DiffLines({ diff, mode }: { diff: FileDiff; mode: DiffViewMode }) {
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize split diff panes"
-          className="group relative z-10 cursor-col-resize bg-white/5 transition-colors hover:bg-white/12 active:bg-white/16"
+          className="group relative z-10 cursor-col-resize bg-black/[0.04] transition-colors hover:bg-black/[0.08] active:bg-black/[0.12] dark:bg-white/5 dark:hover:bg-white/12 dark:active:bg-white/16"
           onPointerDown={(event) => {
             event.preventDefault()
             draggingSplitRef.current = true
@@ -265,7 +265,7 @@ function DiffLines({ diff, mode }: { diff: FileDiff; mode: DiffViewMode }) {
             document.body.style.userSelect = "none"
           }}
         >
-          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/15 transition-colors group-hover:bg-white/35" />
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-black/15 transition-colors group-hover:bg-black/30 dark:bg-white/15 dark:group-hover:bg-white/35" />
         </div>
         <SplitDiffPane diff={diff} side="new" />
       </div>
@@ -277,7 +277,7 @@ function DiffLines({ diff, mode }: { diff: FileDiff; mode: DiffViewMode }) {
       {diff.lines.map((line, idx) => {
         if (line.type === "hunk") {
           return (
-            <div key={idx} className="w-max min-w-full whitespace-pre border-y border-white/5 bg-[#161b22] px-4 py-1.5 text-[11px] font-bold text-[#7d8590]">
+            <div key={idx} className="w-max min-w-full whitespace-pre border-y border-border/60 bg-muted px-4 py-1.5 text-[11px] font-bold text-muted-foreground dark:border-white/5 dark:bg-[#161b22] dark:text-[#7d8590]">
               {line.content}
             </div>
           )
@@ -291,12 +291,12 @@ function DiffLines({ diff, mode }: { diff: FileDiff; mode: DiffViewMode }) {
 
 function SplitDiffPane({ diff, side }: { diff: FileDiff; side: "old" | "new" }) {
   return (
-    <div className={cn("min-w-0 overflow-x-auto bg-[#050505]", side === "new" && "border-l border-white/10")}>
+    <div className={cn("min-w-0 overflow-x-auto bg-background dark:bg-[#050505]", side === "new" && "border-l border-border/70 dark:border-white/10")}>
       <div className="min-w-max">
         {diff.lines.map((line, idx) => {
           if (line.type === "hunk") {
             return (
-              <div key={idx} className="w-max min-w-full whitespace-pre border-y border-white/5 bg-[#161b22] px-4 py-1.5 text-[11px] font-bold text-[#7d8590]">
+              <div key={idx} className="w-max min-w-full whitespace-pre border-y border-border/60 bg-muted px-4 py-1.5 text-[11px] font-bold text-muted-foreground dark:border-white/5 dark:bg-[#161b22] dark:text-[#7d8590]">
                 {line.content}
               </div>
             )
@@ -337,15 +337,15 @@ function DiffLineCell({
       className={cn(
         "flex w-max min-w-full transition-colors",
         muted && "opacity-30",
-        tone === "add" && "bg-[#12351f] text-[#d7ffe0]",
-        tone === "del" && "bg-[#3a1719] text-[#ffe0e0]",
-        tone === "normal" && "bg-[#0b0b0c] text-[#d6d6d8] hover:bg-white/[0.04]",
+        tone === "add" && "bg-emerald-500/12 text-emerald-800 dark:bg-[#12351f] dark:text-[#d7ffe0]",
+        tone === "del" && "bg-rose-500/12 text-rose-800 dark:bg-[#3a1719] dark:text-[#ffe0e0]",
+        tone === "normal" && "bg-background text-foreground/80 hover:bg-black/[0.035] dark:bg-[#0b0b0c] dark:text-[#d6d6d8] dark:hover:bg-white/[0.04]",
       )}
     >
       <div className="w-10 shrink-0 select-none px-2 text-right text-[10px] tabular-nums text-muted-foreground/45">
         {muted ? "" : (number ?? "")}
       </div>
-      <div className={cn("w-6 shrink-0 select-none text-center text-[13px] font-bold", tone === "add" && "text-emerald-300", tone === "del" && "text-red-300", tone === "normal" && "text-muted-foreground/30")}>{muted ? "" : sign}</div>
+      <div className={cn("w-6 shrink-0 select-none text-center text-[13px] font-bold", tone === "add" && "text-emerald-700 dark:text-emerald-300", tone === "del" && "text-red-700 dark:text-red-300", tone === "normal" && "text-muted-foreground/30")}>{muted ? "" : sign}</div>
       <div className="shrink-0 whitespace-pre px-3 pr-8 font-medium">{muted ? "" : line.content}</div>
     </div>
   )
@@ -849,11 +849,11 @@ function CommitDetailView({
   const currentFileDiff = diffs?.find(f => f.path === openFile)
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#0f0f10] text-foreground">
-      <div className="flex shrink-0 items-center gap-3 border-b border-white/10 px-3 py-2">
+    <div className="flex h-full flex-col overflow-hidden bg-background text-foreground dark:bg-[#0f0f10]">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border/70 px-3 py-2 dark:border-white/10">
         <button
           onClick={onBack}
-          className="cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          className="cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-black/[0.055] hover:text-foreground dark:hover:bg-white/[0.06]"
         >
           <VscArrowLeft size={16} />
         </button>
@@ -877,11 +877,11 @@ function CommitDetailView({
             <p className="text-[13px]">No files changed</p>
           </div>
         ) : (
-          <div className="min-w-0 divide-y divide-white/10">
+          <div className="min-w-0 divide-y divide-border/70 dark:divide-white/10">
             {diffs.map((file) => {
               const open = file.path === openFile
               return (
-                <div key={file.path} className="bg-[#101011]">
+                <div key={file.path} className="bg-background dark:bg-[#101011]">
                   <DiffFileHeader
                     path={file.path}
                     additions={file.additions}
@@ -890,7 +890,7 @@ function CommitDetailView({
                     onClick={() => setSelectedFile(open ? null : file.path)}
                   />
                   {open && (
-                    <div className="min-w-0 overflow-x-auto overflow-y-visible bg-[#050505] text-[#e6edf3]">
+                    <div className="min-w-0 overflow-x-auto overflow-y-visible bg-background text-foreground dark:bg-[#050505] dark:text-[#e6edf3]">
                       {currentFileDiff ? <DiffLines diff={currentFileDiff} mode={diffMode} /> : null}
                     </div>
                   )}
@@ -969,7 +969,7 @@ function ChangedFileDiffView({
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto bg-black text-[#e6edf3] dark:bg-black">
+      <div className="flex-1 overflow-auto bg-background text-foreground dark:bg-black dark:text-[#e6edf3]">
         {loading ? (
           <GitDiffSkeleton />
         ) : !parsedDiff ? (
@@ -983,7 +983,7 @@ function ChangedFileDiffView({
             {parsedDiff.lines.map((line, idx) => {
               if (line.type === "hunk") {
                 return (
-                  <div key={idx} className="bg-[#161b22] text-[#7d8590] py-1.5 px-4 sticky top-0 z-10 border-y border-white/5 my-2 select-none text-[11px] font-bold opacity-80 backdrop-blur-sm">
+                  <div key={idx} className="sticky top-0 z-10 my-2 border-y border-border/60 bg-muted px-4 py-1.5 text-[11px] font-bold text-muted-foreground opacity-80 backdrop-blur-sm select-none dark:border-white/5 dark:bg-[#161b22] dark:text-[#7d8590]">
                     {line.content}
                   </div>
                 )
@@ -995,17 +995,17 @@ function ChangedFileDiffView({
                   key={idx}
                   className={cn(
                     "flex w-full group transition-colors",
-                    isAdd && "bg-[#2ea04333] hover:bg-[#2ea04344]",
-                    isDel && "bg-[#f8514933] hover:bg-[#f8514944]",
-                    !isAdd && !isDel && "hover:bg-white/5",
+                    isAdd && "bg-emerald-500/12 hover:bg-emerald-500/18 dark:bg-[#2ea04333] dark:hover:bg-[#2ea04344]",
+                    isDel && "bg-rose-500/12 hover:bg-rose-500/18 dark:bg-[#f8514933] dark:hover:bg-[#f8514944]",
+                    !isAdd && !isDel && "hover:bg-black/[0.035] dark:hover:bg-white/5",
                   )}
                 >
-                  <div className="flex shrink-0 select-none border-r border-white/5 bg-black/40">
-                    <div className={cn("w-10 px-2 text-right text-[10px] tabular-nums", isDel ? "bg-[#f8514944] text-red-300" : "text-muted-foreground opacity-30")}>{line.oldLineNumber ?? ""}</div>
-                    <div className={cn("w-10 px-2 text-right text-[10px] tabular-nums border-l border-white/5", isAdd ? "bg-[#2ea04344] text-emerald-300" : "text-muted-foreground opacity-30")}>{line.newLineNumber ?? ""}</div>
+                  <div className="flex shrink-0 select-none border-r border-border/60 bg-black/[0.035] dark:border-white/5 dark:bg-black/40">
+                    <div className={cn("w-10 px-2 text-right text-[10px] tabular-nums", isDel ? "bg-rose-500/18 text-rose-700 dark:bg-[#f8514944] dark:text-red-300" : "text-muted-foreground opacity-50 dark:opacity-30")}>{line.oldLineNumber ?? ""}</div>
+                    <div className={cn("w-10 px-2 text-right text-[10px] tabular-nums border-l border-border/60 dark:border-white/5", isAdd ? "bg-emerald-500/18 text-emerald-700 dark:bg-[#2ea04344] dark:text-emerald-300" : "text-muted-foreground opacity-50 dark:opacity-30")}>{line.newLineNumber ?? ""}</div>
                   </div>
-                  <div className={cn("w-6 shrink-0 flex items-center justify-center select-none text-[13px] font-bold", isAdd && "text-[#7ee787]", isDel && "text-[#ffa198]", !isAdd && !isDel && "text-muted-foreground/30")}>{isAdd ? "+" : isDel ? "-" : " "}</div>
-                  <div className={cn("flex-1 px-4 whitespace-pre font-medium", isAdd && "text-[#e6ffec]", isDel && "text-[#fff0f0]")}>{line.content}</div>
+                  <div className={cn("w-6 shrink-0 flex items-center justify-center select-none text-[13px] font-bold", isAdd && "text-emerald-700 dark:text-[#7ee787]", isDel && "text-rose-700 dark:text-[#ffa198]", !isAdd && !isDel && "text-muted-foreground/30")}>{isAdd ? "+" : isDel ? "-" : " "}</div>
+                  <div className={cn("flex-1 px-4 whitespace-pre font-medium", isAdd && "text-emerald-900 dark:text-[#e6ffec]", isDel && "text-rose-900 dark:text-[#fff0f0]")}>{line.content}</div>
                 </div>
               )
             })}

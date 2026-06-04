@@ -196,7 +196,7 @@ function CopyButton({
       className={cn(
         "flex size-6 items-center justify-center rounded-md",
         "transition-colors duration-150",
-        "cursor-pointer text-foreground/30 hover:text-white",
+        "cursor-pointer text-foreground/40 hover:text-foreground dark:text-foreground/30 dark:hover:text-white",
         cls
       )}
     >
@@ -506,7 +506,7 @@ function BranchNav({
         type="button"
         disabled={current <= 1}
         onClick={() => onSwitch(current - 2)}
-        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-white disabled:cursor-default disabled:opacity-30"
+        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-foreground dark:hover:text-white disabled:cursor-default disabled:opacity-30"
       >
         <LuChevronLeft className="size-3.5" />
       </button>
@@ -517,7 +517,7 @@ function BranchNav({
         type="button"
         disabled={current >= total}
         onClick={() => onSwitch(current)}
-        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-white disabled:cursor-default disabled:opacity-30"
+        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-foreground dark:hover:text-white disabled:cursor-default disabled:opacity-30"
       >
         <LuChevronRight className="size-3.5" />
       </button>
@@ -899,7 +899,7 @@ export const MessageBubble = memo(function MessageBubble({
               <button
                 type="button"
                 onClick={cancelEdit}
-                className="flex size-7 cursor-pointer items-center justify-center rounded-lg text-foreground/40 transition-colors hover:text-white"
+                className="flex size-7 cursor-pointer items-center justify-center rounded-lg text-foreground/40 transition-colors hover:text-foreground dark:hover:text-white"
               >
                 <LuX className="size-4" />
               </button>
@@ -1133,7 +1133,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <button
                   type="button"
                   onClick={startEdit}
-                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-white"
+                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/40 transition-colors hover:text-foreground dark:text-foreground/30 dark:hover:text-white"
                 >
                   <LuPenLine className="size-3.5" />
                 </button>
@@ -1143,7 +1143,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <button
                   type="button"
                   onClick={() => onReply(message.messageId)}
-                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-white"
+                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/40 transition-colors hover:text-foreground dark:text-foreground/30 dark:hover:text-white"
                   aria-label="Reply"
                 >
                   <LuReply className="size-3.5" />
@@ -1183,7 +1183,7 @@ export const MessageBubble = memo(function MessageBubble({
                             "flex size-6 cursor-pointer items-center justify-center rounded-md transition-all",
                             reaction === "down"
                               ? "text-white"
-                              : "text-foreground/30 hover:text-white"
+                              : "text-foreground/40 hover:text-foreground dark:text-foreground/30 dark:hover:text-white"
                           )}
                           aria-label="Not helpful"
                         >
@@ -1208,7 +1208,7 @@ export const MessageBubble = memo(function MessageBubble({
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/30 transition-all duration-100 hover:text-white"
+                        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-all duration-100 hover:text-foreground dark:text-foreground/30 dark:hover:text-white"
                         aria-label="More actions"
                       >
                         <LuEllipsisVertical className="size-3.5" />
@@ -1220,7 +1220,7 @@ export const MessageBubble = memo(function MessageBubble({
                       sideOffset={8}
                       className={cn(
                         "w-44 gap-0 rounded-2xl p-1.5 ring-0",
-                        "border border-black/70 bg-[var(--glass-bg)]",
+                        "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
                         "backdrop-blur-[40px] backdrop-saturate-[180%]",
                         "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
                       )}

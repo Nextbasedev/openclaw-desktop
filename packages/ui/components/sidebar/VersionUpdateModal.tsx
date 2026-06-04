@@ -92,7 +92,7 @@ export function VersionUpdateModal({
             style={{ transformOrigin: "top center" }}
             className={cn(
               "fixed inset-0 z-50 m-auto flex h-fit max-h-[80vh] w-full max-w-md flex-col",
-              "overflow-hidden rounded-[22px] border border-black/70 bg-[var(--glass-bg)]",
+              "overflow-hidden rounded-[22px] border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
               "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
               "backdrop-blur-[40px] backdrop-saturate-[180%]",
             )}

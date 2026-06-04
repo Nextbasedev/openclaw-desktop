@@ -416,7 +416,7 @@ export function CommandPalette({
           <motion.div
             className={cn(
               "relative w-full max-w-[720px] overflow-hidden rounded-[22px]",
-              "border border-black/70 bg-[var(--glass-bg)]",
+              "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
               "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
               "backdrop-blur-[40px] backdrop-saturate-[180%]",
             )}
@@ -432,7 +432,7 @@ export function CommandPalette({
             style={{ transformOrigin: "top center" }}
           >
         {/* Search bar */}
-        <div className="flex items-center gap-3 border-b border-white/[0.07] bg-white/[0.025] px-5 py-4">
+        <div className="flex items-center gap-3 border-b border-border/60 bg-black/[0.02] dark:border-white/[0.07] dark:bg-white/[0.025] px-5 py-4">
           <LuSearch size={19} className="shrink-0 text-muted-foreground dark:text-white/45" />
           <input
             ref={inputRef}
@@ -443,7 +443,7 @@ export function CommandPalette({
             placeholder="Ask AI & Search"
             className="flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground/55 dark:text-white dark:placeholder:text-white/35"
           />
-          <kbd className="flex items-center gap-0.5 rounded-lg border border-white/[0.10] bg-white/[0.055] px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-sm dark:text-white/45">
+          <kbd className="flex items-center gap-0.5 rounded-lg border border-border/70 bg-muted/70 dark:border-white/[0.10] dark:bg-white/[0.055] px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-sm dark:text-white/45">
             {isMac ? "⌘" : "Ctrl"}
             <span className="text-[8px] text-muted-foreground/50 dark:text-white/20">+</span>
             K

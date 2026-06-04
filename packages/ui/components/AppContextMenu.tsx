@@ -79,7 +79,7 @@ export function AppContextMenu({
           }}
           className={cn(
             "z-[130] w-44 rounded-2xl p-1.5",
-            "border border-black/70 bg-[var(--glass-bg)]",
+            "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
             "backdrop-blur-[40px] backdrop-saturate-[180%]",
             "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
           )}

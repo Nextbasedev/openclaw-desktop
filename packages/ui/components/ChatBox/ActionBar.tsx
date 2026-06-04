@@ -113,7 +113,7 @@ export function ActionBar({
             sideOffset={10}
             className={cn(
               "z-[120] w-[190px] gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none",
-              "border border-black/70 bg-[var(--glass-bg)]",
+              "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
               "backdrop-blur-[40px] backdrop-saturate-[180%]",
               "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
               "data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[side=top]:data-[state=open]:slide-in-from-bottom-1",
@@ -175,7 +175,7 @@ export function ActionBar({
             sideOffset={8}
             className={cn(
               "z-[120] w-72 gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none",
-              "border border-black/70 bg-[var(--glass-bg)]",
+              "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
               "backdrop-blur-[40px] backdrop-saturate-[180%]",
               "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
               "data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[side=top]:data-[state=open]:slide-in-from-bottom-1",
@@ -340,7 +340,7 @@ function ContextUsageBadge({ usage }: { usage?: SessionTokenUsage | null }) {
         sideOffset={10}
         className={cn(
           "z-[120] w-[252px] overflow-hidden rounded-2xl p-3 ring-0 outline-none",
-          "border border-black/70 bg-[var(--glass-bg)]",
+          "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
           "backdrop-blur-[40px] backdrop-saturate-[180%]",
           "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
         )}

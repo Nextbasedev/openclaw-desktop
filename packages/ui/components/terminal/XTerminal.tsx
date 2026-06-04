@@ -77,8 +77,8 @@ function terminalStatusClass(status: string) {
     case "spawning": return "border-amber-400/20 bg-amber-400/10 text-amber-300"
     case "stream_failed": return "border-sky-400/20 bg-sky-400/10 text-sky-300"
     case "error": return "border-red-400/20 bg-red-400/10 text-red-300"
-    case "exited": return "border-white/10 bg-white/[0.045] text-white/45"
-    default: return "border-white/10 bg-white/[0.04] text-white/45"
+    case "exited": return "border-black/10 bg-black/[0.035] text-muted-foreground dark:border-white/10 dark:bg-white/[0.045] dark:text-white/45"
+    default: return "border-black/10 bg-black/[0.03] text-muted-foreground dark:border-white/10 dark:bg-white/[0.04] dark:text-white/45"
   }
 }
 
@@ -275,35 +275,35 @@ export function XTerminal({ visible, projectId }: XTerminalProps) {
   }, [visible])
 
   return (
-    <div className="flex size-full flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-[#050505] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-      <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-white/[0.07] bg-white/[0.025] px-3">
+    <div className="flex size-full flex-col overflow-hidden rounded-xl border border-border/70 bg-background shadow-[inset_0_1px_0_rgba(255,255,255,0.70)] dark:border-white/[0.08] dark:bg-[#050505] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border/70 bg-muted/45 px-3 dark:border-white/[0.07] dark:bg-white/[0.025]">
         <div className="min-w-0 flex items-center gap-2">
-          <div className="flex size-5 shrink-0 items-center justify-center rounded-md bg-white/[0.07] text-[10px] font-semibold text-white/55">
+          <div className="flex size-5 shrink-0 items-center justify-center rounded-md bg-black/[0.055] text-[10px] font-semibold text-muted-foreground dark:bg-white/[0.07] dark:text-white/55">
             $
           </div>
           <div className="min-w-0">
-            <div className="text-[12px] font-medium leading-4 text-white/82">Terminal</div>
-            <div className="truncate text-[10.5px] leading-3 text-white/35" title={pty.cwd ?? undefined}>{compactPath(pty.cwd)}</div>
+            <div className="text-[12px] font-medium leading-4 text-foreground dark:text-white/82">Terminal</div>
+            <div className="truncate text-[10.5px] leading-3 text-muted-foreground dark:text-white/35" title={pty.cwd ?? undefined}>{compactPath(pty.cwd)}</div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <span className={cn("rounded-full border px-2 py-0.5 text-[10.5px] font-medium", terminalStatusClass(pty.status))} title={pty.statusMessage}>
             {terminalStatusLabel(pty.status)}
           </span>
-          <button type="button" onClick={copyTerminal} className="flex size-7 cursor-pointer items-center justify-center rounded-md text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white/80" aria-label="Copy terminal output">
+          <button type="button" onClick={copyTerminal} className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.055] hover:text-foreground dark:text-white/45 dark:hover:bg-white/[0.07] dark:hover:text-white/80" aria-label="Copy terminal output">
             {copied ? <LuCheck size={14} /> : <LuClipboard size={14} />}
           </button>
-          <button type="button" onClick={clearTerminal} className="flex size-7 cursor-pointer items-center justify-center rounded-md text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white/80" aria-label="Clear terminal display">
+          <button type="button" onClick={clearTerminal} className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.055] hover:text-foreground dark:text-white/45 dark:hover:bg-white/[0.07] dark:hover:text-white/80" aria-label="Clear terminal display">
             <LuTrash2 size={14} />
           </button>
-          <button type="button" onClick={reconnectTerminal} disabled={pty.status === "spawning"} className="flex size-7 cursor-pointer items-center justify-center rounded-md text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-35" aria-label="Reconnect terminal">
+          <button type="button" onClick={reconnectTerminal} disabled={pty.status === "spawning"} className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.055] hover:text-foreground dark:text-white/45 dark:hover:bg-white/[0.07] dark:hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-35" aria-label="Reconnect terminal">
             <LuRefreshCw size={14} />
           </button>
         </div>
       </div>
       <div
         ref={containerRef}
-        className="min-h-0 flex-1 bg-[#050505] p-2"
+        className="min-h-0 flex-1 bg-background p-2 dark:bg-[#050505]"
         onClick={() => termRef.current?.focus()}
       />
     </div>

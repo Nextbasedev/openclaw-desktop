@@ -228,16 +228,16 @@ export function ConnectPageView({
             )}
           >
             {showSplitShell ? (
-              <div className="flex h-full w-full max-w-[640px] flex-col rounded-[26px] bg-white/[0.026] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] sm:p-6">
+              <div className="flex h-full w-full max-w-[640px] flex-col rounded-[26px] bg-black/[0.018] dark:bg-white/[0.026] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.70)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] sm:p-6">
                 <div className="flex items-center justify-between pb-5">
-                  <p className="text-[15px] font-semibold tracking-tight text-zinc-100">OpenClaw</p>
+                  <p className="text-[15px] font-semibold tracking-tight text-foreground dark:text-zinc-100">OpenClaw</p>
                   {setupMode !== "choice" && (
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       onClick={() => onSetupModeChange("choice")}
-                      className="h-7 gap-1 rounded-lg px-2 text-xs font-normal text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-100"
+                      className="h-7 gap-1 rounded-lg px-2 text-xs font-normal text-muted-foreground transition-colors hover:bg-black/[0.035] hover:text-foreground dark:text-zinc-400 dark:hover:bg-white/[0.045] dark:hover:text-zinc-100"
                     >
                       <span className="flex h-3 w-3 items-center justify-center">
                         <FaArrowLeft className="h-2.5 w-2.5" />
@@ -248,14 +248,14 @@ export function ConnectPageView({
                 </div>
 
                 <header className="flex items-start gap-4 pb-5 text-left">
-                  <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-white/[0.055] text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)]">
+                  <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-black/[0.045] dark:bg-white/[0.055] text-muted-foreground dark:text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.70)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.055)]">
                     <HugeiconsIcon icon={ServerStack01Icon} size={22} />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[20px] font-semibold tracking-tight text-white">
+                    <p className="text-[20px] font-semibold tracking-tight text-foreground dark:text-white">
                       Connect OpenClaw Middleware
                     </p>
-                    <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-500">
+                    <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground/70 dark:text-zinc-500">
                       Ask OpenClaw to prepare the Middleware, then paste the URL
                       and pairing code here.
                     </p>
@@ -321,7 +321,7 @@ export function ConnectPageView({
                   <>
                     <header className={cn("space-y-3", isConnected ? "text-left" : "text-center")}>
                       <div className={cn(
-                        "flex size-12 items-center justify-center rounded-2xl bg-white/[0.045] text-zinc-200",
+                        "flex size-12 items-center justify-center rounded-2xl bg-black/[0.035] dark:bg-white/[0.045] text-muted-foreground dark:text-zinc-200",
                         isConnected ? "" : "mx-auto"
                       )}>
                         <HugeiconsIcon
@@ -380,8 +380,8 @@ export function ConnectPageView({
                         )}
 
                         {setupMode !== "choice" && (
-                          <details className="rounded-xl border border-white/10 bg-black/20 p-4">
-                            <summary className="cursor-pointer text-sm font-medium text-zinc-300 select-none hover:text-white">
+                          <details className="rounded-xl border border-black/[0.08] dark:border-white/10 bg-black/[0.035] dark:bg-black/20 p-4">
+                            <summary className="cursor-pointer text-sm font-medium text-muted-foreground dark:text-zinc-300 select-none hover:text-foreground dark:hover:text-white">
                               Advanced manual setup
                             </summary>
                             <div className="mt-4 space-y-4">
@@ -446,7 +446,7 @@ function ChoiceScreen({
   alignLeft?: boolean
 }) {
   return (
-    <div className="rounded-[28px] bg-white/[0.032] p-4 shadow-[0_20px_56px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.055)]">
+    <div className="rounded-[28px] bg-black/[0.02] dark:bg-white/[0.032] p-4 shadow-[0_20px_56px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.70)] dark:shadow-[0_20px_56px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.055)]">
       <div className="grid gap-3 sm:grid-cols-2">
         <ModeCard
           active={false}
@@ -465,7 +465,7 @@ function ChoiceScreen({
       </div>
       <p
         className={cn(
-          "mt-4 text-[12px] text-zinc-500",
+          "mt-4 text-[12px] text-muted-foreground/70 dark:text-zinc-500",
           alignLeft ? "text-left" : "text-center"
         )}
       >
@@ -512,7 +512,7 @@ function ProgressSegment({ progress }: { progress: number }) {
   const clamped = Math.max(0, Math.min(100, progress))
 
   return (
-    <span className="relative h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-white/10 sm:h-1.5">
+    <span className="relative h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-black/10 dark:bg-white/10 sm:h-1.5">
       <span
         className="absolute inset-y-0 left-0 rounded-full bg-foreground transition-[width] duration-500 ease-out"
         style={{ width: `${clamped}%` }}
@@ -542,7 +542,7 @@ function ModeCard({
         "rounded-[22px] p-4 text-left transition-all",
         active
           ? "bg-emerald-500/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-          : "bg-white/[0.035] hover:bg-white/[0.06]"
+          : "bg-black/[0.025] hover:bg-black/[0.045] dark:bg-white/[0.035] dark:hover:bg-white/[0.06]"
       )}
     >
       <div className="flex items-start gap-3">
@@ -551,14 +551,14 @@ function ModeCard({
             "flex size-10 shrink-0 items-center justify-center rounded-2xl",
             active
               ? "bg-emerald-500/15 text-emerald-300"
-              : "bg-white/[0.055] text-zinc-400"
+              : "bg-black/[0.045] dark:bg-white/[0.055] text-muted-foreground dark:text-zinc-400"
           )}
         >
           <HugeiconsIcon icon={icon} size={18} />
         </div>
         <div className="min-w-0">
-          <p className="text-[13px] font-semibold text-zinc-100">{title}</p>
-          <p className="mt-2 text-[12px] leading-relaxed text-zinc-500">
+          <p className="text-[13px] font-semibold text-foreground dark:text-zinc-100">{title}</p>
+          <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground/70 dark:text-zinc-500">
             {description}
           </p>
         </div>
@@ -591,7 +591,7 @@ function LocalOpenClawPanel({
   const checking = busy || loadingStatus
 
   return (
-    <div className="rounded-[28px] bg-white/[0.032] p-5 shadow-[0_20px_56px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.055)]">
+    <div className="rounded-[28px] bg-black/[0.02] dark:bg-white/[0.032] p-5 shadow-[0_20px_56px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.70)] dark:shadow-[0_20px_56px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.055)]">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[15px] font-semibold tracking-tight text-foreground">Local connection</p>
@@ -599,7 +599,7 @@ function LocalOpenClawPanel({
             Detect middleware running on this computer. No pairing code is needed for local setup.
           </p>
         </div>
-        <span className="rounded-2xl bg-white/[0.055] px-3 py-2 text-[12px] text-zinc-300">
+        <span className="rounded-2xl bg-black/[0.045] dark:bg-white/[0.055] px-3 py-2 text-[12px] text-muted-foreground dark:text-zinc-300">
           Local
         </span>
       </div>
@@ -628,14 +628,14 @@ function LocalOpenClawPanel({
           onChange={(event) => onUrlChange(event.target.value)}
           placeholder="http://127.0.0.1:8787"
           disabled={busy}
-          className="h-12 rounded-[18px] border-0 bg-white/[0.06] px-4 text-[13px] text-zinc-100 placeholder:text-zinc-500 focus-visible:bg-white/[0.085] focus-visible:ring-0"
+          className="h-12 rounded-[18px] border-0 bg-black/[0.045] dark:bg-white/[0.06] px-4 text-[13px] text-foreground dark:text-zinc-100 placeholder:text-muted-foreground/45 dark:placeholder:text-zinc-500 focus-visible:bg-black/[0.065] dark:focus-visible:bg-white/[0.085] focus-visible:ring-0"
         />
       </div>
 
       <Button
         onClick={onSave}
         disabled={busy || missingConfig}
-        className="h-11 w-full rounded-[18px] bg-white/[0.06] text-[13px] font-medium text-zinc-100 hover:bg-white/[0.085] disabled:opacity-50"
+        className="h-11 w-full rounded-[18px] bg-black/[0.045] dark:bg-white/[0.06] text-[13px] font-medium text-foreground dark:text-zinc-100 hover:bg-black/[0.065] dark:hover:bg-white/[0.085] disabled:opacity-50"
       >
         {saving ? "Connecting..." : "Connect local backend"}
       </Button>
@@ -659,7 +659,7 @@ function VpsOpenClawPanel(props: {
   onSave: () => void
 }) {
   return (
-    <div className="relative overflow-hidden rounded-[28px] bg-white/[0.032] p-5 shadow-[0_20px_56px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.055)]">
+    <div className="relative overflow-hidden rounded-[28px] bg-black/[0.02] dark:bg-white/[0.032] p-5 shadow-[0_20px_56px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.70)] dark:shadow-[0_20px_56px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.055)]">
       <div className="relative flex items-start justify-between gap-4">
         <div>
           <p className="text-[15px] font-semibold tracking-tight text-foreground">Remote connection</p>
@@ -705,7 +705,7 @@ function SetupPromptPreview({ prompt }: { prompt: string }) {
           Visible copy for server OpenClaw
         </p>
       </div>
-      <pre className="max-h-[150px] overflow-y-auto rounded-[18px] bg-black/18 px-4 py-3 font-mono text-[10.5px] leading-relaxed whitespace-pre-wrap text-zinc-400/90 shadow-[inset_0_1px_16px_rgba(0,0,0,0.18)]">
+      <pre className="max-h-[150px] overflow-y-auto rounded-[18px] bg-black/[0.04] dark:bg-black/20 px-4 py-3 font-mono text-[10.5px] leading-relaxed whitespace-pre-wrap text-muted-foreground dark:text-zinc-400/90 shadow-[inset_0_1px_16px_rgba(0,0,0,0.18)]">
         {prompt}
       </pre>
     </div>
@@ -729,7 +729,7 @@ function SetupPromptButton({ prompt }: { prompt: string }) {
       variant="outline"
       size="sm"
       onClick={copyPrompt}
-      className="h-9 shrink-0 rounded-2xl border-0 bg-white/[0.055] px-3 text-[12px] text-zinc-300 hover:bg-white/[0.085] hover:text-white"
+      className="h-9 shrink-0 rounded-2xl border-0 bg-black/[0.045] dark:bg-white/[0.055] px-3 text-[12px] text-muted-foreground dark:text-zinc-300 hover:bg-black/[0.065] dark:hover:bg-white/[0.085] hover:text-foreground dark:hover:text-white"
     >
       <HugeiconsIcon icon={Copy01Icon} size={14} />
       {copied ? "Copied" : "Copy setup"}
@@ -767,7 +767,7 @@ function RemoteCredentialFields({
           disabled={disabled}
           autoComplete="off"
           spellCheck={false}
-          className="h-12 rounded-[18px] border-0 bg-white/[0.06] px-4 text-[13px] text-zinc-100 placeholder:text-zinc-500 focus-visible:bg-white/[0.085] focus-visible:ring-0"
+          className="h-12 rounded-[18px] border-0 bg-black/[0.045] dark:bg-white/[0.06] px-4 text-[13px] text-foreground dark:text-zinc-100 placeholder:text-muted-foreground/45 dark:placeholder:text-zinc-500 focus-visible:bg-black/[0.065] dark:focus-visible:bg-white/[0.085] focus-visible:ring-0"
         />
       </div>
       <div className="space-y-2">
@@ -783,7 +783,7 @@ function RemoteCredentialFields({
             disabled={disabled}
             autoComplete="off"
             spellCheck={false}
-            className="h-12 rounded-[18px] border-0 bg-white/[0.06] px-4 text-[13px] text-zinc-100 placeholder:text-zinc-500 focus-visible:bg-white/[0.085] focus-visible:ring-0"
+            className="h-12 rounded-[18px] border-0 bg-black/[0.045] dark:bg-white/[0.06] px-4 text-[13px] text-foreground dark:text-zinc-100 placeholder:text-muted-foreground/45 dark:placeholder:text-zinc-500 focus-visible:bg-black/[0.065] dark:focus-visible:bg-white/[0.085] focus-visible:ring-0"
           />
           <Button
             type="button"
@@ -791,7 +791,7 @@ function RemoteCredentialFields({
             size="icon"
             onClick={() => onShowTokenChange(!showToken)}
             disabled={disabled}
-            className="size-12 rounded-[18px] border-0 bg-white/[0.06] text-zinc-300 hover:bg-white/[0.085]"
+            className="size-12 rounded-[18px] border-0 bg-black/[0.045] dark:bg-white/[0.06] text-muted-foreground dark:text-zinc-300 hover:bg-black/[0.065] dark:hover:bg-white/[0.085]"
           >
             <HugeiconsIcon icon={showToken ? ViewOffIcon : EyeIcon} size={16} />
           </Button>
@@ -845,21 +845,21 @@ function PromptBox({ title, prompt }: { title: string; prompt: string }) {
   }
 
   return (
-    <div className="rounded-2xl bg-black/20 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+    <div className="rounded-2xl bg-black/[0.035] dark:bg-black/20 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[12px] font-medium text-zinc-300">{title}</p>
+        <p className="text-[12px] font-medium text-muted-foreground dark:text-zinc-300">{title}</p>
         <Button
           type="button"
           variant="outline"
           size="sm"
           onClick={copyPrompt}
-          className="h-7 rounded-lg border-0 bg-white/[0.055] px-2 text-[11px] text-zinc-300 hover:bg-white/[0.085] active:translate-y-0"
+          className="h-7 rounded-lg border-0 bg-black/[0.045] dark:bg-white/[0.055] px-2 text-[11px] text-muted-foreground dark:text-zinc-300 hover:bg-black/[0.065] dark:hover:bg-white/[0.085] active:translate-y-0"
         >
           <HugeiconsIcon icon={Copy01Icon} size={13} />
           {copied ? "Copied!" : "Copy"}
         </Button>
       </div>
-      <pre className="mt-3 h-[172px] overflow-y-auto rounded-xl bg-black/30 p-3.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-zinc-400 shadow-[inset_0_1px_12px_rgba(0,0,0,0.18)]">
+      <pre className="mt-3 h-[172px] overflow-y-auto rounded-xl bg-black/[0.05] dark:bg-black/30 p-3.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground dark:text-zinc-400 shadow-[inset_0_1px_12px_rgba(0,0,0,0.18)]">
         {prompt}
       </pre>
     </div>
@@ -901,7 +901,7 @@ function ManualFields({
           disabled={disabled}
           autoComplete="off"
           spellCheck={false}
-          className="h-11 rounded-2xl border-0 bg-white/[0.06] px-4 text-[13px] text-zinc-100 placeholder:text-zinc-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] focus-visible:ring-0 focus-visible:bg-white/[0.085]"
+          className="h-11 rounded-2xl border-0 bg-black/[0.045] dark:bg-white/[0.06] px-4 text-[13px] text-foreground dark:text-zinc-100 placeholder:text-muted-foreground/45 dark:placeholder:text-zinc-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.70)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] focus-visible:ring-0 focus-visible:bg-black/[0.065] dark:focus-visible:bg-white/[0.085]"
         />
       </div>
       <div className="space-y-1.5">
@@ -918,7 +918,7 @@ function ManualFields({
             disabled={disabled}
             autoComplete="off"
             spellCheck={false}
-            className="h-11 rounded-2xl border-0 bg-white/[0.06] px-4 text-[13px] text-zinc-100 placeholder:text-zinc-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] focus-visible:ring-0 focus-visible:bg-white/[0.085]"
+            className="h-11 rounded-2xl border-0 bg-black/[0.045] dark:bg-white/[0.06] px-4 text-[13px] text-foreground dark:text-zinc-100 placeholder:text-muted-foreground/45 dark:placeholder:text-zinc-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.70)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] focus-visible:ring-0 focus-visible:bg-black/[0.065] dark:focus-visible:bg-white/[0.085]"
           />
           <Button
             type="button"
@@ -926,7 +926,7 @@ function ManualFields({
             size="icon"
             onClick={() => onShowTokenChange(!showToken)}
             disabled={disabled}
-            className="h-11 rounded-2xl border-0 bg-white/[0.06] text-zinc-300 hover:bg-white/[0.085]"
+            className="h-11 rounded-2xl border-0 bg-black/[0.045] dark:bg-white/[0.06] text-muted-foreground dark:text-zinc-300 hover:bg-black/[0.065] dark:hover:bg-white/[0.085]"
           >
             <HugeiconsIcon icon={showToken ? ViewOffIcon : EyeIcon} size={15} />
           </Button>
@@ -993,14 +993,14 @@ function ConnectedState({
 
 function ConnectStatusSkeleton() {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 text-center">
-      <div className="mx-auto flex size-11 animate-pulse items-center justify-center rounded-2xl bg-white/8" />
+    <div className="rounded-2xl border border-black/[0.08] dark:border-white/10 bg-white/[0.03] p-5 text-center">
+      <div className="mx-auto flex size-11 animate-pulse items-center justify-center rounded-2xl bg-black/[0.06] dark:bg-white/8" />
       <div className="mt-3 flex flex-col items-center gap-2">
-        <div className="h-4 w-32 animate-pulse rounded-md bg-white/10" />
-        <div className="h-3 w-72 max-w-full animate-pulse rounded-md bg-white/6" />
-        <div className="h-3 w-56 max-w-full animate-pulse rounded-md bg-white/5" />
+        <div className="h-4 w-32 animate-pulse rounded-md bg-black/10 dark:bg-white/10" />
+        <div className="h-3 w-72 max-w-full animate-pulse rounded-md bg-black/[0.045] dark:bg-white/6" />
+        <div className="h-3 w-56 max-w-full animate-pulse rounded-md bg-black/[0.035] dark:bg-white/5" />
       </div>
-      <div className="mx-auto mt-4 h-8 w-28 animate-pulse rounded-md bg-white/8" />
+      <div className="mx-auto mt-4 h-8 w-28 animate-pulse rounded-md bg-black/[0.06] dark:bg-white/8" />
     </div>
   )
 }
@@ -1009,11 +1009,11 @@ function ConnectPageSkeleton() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col items-center gap-3 text-center">
-        <div className="size-12 animate-pulse rounded-md border border-white/10 bg-white/6" />
+        <div className="size-12 animate-pulse rounded-md border border-black/[0.08] dark:border-white/10 bg-black/[0.045] dark:bg-white/6" />
         <div className="space-y-2">
-          <div className="mx-auto h-6 w-64 animate-pulse rounded-md bg-white/10" />
-          <div className="mx-auto h-4 w-80 max-w-full animate-pulse rounded-md bg-white/6" />
-          <div className="mx-auto h-4 w-72 max-w-full animate-pulse rounded-md bg-white/5" />
+          <div className="mx-auto h-6 w-64 animate-pulse rounded-md bg-black/10 dark:bg-white/10" />
+          <div className="mx-auto h-4 w-80 max-w-full animate-pulse rounded-md bg-black/[0.045] dark:bg-white/6" />
+          <div className="mx-auto h-4 w-72 max-w-full animate-pulse rounded-md bg-black/[0.035] dark:bg-white/5" />
         </div>
       </div>
 

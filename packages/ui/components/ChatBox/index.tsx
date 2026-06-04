@@ -699,7 +699,7 @@ export function ChatBox({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         className={cn(
-          "relative z-10 flex flex-col rounded-[24px] bg-white/[0.04] shadow-[0_12px_34px_-28px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-2xl transition-all",
+          "relative z-10 flex flex-col rounded-[24px] border border-black/[0.06] bg-white/[0.92] shadow-[0_18px_48px_-32px_rgba(15,23,42,0.45),inset_0_1px_0_rgba(255,255,255,0.80)] backdrop-blur-2xl transition-all dark:border-transparent dark:bg-white/[0.04] dark:shadow-[0_12px_34px_-28px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.06)]",
           glowOnMount && "chatbox-glow",
           isDragOver && "ring-2 ring-primary/20"
         )}
@@ -720,7 +720,7 @@ export function ChatBox({
               transition={{ duration: 0.15, ease: "easeOut" }}
               className="overflow-hidden"
             >
-              <div className="flex items-start gap-2 rounded-t-[22px] border-b border-white/8 bg-white/[0.03] px-3 pt-2.5 pb-2">
+              <div className="flex items-start gap-2 rounded-t-[22px] border-b border-border/60 bg-black/[0.02] px-3 pt-2.5 pb-2 dark:border-white/8 dark:bg-white/[0.03]">
                 <div className="min-w-0 flex-1">
                   <span className="text-[11px] font-medium text-muted-foreground/70">
                     {replyTo.role === "user" ? "You" : "Assistant"}
@@ -1004,12 +1004,12 @@ export function ChatBox({
       </div>
 
       {showDraftSpaceBanner && (
-        <div className="relative z-0 -mt-[21px] flex min-h-14 items-center justify-between gap-3 rounded-b-[24px] bg-white/[0.025] px-3 pb-1.5 pt-6 shadow-[0_12px_34px_-28px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.025)] backdrop-blur-2xl">
+        <div className="relative z-0 -mt-[21px] flex min-h-14 items-center justify-between gap-3 rounded-b-[24px] border border-t-0 border-black/[0.06] bg-white/[0.85] px-3 pb-1.5 pt-6 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.32),inset_0_1px_0_rgba(255,255,255,0.70)] backdrop-blur-2xl dark:border-transparent dark:bg-white/[0.025] dark:shadow-[0_12px_34px_-28px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.025)]">
           <Popover>
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="group flex min-w-0 cursor-pointer items-center gap-2 rounded-xl px-2.5 py-1 text-left text-[13px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                className="group flex min-w-0 cursor-pointer items-center gap-2 rounded-xl px-2.5 py-1 text-left text-[13px] text-muted-foreground transition-colors hover:bg-black/[0.045] dark:hover:bg-white/[0.06] hover:text-foreground"
               >
                 <span className={cn("size-2.5 shrink-0 rounded-full bg-gradient-to-br shadow-[0_0_12px_rgba(56,189,248,0.35)]", activeSpace ? spaceGradient(activeSpace) : "from-zinc-500 to-zinc-300")} />
                 <span className="shrink-0 text-muted-foreground/70">Space</span>
@@ -1038,7 +1038,7 @@ export function ChatBox({
                       onClick={() => void onSpaceSelect?.(space.id)}
                       className={cn(
                         "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
-                        selected ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+                        selected ? "bg-black/[0.055] text-foreground dark:bg-white/[0.08]" : "text-muted-foreground hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.05]",
                       )}
                     >
                       <span className={cn("size-2.5 shrink-0 rounded-full bg-gradient-to-br", spaceGradient(space))} />
@@ -1056,7 +1056,7 @@ export function ChatBox({
           <button
             type="button"
             onClick={onOpenSkills}
-            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-black/[0.045] dark:hover:bg-white/[0.06] hover:text-foreground"
           >
             <LuSparkles className="size-3.5" />
             <span>Skills</span>
