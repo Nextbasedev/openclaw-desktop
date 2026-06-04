@@ -39,7 +39,7 @@ const SPACE_ICON_GRADIENTS = [
   "bg-[linear-gradient(135deg,#020A12_0%,rgba(8,58,82,0.78)_50%,rgba(20,46,90,0.58)_100%)]",
   "bg-[linear-gradient(135deg,#111006_0%,rgba(62,55,22,0.72)_50%,rgba(40,48,46,0.54)_100%)]",
 ]
-const NEW_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#09090B_0%,rgba(23,22,25,0.85)_50%,rgba(25,23,25,0.65)_100%)]"
+const NEW_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#FFFFFF_0%,rgba(248,250,252,0.94)_52%,rgba(241,245,249,0.82)_100%)] dark:bg-[linear-gradient(135deg,#09090B_0%,rgba(23,22,25,0.85)_50%,rgba(25,23,25,0.65)_100%)]"
 
 function gradientForSpace(space: Space) {
   const seed = [...space.id].reduce((total, char) => total + char.charCodeAt(0), 0)
@@ -273,10 +273,10 @@ export function CollapsedSpacesPopover({
           type="button"
           onClick={openArchivedChats}
           className={cn(
-            "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border text-white/80 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+            "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border text-slate-600 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] dark:text-white/80",
             archivedSelected
               ? "scale-[1.05] border-transparent bg-black/[0.055] shadow-[0_16px_34px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.55)] dark:bg-white/[0.075] dark:shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
-              : "border-transparent bg-[linear-gradient(135deg,#111827_0%,rgba(31,41,55,0.9)_50%,rgba(17,24,39,0.7)_100%)] shadow-[0_10px_24px_rgba(0,0,0,0.28)] hover:scale-[1.035] hover:bg-white/[0.035] hover:text-white hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]",
+              : "border-transparent bg-[linear-gradient(135deg,#FFFFFF_0%,rgba(248,250,252,0.94)_52%,rgba(241,245,249,0.82)_100%)] shadow-[0_10px_24px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.72)] hover:scale-[1.035] hover:bg-black/[0.035] hover:text-slate-900 hover:shadow-[0_14px_28px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.78)] dark:bg-[linear-gradient(135deg,#111827_0%,rgba(31,41,55,0.9)_50%,rgba(17,24,39,0.7)_100%)] dark:shadow-[0_10px_24px_rgba(0,0,0,0.28)] dark:hover:bg-white/[0.035] dark:hover:text-white dark:hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]",
           )}
           aria-label="Open archived chats"
         >
