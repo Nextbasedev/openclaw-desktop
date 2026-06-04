@@ -11,10 +11,11 @@ import { useModels, isActiveModel } from "@/hooks/useModels"
 type FooterProps = {
   className?: string
   terminalOpen?: boolean
+  onOpenSearch?: () => void
   onToggleTerminal?: () => void
 }
 
-export function Footer({ className, onToggleTerminal }: FooterProps) {
+export function Footer({ className, onOpenSearch, onToggleTerminal }: FooterProps) {
   const platform = usePlatform()
   const isMac = platform === "macos"
   const modKey = isMac ? "⌘" : "Ctrl"
@@ -50,6 +51,7 @@ export function Footer({ className, onToggleTerminal }: FooterProps) {
           icon={<VscSearch className="size-3.5" />}
           keys={[modKey, "K"]}
           label="Search"
+          onClick={onOpenSearch}
         />
         <ShortcutButton
           icon={<VscTerminal className="size-3.5" />}

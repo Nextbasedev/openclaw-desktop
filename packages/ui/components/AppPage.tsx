@@ -2950,6 +2950,7 @@ function AppShell({
 
       <Footer
         terminalOpen={terminalActive}
+        onOpenSearch={() => setCommandPaletteOpen(true)}
         onToggleTerminal={toggleTerminal}
       />
 
