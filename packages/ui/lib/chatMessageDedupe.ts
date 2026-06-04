@@ -132,6 +132,14 @@ function hasOverlappingToolCalls(a: ChatMessage, b: ChatMessage) {
 function hasOverlappingToolOnlyCalls(a: ChatMessage, b: ChatMessage) {
   if (collapseRepeatedAssistantText(a.text) || collapseRepeatedAssistantText(b.text)) return false
   if (!a.toolCalls?.length || !b.toolCalls?.length) return false
+  // Only collapse replayed/drifted tool rows from nearby gateway indexes (same turn).
+  // Don't merge tool-only messages from completely different turns where tool IDs
+  // might coincidentally overlap.
+  const aIdx = a.gatewayIndex
+  const bIdx = b.gatewayIndex
+  if (typeof aIdx === "number" && aIdx > 0 && typeof bIdx === "number" && bIdx > 0 && Math.abs(aIdx - bIdx) > 2) {
+    return false
+  }
   return hasOverlappingToolCalls(a, b)
 }
 

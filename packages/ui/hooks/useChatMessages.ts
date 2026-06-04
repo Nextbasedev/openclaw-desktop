@@ -1851,7 +1851,8 @@ export function useChatMessages(
           Boolean(cached.entry.messageCount && cached.entry.messageCount > cachedMessages.length)
         )
         suppressNextWarmPersistRef.current = true
-        setMessages(cachedMessages)
+        const dedupedWarmMessages = deduplicateUserMessages(cachedMessages)
+        setMessages(dedupedWarmMessages)
         markHistoryLoaded()
         setStatus(effectiveStatus)
         setStatusLabel(effectiveLabel)
