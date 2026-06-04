@@ -206,10 +206,11 @@ export function ConnectPageView({
   }, [connectResult, error, isConnected])
 
   return (
-    <div className="h-full min-h-0 w-full overflow-y-auto bg-background px-4 py-4 sm:px-6 sm:py-6">
+    <div className="h-full min-h-0 w-full overflow-y-auto bg-transparent px-5 py-6 sm:px-8 sm:py-7">
       <div
         className={cn(
-          "mx-auto flex min-h-full w-full items-center justify-center",
+          "mx-auto flex min-h-full w-full justify-center",
+          isConnected ? "items-start" : "items-center",
           showSplitShell ? "max-w-[1500px]" : "max-w-[720px]"
         )}
       >
@@ -356,26 +357,29 @@ export function ConnectPageView({
                 />
               </div>
             ) : (
-              <div className="mx-auto w-full max-w-[560px] space-y-6">
+              <div className={cn("mx-auto w-full max-w-[560px]", isConnected ? "space-y-5" : "space-y-6")}>
                 {loadingStatus ? (
                   <ConnectPageSkeleton />
                 ) : (
                   <>
-                    <header className="space-y-3 text-center">
-                      <div className="mx-auto flex size-12 items-center justify-center rounded-md border border-white/10 bg-white/5">
+                    <header className={cn("space-y-3", isConnected ? "text-left" : "text-center")}>
+                      <div className={cn(
+                        "flex size-12 items-center justify-center rounded-2xl bg-white/[0.045] text-zinc-200",
+                        isConnected ? "" : "mx-auto"
+                      )}>
                         <HugeiconsIcon
                           icon={ServerStack01Icon}
                           size={22}
-                          className="text-zinc-200"
                         />
                       </div>
                       <div>
-                        <p className="text-xl font-semibold tracking-tight text-white">
-                          Where is OpenClaw running?
+                        <p className="text-xl font-semibold tracking-tight text-foreground">
+                          {isConnected ? "Workspace connection" : "Where is OpenClaw running?"}
                         </p>
-                        <p className="mt-2 text-sm leading-relaxed text-zinc-500">
-                          Choose where OpenClaw runs. Desktop must be able to reach
-                          that machine over your network.
+                        <p className="mt-2 text-sm leading-relaxed text-muted-foreground/65">
+                          {isConnected
+                            ? "OpenClaw Desktop is connected and ready to use this workspace runtime."
+                            : "Choose where OpenClaw runs. Desktop must be able to reach that machine over your network."}
                         </p>
                       </div>
                     </header>
@@ -894,24 +898,49 @@ function ConnectedState({
   disconnecting: boolean
   onDisconnect: () => void
 }) {
+  const displayUrl = url || "Middleware"
+
   return (
-    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.05] p-5 text-center">
-      <div className="mx-auto flex size-11 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-300">
-        <HugeiconsIcon icon={CheckmarkCircle02Icon} size={22} />
+    <div className="rounded-2xl bg-emerald-500/[0.055] p-5">
+      <div className="flex items-start gap-4">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-300">
+          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={22} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-emerald-100">
+              Workspace ready
+            </p>
+            <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-emerald-300/80">
+              Connected
+            </span>
+          </div>
+          <p className="mt-1.5 text-xs leading-relaxed text-emerald-100/62">
+            Projects, terminal, git, chats, files, streams, and approvals will run through this runtime.
+          </p>
+          <div className="mt-4 rounded-xl bg-black/10 px-3 py-2">
+            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-emerald-100/38">
+              Middleware URL
+            </p>
+            <p className="mt-1 truncate font-mono text-[12px] text-emerald-50/80" title={displayUrl}>
+              {displayUrl}
+            </p>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {['Projects', 'Terminal', 'Git', 'Chats', 'Files'].map((item) => (
+              <span key={item} className="rounded-full bg-emerald-400/[0.08] px-2.5 py-1 text-[11px] text-emerald-100/62">
+                {item}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
-      <p className="mt-3 text-sm font-medium text-emerald-100">
-        Workspace ready
-      </p>
-      <p className="mt-1 text-xs leading-relaxed text-emerald-100/60">
-        OpenClaw is connected to {url || "Middleware"}. Projects, terminal, git,
-        chats, and files will run there.
-      </p>
       <Button
         onClick={onDisconnect}
         disabled={busy}
         variant="outline"
         size="sm"
-        className="mt-4 border-emerald-500/20 text-emerald-200 hover:bg-emerald-500/10"
+        className="mt-5 w-full border-0 bg-emerald-400/[0.08] text-emerald-100 hover:bg-emerald-400/[0.13]"
       >
         <HugeiconsIcon icon={Unlink03Icon} size={14} />
         {disconnecting ? "Disconnecting..." : "Disconnect"}
