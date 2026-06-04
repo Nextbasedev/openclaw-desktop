@@ -1217,6 +1217,23 @@ function AppShell({
     }
   }, [activateRoute])
 
+  const handleInspectorBack = useCallback(() => {
+    setInspectorOpen(true)
+    const previousPath = previousContentPathRef.current
+    const url =
+      previousPath &&
+      !isInspectorRoute(previousPath) &&
+      !isSettingsRoute(previousPath) &&
+      !isNotificationsRoute(previousPath)
+        ? previousPath
+        : fallbackPathForTab(prevTabRef.current)
+
+    if (isInspectorRoute(getRoutePath())) {
+      window.history.replaceState(null, "", routeUrl(url))
+      void activateRoute(parseRoute(url))
+    }
+  }, [activateRoute])
+
   const handleSettingsDialogOpenChange = useCallback((open: boolean) => {
     if (open) {
       setSettingsDialogOpen(true)
@@ -3041,7 +3058,7 @@ function AppShell({
           open={fullScreenInspectorVisible}
           activeTab={fullWindowInspectorTab}
           onTabChange={handleInspectorTabChange}
-          onClose={handleSettingsBack}
+          onClose={handleInspectorBack}
           leftOffset={renderedSidebarWidth}
           collapsedWidth={inspectorWidth}
           sessionKey={activeSessionKey}
