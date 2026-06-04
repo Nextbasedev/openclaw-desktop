@@ -334,8 +334,18 @@
     @apply bg-background text-foreground;
     height: 100%;
     overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  input,
+  textarea,
+  [contenteditable="true"],
+  .select-text {
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   .scrollbar-hide {
