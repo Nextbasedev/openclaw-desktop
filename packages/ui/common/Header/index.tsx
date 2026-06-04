@@ -280,7 +280,7 @@ export function Header({
       onMouseDown={handleHeaderMouseDown}
       className={cn(
         "relative z-50 flex h-11 shrink-0 items-center",
-        "bg-[#151515]",
+        "bg-white dark:bg-[#151515]",
         "select-none",
         className,
       )}
@@ -428,7 +428,7 @@ export function Header({
                         event.stopPropagation()
                         onNewChat(group.id)
                       }}
-                      className="mb-[8px] ml-1.5 mr-3 flex h-6 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-foreground/38 transition-colors hover:bg-white/[0.055] hover:text-foreground/72 dark:text-white/40 dark:hover:bg-white/[0.06] dark:hover:text-white/76"
+                      className="mb-[8px] ml-1.5 mr-3 flex h-6 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-foreground/38 transition-colors hover:bg-black/[0.055] hover:text-foreground/72 dark:text-white/40 dark:hover:bg-white/[0.06] dark:hover:text-white/76"
                     >
                       <VscAdd className="size-3.5" />
                     </button>
@@ -443,7 +443,7 @@ export function Header({
       )}
 
       {/* Right: action icons — absolute so they don't shrink the tab area */}
-      <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-[#151515] pl-2", showWindowControls ? "pr-0" : "pr-3")}>
+      <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-white pl-2 dark:bg-[#151515]", showWindowControls ? "pr-0" : "pr-3")}>
         {!minimal && (
           <>
             {showSplitButton && (
@@ -461,7 +461,7 @@ export function Header({
                   "cursor-pointer transition-colors",
                   splitActive
                     ? "text-foreground"
-                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                    : "bg-transparent text-muted-foreground hover:bg-black/[0.045] hover:text-foreground dark:text-[#A3A3A9] dark:hover:bg-transparent dark:hover:text-[#D3D3D9]",
                 )}
               >
                 <VscSplitHorizontal className="size-4" />
@@ -483,7 +483,7 @@ export function Header({
                   "cursor-pointer transition-colors",
                   sidebarOpen
                     ? "bg-transparent text-foreground"
-                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                    : "bg-transparent text-muted-foreground hover:bg-black/[0.045] hover:text-foreground dark:text-[#A3A3A9] dark:hover:bg-transparent dark:hover:text-[#D3D3D9]",
                 )}
               >
                 <VscLayoutSidebarLeft className="size-4" />
@@ -500,7 +500,7 @@ export function Header({
                   "cursor-pointer transition-colors",
                   inspectorOpen
                     ? "bg-transparent text-foreground"
-                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                    : "bg-transparent text-muted-foreground hover:bg-black/[0.045] hover:text-foreground dark:text-[#A3A3A9] dark:hover:bg-transparent dark:hover:text-[#D3D3D9]",
                 )}
               >
                 <VscLayoutSidebarRight className="size-4" />
@@ -517,7 +517,7 @@ export function Header({
                   "cursor-pointer transition-colors",
                   terminalOpen
                     ? "bg-transparent text-foreground"
-                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                    : "bg-transparent text-muted-foreground hover:bg-black/[0.045] hover:text-foreground dark:text-[#A3A3A9] dark:hover:bg-transparent dark:hover:text-[#D3D3D9]",
                 )}
               >
                 <VscTerminal className="size-4" />
@@ -636,7 +636,7 @@ function HeaderIconButton({
           "cursor-pointer transition-colors group/icon",
           active
             ? "bg-transparent text-foreground"
-            : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+            : "bg-transparent text-muted-foreground hover:bg-black/[0.045] hover:text-foreground dark:text-[#A3A3A9] dark:hover:bg-transparent dark:hover:text-[#D3D3D9]",
         )}
       >
         <Icon size={16} strokeWidth={1.5} className="size-4" />
@@ -714,7 +714,7 @@ function HeaderTab({
           ? "z-20 overflow-visible border-transparent bg-background text-foreground shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
           : isActive
             ? "z-10 overflow-visible border-transparent bg-background/72 text-foreground/74 shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
-            : "border-transparent bg-transparent text-foreground/56 hover:bg-white/[0.045] hover:text-foreground/78 dark:border-transparent dark:bg-transparent dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/80",
+            : "border-transparent bg-transparent text-foreground/56 hover:bg-black/[0.045] hover:text-foreground/78 dark:border-transparent dark:bg-transparent dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/80",
       )}
     >
       <div
