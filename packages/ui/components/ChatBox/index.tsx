@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion"
 
 import { cn } from "@/lib/utils"
 import { ActionBar } from "./ActionBar"
+import type { SessionTokenUsage } from "./ActionBar"
 import { AttachmentPreviewList } from "./AttachmentPreviewList"
 import { SlashCommandMenu, getFilteredCommands } from "./SlashCommandMenu"
 import { useSlashCommands } from "@/hooks/useSlashCommands"
@@ -74,6 +75,7 @@ type Props = {
   activeSpaceId?: string | null
   onSpaceSelect?: (spaceId: string) => void | Promise<void>
   onOpenSkills?: () => void
+  sessionUsage?: SessionTokenUsage | null
 }
 
 const SPACE_DOT_GRADIENTS = [
@@ -108,6 +110,7 @@ export function ChatBox({
   activeSpaceId = null,
   onSpaceSelect,
   onOpenSkills,
+  sessionUsage = null,
 }: Props) {
   const draftStorageKey = draftKey ? `openclaw-composer-draft:v1:${draftKey}` : null
   const [input, setInput] = React.useState(() => {
@@ -965,6 +968,7 @@ export function ChatBox({
             voiceDisabledReason={voiceDisabledReason}
             attachmentCount={attachments.length}
             disableUpload={isComposerDisabled || isPreparingAttachments}
+            sessionUsage={sessionUsage}
           />
         </div>
 

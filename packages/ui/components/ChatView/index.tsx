@@ -20,6 +20,7 @@ import { MessageFeedbackDialog } from "./MessageFeedbackDialog"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
+import type { SessionTokenUsage } from "@/components/ChatBox/ActionBar"
 import { type ChatComposerSubmit } from "@/lib/chatAttachments"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
@@ -75,6 +76,25 @@ import {
 } from "@/components/ui/tooltip"
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
+
+const DEFAULT_CONTEXT_LIMIT_TOKENS = 128_000
+
+function usageNumber(value: unknown): number | null {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function usageCost(raw: unknown): number | null {
+  if (!raw || typeof raw !== "object") return null
+  const record = raw as Record<string, unknown>
+  const cost = record.cost && typeof record.cost === "object" ? (record.cost as Record<string, unknown>) : null
+  return (
+    usageNumber(cost?.total) ??
+    usageNumber(record.totalCost) ??
+    usageNumber(record.cost_usd) ??
+    usageNumber(record.costUsd)
+  )
+}
 
 type MessageScrollAnchor = {
   id: string
@@ -948,6 +968,42 @@ export function ChatView({
     () => buildStableChatRows(visibleAllMessages),
     [visibleAllMessages, forceRenderKey]
   )
+  const sessionUsage = useMemo<SessionTokenUsage | null>(() => {
+    let input = 0
+    let output = 0
+    let cacheRead = 0
+    let cacheWrite = 0
+    let total = 0
+    let cost = 0
+    let hasCost = false
+
+    for (const message of renderedMessages) {
+      const usage = message.usage
+      if (!usage) continue
+      input += usage.input ?? 0
+      output += usage.output ?? 0
+      cacheRead += usage.cacheRead ?? 0
+      cacheWrite += usage.cacheWrite ?? 0
+      total += usage.total ?? 0
+      const messageCost = usageCost(usage.raw)
+      if (messageCost != null) {
+        cost += messageCost
+        hasCost = true
+      }
+    }
+
+    if (total <= 0) total = input + output + cacheRead + cacheWrite
+    if (total <= 0) return null
+    return {
+      input,
+      output,
+      cacheRead,
+      cacheWrite,
+      total,
+      cost: hasCost ? cost : null,
+      contextLimit: DEFAULT_CONTEXT_LIMIT_TOKENS,
+    }
+  }, [renderedMessages])
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
   const needsInitialScrollRef = useRef(true)
@@ -1896,6 +1952,7 @@ export function ChatView({
           modelSwitching={modelSwitching}
           glowOnMount
           draftKey={sessionKey}
+          sessionUsage={sessionUsage}
         />
         {statusText && (
           <div className="flex items-center pl-1">
@@ -2013,6 +2070,7 @@ export function ChatView({
               modelSwitching={modelSwitching}
               historyMessages={userMessageHistory}
               draftKey={sessionKey}
+              sessionUsage={sessionUsage}
             />
           </div>
         </>
@@ -2105,6 +2163,7 @@ export function ChatView({
           modelSwitching={modelSwitching}
           historyMessages={userMessageHistory}
           draftKey={sessionKey}
+          sessionUsage={sessionUsage}
         />
       </div>
         </>

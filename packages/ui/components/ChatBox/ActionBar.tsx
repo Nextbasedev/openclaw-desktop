@@ -46,6 +46,17 @@ type ActionBarProps = {
   voiceDisabledReason?: string
   attachmentCount?: number
   disableUpload?: boolean
+  sessionUsage?: SessionTokenUsage | null
+}
+
+export type SessionTokenUsage = {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  total: number
+  cost?: number | null
+  contextLimit?: number | null
 }
 
 export function ActionBar({
@@ -74,6 +85,7 @@ export function ActionBar({
   voiceDisabledReason,
   attachmentCount = 0,
   disableUpload = false,
+  sessionUsage = null,
 }: ActionBarProps) {
   const activeModel = models.find((m) => {
     if (!currentModelId) return false
@@ -152,6 +164,8 @@ export function ActionBar({
 
       {/* Right controls */}
       <div className="flex items-center gap-0.5 sm:gap-1">
+        <ContextUsageBadge usage={sessionUsage} />
+
         {/* Model selector */}
         <Popover open={modelOpen} onOpenChange={onModelOpenChange}>
           <PopoverTrigger asChild>
@@ -272,6 +286,94 @@ export function ActionBar({
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+function formatCompactNumber(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—"
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`
+  return value.toLocaleString()
+}
+
+function formatPercent(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "0%"
+  if (value < 1) return "<1%"
+  return `${Math.min(100, value).toFixed(value < 10 ? 1 : 0)}%`
+}
+
+function ContextUsageBadge({ usage }: { usage?: SessionTokenUsage | null }) {
+  if (!usage || usage.total <= 0) return null
+
+  const contextLimit = usage.contextLimit && usage.contextLimit > 0 ? usage.contextLimit : 128_000
+  const percent = Math.min(100, (usage.total / contextLimit) * 100)
+  const totalCost = typeof usage.cost === "number" && Number.isFinite(usage.cost) ? usage.cost : null
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="hidden h-8 cursor-pointer items-center gap-1.5 rounded-full bg-white/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground sm:flex"
+          aria-label="Session context usage"
+        >
+          <span>{formatPercent(percent)}</span>
+          <span
+            className="size-3.5 rounded-full"
+            style={{
+              background: `conic-gradient(rgb(59 130 246) ${percent * 3.6}deg, rgba(255,255,255,0.16) 0deg)`,
+            }}
+          />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="end"
+        sideOffset={10}
+        className={cn(
+          "z-[120] w-[252px] overflow-hidden rounded-2xl p-3 ring-0 outline-none",
+          "border border-black/70 bg-[var(--glass-bg)]",
+          "backdrop-blur-[40px] backdrop-saturate-[180%]",
+          "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+        )}
+      >
+        <div className="space-y-3 text-[11px]">
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-medium text-foreground">{formatPercent(percent)}</span>
+            <span className="font-mono text-muted-foreground/70">
+              {formatCompactNumber(usage.total)} / {formatCompactNumber(contextLimit)}
+            </span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
+            <div
+              className="h-full rounded-full bg-blue-500 transition-[width]"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+          <div className="space-y-1.5 border-t border-white/[0.07] pt-3 text-muted-foreground/70">
+            <UsageRow label="Input" value={usage.input} />
+            <UsageRow label="Output" value={usage.output} />
+            {usage.cacheRead > 0 && <UsageRow label="Cache read" value={usage.cacheRead} />}
+            {usage.cacheWrite > 0 && <UsageRow label="Cache write" value={usage.cacheWrite} />}
+          </div>
+          <div className="flex justify-between gap-3 border-t border-white/[0.07] pt-3 text-[11px]">
+            <span className="text-muted-foreground/65">Total cost</span>
+            <span className="font-mono text-foreground/85">
+              {totalCost == null ? "—" : `$${totalCost.toFixed(totalCost < 1 ? 4 : 2)}`}
+            </span>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function UsageRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <span>{label}</span>
+      <span className="font-mono text-foreground/80">{formatCompactNumber(value)}</span>
     </div>
   )
 }
