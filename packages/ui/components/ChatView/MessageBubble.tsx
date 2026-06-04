@@ -527,7 +527,7 @@ function BranchNav({
 
 function isAssistantStatusSnapshot(text: string) {
   const normalized = text.trim()
-  if (!normalized.startsWith("OpenClaw ")) return false
+  if (!normalized.includes("OpenClaw ")) return false
 
   const markers = ["Model:", "Tokens:", "Context:", "Session:", "Runtime:"]
   return markers.filter((marker) => normalized.includes(marker)).length >= 3
@@ -927,11 +927,12 @@ export const MessageBubble = memo(function MessageBubble({
             {(!isUser || message.text.trim() || userSlashCommandName) && (
               <div
                 ref={messageBodyRef}
+                onMouseDown={isStatusSnapshot ? (event) => event.preventDefault() : undefined}
                 onMouseUp={updateSelectionAction}
                 onKeyUp={updateSelectionAction}
                 className={cn(
                   "max-w-full min-w-0 overflow-hidden text-[14px] leading-relaxed",
-                  isStatusSnapshot && "select-none",
+                  isStatusSnapshot && "select-none [&_*]:select-none",
                   isUser && userSlashCommandName
                     ? "relative rounded-2xl border border-border/45 bg-muted px-3 py-2 text-foreground shadow-sm"
                     : isUser
