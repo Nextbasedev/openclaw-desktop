@@ -2011,6 +2011,53 @@ function AppShell({
     })
   }, [])
 
+  const handleRenameChatFromMenu = useCallback((chat: ActiveChat) => {
+    const nextName = window.prompt("Rename chat", chat.name)?.trim()
+    if (!nextName || nextName === chat.name) return
+    invalidateChatListCache(activeSpaceId)
+    void invoke("middleware_chats_rename", {
+      input: { chatId: chat.id, name: nextName },
+    }).then(() => {
+      invalidateChatListCache(activeSpaceId)
+      dispatchGroups({
+        type: "UPDATE_TAB",
+        tabId: `chat:${chat.id}`,
+        updates: { title: nextName, chat: { ...chat, name: nextName } },
+      })
+      emit("sidebar:refresh")
+    }).catch((error) => {
+      console.error("rename chat failed", error)
+    })
+  }, [activeSpaceId, dispatchGroups])
+
+  const handleArchiveChatFromMenu = useCallback((chat: ActiveChat) => {
+    invalidateChatListCache(activeSpaceId)
+    void invoke("middleware_chats_archive", {
+      input: { chatId: chat.id },
+    }).then(() => {
+      invalidateChatListCache(activeSpaceId)
+      handleChatClear(chat.id)
+      emit("archive:changed")
+      emit("sidebar:refresh")
+    }).catch((error) => {
+      console.error("archive chat failed", error)
+    })
+  }, [activeSpaceId, handleChatClear])
+
+  const handleDeleteChatFromMenu = useCallback((chat: ActiveChat) => {
+    if (!window.confirm(`Delete “${chat.name}”?`)) return
+    invalidateChatListCache(activeSpaceId)
+    void invoke("middleware_chats_delete", {
+      input: { chatId: chat.id },
+    }).then(() => {
+      invalidateChatListCache(activeSpaceId)
+      handleChatClear(chat.id)
+      emit("sidebar:refresh")
+    }).catch((error) => {
+      console.error("delete chat failed", error)
+    })
+  }, [activeSpaceId, handleChatClear])
+
   const handleEditorTabMove = useCallback((
     tabId: string,
     sourceGroupId: EditorGroupId,
@@ -2766,6 +2813,9 @@ function AppShell({
         onSelectChatTab={effectiveActiveTab === "chat" ? handleEditorTabSelect : undefined}
         onCloseChatTab={effectiveActiveTab === "chat" ? handleEditorTabClose : undefined}
         onOpenChatTabWindow={effectiveActiveTab === "chat" ? handleOpenChatTabWindow : undefined}
+        onRenameChat={effectiveActiveTab === "chat" ? handleRenameChatFromMenu : undefined}
+        onArchiveChat={effectiveActiveTab === "chat" ? handleArchiveChatFromMenu : undefined}
+        onDeleteChat={effectiveActiveTab === "chat" ? handleDeleteChatFromMenu : undefined}
         onMoveChatTab={effectiveActiveTab === "chat" ? handleEditorTabMove : undefined}
         onNewChat={effectiveActiveTab === "chat" ? handleNewChat : undefined}
         showSplitButton={effectiveActiveTab === "chat" && totalNonDraftTabs >= 2}

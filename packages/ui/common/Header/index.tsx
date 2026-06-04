@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react"
-import { Reorder } from "framer-motion"
+import { AnimatePresence, motion, Reorder } from "framer-motion"
 import {
   VscAdd,
   VscClose,
@@ -12,6 +12,7 @@ import {
   VscTerminal,
 } from "react-icons/vsc"
 import { LuExternalLink } from "react-icons/lu"
+import { createPortal } from "react-dom"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
@@ -24,6 +25,7 @@ import { dedupeRequest } from "@/lib/requestDedupe"
 import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import type { ActiveChat } from "@/types/chat"
 import type { EditorTab, EditorGroupsState } from "@/lib/editorGroups"
+import { ChatActionsMenuContent } from "@/components/sidebar/ChatsSection/ChatActionsMenuContent"
 
 type VersionInfo = {
   version: string
@@ -47,6 +49,9 @@ type HeaderProps = {
   onSelectChatTab?: (groupId: "group-1" | "group-2", tabId: string) => void
   onCloseChatTab?: (id: string) => void
   onOpenChatTabWindow?: (tab: EditorTab) => void
+  onRenameChat?: (chat: ActiveChat) => void
+  onArchiveChat?: (chat: ActiveChat) => void
+  onDeleteChat?: (chat: ActiveChat) => void
   onMoveChatTab?: (
     tabId: string,
     sourceGroupId: "group-1" | "group-2",
@@ -105,6 +110,9 @@ export function Header({
   onSelectChatTab,
   onCloseChatTab,
   onOpenChatTabWindow,
+  onRenameChat,
+  onArchiveChat,
+  onDeleteChat,
   onMoveChatTab,
   onNewChat,
   showSplitButton = false,
@@ -124,6 +132,13 @@ export function Header({
   const rightClusterRef = useRef<HTMLDivElement>(null)
   const [rightClusterWidth, setRightClusterWidth] = useState(0)
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
+  const [chatTabMenu, setChatTabMenu] = useState<{ open: boolean; x: number; y: number; tab: EditorTab | null }>({
+    open: false,
+    x: 0,
+    y: 0,
+    tab: null,
+  })
+  const chatTabMenuRef = useRef<HTMLDivElement>(null)
   const suppressDragSelectRef = useRef<{ tabId: string; until: number } | null>(null)
 
   useEffect(() => {
@@ -174,6 +189,44 @@ export function Header({
       document.body.style.cursor = previousCursor
     }
   }, [draggingTabId])
+
+  const closeChatTabMenu = useCallback(() => {
+    setChatTabMenu((prev) => ({ ...prev, open: false }))
+  }, [])
+
+  useEffect(() => {
+    if (!chatTabMenu.open) return
+
+    function closeOnPointerDown(event: PointerEvent) {
+      if (chatTabMenuRef.current?.contains(event.target as Node)) return
+      closeChatTabMenu()
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") closeChatTabMenu()
+    }
+
+    window.addEventListener("pointerdown", closeOnPointerDown)
+    window.addEventListener("keydown", closeOnEscape)
+    return () => {
+      window.removeEventListener("pointerdown", closeOnPointerDown)
+      window.removeEventListener("keydown", closeOnEscape)
+    }
+  }, [chatTabMenu.open, closeChatTabMenu])
+
+  const openChatTabMenu = useCallback((event: MouseEvent<HTMLElement>, tab: EditorTab) => {
+    if (tab.kind !== "chat") return
+    event.preventDefault()
+    event.stopPropagation()
+    const maxX = Math.max(12, window.innerWidth - 184 - 12)
+    const maxY = Math.max(12, window.innerHeight - 184 - 12)
+    setChatTabMenu({
+      open: true,
+      x: Math.min(Math.max(event.clientX, 12), maxX),
+      y: Math.min(Math.max(event.clientY, 12), maxY),
+      tab,
+    })
+  }, [])
 
   const handleTabReorder = useCallback((
     groupId: "group-1" | "group-2",
@@ -349,6 +402,7 @@ export function Header({
                             ? () => onOpenChatTabWindow?.(tab)
                             : undefined
                         }
+                        onContextMenu={(event) => openChatTabMenu(event, tab)}
                       />
                     </Reorder.Item>
                   ))}
@@ -489,6 +543,60 @@ export function Header({
           <WindowControls className={minimal ? "" : "ml-2"} />
         )}
       </div>
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {chatTabMenu.open && chatTabMenu.tab?.chat && (
+              <motion.div
+                ref={chatTabMenuRef}
+                initial={{ opacity: 0, scale: 0.92, y: -4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: -4 }}
+                transition={{
+                  opacity: { duration: 0.15 },
+                  scale: { type: "spring", stiffness: 400, damping: 28, mass: 0.8 },
+                  y: { type: "spring", stiffness: 400, damping: 28, mass: 0.8 },
+                }}
+                style={{
+                  position: "fixed",
+                  left: chatTabMenu.x,
+                  top: chatTabMenu.y,
+                  transformOrigin: "top left",
+                }}
+                className={cn(
+                  "z-[130] w-44 rounded-2xl p-1.5",
+                  "border border-black/70 bg-[var(--glass-bg)]",
+                  "backdrop-blur-[40px] backdrop-saturate-[180%]",
+                  "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+                )}
+              >
+                <ChatActionsMenuContent
+                  onOpenInNewWindow={() => {
+                    closeChatTabMenu()
+                    if (chatTabMenu.tab) onOpenChatTabWindow?.(chatTabMenu.tab)
+                  }}
+                  onRename={() => {
+                    const chat = chatTabMenu.tab?.chat
+                    closeChatTabMenu()
+                    if (chat) onRenameChat?.(chat)
+                  }}
+                  onArchive={() => {
+                    const chat = chatTabMenu.tab?.chat
+                    closeChatTabMenu()
+                    if (chat) onArchiveChat?.(chat)
+                  }}
+                  onDelete={() => {
+                    const chat = chatTabMenu.tab?.chat
+                    closeChatTabMenu()
+                    if (chat) onDeleteChat?.(chat)
+                  }}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
+
     </header>
   )
 }
@@ -546,6 +654,7 @@ function HeaderTab({
   onSelect,
   onClose,
   onOpenWindow,
+  onContextMenu,
 }: {
   tab: EditorTab
   isActive: boolean
@@ -554,6 +663,7 @@ function HeaderTab({
   onSelect: () => void
   onClose: () => void
   onOpenWindow?: () => void
+  onContextMenu?: (event: MouseEvent<HTMLElement>) => void
 }) {
   const activeAndFocused = isActive && isFocusedGroup
   const tabLabel = `${tab.subtitle} / ${tab.title}`
@@ -577,6 +687,7 @@ function HeaderTab({
         openTabWindow()
       }}
       onClick={onSelect}
+      onContextMenu={onContextMenu}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault()
