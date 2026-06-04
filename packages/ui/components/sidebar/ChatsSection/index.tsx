@@ -62,6 +62,14 @@ export function ChatsSection({
   const visibleChatIds = sortedChatIds.slice(pageStart, pageEnd)
   const showPagination = sortedChatIds.length > CHATS_PER_PAGE
 
+  function openArchivedChats() {
+    window.dispatchEvent(
+      new CustomEvent("openclaw:open-settings", {
+        detail: { section: "archive" },
+      }),
+    )
+  }
+
   useEffect(() => {
     if (currentPage > totalPages - 1) {
       setCurrentPage(Math.max(0, totalPages - 1))
@@ -126,6 +134,24 @@ export function ChatsSection({
                     <span className="whitespace-nowrap">Start your first chat</span>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={openArchivedChats}
+                  className="mb-1 flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-foreground/4 hover:text-foreground"
+                >
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-foreground/8 text-foreground/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                    <ArchiveBoxIcon />
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="truncate text-[13px] font-medium text-foreground/90">
+                      Archived chats
+                    </span>
+                    <span className="truncate text-[11px] text-muted-foreground/55">
+                      {sectionLabel}
+                    </span>
+                  </span>
+                </button>
 
                 <Reorder.Group
                   axis="y"
@@ -215,5 +241,26 @@ export function ChatsSection({
         actions={dialogActions}
       />
     </>
+  )
+}
+
+function ArchiveBoxIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 5.25h10" />
+      <path d="M4 5.25v6.25A1.5 1.5 0 0 0 5.5 13h5A1.5 1.5 0 0 0 12 11.5V5.25" />
+      <path d="M4.75 3h6.5L12 5.25H4L4.75 3Z" />
+      <path d="M8 7.25v3" />
+      <path d="m6.75 9.25 1.25 1.25 1.25-1.25" />
+    </svg>
   )
 }
