@@ -14,6 +14,7 @@ import { createLogger, errorMeta } from "../../lib/logger.js";
 import { cleanMessageDisplayText, messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
 import { classifyGatewayMessageSemanticType, extractToolEventsFromMessage, isErrorToolResult, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
+import { enrichInboundMediaMessages, inboundChatMediaRoute } from "./inbound-media.js";
 import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
 import type { ProjectedRun } from "./repo.runs.js";
@@ -408,7 +409,7 @@ async function persistArchivedHistorySegments(context: AppContext, sessionKey: s
     const segment = context.messages.ensureArchivedSegment({ sessionKey, sessionId: archivedSessionId, sessionFile: filePath, resetReason: "archived_transcript", startedAtMs: fileMtimeMs });
     const staleImport = existingImport;
     if (staleImport) context.messages.deleteMessagesForSegment(segment.segmentId);
-    const normalized = normalizeHistoryMessages(sessionKey, archivedMessages);
+    const normalized = normalizeHistoryMessages(sessionKey, enrichInboundMediaMessages(archivedMessages));
     const importBaseSeq = staleImport ? context.messages.nextMessageSeq(sessionKey) - 1 : segment.baseSeq;
     upserted += context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: importBaseSeq }).upserted;
     // Project tool calls for this file's messages — the missing step that left
@@ -886,6 +887,10 @@ function scheduleArchivedHistoryProjection(params: {
 export async function registerChatRoutes(app: FastifyInstance, context: AppContext) {
   const log = createLogger("chat-route");
 
+  app.get("/api/chat/media/inbound/:id", async (request, reply) => {
+    await inboundChatMediaRoute(request, reply, context);
+  });
+
   app.post("/api/exec/approval/resolve", async (request) => {
     const parsed = approvalResolveBody.safeParse(request.body);
     if (!parsed.success) {
@@ -1172,7 +1177,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 sessionId: history.sessionId ?? context.messages.getSession(input.sessionKey)?.sessionId ?? null,
                 sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
               });
-              const normalized = normalizeHistoryMessages(input.sessionKey, history.messages);
+              const normalized = normalizeHistoryMessages(input.sessionKey, enrichInboundMediaMessages(history.messages));
               const projectSeq = (message: ProjectedMessage) => segment.baseSeq + (message.gatewaySeq ?? message.openclawSeq);
               const historyMaxSeq = normalized.reduce((max, message) => Math.max(max, projectSeq(message)), 0);
               const gatewayUserEcho = [...normalized].reverse().find((message) => message.role === "user" && projectSeq(message) >= optimisticSeq && messageTextMatchesSent(textFromMessage(message.data), prepared.message));
@@ -1514,7 +1519,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             });
             const sk = history.sessionKey ?? parsed.data.sessionKey;
             const msgs = history.messages ?? [];
-            const normalized = normalizeHistoryMessages(sk, msgs);
+            const normalized = normalizeHistoryMessages(sk, enrichInboundMediaMessages(msgs));
             const segment = context.messages.ensureActiveSegment({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null });
             context.messages.upsertSession({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, data: { ...sessionData, ...(history.status ? { status: history.status } : {}) } });
             const proj = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
@@ -1579,7 +1584,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
     const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
     const messages = history.messages ?? [];
-    const normalized = normalizeHistoryMessages(sessionKey, messages);
+    const normalized = normalizeHistoryMessages(sessionKey, enrichInboundMediaMessages(messages));
     // Yield after the (synchronous) normalize so concurrent requests (incl. /health)
     // are served before the heavy SQLite stages start.
     await yieldToEventLoop();

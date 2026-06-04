@@ -3,6 +3,7 @@ import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
 import { messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import { classifyGatewayMessageSemanticType, messageHasAssistantAnswerText, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
+import { enrichInboundMediaMessages } from "./inbound-media.js";
 import type { OpenClawMessage, ProjectedMessage } from "./types.js";
 import type { ProjectedRun } from "./repo.runs.js";
 import { canonicalPatchPayload } from "./projection.js";
@@ -268,7 +269,7 @@ export class ChatLiveIngest {
     const payloadSeq = typeof payload.messageSeq === "number" && Number.isFinite(payload.messageSeq) && payload.messageSeq > 0
       ? Math.floor(payload.messageSeq)
       : null;
-    const normalized = normalizeHistoryMessages(sessionKey, [message], Date.now(), payloadSeq ?? this.context.messages.nextMessageSeq(sessionKey));
+    const normalized = normalizeHistoryMessages(sessionKey, enrichInboundMediaMessages([message]), Date.now(), payloadSeq ?? this.context.messages.nextMessageSeq(sessionKey));
     const projectedMessage = normalized[0];
     if (!projectedMessage) return;
     const confirmedDuplicate = !optimisticId ? this.findRecentConfirmedUserEcho(sessionKey, projectedMessage) : null;
@@ -832,7 +833,7 @@ export class ChatLiveIngest {
       const history = await this.context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 200 });
       const messages = history.messages ?? [];
       if (!messages.length) return;
-      const normalized = normalizeHistoryMessages(sessionKey, messages).filter((message) => {
+      const normalized = normalizeHistoryMessages(sessionKey, enrichInboundMediaMessages(messages)).filter((message) => {
         const confirmedDuplicate = this.findRecentConfirmedUserEcho(sessionKey, {
           role: message.role,
           data: message.data,

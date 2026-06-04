@@ -69,6 +69,30 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("serves inbound chat media from the OpenClaw state dir", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "oc-inbound-media-app-"));
+    const previousStateDir = process.env.OPENCLAW_STATE_DIR;
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+    const app = await createApp(testConfig({ middlewareToken: "test-token" }));
+    try {
+      const mediaDir = path.join(stateDir, "media", "inbound");
+      fs.mkdirSync(mediaDir, { recursive: true });
+      fs.writeFileSync(path.join(mediaDir, "image.png"), Buffer.from([1, 2, 3]));
+
+      const unauthorized = await app.inject({ method: "GET", url: "/api/chat/media/inbound/image.png" });
+      expect(unauthorized.statusCode).toBe(401);
+
+      const res = await app.inject({ method: "GET", url: "/api/chat/media/inbound/image.png?token=test-token" });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers["content-type"]).toBe("image/png");
+      expect(Buffer.from(res.rawPayload)).toEqual(Buffer.from([1, 2, 3]));
+    } finally {
+      await app.close();
+      if (previousStateDir === undefined) delete process.env.OPENCLAW_STATE_DIR;
+      else process.env.OPENCLAW_STATE_DIR = previousStateDir;
+    }
+  });
+
   test("accepts attachment-sized JSON payloads above Fastify default body limit", async () => {
     const app = await createApp(testConfig());
     const res = await app.inject({
