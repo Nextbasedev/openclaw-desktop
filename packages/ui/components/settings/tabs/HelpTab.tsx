@@ -20,6 +20,12 @@ const HELP_LINKS: HelpLink[] = [
   { label: "Keyboard Shortcuts", description: "View all shortcuts", url: "#", icon: LuKeyboard },
 ]
 
+const HELP_SECTION_CLASS = "rounded-2xl bg-white/[0.035] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
+const HELP_ICON_CLASS = "flex size-8 shrink-0 items-center justify-center rounded-xl bg-white/[0.055] text-muted-foreground"
+const HELP_FIELD_CLASS = "h-9 rounded-xl bg-black/20 px-3 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/45 hover:bg-white/[0.045] focus:bg-white/[0.065] disabled:cursor-not-allowed disabled:opacity-60"
+const HELP_SECONDARY_BUTTON_CLASS = "inline-flex cursor-pointer items-center gap-2 rounded-xl bg-white/[0.055] px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-white/[0.085] disabled:cursor-not-allowed disabled:opacity-60"
+const HELP_PRIMARY_BUTTON_CLASS = "inline-flex cursor-pointer items-center gap-2 rounded-xl bg-foreground px-3 py-2 text-[12px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-50"
+
 type HelpTabProps = {
   links?: HelpLink[]
   onShortcutsClick?: () => void
@@ -142,14 +148,14 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-lg font-semibold text-muted-foreground">Help</h2>
+        <h2 className="text-lg font-semibold text-foreground">Help</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Resources and support for OpenClaw Desktop.
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-md border border-border/50 ">
-        {links.map((link, idx) => {
+      <div className="space-y-1.5">
+        {links.map((link) => {
           const Icon = link.icon
           const isExternal = link.url.startsWith("http")
           return (
@@ -157,9 +163,9 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
               key={link.label}
               type="button"
               onClick={() => handleClick(link)}
-              className={`flex w-full cursor-pointer items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-muted/20 ${idx > 0 ? "border-t border-border/30" : ""}`}
+              className="flex w-full cursor-pointer items-center gap-4 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-white/[0.045]"
             >
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">
+              <span className={HELP_ICON_CLASS}>
                 <Icon size={15} />
               </span>
               <div className="flex flex-1 flex-col gap-0.5">
@@ -346,9 +352,9 @@ function MiddlewareUpdateCard() {
   const failed = status?.state === "failed" || error
 
   return (
-    <section className="rounded-md border border-border/50 bg-muted/[0.03] p-5">
+    <section className={HELP_SECTION_CLASS}>
       <div className="flex items-start gap-4">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">
+        <span className={HELP_ICON_CLASS}>
           <LuRefreshCw size={16} className={busy ? "animate-spin" : ""} />
         </span>
         <div className="min-w-0 flex-1">
@@ -359,14 +365,14 @@ function MiddlewareUpdateCard() {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 rounded-md border border-border/35 bg-background/30 p-3 sm:grid-cols-[minmax(0,220px)_1fr]">
+      <div className="mt-4 grid gap-3 rounded-2xl bg-black/15 p-3 sm:grid-cols-[minmax(0,220px)_1fr]">
         <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
           Update branch
           <select
             value={selectedBranch}
             onChange={(event) => setSelectedBranch(event.target.value)}
             disabled={busy}
-            className="h-9 rounded-md border border-border/50 bg-background px-3 text-[12px] text-foreground outline-none transition-colors focus:border-foreground/40 disabled:cursor-not-allowed disabled:opacity-60"
+            className={HELP_FIELD_CLASS}
           >
             {branches.map((branch) => (
               <option key={branch.name} value={branch.name}>
@@ -383,7 +389,7 @@ function MiddlewareUpdateCard() {
             onChange={(event) => setCustomBranch(event.target.value)}
             disabled={busy || selectedBranch !== "custom"}
             placeholder="feature/my-branch"
-            className="h-9 rounded-md border border-border/50 bg-background px-3 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/45 focus:border-foreground/40 disabled:cursor-not-allowed disabled:opacity-60"
+            className={HELP_FIELD_CLASS}
           />
         </label>
       </div>
@@ -393,7 +399,7 @@ function MiddlewareUpdateCard() {
           type="button"
           onClick={() => refreshBranches().catch(() => undefined)}
           disabled={busy || branchesLoading}
-          className="rounded border border-border/40 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-lg bg-white/[0.045] px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-white/[0.075] disabled:cursor-not-allowed disabled:opacity-60"
         >
           Refresh branches
         </button>
@@ -405,7 +411,7 @@ function MiddlewareUpdateCard() {
           type="button"
           onClick={updateMiddleware}
           disabled={busy}
-          className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-foreground px-3 py-2 text-[12px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-50"
+          className={HELP_PRIMARY_BUTTON_CLASS}
         >
           <LuRefreshCw size={13} className={busy ? "animate-spin" : ""} />
           {busy ? "Updating…" : "Update Middleware"}
@@ -414,14 +420,14 @@ function MiddlewareUpdateCard() {
           type="button"
           onClick={() => { setNeedsManualBootstrap(false); refreshStatus(updateBranch).catch(handleUpdateError) }}
           disabled={busy}
-          className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-60"
+          className={HELP_SECONDARY_BUTTON_CLASS}
         >
           Check status
         </button>
       </div>
 
       {status?.message && (
-        <div className={`mt-3 flex items-start gap-2 rounded-md border px-3 py-2 text-[12px] ${success ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400" : failed ? "border-red-500/20 bg-red-500/10 text-red-400" : "border-border/35 bg-background/35 text-muted-foreground"}`}>
+        <div className={`mt-3 flex items-start gap-2 rounded-2xl px-3 py-2 text-[12px] ${success ? "bg-emerald-500/10 text-emerald-400" : failed ? "bg-red-500/10 text-red-400" : "bg-white/[0.045] text-muted-foreground"}`}>
           {success ? <LuCheck className="mt-0.5 shrink-0" size={14} /> : failed ? <LuCircleAlert className="mt-0.5 shrink-0" size={14} /> : <LuRefreshCw className="mt-0.5 shrink-0 animate-spin" size={14} />}
           <span>
             {status.message}
@@ -432,7 +438,7 @@ function MiddlewareUpdateCard() {
                 <span className="block">Local: {status.git.currentBranch ?? "unknown"} {status.git.headSha ? `@ ${status.git.headSha.slice(0, 7)}` : ""}{status.git.headSubject ? ` — ${status.git.headSubject}` : ""}</span>
                 <span className="block">Remote: {status.git.upstream ?? "origin"} {status.git.remoteSha ? `@ ${status.git.remoteSha.slice(0, 7)}` : ""}{status.git.remoteSubject ? ` — ${status.git.remoteSubject}` : ""}</span>
                 <span className="block">Ahead: {status.git.ahead ?? 0} · Behind: {status.git.behind ?? 0} · Dirty: {status.git.dirty ? `yes (${(status.git.staged ?? 0) + (status.git.unstaged ?? 0) + (status.git.untracked ?? 0)} files)` : "no"}</span>
-                {status.git.diffSummary && <span className="block whitespace-pre-wrap rounded border border-border/25 bg-background/40 p-2 font-mono text-[10px] text-muted-foreground/75">{status.git.diffSummary}</span>}
+                {status.git.diffSummary && <span className="block whitespace-pre-wrap rounded-xl bg-black/20 p-2 font-mono text-[10px] text-muted-foreground/75">{status.git.diffSummary}</span>}
                 {status.git.error && <span className="block text-amber-400">Git status warning: {status.git.error}</span>}
               </span>
             )}
@@ -442,16 +448,16 @@ function MiddlewareUpdateCard() {
       )}
 
       {error && (
-        <div className="mt-3 flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
+        <div className="mt-3 flex items-start gap-2 rounded-2xl bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
           <LuCircleAlert className="mt-0.5 shrink-0" size={14} />
           <span>{error}</span>
         </div>
       )}
 
       {needsManualBootstrap && (
-        <div className="mt-3 rounded-md border border-border/35 bg-background/35 p-3">
+        <div className="mt-3 rounded-2xl bg-white/[0.045] p-3">
           <p className="text-[11px] leading-relaxed text-muted-foreground">Run this once on the VPS:</p>
-          <code className="mt-2 block overflow-x-auto rounded bg-muted/40 px-3 py-2 text-[11px] text-foreground">
+          <code className="mt-2 block overflow-x-auto rounded-xl bg-black/20 px-3 py-2 text-[11px] text-foreground">
             {`curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/${updateBranch || "main"}/apps/middleware/scripts/install.sh | sudo OPENCLAW_DESKTOP_BRANCH=${updateBranch || "main"} bash`}
           </code>
         </div>
@@ -478,9 +484,9 @@ function V1SqliteMigrationCard() {
   }
 
   return (
-    <section className="rounded-md border border-border/50 bg-muted/[0.03] p-5">
+    <section className={HELP_SECTION_CLASS}>
       <div className="flex items-start gap-4">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">
+        <span className={HELP_ICON_CLASS}>
           <LuRefreshCw size={16} className={busy ? "animate-spin" : ""} />
         </span>
         <div className="min-w-0 flex-1">
@@ -496,7 +502,7 @@ function V1SqliteMigrationCard() {
           type="button"
           onClick={migrateSqlite}
           disabled={busy}
-          className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-foreground px-3 py-2 text-[12px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-50"
+          className={HELP_PRIMARY_BUTTON_CLASS}
         >
           <LuRefreshCw size={13} className={busy ? "animate-spin" : ""} />
           {busy ? "Migrating…" : "Migrate"}
@@ -504,7 +510,7 @@ function V1SqliteMigrationCard() {
       </div>
 
       {result && (
-        <div className="mt-3 flex items-start gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-400">
+        <div className="mt-3 flex items-start gap-2 rounded-2xl bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-400">
           <LuCheck className="mt-0.5 shrink-0" size={14} />
           <span>
             Migrated {result.summary.imported} new and {result.summary.updated} existing records from v1 SQLite.
@@ -513,7 +519,7 @@ function V1SqliteMigrationCard() {
       )}
 
       {result && (
-        <div className="mt-3 rounded-md border border-border/35 bg-background/35 p-3 text-[11px] text-muted-foreground">
+        <div className="mt-3 rounded-2xl bg-white/[0.045] p-3 text-[11px] text-muted-foreground">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <Stat label="Spaces" value={result.summary.spaces} />
             <Stat label="Chats" value={result.summary.chats} />
@@ -521,12 +527,12 @@ function V1SqliteMigrationCard() {
             <Stat label="Topics" value={result.summary.topics} />
             <Stat label="Sessions" value={result.summary.sessions} />
           </div>
-          <p className="mt-3 truncate border-t border-border/30 pt-3 text-muted-foreground/70">Source: {result.sourcePath}</p>
+          <p className="mt-3 truncate pt-3 text-muted-foreground/70">Source: {result.sourcePath}</p>
         </div>
       )}
 
       {error && (
-        <div className="mt-3 flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
+        <div className="mt-3 flex items-start gap-2 rounded-2xl bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
           <LuCircleAlert className="mt-0.5 shrink-0" size={14} />
           <span>{error}</span>
         </div>
@@ -607,9 +613,9 @@ function SessionMigrationCard({ platform }: { platform: SessionMigrationPlatform
   const importable = Math.max(0, scanSummary.total - scanSummary.alreadyImported)
 
   return (
-    <section className="rounded-md border border-border/50 bg-muted/[0.03] p-5">
+    <section className={HELP_SECTION_CLASS}>
       <div className="flex items-start gap-4">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">
+        <span className={HELP_ICON_CLASS}>
           <LuMessagesSquare size={16} />
         </span>
         <div className="min-w-0 flex-1">
@@ -625,7 +631,7 @@ function SessionMigrationCard({ platform }: { platform: SessionMigrationPlatform
           type="button"
           onClick={scanSessions}
           disabled={busy !== null}
-          className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-60"
+          className={HELP_SECONDARY_BUTTON_CLASS}
         >
           <LuRefreshCw size={13} className={busy === "scan" ? "animate-spin" : ""} />
           {busy === "scan" ? "Scanning…" : copy.scanLabel}
@@ -634,14 +640,14 @@ function SessionMigrationCard({ platform }: { platform: SessionMigrationPlatform
           type="button"
           onClick={importSessions}
           disabled={busy !== null || !scan || importable === 0}
-          className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-foreground px-3 py-2 text-[12px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-50"
+          className={HELP_PRIMARY_BUTTON_CLASS}
         >
           {busy === "import" ? "Importing…" : copy.importLabel}
         </button>
       </div>
 
       {scan && (
-        <div className="mt-4 rounded-md border border-border/35 bg-background/35 p-3 text-[11px] text-muted-foreground">
+        <div className="mt-4 rounded-2xl bg-white/[0.045] p-3 text-[11px] text-muted-foreground">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <Stat label="Sessions" value={scanSummary.total} />
             <Stat label="Direct" value={scanSummary.direct} />
@@ -650,7 +656,7 @@ function SessionMigrationCard({ platform }: { platform: SessionMigrationPlatform
             <Stat label="Imported" value={scanSummary.alreadyImported} />
           </div>
           {scanGroups.length > 0 && (
-            <div className="mt-3 space-y-1 border-t border-border/30 pt-3">
+            <div className="mt-3 space-y-1 pt-3">
               {scanGroups.slice(0, 5).map((group) => (
                 <div key={group.groupId} className="flex items-center justify-between gap-3">
                   <span className="truncate text-foreground/80">{group.name}</span>
@@ -664,14 +670,14 @@ function SessionMigrationCard({ platform }: { platform: SessionMigrationPlatform
       )}
 
       {result && (
-        <div className="mt-3 flex items-start gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-400">
+        <div className="mt-3 flex items-start gap-2 rounded-2xl bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-400">
           <LuCheck className="mt-0.5 shrink-0" size={14} />
           <span>Imported {result.summary.imported}, skipped {result.summary.skipped}, failed {result.summary.failed}.</span>
         </div>
       )}
 
       {error && (
-        <div className="mt-3 flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
+        <div className="mt-3 flex items-start gap-2 rounded-2xl bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
           <LuCircleAlert className="mt-0.5 shrink-0" size={14} />
           <span>{error}</span>
         </div>
