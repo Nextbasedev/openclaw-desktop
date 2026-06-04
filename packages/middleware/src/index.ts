@@ -217,6 +217,7 @@ const DEFAULT_CLIENT = {
 const DEFAULT_ORIGIN = "http://127.0.0.1:3000"
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
 const INBOUND_MEDIA_ID_RE = /^[^\s/\\\0]+$/u
+const inboundMediaSourceById = new Map<string, string>()
 
 type HeaderValue = string | string[] | undefined
 
@@ -258,17 +259,42 @@ function mediaMimeTypeFromFileName(fileName: string) {
 
 function inboundMediaIdFromPath(value: unknown) {
   if (typeof value !== "string" || !value.trim()) return null
+  const trimmed = value.trim()
+
+  if (trimmed.startsWith("media://")) {
+    try {
+      const parsed = new URL(trimmed)
+      if (parsed.hostname !== "inbound") return null
+      const id = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""))
+      return isSafeInboundMediaId(id) ? id : null
+    } catch {
+      return null
+    }
+  }
+
   const dir = inboundMediaDir()
-  const filePath = path.resolve(value.trim())
+  const filePath = path.resolve(trimmed)
   const relative = path.relative(dir, filePath)
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return null
   const id = path.basename(filePath)
+  if (!isSafeInboundMediaId(id)) return null
+
+  // Prefer the strict local-state-dir match when it applies, but do not require it:
+  // chat.history comes from the gateway and can contain absolute paths from a
+  // different host/user/state dir than this middleware process.
+  if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) return id
   return isSafeInboundMediaId(id) ? id : null
 }
 
 function inboundMediaIdsFromHistoryMessage(message: { MediaPath?: string; MediaPaths?: string[] }) {
   const rawPaths = Array.isArray(message.MediaPaths) ? message.MediaPaths : typeof message.MediaPath === "string" ? [message.MediaPath] : []
-  return rawPaths.map(inboundMediaIdFromPath).filter((id): id is string => Boolean(id))
+  const ids: string[] = []
+  for (const rawPath of rawPaths) {
+    const id = inboundMediaIdFromPath(rawPath)
+    if (!id) continue
+    ids.push(id)
+    if (typeof rawPath === "string" && rawPath.trim()) inboundMediaSourceById.set(id, rawPath.trim())
+  }
+  return ids
 }
 
 function addMediaIdsToOmittedImageBlocks(content: unknown, mediaIds: string[]) {
@@ -335,6 +361,41 @@ export async function readInboundChatMedia(id: string): Promise<InboundChatMedia
   }
 }
 
+function gatewayHttpUrlFromWebSocketUrl(gatewayUrl: string) {
+  const url = new URL(gatewayUrl)
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:"
+  url.pathname = "/__openclaw__/assistant-media"
+  url.search = ""
+  url.hash = ""
+  return url
+}
+
+async function fetchInboundChatMediaFromGateway(id: string): Promise<InboundChatMedia | null> {
+  const source = inboundMediaSourceById.get(id)
+  if (!source) return null
+
+  const config = await readGatewayConfig()
+  const token = config.gateway?.auth?.token
+  const port = config.gateway?.port ?? 18789
+  const gatewayUrl = config.gateway_url ?? `ws://127.0.0.1:${port}`
+  const url = gatewayHttpUrlFromWebSocketUrl(gatewayUrl)
+  url.searchParams.set("source", source)
+
+  const response = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`gateway media fetch failed: HTTP ${response.status}`)
+
+  const content = Buffer.from(await response.arrayBuffer())
+  return {
+    id,
+    path: source,
+    mimeType: response.headers.get("content-type") ?? mediaMimeTypeFromFileName(id),
+    content,
+  }
+}
+
 export async function inboundChatMediaRoute(req: InboundChatMediaRouteRequest, res: InboundChatMediaRouteResponse) {
   if (!isInboundMediaRequestAuthorized(req)) {
     res.status(401).send({ error: "Unauthorized" })
@@ -345,6 +406,7 @@ export async function inboundChatMediaRoute(req: InboundChatMediaRouteRequest, r
   let media: InboundChatMedia | null
   try {
     media = await readInboundChatMedia(id)
+    if (!media) media = await fetchInboundChatMediaFromGateway(id)
   } catch (error) {
     if ((error as Error & { statusCode?: number }).statusCode === 400) {
       res.status(400).send({ error: "Invalid media id" })
