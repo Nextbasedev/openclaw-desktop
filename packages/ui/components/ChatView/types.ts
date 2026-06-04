@@ -4,15 +4,6 @@ import type { SubagentLifecycleStatus } from "@/lib/subagentLifecycle"
 export type ContentBlock = {
   type: string
   text?: string
-  omitted?: boolean
-  mediaId?: string
-  media_id?: string
-  mimeType?: string
-  mime_type?: string
-  bytes?: number
-  size?: number
-  url?: string
-  content?: string
   id?: string
   toolCallId?: string
   tool_call_id?: string

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { deduplicateUserMessages, mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
+import { mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 const user = (text = "question"): ChatMessage => ({ messageId: `u-${text}`, role: "user", text })
@@ -65,22 +65,6 @@ describe("chat reconcile active-state guards", () => {
     )).toMatchObject([
       { messageId: "canonical-user", role: "user", text: "long task" },
     ])
-  })
-
-  test("deduplicates canonical image echo after stripping media markers from text hash", () => {
-    const messages = deduplicateUserMessages([
-      {
-        ...optimisticUser("what is thisd in image"),
-        messageId: "optimistic-user",
-      },
-      {
-        ...user("what is thisd in image\n\n[media attached: media://inbound/image---canonical.png]"),
-        messageId: "canonical-user",
-      },
-    ])
-
-    expect(messages).toHaveLength(1)
-    expect(messages[0]?.messageId).toBe("canonical-user")
   })
 
   test("merges newer canonical rows while preserving active reconcile state", () => {

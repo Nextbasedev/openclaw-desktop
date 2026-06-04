@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect, memo, type ReactNode } from "react"
+import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
@@ -245,88 +246,6 @@ function AttachmentFileIcon({ kind }: { kind: "pdf" | "file" }) {
   return <LuFile className="size-4" />
 }
 
-function ImageAttachmentCard({
-  attachment,
-  href,
-  isUser,
-}: {
-  attachment: MessageAttachment
-  href: string
-  isUser: boolean
-}) {
-  const [loaded, setLoaded] = useState(false)
-  const [failed, setFailed] = useState(false)
-
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      download={attachment.url ? undefined : attachment.name}
-      className={cn(
-        "block max-w-full overflow-hidden rounded-xl border transition-colors",
-        isUser
-          ? "border-white/10 bg-black/15 hover:border-white/20"
-          : "border-border/35 bg-foreground/[0.03] hover:border-border/60"
-      )}
-      aria-label={`Open attachment ${attachment.name}`}
-    >
-      <div className="relative flex min-h-32 max-h-80 w-full max-w-md items-center justify-center overflow-hidden bg-black/10">
-        {!loaded && !failed && (
-          <div
-            className={cn(
-              "absolute inset-0 flex items-center justify-center gap-2 text-[12px]",
-              isUser ? "text-white/65" : "text-muted-foreground"
-            )}
-          >
-            <LuLoader className="size-4 animate-spin" />
-            Loading image…
-          </div>
-        )}
-        {failed ? (
-          <div
-            className={cn(
-              "flex min-h-32 w-full flex-col items-center justify-center gap-2 px-4 py-8 text-center text-[12px]",
-              isUser ? "text-white/65" : "text-muted-foreground"
-            )}
-          >
-            <LuImage className="size-6 opacity-70" />
-            <span>Image preview unavailable</span>
-          </div>
-        ) : (
-          // eslint-disable-next-line @next/next/no-img-element -- Middleware media URLs are authenticated token links and should render directly.
-          <img
-            src={href}
-            alt={attachment.name}
-            loading="lazy"
-            decoding="async"
-            onLoad={() => setLoaded(true)}
-            onError={() => setFailed(true)}
-            className={cn(
-              "max-h-80 w-full max-w-md object-contain transition-opacity duration-150",
-              loaded ? "opacity-100" : "opacity-0"
-            )}
-          />
-        )}
-      </div>
-      <div
-        className={cn(
-          "flex items-center gap-2 border-t px-3 py-2 text-[11px]",
-          isUser
-            ? "border-white/10 text-white/70"
-            : "border-border/25 text-muted-foreground"
-        )}
-      >
-        <LuImage className="size-3.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">
-          {attachment.name}
-        </span>
-        <span className="shrink-0">{attachmentLabel(attachment)}</span>
-      </div>
-    </a>
-  )
-}
-
 function MessageAttachments({
   attachments,
   isUser,
@@ -350,12 +269,43 @@ function MessageAttachments({
 
         if (kind === "image" && href) {
           return (
-            <ImageAttachmentCard
+            <a
               key={key}
-              attachment={attachment}
               href={href}
-              isUser={isUser}
-            />
+              target="_blank"
+              rel="noreferrer"
+              download={attachment.url ? undefined : attachment.name}
+              className={cn(
+                "block max-w-full overflow-hidden rounded-xl border transition-colors",
+                isUser
+                  ? "border-white/10 bg-black/15 hover:border-white/20"
+                  : "border-border/35 bg-foreground/[0.03] hover:border-border/60"
+              )}
+              aria-label={`Open attachment ${attachment.name}`}
+            >
+              <Image
+                src={href}
+                alt={attachment.name}
+                width={640}
+                height={420}
+                unoptimized
+                className="max-h-80 w-full max-w-md object-contain"
+              />
+              <div
+                className={cn(
+                  "flex items-center gap-2 border-t px-3 py-2 text-[11px]",
+                  isUser
+                    ? "border-white/10 text-white/70"
+                    : "border-border/25 text-muted-foreground"
+                )}
+              >
+                <LuImage className="size-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">
+                  {attachment.name}
+                </span>
+                <span className="shrink-0">{attachmentLabel(attachment)}</span>
+              </div>
+            </a>
           )
         }
 

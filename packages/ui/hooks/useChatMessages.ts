@@ -134,16 +134,12 @@ type ChatBootstrapData = {
 }
 
 
-function stableUserTextHash(text: string) {
-  return stableLogHash(cleanUserMessageText(text))
-}
-
 function duplicateUserTextDiagnostics(messages: ChatMessage[]) {
   const seen = new Map<string, { messageId: string; gatewayIndex?: number; createdAt?: string; isOptimistic?: boolean }>()
   const duplicates: Array<{ textHash: string; firstMessageId: string; messageId: string; firstGatewayIndex?: number; gatewayIndex?: number; firstCreatedAt?: string; createdAt?: string; firstOptimistic?: boolean; isOptimistic?: boolean }> = []
   for (const message of messages) {
     if (message.role !== "user") continue
-    const textHash = stableUserTextHash(message.text)
+    const textHash = stableLogHash(message.text)
     if (!textHash) continue
     const existing = seen.get(textHash)
     if (existing) {
@@ -168,39 +164,6 @@ function duplicateUserTextDiagnostics(messages: ChatMessage[]) {
     })
   }
   return duplicates
-}
-
-/**
- * Remove duplicate user messages, preferring canonical (non-optimistic) rows.
- * When two user messages have the same text hash, the optimistic one is dropped.
- * If neither is optimistic, the later one is dropped.
- */
-export function deduplicateUserMessages(messages: ChatMessage[]): ChatMessage[] {
-  const seen = new Map<string, number>()
-  const removeIndices = new Set<number>()
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i]!
-    if (msg.role !== "user") continue
-    const textHash = stableUserTextHash(msg.text)
-    if (!textHash) continue
-    const existingIdx = seen.get(textHash)
-    if (existingIdx !== undefined) {
-      const existing = messages[existingIdx]!
-      // Drop the optimistic one; if both are the same, drop the later one
-      if (msg.isOptimistic && !existing.isOptimistic) {
-        removeIndices.add(i)
-      } else if (!msg.isOptimistic && existing.isOptimistic) {
-        removeIndices.add(existingIdx)
-        seen.set(textHash, i)
-      } else {
-        removeIndices.add(i)
-      }
-    } else {
-      seen.set(textHash, i)
-    }
-  }
-  if (removeIndices.size === 0) return messages
-  return messages.filter((_, i) => !removeIndices.has(i))
 }
 
 function hasAssistantAnswerAfterLatestUserMessage(messages: ChatMessage[]) {
@@ -1851,8 +1814,7 @@ export function useChatMessages(
           Boolean(cached.entry.messageCount && cached.entry.messageCount > cachedMessages.length)
         )
         suppressNextWarmPersistRef.current = true
-        const dedupedWarmMessages = deduplicateUserMessages(cachedMessages)
-        setMessages(dedupedWarmMessages)
+        setMessages(cachedMessages)
         markHistoryLoaded()
         setStatus(effectiveStatus)
         setStatusLabel(effectiveLabel)
@@ -1869,8 +1831,7 @@ export function useChatMessages(
           }
         }
         setDataSource("syncing") // warm cache shown, bootstrap still loading
-        const dedupedCachedMessages = deduplicateUserMessages(cachedMessages)
-        timelineStoreRef.current.applyWarmCache(dedupedCachedMessages, typeof cached.entry.cursor === "number" ? cached.entry.cursor : 0, cached.entry.messageCount)
+        timelineStoreRef.current.applyWarmCache(cachedMessages, typeof cached.entry.cursor === "number" ? cached.entry.cursor : 0, cached.entry.messageCount)
         const duplicateUsersAfterWarmCache = duplicateUserTextDiagnostics(cachedMessages)
         if (duplicateUsersAfterWarmCache.length > 0) {
           frontendLog("chat", "chat.duplicate_user_candidate", {
@@ -2162,8 +2123,7 @@ export function useChatMessages(
           Boolean(typeof bootstrapKnownTotal === "number" && bootstrapKnownTotal > displayMessages.length) ||
           Boolean(typeof canonicalMessageCount === "number" && canonicalMessageCount > displayMessages.length)
         )
-        const dedupedDisplayMessages = deduplicateUserMessages(displayMessages)
-        setMessages(dedupedDisplayMessages)
+        setMessages(displayMessages)
         setLocalPendingTools(inlineTools)
         setLocalSpawnedSubagents(canonicalSpawns)
         setStatus(seedStatus)

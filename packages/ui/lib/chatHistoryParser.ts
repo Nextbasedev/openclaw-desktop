@@ -9,7 +9,6 @@ import type {
 import { extractText } from "../components/ChatView/utils"
 import { extractSubagentSessionKey, extractSubagentSessionKeys } from "./subagentSession"
 import { mergeAssistantText } from "./chatMessageDedupe"
-import { buildInboundMediaUrl } from "./middlewareMedia"
 
 const BLOCKQUOTE_RE = /^((?:>[^\n]*(?:\n|$))+)\n([\s\S]+)$/
 const REFERENCE_BLOCK_RE = /Reference\s+\d+:\s*(?:\n)?([\s\S]*?)(?=\n\nReference\s+\d+:|$)/gi
@@ -469,8 +468,6 @@ const MESSAGE_TOOL_RE =
 const ASYNC_RESULT_RE =
   /^An async command you ran earlier has completed\.[^\n]*(?:\n[^\n]*Handle the result internally[^\n]*)?(?:\n[^\n]*Do not relay[^\n]*)?\n*/m
 const MEDIA_ATTACHMENT_HEADER_RE = /^\[media attached:[\s\S]*?\]\s*/
-const MEDIA_ATTACHMENT_MARKER_RE = /\s*\[media attached:[^\]]+\]\s*/gim
-const MEDIA_ATTACHMENT_MARKER_CAPTURE_RE = /\[media attached:\s*([^\]]+)\]/gim
 const ATTACHED_FILE_MARKER_RE = /^\s*\[Attached (?:images?|audio(?: file)?|file):[^\]]+\]\s*/gim
 const ATTACHED_FILE_MARKER_CAPTURE_RE = /\[Attached (images?|audio(?: file)?|file):([^\]]+)\]/gim
 const MEDIA_REPLY_INSTRUCTION_RE =
@@ -490,8 +487,6 @@ function stripMediaAttachmentPreamble(text: string): string {
   if (hadMediaHeader) {
     result = result.replace(MEDIA_REPLY_INSTRUCTION_RE, "")
   }
-
-  result = result.replace(MEDIA_ATTACHMENT_MARKER_RE, "\n")
 
   return result
 }
@@ -568,7 +563,7 @@ function readAttachmentMimeType(raw: Record<string, unknown>): string | undefine
 }
 
 function readAttachmentName(raw: Record<string, unknown>, index: number): string {
-  return stringValue(raw.name) ?? stringValue(raw.fileName) ?? stringValue(raw.filename) ?? stringValue(raw.mediaId) ?? stringValue(raw.media_id) ?? `attachment-${index + 1}`
+  return stringValue(raw.name) ?? stringValue(raw.fileName) ?? stringValue(raw.filename) ?? `attachment-${index + 1}`
 }
 
 function readAttachmentContent(raw: Record<string, unknown>): string | undefined {
@@ -578,40 +573,9 @@ function readAttachmentContent(raw: Record<string, unknown>): string | undefined
   return dataUrl ? dataUrl[2] : direct
 }
 
-function readInboundMediaId(raw: Record<string, unknown>): string | undefined {
-  return stringValue(raw.mediaId) ?? stringValue(raw.media_id) ?? stringValue(raw.id)
-}
-
-function mediaIdFromUrl(value: string): string | undefined {
-  const trimmed = value.trim()
-  if (!trimmed.toLowerCase().startsWith("media://inbound/")) return undefined
-  return trimmed.slice("media://inbound/".length)
-}
-
-function resolveAttachmentUrl(rawUrl: string | undefined, mediaId: string | undefined): string | undefined {
-  const urlMediaId = rawUrl ? mediaIdFromUrl(rawUrl) : undefined
-  const inboundId = urlMediaId ?? mediaId
-  if (inboundId) return buildInboundMediaUrl(inboundId) ?? rawUrl
-  return rawUrl
-}
-
-function basename(value: string): string {
-  const withoutQuery = value.split(/[?#]/, 1)[0] ?? value
-  const name = withoutQuery.split(/[\\/]/).filter(Boolean).pop() ?? value
-  try {
-    return decodeURIComponent(name)
-  } catch {
-    return name
-  }
-}
-
-function readAttachmentSize(raw: Record<string, unknown>): number | undefined {
-  return numberValue(raw.size) ?? numberValue(raw.bytes) ?? numberValue(raw.byteLength)
-}
-
 function mimeTypeFromAttachmentMarker(kind: string, name: string) {
   const lowerName = name.toLowerCase()
-  if (kind.startsWith("image") || /\.(png|jpe?g|webp|gif|svg)$/.test(lowerName)) {
+  if (kind.startsWith("image")) {
     if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg"
     if (lowerName.endsWith(".webp")) return "image/webp"
     if (lowerName.endsWith(".gif")) return "image/gif"
@@ -632,32 +596,15 @@ function readAttachmentMarkerAttachments(text: string): ChatMessage["attachments
   const attachments: NonNullable<ChatMessage["attachments"]> = []
   for (const match of text.matchAll(ATTACHED_FILE_MARKER_CAPTURE_RE)) {
     const kind = match[1]?.toLowerCase() ?? "file"
-    const name = (match[2] ?? "").trim()
-    if (!name) continue
-    attachments.push({
-      name,
-      mimeType: mimeTypeFromAttachmentMarker(kind, name),
-    })
-  }
-  return attachments.length > 0 ? attachments : undefined
-}
-
-function readMediaAttachmentMarkerAttachments(text: string): ChatMessage["attachments"] {
-  const attachments: NonNullable<ChatMessage["attachments"]> = []
-  for (const match of text.matchAll(MEDIA_ATTACHMENT_MARKER_CAPTURE_RE)) {
-    const marker = (match[1] ?? "").trim()
-    if (!marker) continue
-    const mimeType = marker.match(/\(([^()\s]+\/[^()\s]+)\)/)?.[1]
-    const primaryRef = marker.split("|")[0]?.replace(/\s*\([^)]*\)\s*$/, "").trim()
-    if (!primaryRef) continue
-    const mediaId = mediaIdFromUrl(primaryRef)
-    if (!mediaId) continue
-    const url = resolveAttachmentUrl(primaryRef, mediaId)
-    attachments.push({
-      name: basename(mediaId ?? primaryRef),
-      mimeType: mimeType ?? mimeTypeFromAttachmentMarker("file", mediaId ?? primaryRef),
-      url,
-    })
+    const rawNames = match[2] ?? ""
+    for (const rawName of rawNames.split(/,| and /i)) {
+      const name = rawName.trim()
+      if (!name) continue
+      attachments.push({
+        name,
+        mimeType: mimeTypeFromAttachmentMarker(kind, name),
+      })
+    }
   }
   return attachments.length > 0 ? attachments : undefined
 }
@@ -676,15 +623,14 @@ function readContentBlockAttachments(content: RawHistoryMessage["content"]): Cha
     const mimeType = readAttachmentMimeType(raw) ?? readAttachmentMimeType(source) ?? (type === "image" || type === "input_image" ? "image/png" : undefined)
     if (!mimeType) return
     const content = readAttachmentContent(source) ?? readAttachmentContent(raw)
-    const mediaId = readInboundMediaId(source) ?? readInboundMediaId(raw)
-    const url = resolveAttachmentUrl(stringValue(source.url) ?? stringValue(raw.url), mediaId)
-    if (!content && !url && !mediaId) return
+    const url = stringValue(source.url) ?? stringValue(raw.url)
+    if (!content && !url) return
     attachments.push({
-      name: readAttachmentName(raw, index) ?? mediaId ?? `attachment-${index + 1}`,
+      name: readAttachmentName(raw, index),
       mimeType,
       content,
       url,
-      size: readAttachmentSize(raw) ?? readAttachmentSize(source),
+      size: numberValue(raw.size) ?? numberValue(source.size),
     })
   })
   return attachments.length > 0 ? attachments : undefined
@@ -699,30 +645,23 @@ function readMessageAttachments(raw: RawHistoryMessage): ChatMessage["attachment
       const mimeType = readAttachmentMimeType(attachment) ?? (stringValue(attachment.type) === "image" ? "image/png" : undefined)
       if (!mimeType) return
       const content = readAttachmentContent(attachment)
-      const mediaId = readInboundMediaId(attachment)
-      const url = resolveAttachmentUrl(stringValue(attachment.url), mediaId)
-      if (!content && !url && !mediaId) return
+      const url = stringValue(attachment.url)
+      if (!content && !url) return
       fromTopLevel.push({
-        name: readAttachmentName(attachment, index) ?? mediaId ?? `attachment-${index + 1}`,
+        name: readAttachmentName(attachment, index),
         mimeType,
         content,
         url,
-        size: readAttachmentSize(attachment),
+        size: numberValue(attachment.size),
       })
     })
   }
 
   const fromContent = readContentBlockAttachments(raw.content) ?? []
-  const markerText = raw.text || extractText(raw.content)
-  const fromMarkers = [
-    ...(readAttachmentMarkerAttachments(markerText) ?? []),
-    ...(readMediaAttachmentMarkerAttachments(markerText) ?? []),
-  ]
+  const fromMarkers = (readAttachmentMarkerAttachments(raw.text || extractText(raw.content)) ?? [])
     .filter((marker) =>
       ![...fromTopLevel, ...fromContent].some(
-        (attachment) =>
-          (attachment.name === marker.name && attachment.mimeType === marker.mimeType) ||
-          (Boolean(attachment.url) && attachment.url === marker.url)
+        (attachment) => attachment.name === marker.name && attachment.mimeType === marker.mimeType
       )
     )
   const all = [...fromTopLevel, ...fromContent, ...fromMarkers]
