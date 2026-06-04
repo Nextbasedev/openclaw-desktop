@@ -4813,7 +4813,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const forwardedProto = headerValue(request.headers["x-forwarded-proto"])?.split(",")[0]?.trim();
     const forwardedHost = headerValue(request.headers["x-forwarded-host"])?.split(",")[0]?.trim();
     const host = forwardedHost || headerValue(request.headers.host) || `127.0.0.1:${context.config.port}`;
-    const proto = forwardedProto || (String(host).startsWith("localhost") || String(host).startsWith("127.0.0.1") ? "http" : "https");
+    const hostname = String(host).replace(/^\[([^\]]+)\].*$/, "$1").replace(/:\d+$/, "");
+    const isPlainHttpHost = hostname === "localhost" || hostname === "127.0.0.1" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname);
+    const proto = forwardedProto || (isPlainHttpHost ? "http" : "https");
     const url = `${proto}://${host}`;
     return {
       ok: true,
