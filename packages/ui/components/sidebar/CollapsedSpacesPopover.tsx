@@ -315,18 +315,11 @@ export function CollapsedSpacesPopover({
               aria-label={`Open project ${space.name}`}
             >
               {active && (
-                <>
-                  <motion.span
-                    layoutId="project-rail-active-surface"
-                    className="absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_32%_20%,rgba(255,255,255,0.16),transparent_42%)]"
-                    transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.8 }}
-                  />
-                  <motion.span
-                    layoutId="project-rail-active-indicator"
-                    className="absolute -right-[10px] top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-white/90 shadow-[0_0_14px_rgba(255,255,255,0.38)]"
-                    transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.7 }}
-                  />
-                </>
+                <motion.span
+                  layoutId="project-rail-active-indicator"
+                  className="absolute -right-[10px] top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-white/90 shadow-[0_0_14px_rgba(255,255,255,0.38)]"
+                  transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.7 }}
+                />
               )}
               <span
                 className={cn(
