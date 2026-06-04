@@ -122,7 +122,7 @@ class ProjectionContractSimulator {
       messages: snapshot.messages.map((message) => ({ ...message })),
       tools: snapshot.tools.map((tool) => ({ ...tool })),
       cursor: this.cursor,
-      projectionVersion: 3,
+      projectionVersion: 4,
     };
   }
 
@@ -133,7 +133,7 @@ class ProjectionContractSimulator {
   private session(sessionKey: string): Snapshot {
     let snapshot = this.sessions.get(sessionKey);
     if (!snapshot) {
-      snapshot = { sessionKey, runStatus: "idle", statusLabel: null, activeRun: null, messages: [], tools: [], cursor: this.cursor, projectionVersion: 3 };
+      snapshot = { sessionKey, runStatus: "idle", statusLabel: null, activeRun: null, messages: [], tools: [], cursor: this.cursor, projectionVersion: 4 };
       this.sessions.set(sessionKey, snapshot);
     }
     return snapshot;
@@ -281,7 +281,7 @@ describe("middleware chat projection contract simulator", () => {
 
     expect(recovered).toEqual(canonicalBootstrap);
     expect(canonicalBootstrap).toMatchObject({
-      projectionVersion: 3,
+      projectionVersion: 4,
       runStatus: "done",
       statusLabel: null,
       activeRun: null,

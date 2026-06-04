@@ -107,7 +107,7 @@ describe("chat send routes", () => {
       type: "chat.message.upsert",
       sessionKey: "s1",
       payload: {
-        projectionVersion: 3,
+        projectionVersion: 4,
         semanticType: "chat.user.created",
         runStatus: "thinking",
         status: "thinking",
@@ -133,7 +133,7 @@ describe("chat send routes", () => {
       type: "chat.status",
       sessionKey: "s1",
       payload: {
-        projectionVersion: 3,
+        projectionVersion: 4,
         semanticType: "chat.run.status",
         runStatus: "thinking",
         status: "thinking",
@@ -635,7 +635,7 @@ describe("chat send routes", () => {
     expect(bootstrap.json()).toMatchObject({
       ok: true,
       source: "middleware-projection",
-      projectionVersion: 3,
+      projectionVersion: 4,
       sessionKey: "s1",
       sessionId: "sid-1",
       runStatus: "tool_running",
@@ -645,7 +645,7 @@ describe("chat send routes", () => {
       toolCalls: [{ toolCallId: "tool-1" }],
       cursor: expect.any(Number),
       sessionStatus: "running",
-      projection: { enabled: true, version: 3, cursor: expect.any(Number), liveSubscribed: false },
+      projection: { enabled: true, version: 4, cursor: expect.any(Number), liveSubscribed: false },
       messages: [{ role: "user", text: "hello" }],
     });
     expect(bootstrap.json().projection.cursor).toBe(bootstrap.json().cursor);

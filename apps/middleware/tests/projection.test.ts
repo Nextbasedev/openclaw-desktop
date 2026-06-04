@@ -1,7 +1,9 @@
 import os from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 import { openDatabase } from "../src/db/connection.js";
+import { CHAT_PROJECTION_VERSION, CHAT_PROJECTION_VERSION_META_KEY, chatProjectionResyncRequiredMetaKey } from "../src/db/chat-projection-version.js";
 import { readSchemaVersion } from "../src/db/migrate.js";
 import { normalizeHistoryMessages } from "../src/features/chat/message-normalizer.js";
 import { runStatusLabel } from "../src/features/chat/projection.js";
@@ -16,6 +18,26 @@ describe("SQLite projection", () => {
   test("migration creates schema version", () => {
     const db = openDatabase({ databasePath: testDbPath("schema") });
     expect(readSchemaVersion(db)).toBe(2);
+    db.close();
+  });
+
+  test("migration projection version gate clears trusted gateway offsets", () => {
+    const databasePath = testDbPath("projection-version-gate");
+    const seed = new Database(databasePath);
+    seed.exec(`
+      CREATE TABLE v2_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE v2_gateway_offsets (session_key TEXT PRIMARY KEY, last_openclaw_seq INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL);
+    `);
+    seed.prepare("INSERT INTO v2_meta(key, value) VALUES (?, ?)").run(CHAT_PROJECTION_VERSION_META_KEY, String(CHAT_PROJECTION_VERSION - 1));
+    seed.exec("CREATE TABLE v2_sessions (session_key TEXT PRIMARY KEY, session_id TEXT, data_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL)");
+    seed.prepare("INSERT INTO v2_sessions(session_key, session_id, data_json, updated_at_ms) VALUES ('s1', 'sid-1', '{}', 100)").run();
+    seed.prepare("INSERT INTO v2_gateway_offsets(session_key, last_openclaw_seq, updated_at_ms) VALUES ('s1', 42, 100)").run();
+    seed.close();
+
+    const db = openDatabase({ databasePath });
+    expect(db.prepare("SELECT count(*) AS count FROM v2_gateway_offsets").get()).toMatchObject({ count: 0 });
+    expect(db.prepare("SELECT value FROM v2_meta WHERE key = ?").get(CHAT_PROJECTION_VERSION_META_KEY)).toMatchObject({ value: String(CHAT_PROJECTION_VERSION) });
+    expect(db.prepare("SELECT value FROM v2_meta WHERE key = ?").get(chatProjectionResyncRequiredMetaKey("s1"))).toMatchObject({ value: String(CHAT_PROJECTION_VERSION) });
     db.close();
   });
 

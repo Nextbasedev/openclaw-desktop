@@ -1,8 +1,9 @@
 import type { AppContext } from "../../app.js";
+import { CHAT_PROJECTION_VERSION } from "../../db/chat-projection-version.js";
 import { normalizePatchSemanticType } from "./message-semantics.js";
 import type { ProjectedRun, ProjectedToolCall, RunStatus } from "./repo.runs.js";
 
-export const CHAT_PROJECTION_VERSION = 3;
+export { CHAT_PROJECTION_VERSION };
 
 export type BootstrapRunStatus = "idle" | RunStatus;
 

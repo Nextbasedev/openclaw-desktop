@@ -8,6 +8,7 @@ const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resol
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../../app.js";
+import { CHAT_PROJECTION_VERSION, chatProjectionResyncRequiredMetaKey } from "../../db/chat-projection-version.js";
 import { HttpError } from "../../lib/errors.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import { cleanMessageDisplayText, messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
@@ -44,6 +45,19 @@ export function clearLocalFirstBootstrapCache() {
   localFirstSqliteBlocked.clear();
   // Mark all as blocked — next Gateway bootstrap will unblock
   localFirstSqliteBlocked.add('*');
+}
+
+function readProjectionMetaVersion(context: AppContext, key: string): number {
+  const row = context.db.prepare("SELECT value FROM v2_meta WHERE key = ?").get(key) as { value?: string } | undefined;
+  return Number(row?.value ?? 0);
+}
+
+function projectionResyncRequired(context: AppContext, sessionKey: string): boolean {
+  return readProjectionMetaVersion(context, chatProjectionResyncRequiredMetaKey(sessionKey)) >= CHAT_PROJECTION_VERSION;
+}
+
+function markProjectionResynced(context: AppContext, sessionKey: string) {
+  context.db.prepare("DELETE FROM v2_meta WHERE key = ?").run(chatProjectionResyncRequiredMetaKey(sessionKey));
 }
 const MIN_REAL_TIMESTAMP_MS = 1_700_000_000_000;
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
@@ -1458,12 +1472,14 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const gatewayConnected = context.gateway.status().connected;
     // When Gateway is connected, live events keep SQLite current — any existing
     // data is valid regardless of age. Only check age when disconnected.
+    const needsProjectionResync = localSession ? projectionResyncRequired(context, parsed.data.sessionKey) : false;
     const canServeFromSqlite = Boolean(
+      !needsProjectionResync &&
       !localFirstSqliteBlocked.has('*') &&
       localSession &&
       (gatewayConnected || (nowMs() - localSession.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS)
     );
-    const shouldServeLocal = inMemoryFresh || canServeFromSqlite;
+    const shouldServeLocal = !needsProjectionResync && (inMemoryFresh || canServeFromSqlite);
     const localMessages = localSession && shouldServeLocal ? context.messages.listMessages(parsed.data.sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }) : [];
     const canServeLocal = Boolean(localSession && localMessages.length > 0 && shouldServeLocal);
 
@@ -1540,6 +1556,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       });
     }
     // ── End local-first fast path ──
+    if (needsProjectionResync) log.info("projection.version-gate.bootstrap-resync", { sessionKey: parsed.data.sessionKey, to: CHAT_PROJECTION_VERSION });
 
     // Per-session in-flight dedupe (mirrors archiveProjectionJobs): collapse K
     // concurrent cold first-bootstraps for the same session into ONE build so a
@@ -1659,6 +1676,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       eventType: "chat.bootstrap",
       payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "metadata", fullMessagesIncluded: false, pruned: bootstrapPruned },
     });
+    markProjectionResynced(context, sessionKey);
     localFirstBootstrapTimestamps.set(sessionKey, nowMs());
     localFirstSqliteBlocked.delete('*');
     const sessionCursor = context.messages.latestSessionCursor(sessionKey);

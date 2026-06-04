@@ -1,6 +1,9 @@
 import type Database from "better-sqlite3";
+import { createLogger } from "../lib/logger.js";
+import { CHAT_PROJECTION_VERSION, CHAT_PROJECTION_VERSION_META_KEY, chatProjectionResyncRequiredMetaKey } from "./chat-projection-version.js";
 
 const SCHEMA_VERSION = 2;
+const log = createLogger("db");
 
 const schema = `
 CREATE TABLE IF NOT EXISTS v2_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -144,6 +147,22 @@ export function migrateDatabase(db: Database.Database) {
   `);
   backfillLegacyMessageSegments(db);
   db.prepare(`INSERT INTO v2_meta(key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(String(SCHEMA_VERSION));
+
+  const storedProjection = readNumberMeta(db, CHAT_PROJECTION_VERSION_META_KEY);
+  if (storedProjection < CHAT_PROJECTION_VERSION) {
+    const clearedOffsets = db.prepare("DELETE FROM v2_gateway_offsets").run().changes ?? 0;
+    const sessions = db.prepare("SELECT session_key FROM v2_sessions").all() as Array<{ session_key: string }>;
+    const writeMeta = db.prepare(`INSERT INTO v2_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
+    for (const session of sessions) writeMeta.run(chatProjectionResyncRequiredMetaKey(session.session_key), String(CHAT_PROJECTION_VERSION));
+    log.info("projection.version-gate.resync", { from: storedProjection || null, to: CHAT_PROJECTION_VERSION, clearedOffsets, pendingSessions: sessions.length });
+  }
+  db.prepare(`INSERT INTO v2_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+    .run(CHAT_PROJECTION_VERSION_META_KEY, String(CHAT_PROJECTION_VERSION));
+}
+
+function readNumberMeta(db: Database.Database, key: string): number {
+  const row = db.prepare("SELECT value FROM v2_meta WHERE key = ?").get(key) as { value?: string } | undefined;
+  return Number(row?.value ?? 0);
 }
 
 export function readSchemaVersion(db: Database.Database): number {
