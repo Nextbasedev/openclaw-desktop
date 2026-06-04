@@ -1,67 +1,116 @@
 function Bone({ className }: { className?: string }) {
   return (
     <div
-      className={`animate-pulse rounded-md bg-foreground/[0.04] ${className ?? ""}`}
+      className={`animate-pulse rounded-md bg-foreground/[0.045] ${className ?? ""}`}
     />
+  )
+}
+
+function ProjectRailBone({ active = false }: { active?: boolean }) {
+  return (
+    <div
+      className={`relative flex size-10 items-center justify-center rounded-xl ${
+        active
+          ? "bg-white/[0.075] shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
+          : "bg-white/[0.035] shadow-[0_10px_24px_rgba(0,0,0,0.24)]"
+      }`}
+    >
+      {active && (
+        <span className="absolute -right-[11px] top-1/2 h-8 w-1 -translate-y-1/2 rounded-full bg-white/80" />
+      )}
+      <Bone className="size-5 rounded-lg" />
+    </div>
+  )
+}
+
+function ChatRowBone({ active = false, short = false }: { active?: boolean; short?: boolean }) {
+  return (
+    <div
+      className={`flex h-8 items-center gap-1.5 rounded-md py-1.5 pl-2 pr-7 ${
+        active ? "bg-foreground/7" : ""
+      }`}
+    >
+      <Bone className="size-4 rounded" />
+      <Bone className={`h-3 rounded-sm ${short ? "w-20" : "w-32"}`} />
+    </div>
   )
 }
 
 export function AppLoadingSkeleton() {
   return (
     <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/50 bg-card px-3">
-        <Bone className="h-3 w-16" />
-        <div className="flex items-center gap-1">
-          <Bone className="size-6 rounded-md" />
-          <Bone className="size-6 rounded-md" />
-          <Bone className="size-6 rounded-md" />
-        </div>
-      </div>
-
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex w-[220px] shrink-0 flex-col border-r border-border/50 px-2 py-3">
-          <div className="flex flex-col gap-0.5">
-            <Bone className="h-8 w-full rounded-md" />
-            <Bone className="h-8 w-full rounded-md" />
-            <Bone className="h-8 w-full rounded-md" />
-          </div>
-
-          <div className="mt-3 border-t border-border/10 pt-3">
-            <Bone className="mb-2 ml-2 h-2 w-8" />
-            <div className="flex flex-col gap-0.5">
-              <Bone className="h-8 w-full rounded-md" />
-              <Bone className="h-8 w-full rounded-md" />
-              <Bone className="h-8 w-full rounded-md" />
-            </div>
-          </div>
-
-          <div className="mt-3 border-t border-border/10 pt-3">
-            <Bone className="mb-2 ml-2 h-2 w-12" />
-            <div className="flex flex-col gap-0.5">
-              <Bone className="h-8 w-full rounded-md" />
-              <Bone className="h-8 w-full rounded-md" />
-            </div>
-          </div>
+      <header className="relative flex h-11 shrink-0 items-center bg-[#151515] px-3">
+        <div className="flex w-[220px] shrink-0 items-center gap-3">
+          <Bone className="h-3 w-20" />
+          <Bone className="h-5 w-12 rounded-full" />
         </div>
 
-        <div className="flex flex-1 flex-col items-center justify-center gap-8">
-          <Bone className="h-8 w-56 rounded-lg" />
-          <div className="w-full max-w-3xl px-4">
-            <div className="rounded-[24px] border border-white/8 bg-white/[0.02] px-4 pb-4 pt-5 shadow-[0_24px_64px_-36px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-2xl">
-              <Bone className="mb-10 h-3.5 w-52" />
-              <div className="flex items-center justify-between">
-                <Bone className="size-8 rounded-full" />
-                <Bone className="size-8 rounded-full" />
+        <div className="flex min-w-0 flex-1 items-end self-stretch pt-2">
+          <div className="mb-0 flex h-[35px] w-46 items-center gap-2 rounded-t-[10px] bg-background px-3">
+            <Bone className="size-5 rounded-full" />
+            <Bone className="h-2.5 w-8" />
+            <Bone className="h-3 w-20" />
+          </div>
+          <div className="mb-2 ml-1.5 h-6 w-7 rounded-md bg-white/[0.035]" />
+        </div>
+
+        <div className="flex items-center gap-1 pl-2">
+          <Bone className="size-7 rounded-md" />
+          <Bone className="size-7 rounded-md" />
+          <Bone className="size-7 rounded-md" />
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <aside className="relative z-10 flex w-[220px] shrink-0 flex-col overflow-hidden border-r border-border/50 bg-white dark:bg-[#151518]">
+          <nav className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
+            <div className="scrollbar-hide relative flex w-[58px] shrink-0 flex-col items-center gap-3 overflow-y-auto border-r border-white/[0.055] bg-black/[0.025] px-2.5 pb-6 pt-4 shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)] dark:bg-black/[0.085]">
+              <ProjectRailBone />
+              <ProjectRailBone active />
+              <ProjectRailBone />
+              <ProjectRailBone />
+              <Bone className="mt-1 size-10 rounded-xl border border-dashed border-white/[0.14] bg-white/[0.02]" />
+            </div>
+
+            <div className="min-w-0 flex-1 overflow-hidden border-l border-white/[0.06] px-1 py-3 shadow-[inset_12px_0_24px_-22px_rgba(0,0,0,0.55)]">
+              <div className="flex flex-col gap-0.5">
+                <Bone className="mx-2 mb-2 h-2.5 w-16" />
+                <ChatRowBone active />
+                <ChatRowBone />
+                <ChatRowBone short />
+                <ChatRowBone />
               </div>
             </div>
-          </div>
+          </nav>
+        </aside>
+
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <main className="relative flex flex-1 items-start justify-center overflow-hidden">
+            <div className="flex h-full w-full flex-col items-center justify-center gap-8 px-4">
+              <Bone className="h-8 w-56 rounded-lg" />
+              <div className="w-full max-w-3xl">
+                <div className="rounded-2xl border border-border/50 bg-card shadow-[0_24px_64px_-36px_rgba(0,0,0,0.6)]">
+                  <div className="flex min-h-[68px] items-start px-3 pt-4">
+                    <Bone className="h-4 w-[45%] rounded-sm" />
+                  </div>
+                  <div className="flex items-center justify-between px-3 pb-3 pt-2">
+                    <div className="flex items-center gap-1.5">
+                      <Bone className="size-9 rounded-full" />
+                      <Bone className="h-8 w-28 rounded-full" />
+                    </div>
+                    <Bone className="size-8 rounded-full" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
         </div>
       </div>
 
-      <div className="flex h-[26px] shrink-0 items-center justify-between border-t border-border/50 bg-card px-3">
+      <footer className="flex h-[26px] shrink-0 items-center justify-between border-t border-border/50 bg-card px-3">
         <Bone className="h-2.5 w-20" />
         <Bone className="h-2.5 w-24" />
-      </div>
+      </footer>
     </div>
   )
 }
