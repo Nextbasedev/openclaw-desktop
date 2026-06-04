@@ -96,6 +96,8 @@ export function ActionBar({
     <div className="flex items-center justify-between px-3 pb-3 pt-2">
       {/* Left controls */}
       <div className="flex items-center gap-1.5">
+        <ContextUsageBadge usage={sessionUsage} />
+
         {/* + menu */}
         <Popover open={plusOpen} onOpenChange={onPlusOpenChange}>
           <PopoverTrigger asChild>
@@ -155,8 +157,6 @@ export function ActionBar({
 
       {/* Right controls */}
       <div className="flex items-center gap-0.5 sm:gap-1">
-        <ContextUsageBadge usage={sessionUsage} />
-
         {/* Model selector */}
         <Popover open={modelOpen} onOpenChange={onModelOpenChange}>
           <PopoverTrigger asChild>
