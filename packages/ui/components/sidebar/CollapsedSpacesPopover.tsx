@@ -313,7 +313,7 @@ export function CollapsedSpacesPopover({
                 className={cn(
                   "relative z-10 flex size-full items-center justify-center overflow-hidden rounded-[10px] bg-transparent text-[14px] font-semibold text-white/80 shadow-lg shadow-black/25 backdrop-blur-sm transition-all duration-300",
                   "after:pointer-events-none after:absolute after:inset-0 after:bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.18),transparent_36%)] after:opacity-65",
-                  emojiIcon && "bg-gradient-to-br text-[18px]",
+                  emojiIcon && "bg-gradient-to-br text-[18px] leading-none",
                   emojiIcon && spaceIconEmojiColor(space),
                   !hasCustomIcon && !emojiIcon && gradientForSpace(space),
                   active
@@ -321,7 +321,7 @@ export function CollapsedSpacesPopover({
                     : "group-hover:text-white group-hover:brightness-106 group-hover:saturate-120",
                 )}
               >
-                {emojiIcon ? emojiIcon : spaceIconSrc(space) ? <SpaceIconImage space={space} /> : spaceInitial(space)}
+                {emojiIcon ? <span className="inline-flex -translate-y-px items-center justify-center leading-none">{emojiIcon}</span> : spaceIconSrc(space) ? <SpaceIconImage space={space} /> : spaceInitial(space)}
               </span>
             </button>
           </GlassTooltip>
