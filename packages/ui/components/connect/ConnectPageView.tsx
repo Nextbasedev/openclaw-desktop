@@ -211,28 +211,25 @@ export function ConnectPageView({
         className={cn(
           "mx-auto flex min-h-full w-full justify-center",
           isConnected ? "items-start" : "items-center",
-          showSplitShell ? "max-w-[1500px]" : "max-w-[720px]"
+          "max-w-[760px]"
         )}
       >
         <div
           className={cn(
-            "grid w-full items-center gap-10 md:gap-20",
-            showSplitShell
-              ? "lg:grid-cols-[minmax(520px,1fr)_minmax(360px,720px)]"
-              : "justify-center"
+            "grid w-full items-center justify-center gap-10"
           )}
         >
           <div
             className={cn(
-              "overflow-hidden rounded-md p-6 sm:p-8",
+              "w-full overflow-hidden rounded-md p-0",
               showSplitShell
-                ? "flex h-[min(820px,calc(100vh-120px))] items-center justify-center xl:pr-2"
+                ? "flex h-[min(820px,calc(100vh-120px))] items-center justify-center"
                 : ""
             )}
           >
             {showSplitShell ? (
-              <div className="flex h-full w-full max-w-[640px] flex-col">
-                <div className="flex items-center justify-between pb-6">
+              <div className="flex h-full w-full max-w-[620px] flex-col rounded-2xl bg-white/[0.025] p-5 sm:p-6">
+                <div className="flex items-center justify-between pb-5">
                   <p className="text-md font-medium text-zinc-100">OpenClaw</p>
                   {setupMode !== "choice" && (
                     <Button
@@ -240,7 +237,7 @@ export function ConnectPageView({
                       variant="ghost"
                       size="sm"
                       onClick={() => onSetupModeChange("choice")}
-                      className="h-7 gap-1 px-1.5 text-xs font-normal text-zinc-400 hover:text-zinc-100"
+                      className="h-7 gap-1 rounded-lg px-2 text-xs font-normal text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-100"
                     >
                       <span className="flex h-3 w-3 items-center justify-center">
                         <FaArrowLeft className="h-2.5 w-2.5" />
@@ -250,12 +247,11 @@ export function ConnectPageView({
                   )}
                 </div>
 
-                <header className="space-y-3 pb-6 text-left">
-                  <div className="flex size-12 items-center justify-center rounded-md border border-white/10 bg-white/5">
+                <header className="space-y-3 pb-5 text-left">
+                  <div className="flex size-12 items-center justify-center rounded-2xl bg-white/[0.045] text-zinc-200">
                     <HugeiconsIcon
                       icon={ServerStack01Icon}
                       size={22}
-                      className="text-zinc-200"
                     />
                   </div>
                   <div>
@@ -269,8 +265,8 @@ export function ConnectPageView({
                   </div>
                 </header>
 
-                <div className="min-h-0 flex-1 overflow-y-auto pr-2">
-                  <div className="space-y-6">
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="space-y-4">
                     {setupMode === "choice" ? (
                       <ChoiceScreen onSelect={onSetupModeChange} alignLeft />
                     ) : setupMode === "local" ? (
@@ -301,7 +297,7 @@ export function ConnectPageView({
                     )}
 
                     {setupMode !== "choice" && (
-                      <details className="rounded-xl border border-white/10 bg-black/20 p-4">
+                      <details className="rounded-2xl bg-white/[0.025] p-4">
                         <summary className="cursor-pointer text-sm font-medium text-zinc-300 select-none hover:text-white">
                           Advanced manual setup
                         </summary>
@@ -475,7 +471,6 @@ export function ConnectPageView({
             )}
           </div>
 
-          {showSplitShell && <ConnectShowcasePanel />}
         </div>
       </div>
     </div>
@@ -515,22 +510,6 @@ function ChoiceScreen({
       >
         Pick one. The next screen will guide that setup.
       </p>
-    </div>
-  )
-}
-
-function ConnectShowcasePanel() {
-  return (
-    <div className="hidden lg:flex lg:items-center lg:justify-center lg:pl-2">
-      <div className="w-full max-w-[760px] overflow-hidden rounded-sm border border-white/10 bg-[#0d0d10] shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
-        <img
-          src="/images/connect-showcase.png"
-          alt="OpenClaw connect page preview"
-          className="aspect-[4/3] w-full object-cover"
-          loading="eager"
-          decoding="async"
-        />
-      </div>
     </div>
   )
 }
@@ -726,7 +705,7 @@ function VpsOpenClawPanel(props: {
   onSave: () => void
 }) {
   return (
-    <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+    <div className="space-y-4 rounded-2xl bg-white/[0.03] p-4">
       <StepBadge step="2" label="Prepare the VPS" />
       <PromptBox
         title="Ask OpenClaw on your VPS:"
@@ -747,7 +726,7 @@ function VpsOpenClawPanel(props: {
       <Button
         onClick={props.onSave}
         disabled={props.busy || props.missingConfig}
-        className="w-full"
+        className="h-10 w-full rounded-xl bg-foreground text-background hover:bg-foreground/90"
       >
         {props.saving ? "Pairing..." : "Pair and continue"}
       </Button>
@@ -799,7 +778,7 @@ function PromptBox({ title, prompt }: { title: string; prompt: string }) {
   }
 
   return (
-    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+    <div className="rounded-2xl bg-black/20 p-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-medium text-zinc-300">{title}</p>
         <Button
@@ -807,13 +786,13 @@ function PromptBox({ title, prompt }: { title: string; prompt: string }) {
           variant="outline"
           size="sm"
           onClick={copyPrompt}
-          className="h-7 px-2 text-[11px] active:translate-y-0"
+          className="h-7 border-0 bg-white/[0.045] px-2 text-[11px] text-zinc-300 hover:bg-white/[0.075] active:translate-y-0"
         >
           <HugeiconsIcon icon={Copy01Icon} size={13} />
           {copied ? "Copied!" : "Copy"}
         </Button>
       </div>
-      <pre className="mt-3 h-[244px] overflow-y-auto rounded-lg bg-black/30 p-3 text-[11px] leading-relaxed whitespace-pre-wrap text-zinc-400">
+      <pre className="mt-3 h-[190px] overflow-y-auto rounded-xl bg-black/25 p-3 text-[11px] leading-relaxed whitespace-pre-wrap text-zinc-400">
         {prompt}
       </pre>
     </div>
@@ -855,6 +834,7 @@ function ManualFields({
           disabled={disabled}
           autoComplete="off"
           spellCheck={false}
+          className="h-10 rounded-xl border-0 bg-white/[0.06] text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-0 focus-visible:bg-white/[0.075]"
         />
       </div>
       <div className="space-y-1.5">
@@ -871,6 +851,7 @@ function ManualFields({
             disabled={disabled}
             autoComplete="off"
             spellCheck={false}
+            className="h-10 rounded-xl border-0 bg-white/[0.06] text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-0 focus-visible:bg-white/[0.075]"
           />
           <Button
             type="button"
@@ -878,6 +859,7 @@ function ManualFields({
             size="icon"
             onClick={() => onShowTokenChange(!showToken)}
             disabled={disabled}
+            className="h-10 rounded-xl border-0 bg-white/[0.06] text-zinc-300 hover:bg-white/[0.075]"
           >
             <HugeiconsIcon icon={showToken ? ViewOffIcon : EyeIcon} size={15} />
           </Button>
