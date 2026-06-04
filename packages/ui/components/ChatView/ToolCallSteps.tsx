@@ -3,22 +3,69 @@
 import { useMemo, useState, memo } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight } from "react-icons/vsc"
-import { LuShieldCheck } from "react-icons/lu"
+import {
+  LuBrain,
+  LuClock,
+  LuFileCode,
+  LuFileText,
+  LuGlobe,
+  LuImage,
+  LuMessageSquare,
+  LuPencil,
+  LuRefreshCw,
+  LuSettings2,
+  LuShieldCheck,
+  LuSparkles,
+  LuWrench,
+} from "react-icons/lu"
+import type { IconType } from "react-icons"
 import { ToolCallDetails, getToolDetailState } from "./ToolCallDetails"
 import type { InlineToolCall } from "./types"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
-function ToolIcon({ status }: { status: InlineToolCall["status"] }) {
+const TOOL_ICON_META: Record<string, IconType> = {
+  read: LuFileText,
+  write: LuPencil,
+  edit: LuPencil,
+  apply_patch: LuFileCode,
+  exec: LuFileCode,
+  process: LuRefreshCw,
+  web_fetch: LuGlobe,
+  web_search: LuGlobe,
+  cron: LuClock,
+  sessions_list: LuMessageSquare,
+  sessions_history: LuMessageSquare,
+  sessions_send: LuMessageSquare,
+  sessions_spawn: LuSparkles,
+  sessions_yield: LuSparkles,
+  subagents: LuSparkles,
+  session_status: LuSettings2,
+  image: LuImage,
+  image_generate: LuImage,
+  memory_get: LuBrain,
+  memory_search: LuBrain,
+  update_plan: LuWrench,
+}
+
+function toolIcon(tool: string): IconType {
+  const normalized = normalizeToolName(tool).toLowerCase()
+  return TOOL_ICON_META[normalized] ?? LuSparkles
+}
+
+function ToolIcon({ tool, status }: { tool: string; status: InlineToolCall["status"] }) {
+  const Icon = toolIcon(tool)
   return (
     <span
       className={cn(
-        "relative size-2 shrink-0 rounded-full",
-        status === "running" && "bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.7)] after:absolute after:inset-0 after:rounded-full after:bg-blue-400 after:animate-ping",
-        status === "error" && "bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.55)]",
-        status === "success" && "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.45)]"
+        "flex size-4 shrink-0 items-center justify-center rounded-md transition-colors",
+        status === "running" && "bg-amber-400/10 text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.18)] animate-pulse",
+        status === "error" && "bg-rose-400/10 text-rose-300 shadow-[0_0_10px_rgba(251,113,133,0.16)]",
+        status === "success" && "bg-emerald-400/10 text-emerald-300 shadow-[0_0_8px_rgba(52,211,153,0.14)]"
       )}
-    />
+    >
+      <Icon className="size-3" strokeWidth={2} />
+    </span>
   )
 }
 
@@ -195,7 +242,7 @@ function ToolRow({
           "hover:bg-card/55"
         )}
       >
-        <ToolIcon status={call.status} />
+        <ToolIcon tool={call.tool} status={call.status} />
         <span className="shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-amber-300/80">
           {toolVerb(call.tool)}
         </span>
