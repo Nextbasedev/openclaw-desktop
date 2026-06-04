@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import { MenuAction } from "../ProjectsSection/MenuAction"
-import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { formatCompactTime } from "@/utils/formatCompactTime"
 import { chatDisplayName } from "@/utils/chatDisplayName"
 import type { Chat } from "@/types/chat"
@@ -271,10 +270,10 @@ export function ChatRow({
                 side="right"
                 sideOffset={4}
                 className={cn(
-                  "w-44 gap-0 rounded-2xl p-1.5",
-                  "border-[var(--glass-border)] bg-[var(--glass-bg)] shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+                  "z-[120] w-44 gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none",
+                  "border border-black/70 bg-[var(--glass-bg)]",
                   "backdrop-blur-[40px] backdrop-saturate-[180%]",
-                  GLASS_POPOVER,
+                  "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
                 )}
               >
                 <motion.div
@@ -282,7 +281,7 @@ export function ChatRow({
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -4 }}
                   transition={{
-                    opacity: { duration: 0.2 },
+                    opacity: { duration: 0.15 },
                     scale: MENU_SPRING,
                     y: MENU_SPRING,
                   }}
