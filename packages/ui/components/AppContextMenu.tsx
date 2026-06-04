@@ -14,6 +14,7 @@ type Props = {
   y: number
   onClose: () => void
   onReload: () => void
+  onInspectElement?: () => void
 }
 
 export function AppContextMenu({
@@ -23,6 +24,7 @@ export function AppContextMenu({
   y,
   onClose,
   onReload,
+  onInspectElement,
 }: Props) {
   useEffect(() => {
     if (!open) return
@@ -90,6 +92,16 @@ export function AppContextMenu({
               onReload()
             }}
           />
+          {onInspectElement ? (
+            <MenuAction
+              label="Inspect Element"
+              icon={<Icons.Wrench size={14} strokeWidth={1.5} />}
+              onClick={() => {
+                onClose()
+                onInspectElement()
+              }}
+            />
+          ) : null}
         </motion.div>
       )}
     </AnimatePresence>,

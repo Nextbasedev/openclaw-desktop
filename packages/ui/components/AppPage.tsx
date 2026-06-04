@@ -238,8 +238,9 @@ const SIDEBAR_DEFAULT = 240
 const SIDEBAR_COLLAPSED = 56
 const INSPECTOR_DEFAULT_WIDTH = 460
 const APP_CONTEXT_MENU_WIDTH = 176
-const APP_CONTEXT_MENU_HEIGHT = 44
+const APP_CONTEXT_MENU_HEIGHT = process.env.NODE_ENV === "production" ? 44 : 80
 const APP_CONTEXT_MENU_MARGIN = 12
+const SHOW_DEV_CONTEXT_ACTIONS = process.env.NODE_ENV !== "production"
 
 export default function Page() {
   const useNativeWindowChrome = shouldUseNativeWindowChrome()
@@ -2843,6 +2844,16 @@ function AppShell({
     setAppContextMenu((prev) => ({ ...prev, open: false }))
   }, [])
 
+  const handleInspectElement = useCallback(async () => {
+    if (!SHOW_DEV_CONTEXT_ACTIONS || typeof window === "undefined" || !window.__TAURI_INTERNALS__) return
+    try {
+      const { invoke } = await import("@tauri-apps/api/core")
+      await invoke("plugin:webview|internal_toggle_devtools")
+    } catch (error) {
+      console.warn("Failed to open webview devtools", error)
+    }
+  }, [])
+
   const handleAppContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement | null
     if (target?.closest("input, textarea, [contenteditable='true']")) return
@@ -2895,6 +2906,7 @@ function AppShell({
           y={appContextMenu.y}
           onClose={closeAppContextMenu}
           onReload={() => window.location.reload()}
+          onInspectElement={SHOW_DEV_CONTEXT_ACTIONS ? handleInspectElement : undefined}
         />
       </div>
     )
@@ -3200,6 +3212,7 @@ function AppShell({
         y={appContextMenu.y}
         onClose={closeAppContextMenu}
         onReload={() => window.location.reload()}
+        onInspectElement={SHOW_DEV_CONTEXT_ACTIONS ? handleInspectElement : undefined}
       />
     </div>
   )
