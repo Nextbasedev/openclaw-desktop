@@ -702,3 +702,14 @@ body {
     content: "...";
   }
 }
+
+@keyframes toolTimelineGrow {
+  from {
+    transform: scaleY(0.92);
+    opacity: 0.45;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}

@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState, memo } from "react"
+import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight } from "react-icons/vsc"
 import { LuShieldCheck } from "react-icons/lu"
@@ -194,7 +195,13 @@ function ToolRow({
   }
 
   return (
-    <div className={cn("relative pl-7 transition-colors duration-100", approval && "rounded-lg bg-amber-400/[0.035]")}>
+    <motion.div
+      layout="position"
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
+      className={cn("relative pl-7 transition-colors duration-100", approval && "rounded-lg bg-amber-400/[0.035]")}
+    >
       <StatusDot status={call.status} />
       <button
         type="button"
@@ -327,7 +334,7 @@ function ToolRow({
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }
 
@@ -379,7 +386,10 @@ export const ToolCallSteps = memo(function ToolCallSteps({
         </span>
       </button>
       {stepsOpen && (
-        <div className="relative z-0 space-y-1.5 overflow-visible before:absolute before:bottom-4 before:left-[6.5px] before:top-4 before:w-px before:bg-[#d4d2cd] before:content-[''] dark:before:bg-[#444444]">
+        <motion.div
+          layout
+          className="relative z-0 space-y-1.5 overflow-visible before:absolute before:bottom-4 before:left-[6.5px] before:top-4 before:w-px before:origin-top before:animate-[toolTimelineGrow_260ms_ease-out] before:bg-[#d4d2cd] before:content-[''] dark:before:bg-[#444444]"
+        >
           {orderedTools.map((call) => (
             <ToolRow
               key={call.id}
@@ -392,7 +402,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
               sessionKey={sessionKey}
             />
           ))}
-        </div>
+        </motion.div>
       )}
     </div>
   )
