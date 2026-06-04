@@ -241,7 +241,7 @@ export function CreateSpaceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          "overflow-hidden rounded-2xl border border-white/10 bg-[#1a1a1a] p-0 sm:max-w-[460px]",
+          "overflow-hidden rounded-[22px] border border-black/70 bg-[var(--glass-bg)] p-0 sm:max-w-[460px]",
           "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
           "backdrop-blur-[40px] backdrop-saturate-[180%]",
         )}

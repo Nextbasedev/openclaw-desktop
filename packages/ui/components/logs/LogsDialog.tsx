@@ -8,6 +8,7 @@ import {
   useState,
 } from "react"
 import { createPortal } from "react-dom"
+import { AnimatePresence, motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { Icons } from "@/components/icons"
 import {
@@ -292,24 +293,40 @@ export function LogsDialog({
     return { errors, warns }
   }, [merged])
 
-  if (!open || !mounted) return null
+  if (!mounted) return null
 
   return createPortal(
-    <div
-      className="glass-overlay"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Application logs"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className={cn(
-          "relative flex max-h-[85vh] w-[92vw] max-w-[1100px] flex-col overflow-hidden rounded-2xl",
-          "border border-white/8 bg-[#0b0c0f] shadow-[0_24px_64px_rgba(0,0,0,0.55)]",
-          "animate-[glass-dialog-in_0.22s_cubic-bezier(0.16,1,0.3,1)]",
-        )}
-      >
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="glass-overlay"
+          onClick={onClose}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Application logs"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+        >
+          <motion.div
+            onClick={(e) => e.stopPropagation()}
+            className={cn(
+              "relative flex max-h-[85vh] w-[92vw] max-w-[1100px] flex-col overflow-hidden rounded-[22px]",
+              "border border-black/70 bg-[var(--glass-bg)]",
+              "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+              "backdrop-blur-[40px] backdrop-saturate-[180%]",
+            )}
+            initial={{ opacity: 0, scale: 0.92, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: -4 }}
+            transition={{
+              opacity: { duration: 0.15 },
+              scale: { type: "spring", stiffness: 400, damping: 28, mass: 0.8 },
+              y: { type: "spring", stiffness: 400, damping: 28, mass: 0.8 },
+            }}
+            style={{ transformOrigin: "top center" }}
+          >
         <div className="flex items-center justify-between gap-3 border-b border-white/6 px-5 py-3.5">
           <div className="flex items-center gap-2.5">
             <span className="flex size-7 items-center justify-center rounded-md border border-white/10 bg-white/4 text-foreground/80">
@@ -473,8 +490,10 @@ export function LogsDialog({
             </span>
           </div>
         </div>
-      </div>
-    </div>,
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
     document.body,
   )
 }

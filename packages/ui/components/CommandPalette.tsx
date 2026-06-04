@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { createPortal } from "react-dom"
+import { AnimatePresence, motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { usePlatform } from "@/hooks/usePlatform"
 import { invoke } from "@/lib/ipc"
@@ -81,6 +82,13 @@ const QUICK_ACTIONS: QuickAction[] = [
   { id: "toggle-theme", label: "Toggle Theme", icon: LuSun, keys: { win: ["D"], mac: ["D"] }, scope: "Global" },
   { id: "quit", label: "Quit Application", icon: LuPower, keys: { win: ["Ctrl", "Q"], mac: ["⌘", "Q"] }, scope: "Global" },
 ]
+
+const MENU_SPRING = {
+  type: "spring" as const,
+  stiffness: 400,
+  damping: 28,
+  mass: 0.8,
+}
 
 type FlatItem =
   | { type: "recent"; id: string; session: Session }
@@ -389,27 +397,42 @@ export function CommandPalette({
     setSelectedIndex(0)
   }, [debouncedQuery])
 
-  if (!open) return null
+  if (typeof document === "undefined") return null
 
   let itemIndex = -1
 
   return createPortal(
-    <div
-      data-testid="command-palette"
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" />
-      <div
-        className={cn(
-          "relative w-full max-w-[720px] overflow-hidden rounded-2xl",
-          "border border-border/70 bg-background/95 shadow-2xl shadow-black/20",
-          "dark:border-white/[0.10] dark:bg-[#111112]/95 dark:shadow-black/60",
-        )}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          data-testid="command-palette"
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-[var(--glass-overlay-bg)] p-4 backdrop-blur-[8px]"
+          onClick={onClose}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+        >
+          <motion.div
+            className={cn(
+              "relative w-full max-w-[720px] overflow-hidden rounded-[22px]",
+              "border border-black/70 bg-[var(--glass-bg)]",
+              "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+              "backdrop-blur-[40px] backdrop-saturate-[180%]",
+            )}
+            onClick={(e) => e.stopPropagation()}
+            initial={{ opacity: 0, scale: 0.92, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: -4 }}
+            transition={{
+              opacity: { duration: 0.15 },
+              scale: MENU_SPRING,
+              y: MENU_SPRING,
+            }}
+            style={{ transformOrigin: "top center" }}
+          >
         {/* Search bar */}
-        <div className="flex items-center gap-3 border-b border-border/70 bg-background/60 px-5 py-4 dark:border-white/[0.07] dark:bg-white/[0.025]">
+        <div className="flex items-center gap-3 border-b border-white/[0.07] bg-white/[0.025] px-5 py-4">
           <LuSearch size={19} className="shrink-0 text-muted-foreground dark:text-white/45" />
           <input
             ref={inputRef}
@@ -420,7 +443,7 @@ export function CommandPalette({
             placeholder="Ask AI & Search"
             className="flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground/55 dark:text-white dark:placeholder:text-white/35"
           />
-          <kbd className="flex items-center gap-0.5 rounded-lg border border-border/70 bg-muted/70 px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-sm dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/45">
+          <kbd className="flex items-center gap-0.5 rounded-lg border border-white/[0.10] bg-white/[0.055] px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-sm dark:text-white/45">
             {isMac ? "⌘" : "Ctrl"}
             <span className="text-[8px] text-muted-foreground/50 dark:text-white/20">+</span>
             K
@@ -641,8 +664,10 @@ export function CommandPalette({
             </div>
           )}
         </div>
-      </div>
-    </div>,
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
     document.body,
   )
 }

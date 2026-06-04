@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { createPortal } from "react-dom"
+import { AnimatePresence, motion } from "framer-motion"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
 import { LuSearch, LuX, LuFolderGit2, LuRefreshCw } from "react-icons/lu"
@@ -65,7 +66,7 @@ export function RepoPickerDialog({ open, onClose, onSelect }: Props) {
     return () => document.removeEventListener("keydown", handleKey)
   }, [open, onClose])
 
-  if (!open) return null
+  if (typeof document === "undefined") return null
 
   const q = query.toLowerCase().trim()
   const filtered = repos.filter(
@@ -73,15 +74,33 @@ export function RepoPickerDialog({ open, onClose, onSelect }: Props) {
   )
 
   return createPortal(
-    <div className="glass-overlay" onClick={onClose}>
-      <div
-        className={cn(
-          "glass-dialog",
-          "!max-w-lg !w-[92vw] !p-0",
-          "flex flex-col max-h-[80vh]",
-        )}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="glass-overlay"
+          onClick={onClose}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+        >
+          <motion.div
+            className={cn(
+              "glass-dialog",
+              "!max-w-lg !w-[92vw] !p-0",
+              "flex flex-col max-h-[80vh]",
+            )}
+            onClick={(e) => e.stopPropagation()}
+            initial={{ opacity: 0, scale: 0.92, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: -4 }}
+            transition={{
+              opacity: { duration: 0.15 },
+              scale: { type: "spring", stiffness: 400, damping: 28, mass: 0.8 },
+              y: { type: "spring", stiffness: 400, damping: 28, mass: 0.8 },
+            }}
+            style={{ transformOrigin: "top center" }}
+          >
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <div>
             <h2 className="text-[15px] font-semibold text-foreground">Select Repository</h2>
@@ -147,8 +166,10 @@ export function RepoPickerDialog({ open, onClose, onSelect }: Props) {
             </div>
           )}
         </div>
-      </div>
-    </div>,
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
     document.body,
   )
 }

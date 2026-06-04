@@ -74,25 +74,27 @@ export function VersionUpdateModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 bg-[var(--glass-overlay-bg)] backdrop-blur-[8px]"
             onClick={() => onOpenChange(false)}
           />
 
           {/* Modal */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            initial={{ opacity: 0, scale: 0.92, y: -4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            exit={{ opacity: 0, scale: 0.96, y: -4 }}
             transition={{
-              type: "spring",
-              stiffness: 350,
-              damping: 30,
+              opacity: { duration: 0.15 },
+              scale: { type: "spring", stiffness: 400, damping: 28, mass: 0.8 },
+              y: { type: "spring", stiffness: 400, damping: 28, mass: 0.8 },
             }}
+            style={{ transformOrigin: "top center" }}
             className={cn(
               "fixed inset-0 z-50 m-auto flex h-fit max-h-[80vh] w-full max-w-md flex-col",
-              "overflow-hidden rounded-2xl border border-border/50",
-              "bg-card shadow-2xl shadow-black/20",
+              "overflow-hidden rounded-[22px] border border-black/70 bg-[var(--glass-bg)]",
+              "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+              "backdrop-blur-[40px] backdrop-saturate-[180%]",
             )}
           >
             {/* Header */}

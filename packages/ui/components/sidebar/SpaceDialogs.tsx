@@ -61,7 +61,7 @@ export function SpaceDialogs({
   return (
     <>
       <Dialog open={renameOpen} onOpenChange={onRenameOpenChange}>
-        <DialogContent className="overflow-hidden rounded-2xl border border-white/10 bg-[#1a1a1a] p-0 sm:max-w-[460px]">
+        <DialogContent className="overflow-hidden rounded-[22px] border border-black/70 bg-[var(--glass-bg)] p-0 sm:max-w-[460px]">
           <DialogHeader className="border-b border-white/[0.07] px-6 py-5 text-left">
             <DialogTitle className="text-sm font-medium text-white">Edit project</DialogTitle>
             <DialogDescription className="mt-0.5 text-[11px] text-white/40">
