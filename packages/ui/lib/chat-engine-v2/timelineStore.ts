@@ -17,6 +17,7 @@
 import type { ChatMessage } from "@/components/ChatView/types"
 import type { InlineToolCall } from "@/components/ChatView/types"
 import { dedupeChatMessages, sameUserMessage, sortChatMessagesByTimeline } from "../chatMessageDedupe"
+import { stripTransientChatMessagesState } from "../chatTransientState"
 
 export type TimelineSource = "warm-cache" | "bootstrap" | "patch" | "optimistic" | "idle"
 
@@ -52,9 +53,10 @@ export class ChatTimelineStore {
     if (this.bootstrapSettled) return // bootstrap already has authoritative data
     if (cursor <= this.cursor && this.messageMap.size > 0) return // already have newer data
 
-    this.mergeMessages(messages)
+    const durableMessages = stripTransientChatMessagesState(messages)
+    this.mergeMessages(durableMessages)
     this.cursor = Math.max(this.cursor, cursor)
-    this.messageCount = messageCount ?? messages.length
+    this.messageCount = messageCount ?? durableMessages.length
     if (this.source === "idle") this.source = "warm-cache"
     this.scheduleNotify()
   }
@@ -73,7 +75,8 @@ export class ChatTimelineStore {
     if (!hasNewerLiveState) {
       this.messageMap.clear()
     }
-    this.mergeMessages(messages)
+    const durableMessages = stripTransientChatMessagesState(messages)
+    this.mergeMessages(durableMessages)
 
     for (const opt of optimistic) {
       const confirmedByBootstrap = Array.from(this.messageMap.values()).some((canonical) =>
@@ -85,8 +88,8 @@ export class ChatTimelineStore {
     }
     this.cursor = Math.max(this.cursor, bootstrapCursor)
     this.messageCount = hasNewerLiveState
-      ? Math.max(this.messageCount, messageCount ?? messages.length, this.messageMap.size)
-      : (messageCount ?? messages.length)
+      ? Math.max(this.messageCount, messageCount ?? durableMessages.length, this.messageMap.size)
+      : (messageCount ?? durableMessages.length)
     this.source = "bootstrap"
     this.bootstrapSettled = true
     this.scheduleNotify()

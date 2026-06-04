@@ -41,4 +41,24 @@ describe("editor tab display titles", () => {
 
     expect(displayState.groups[0]?.tabs[0]?.title).toBe("Freshly autonamed")
   })
+
+  it("lets a live generated title override a weak active chat name", () => {
+    const displayState = deriveEditorGroupsTabTitles(
+      state(),
+      new Map([["chat-1", { name: "Generated title" }]]),
+      { id: "chat-1", name: "New Chat" },
+    )
+
+    expect(displayState.groups[0]?.tabs[0]?.title).toBe("Generated title")
+  })
+
+  it("keeps a manually named active chat ahead of live cache data", () => {
+    const displayState = deriveEditorGroupsTabTitles(
+      state(),
+      new Map([["chat-1", { name: "Cached title" }]]),
+      { id: "chat-1", name: "Manual title" },
+    )
+
+    expect(displayState.groups[0]?.tabs[0]?.title).toBe("Manual title")
+  })
 })

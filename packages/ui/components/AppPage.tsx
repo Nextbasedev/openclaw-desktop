@@ -673,9 +673,10 @@ function AppShell({
   const displayedEditorGroups = useMemo(() => {
     const liveChatTitles = new Map<string, string | { chat: ActiveChat; sessionKey: string; title: string }>(liveChatTitleById)
     for (const [chatId, resolved] of resolvedChatCacheRef.current.entries()) {
+      if (liveChatTitles.has(chatId) && isWeakChatName(resolved.title ?? resolved.chat?.name)) continue
       liveChatTitles.set(chatId, resolved)
     }
-    if (activeChat?.id) liveChatTitles.set(activeChat.id, activeChat.name)
+    if (activeChat?.id && !isWeakChatName(activeChat.name)) liveChatTitles.set(activeChat.id, activeChat.name)
     return deriveEditorGroupsTabTitles(editorGroups, liveChatTitles, activeChat)
   }, [activeChat, editorGroups, liveChatTitleById])
 
@@ -2292,15 +2293,35 @@ function AppShell({
       // Only update active UI state if this chat is still the active one
       // (user may have switched chats while autonaming was in flight)
       const stillActive = activeChatRef.current?.id === chat.id
+      const sessionKey = chat.sessionKey ?? activeSessionKey
+      const renamedChat = { ...chat, name: finalName, sessionKey: sessionKey ?? chat.sessionKey }
       if (stillActive) {
-        setActiveChat((prev) => prev?.id === chat.id ? { ...prev, name: finalName } : prev)
+        setActiveChat((prev) => prev?.id === chat.id ? { ...prev, name: finalName, sessionKey: sessionKey ?? prev.sessionKey } : prev)
         setActiveSessionTitle(finalName)
       }
-      if (chat.sessionKey) {
+      if (sessionKey) {
         resolvedChatCacheRef.current.set(chat.id, {
-          chat: { ...chat, name: finalName },
-          sessionKey: chat.sessionKey,
+          chat: renamedChat,
+          sessionKey,
           title: finalName,
+        })
+      }
+      setLiveChatTitleById((prev) => {
+        if (prev.get(chat.id) === finalName) return prev
+        const next = new Map(prev)
+        next.set(chat.id, finalName)
+        return next
+      })
+      dispatchGroups({
+        type: "UPDATE_TAB",
+        tabId: `chat:${chat.id}`,
+        updates: { title: finalName, chat: renamedChat },
+      })
+      if (stillActive && sessionKey) {
+        dispatchGroups({
+          type: "SET_SESSION_DATA",
+          groupId: editorGroups.focusedGroupId,
+          sessionData: { chat: renamedChat, sessionKey, title: finalName },
         })
       }
       setChatRefreshTrigger((n) => n + 1)
@@ -2314,15 +2335,38 @@ function AppShell({
         })
         invalidateChatListCache(activeSpaceId)
         const stillActive = activeChatRef.current?.id === chat.id
+        const sessionKey = chat.sessionKey ?? activeSessionKey
+        const renamedChat = { ...chat, name: fallbackName, sessionKey: sessionKey ?? chat.sessionKey }
         if (stillActive) {
-          setActiveChat((prev) => prev?.id === chat.id ? { ...prev, name: fallbackName } : prev)
+          setActiveChat((prev) => prev?.id === chat.id ? { ...prev, name: fallbackName, sessionKey: sessionKey ?? prev.sessionKey } : prev)
           setActiveSessionTitle(fallbackName)
+        }
+        if (sessionKey) {
+          resolvedChatCacheRef.current.set(chat.id, { chat: renamedChat, sessionKey, title: fallbackName })
+        }
+        setLiveChatTitleById((prev) => {
+          if (prev.get(chat.id) === fallbackName) return prev
+          const next = new Map(prev)
+          next.set(chat.id, fallbackName)
+          return next
+        })
+        dispatchGroups({
+          type: "UPDATE_TAB",
+          tabId: `chat:${chat.id}`,
+          updates: { title: fallbackName, chat: renamedChat },
+        })
+        if (stillActive && sessionKey) {
+          dispatchGroups({
+            type: "SET_SESSION_DATA",
+            groupId: editorGroups.focusedGroupId,
+            sessionData: { chat: renamedChat, sessionKey, title: fallbackName },
+          })
         }
         setChatRefreshTrigger((n) => n + 1)
       } catch {}
       console.error("Auto-naming chat failed", err)
     }
-  }, [activeSpaceId])
+  }, [activeSessionKey, activeSpaceId, editorGroups.focusedGroupId])
 
   const handleSessionResolved = useCallback((key: string, title: string) => {
     setActiveSessionKey(key)

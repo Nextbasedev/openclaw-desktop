@@ -1,5 +1,6 @@
 import type { ActiveChat } from "@/types/chat"
 import type { EditorGroupsState, EditorTab } from "@/lib/editorGroups"
+import { isWeakChatName } from "@/utils/chatDisplayName"
 
 type LiveChatRecord =
   | string
@@ -35,16 +36,17 @@ export function deriveChatTabTitle(
   const chatId = chatIdFromTab(tab)
   if (!chatId) return tab.title
 
-  if (activeChat?.id === chatId) {
-    const activeTitle = cleanTitle(activeChat.name)
-    if (activeTitle) return activeTitle
-  }
-
   const live = liveChatTitles.get(chatId)
   const liveTitle = typeof live === "string"
     ? cleanTitle(live)
     : cleanTitle(live?.chat?.name) ?? cleanTitle(live?.name) ?? cleanTitle(live?.title)
-  return liveTitle ?? tab.title
+
+  if (activeChat?.id === chatId) {
+    const activeTitle = cleanTitle(activeChat.name)
+    if (activeTitle && !isWeakChatName(activeTitle)) return activeTitle
+  }
+
+  return liveTitle ?? cleanTitle(activeChat?.id === chatId ? activeChat.name : null) ?? tab.title
 }
 
 export function deriveEditorGroupsTabTitles(

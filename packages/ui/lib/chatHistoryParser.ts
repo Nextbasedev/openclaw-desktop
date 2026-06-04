@@ -241,7 +241,11 @@ function toolBlocks(raw: RawHistoryMessage): RawToolBlock[] {
 }
 
 function toolBlockId(block: RawToolBlock) {
-  return block.id ?? block.toolCallId ?? block.tool_call_id
+  // Gateway/live projections can include both a per-event/block `id` and the
+  // stable logical tool call id. The UI must group by the logical tool id;
+  // otherwise repeated update/result projections for one tool inflate the
+  // visible Steps count and render duplicate rows.
+  return block.toolCallId ?? block.tool_call_id ?? block.id
 }
 
 function toolBlockName(block: RawToolBlock) {

@@ -142,6 +142,32 @@ describe("ChatView tool display grouping", () => {
     })
   })
 
+  test("counts repeated phase updates for one tool id as one visible step", () => {
+    const messages: ChatMessage[] = [
+      { messageId: "u1", role: "user", text: "check" },
+      {
+        messageId: "a-tools-live",
+        role: "assistant",
+        text: "",
+        toolCalls: [
+          { id: "tc-stable", tool: "exec", status: "running" },
+          { id: "tc-stable", tool: "exec", status: "running", duration: "0.4s" },
+          { id: "tc-stable", tool: "exec", status: "success", duration: "0.5s", resultText: "ok" },
+        ],
+      },
+    ]
+
+    const { grouped } = groupAssistantToolCallsByMessage(messages)
+
+    expect(grouped.get("a-tools-live")).toHaveLength(1)
+    expect(grouped.get("a-tools-live")?.[0]).toMatchObject({
+      id: "tc-stable",
+      status: "success",
+      duration: "0.5s",
+      resultText: "ok",
+    })
+  })
+
   test("stabilizes displayed running tools with terminal state from the transcript", () => {
     const terminalById = terminalToolStateById([
       {

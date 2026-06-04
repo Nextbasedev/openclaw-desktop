@@ -131,6 +131,52 @@ describe("dedupeChatMessages", () => {
     expect(messages.map((message) => message.text)).toEqual(["First reply", "Second reply"])
   })
 
+  it("collapses replayed tool-only assistant rows with the same tool id even when gateway indexes drift", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "tool-live",
+        role: "assistant",
+        text: "",
+        gatewayIndex: 289,
+        toolCalls: [{ id: "tool-1", tool: "edit", status: "running" }],
+      },
+      {
+        messageId: "tool-backfill",
+        role: "assistant",
+        text: "",
+        gatewayIndex: 290,
+        toolCalls: [{ id: "tool-1", tool: "edit", status: "success", duration: "0.5s", resultText: "ok" }],
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].toolCalls).toEqual([
+      expect.objectContaining({ id: "tool-1", status: "success", duration: "0.5s", resultText: "ok" }),
+    ])
+  })
+
+  it("does not let later stale running replay overwrite terminal tool-only state across drifted gateway indexes", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "tool-terminal",
+        role: "assistant",
+        text: "",
+        gatewayIndex: 289,
+        toolCalls: [{ id: "tool-1", tool: "edit", status: "success", duration: "0.5s", resultText: "ok" }],
+      },
+      {
+        messageId: "tool-stale",
+        role: "assistant",
+        text: "",
+        gatewayIndex: 290,
+        toolCalls: [{ id: "tool-1", tool: "edit", status: "running" }],
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].toolCalls?.[0]).toMatchObject({ id: "tool-1", status: "success", duration: "0.5s", resultText: "ok" })
+  })
+
   it("collapses stale live assistant echo after canonical final answer even when persisted seq drifted", () => {
     const messages = dedupeChatMessages([
       {

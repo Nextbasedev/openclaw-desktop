@@ -7,6 +7,7 @@ import { emit } from "../events"
 import { isAwaitingLiveToolResult, isInferredFallbackToolResult } from "../liveToolCalls"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey } from "../subagentSession"
+import { stripTransientChatMessagesState } from "../chatTransientState"
 import { setWarmChatCache, preloadWarmCacheToMemory, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
 import { openPatchStreamV2 } from "./client"
@@ -191,12 +192,13 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
     const cached = existing && typeof existing === "object" ? existing as CachedChatBootstrapV2 : {}
     const cursor = Math.max(cached.cursor ?? cached.v2Cursor ?? 0, state.cursor)
     const tools = state.pendingTools.map((tool) => inlineToolToProjection(sessionKey, tool))
+    const durableMessages = stripTransientChatMessagesState(state.messages)
     return {
       ...cached,
       source: cached.source ?? "middleware-projection",
       projectionVersion: cached.projectionVersion ?? CHAT_PROJECTION_VERSION,
-      messages: state.messages,
-      messageCount: state.messageCount ?? state.messages.length,
+      messages: durableMessages,
+      messageCount: state.messageCount ?? durableMessages.length,
       historyCoverage: state.historyCoverage,
       fullMessagesIncluded: state.historyCoverage === "full",
       cursor,
@@ -208,7 +210,7 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
       toolCalls: tools,
       history: {
         ...(cached.history ?? {}),
-        messages: state.messages,
+        messages: durableMessages,
         sessionStatus: legacySessionStatusFromStreamStatus(state.status),
       },
       branchData: cached.branchData ?? { branches: [] },
@@ -221,15 +223,16 @@ function persistWarmSessionSnapshot(sessionKey: string, state: SessionState) {
   const existing = warmPersistTimers.get(sessionKey)
   if (existing) clearTimeout(existing)
   const snapshot = cloneState(state)
+  const durableMessages = stripTransientChatMessagesState(snapshot.messages)
   const timer = setTimeout(() => {
     warmPersistTimers.delete(sessionKey)
     void setWarmChatCache(sessionKey, {
-      messages: snapshot.messages,
+      messages: durableMessages,
       cursor: snapshot.cursor,
       runStatus: snapshot.status,
       statusLabel: normalizeStatusLabel(snapshot.status, snapshot.statusLabel),
       pendingTools: snapshot.pendingTools,
-      messageCount: snapshot.messageCount ?? snapshot.messages.length,
+      messageCount: snapshot.messageCount ?? durableMessages.length,
     }).catch((error) => {
       frontendLog("chat", "warm-cache.live-persist.fail", {
         sessionKey,
@@ -337,6 +340,14 @@ function toolResultText(message: Record<string, unknown>) {
 function toolResultBlockId(block: Record<string, unknown>) {
   const id = block.toolCallId ?? block.tool_call_id ?? block.toolUseId ?? block.tool_use_id ?? block.id
   return typeof id === "string" && id.trim() ? id.trim() : null
+}
+
+function toolCallBlockId(block: Record<string, unknown>, fallback: string) {
+  // Prefer stable logical tool-call ids over per-event/block ids. Some live
+  // payloads include both; using the event id makes repeated tool updates look
+  // like distinct tools in Steps.
+  const id = block.toolCallId ?? block.tool_call_id ?? block.toolUseId ?? block.tool_use_id ?? block.id
+  return typeof id === "string" && id.trim() ? id.trim() : fallback
 }
 
 function toolResultBlockText(block: Record<string, unknown>) {
@@ -919,10 +930,7 @@ function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
   const messageId = messageStableId(message, frame)
   for (const [blockIndex, block] of blocks.entries()) {
     const tool = compactLabel(block.name, "unknown")
-    const id = compactLabel(
-      block.id,
-      `tool:${messageId}:${blockIndex}:${tool}`
-    )
+    const id = toolCallBlockId(block, `tool:${messageId}:${blockIndex}:${tool}`)
     const visibleTerminalTool = findVisibleTerminalToolById(state, id)
     if (visibleTerminalTool) {
       frontendLog("stream", "global-chat-session.visible-terminal-tool-block-skip", {
