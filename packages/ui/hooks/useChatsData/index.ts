@@ -370,6 +370,7 @@ export function useChatsData(
           ])
         } else {
           next.delete(chatId)
+          setChatOrder((order) => order.filter((id) => id !== chatId))
         }
         return next
       })
@@ -514,8 +515,6 @@ export function useChatsData(
       ...chatOrder.filter((id) => knownIds.has(id)),
       ...activityOrdered.filter((id) => !chatOrder.includes(id)),
     ]
-    if (chatOrder.length > 0) return ordered
-
     const pinned = ordered.filter((id) => pinnedChats.has(id))
     const unpinned = ordered.filter((id) => !pinnedChats.has(id))
     return [...pinned, ...unpinned]
