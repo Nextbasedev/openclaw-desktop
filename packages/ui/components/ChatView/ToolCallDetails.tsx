@@ -66,7 +66,7 @@ function DetailBlock({
 }) {
   return (
     <div>
-      <div className="border-b border-white/2 bg-black/20 px-5 py-2.5">
+      <div className="border-b border-white/2 bg-white/5 px-5 py-2.5">
         <div className="flex items-center gap-2">
           <span
             className={cn(
@@ -82,7 +82,7 @@ function DetailBlock({
       </div>
       <pre
         className={cn(
-          "overflow-auto bg-black/25 px-5 py-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap text-foreground/75",
+          "overflow-auto bg-white/5 px-5 py-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap text-foreground/75",
           expanded ? "max-h-[80vh]" : "max-h-48",
           tone === "error" && "text-red-700 dark:text-[#FF4D4D]/80",
           tone === "success" && "text-emerald-700 dark:text-[#00D492]/80"
@@ -154,7 +154,7 @@ export function ToolCallDetails({
   )
 
   return (
-    <div className="overflow-hidden rounded-b-lg border-x border-b border-white/2 bg-black/20 opacity-100">
+    <div className="overflow-hidden rounded-b-lg border-x border-b border-white/2 bg-white/5 opacity-100">
       {inputText && (
         <DetailBlock label="Input" tone="neutral">
           {inputText}
@@ -181,14 +181,14 @@ export function ToolCallDetails({
                       setShowFull((v) => !v)
                     }}
                     disabled={fetching}
-                    className="w-full border-t border-white/2 bg-black/20 px-5 py-1.5 text-center text-[11px] font-medium text-blue-700 transition-colors hover:bg-white/[0.07] hover:text-blue-800 disabled:opacity-50 dark:text-[#93C5FD]/75 dark:hover:text-[#93C5FD]"
+                    className="w-full border-t border-white/2 bg-white/5 px-5 py-1.5 text-center text-[11px] font-medium text-blue-700 transition-colors hover:bg-white/[0.07] hover:text-blue-800 disabled:opacity-50 dark:text-[#93C5FD]/75 dark:hover:text-[#93C5FD]"
                   >
                     {fetching ? "Loading full output…" : showFull ? "Collapse output" : effectiveFullText ? `Show full output (${Math.round(effectiveFullText.length / 1024)}KB)` : "Fetch full output"}
                   </button>
                 )}
               </>
             ) : showWaitingForOutput ? (
-              <div className="bg-black/25 px-5 py-4 text-[12px] text-blue-700 transition-opacity duration-300 dark:text-[#93C5FD]/75">
+              <div className="bg-white/5 px-5 py-4 text-[12px] text-blue-700 transition-opacity duration-300 dark:text-[#93C5FD]/75">
                 Waiting for this tool to return output...
               </div>
             ) : showErrorFallback ? (
@@ -196,7 +196,7 @@ export function ToolCallDetails({
                 {call.resultText || "Tool execution failed."}
               </DetailBlock>
             ) : showEmptyState ? (
-              <div className="bg-black/25 px-5 py-4 text-[12px] text-muted-foreground transition-opacity duration-300 dark:text-[#9CA3AF]/75">
+              <div className="bg-white/5 px-5 py-4 text-[12px] text-muted-foreground transition-opacity duration-300 dark:text-[#9CA3AF]/75">
                 No inline input or output was captured for this tool.
               </div>
             ) : null}
