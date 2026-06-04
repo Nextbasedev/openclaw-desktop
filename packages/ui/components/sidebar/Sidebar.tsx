@@ -38,6 +38,7 @@ type SidebarProps = {
   onTopicClear: () => void
   activeChat: ActiveChat | null
   onChatSelect: (chat: ActiveChat) => void
+  onChatOpenInNewWindow?: (chat: ActiveChat) => void
   onChatClear: (chatId?: string) => void
   onNewChat: () => void
   chatRefreshTrigger?: number
@@ -73,6 +74,7 @@ export function Sidebar({
   onItemsReorder,
   activeChat,
   onChatSelect,
+  onChatOpenInNewWindow,
   onChatClear,
   onNewChat,
   chatRefreshTrigger = 0,
@@ -249,6 +251,7 @@ export function Sidebar({
                 sectionLabel={activeSpaceName}
                 activeChat={activeChat}
                 onChatSelect={onChatSelect}
+                onChatOpenInNewWindow={onChatOpenInNewWindow}
                 onChatClear={onChatClear}
                 onNewChat={onNewChat}
                 refreshTrigger={chatRefreshTrigger}

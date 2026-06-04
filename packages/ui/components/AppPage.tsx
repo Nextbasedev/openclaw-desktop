@@ -1986,6 +1986,14 @@ function AppShell({
     })
   }, [])
 
+  const handleOpenSidebarChatWindow = useCallback((chat: ActiveChat) => {
+    void openChatInFocusedWindow({
+      chatId: chat.id,
+      sessionKey: chat.sessionKey ?? null,
+      title: chat.name,
+    })
+  }, [])
+
   const handleEditorTabMove = useCallback((
     tabId: string,
     sourceGroupId: EditorGroupId,
@@ -2771,6 +2779,7 @@ function AppShell({
           onTopicClear={handleTopicClear}
           activeChat={activeChat}
           onChatSelect={handleChatSelect}
+          onChatOpenInNewWindow={handleOpenSidebarChatWindow}
           onChatClear={handleChatClear}
           onNewChat={handleNewChat}
           chatRefreshTrigger={chatRefreshTrigger}

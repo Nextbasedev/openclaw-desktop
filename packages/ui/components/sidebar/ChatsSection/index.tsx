@@ -17,6 +17,7 @@ type Props = {
   sectionLabel?: string
   activeChat: ActiveChat | null
   onChatSelect: (chat: ActiveChat) => void
+  onChatOpenInNewWindow?: (chat: ActiveChat) => void
   onChatClear: (chatId?: string) => void
   onNewChat: () => void
   refreshTrigger?: number
@@ -30,6 +31,7 @@ export function ChatsSection({
   sectionLabel = "Chats",
   activeChat,
   onChatSelect,
+  onChatOpenInNewWindow,
   onChatClear,
   onNewChat,
   refreshTrigger = 0,
@@ -157,6 +159,13 @@ export function ChatsSection({
                           })
                         }
                         onPin={() => togglePinChat(chatId)}
+                        onOpenInNewWindow={chat.sessionKey ? () =>
+                          onChatOpenInNewWindow?.({
+                            id: chat.id,
+                            name: chatDisplayName(chat),
+                            sessionKey: chat.sessionKey,
+                            spaceId: chat.spaceId,
+                          }) : undefined}
                         onRename={() =>
                           dialogActions.openRename(chat)
                         }
