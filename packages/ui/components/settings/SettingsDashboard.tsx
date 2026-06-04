@@ -5,14 +5,13 @@ import { Icons } from "@/components/icons"
 import { AppearanceTab } from "./tabs/AppearanceTab"
 import { HelpTab } from "./tabs/HelpTab"
 import { KeyboardShortcutsTab } from "./tabs/KeyboardShortcutsTab"
-import { ArchiveTab } from "./tabs/ArchiveTab"
 import { ConfigTab } from "./tabs/ConfigTab"
 import { UsageTab } from "./tabs/UsageTab"
 import { VoiceTab } from "./tabs/VoiceTab"
 import ConnectPage from "@/components/ConnectPage"
 import { cn } from "@/lib/utils"
 
-export type SettingSection = "usage" | "config" | "archive" | "connect" | "appearance" | "voice" | "help" | "shortcuts"
+export type SettingSection = "usage" | "config" | "connect" | "appearance" | "voice" | "help" | "shortcuts"
 
 type SectionGroup = {
   label: string
@@ -25,7 +24,6 @@ const SECTION_GROUPS: SectionGroup[] = [
     items: [
       { id: "usage", label: "Usage", icon: Icons.Automations },
       { id: "config", label: "Config", icon: Icons.Settings },
-      { id: "archive", label: "Archive", icon: Icons.File },
       { id: "connect", label: "Connect", icon: Icons.Globe },
     ],
   },
@@ -129,8 +127,6 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
           {resolvedSection === "usage" && <UsageTab />}
 
           {resolvedSection === "config" && <ConfigTab />}
-
-          {resolvedSection === "archive" && <ArchiveTab />}
 
           {resolvedSection === "connect" && <ConnectPage />}
 

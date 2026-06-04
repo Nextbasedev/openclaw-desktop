@@ -9,6 +9,7 @@ import { invalidateMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace, visibleChatsForSpace } from "@/lib/chatListCache"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import { deleteWarmChatCache } from "@/lib/warmChatCache"
+import { isSubagentSessionKey } from "@/lib/subagentSession"
 import { clearCachedChatActivity, getAllCachedChatActivity, subscribeChatActivity } from "@/lib/chatActivityStore"
 import type { Chat, ActiveChat } from "@/types/chat"
 
@@ -83,6 +84,7 @@ export function useChatsData(
   onChatClear: (chatId?: string) => void,
   refreshTrigger = 0,
   spaceId?: string | null,
+  showArchived = false,
 ) {
   const [chats, setChats] = useState<Chat[]>([])
   const [chatOrder, setChatOrder] = useState<string[]>([])
@@ -114,7 +116,7 @@ export function useChatsData(
 
   useEffect(() => {
     currentSpaceIdRef.current = spaceId
-  }, [spaceId])
+  }, [showArchived, spaceId])
 
   const loadChats = useCallback(async () => {
     currentSpaceIdRef.current = spaceId
@@ -124,13 +126,28 @@ export function useChatsData(
     const applyChats = (nextChats: Chat[]) => {
       if (!isCurrentRequest()) return
       latestChatsRef.current = nextChats
-      if (requestSpaceId) chatsBySpaceRef.current.set(requestSpaceId, nextChats)
+      if (requestSpaceId && !showArchived) chatsBySpaceRef.current.set(requestSpaceId, nextChats)
       setChats(nextChats)
       setPinnedChats(new Set(nextChats.filter((c) => c.pinned).map((c) => c.id)))
     }
     try {
-      const cachedChats = await loadCachedChatsForSpace(requestSpaceId)
-      if (cachedChats?.length && isCurrentRequest()) applyChats(cachedChats)
+      if (!showArchived) {
+        const cachedChats = await loadCachedChatsForSpace(requestSpaceId)
+        if (cachedChats?.length && isCurrentRequest()) applyChats(cachedChats)
+      }
+      if (showArchived) {
+        const result = await invoke<{ chats: Chat[] }>("middleware_chats_list", {
+          input: { archived: true, spaceId: requestSpaceId ?? undefined },
+        })
+        if (!isCurrentRequest()) return
+        applyChats((result.chats || []).filter((chat) => {
+          if (!chat.archived) return false
+          if (chat.isSubagent || chat.parentSessionKey || isSubagentSessionKey(chat.sessionKey)) return false
+          return !requestSpaceId || chat.spaceId === requestSpaceId
+        }))
+        return
+      }
+
       if (!requestSpaceId) return
 
       const active = await fetchChatsForSpace(requestSpaceId)
@@ -142,9 +159,10 @@ export function useChatsData(
       if (fallbackChats?.length) applyChats(fallbackChats)
       console.error("[ChatsSection] load chats failed", e)
     }
-  }, [spaceId])
+  }, [showArchived, spaceId])
 
   const cacheChatsForCurrentSpace = useCallback((nextChats: Chat[]) => {
+    if (showArchived) return
     const writeSpaceId = currentSpaceIdRef.current
     if (!writeSpaceId) return
     const scopedChats = visibleChatsForSpace(nextChats, writeSpaceId)
@@ -203,6 +221,7 @@ export function useChatsData(
   }, [])
 
   useEffect(() => {
+    if (showArchived) return
     const refreshRunningSessions = () => {
       const live = getAllCachedChatActivity()
       setRunningSessionKeys(
@@ -218,10 +237,10 @@ export function useChatsData(
     return () => {
       unsubscribe()
     }
-  }, [chats])
+  }, [chats, showArchived])
 
   useEffect(() => {
-    if (!spaceId) return
+    if (showArchived || !spaceId) return
     const subscriptionSpaceId = spaceId
     return localSyncSubscribeChats(subscriptionSpaceId, (state) => {
       if (currentSpaceIdRef.current !== subscriptionSpaceId) return
@@ -374,7 +393,7 @@ export function useChatsData(
         invalidateMiddlewareStartupBootstrap()
         invalidateChatListCache(spaceId)
         await invoke("middleware_chats_archive", {
-          input: { chatId },
+          input: { chatId, archived: !showArchived },
         })
         invalidateChatListCache(spaceId)
         onChatClear(chatId)

@@ -175,11 +175,7 @@ export function CollapsedSpacesPopover({
     clearPreviewTimer()
     setContextMenu((prev) => ({ ...prev, open: false, space: null }))
     setPlusMenu((prev) => ({ ...prev, open: false }))
-    window.dispatchEvent(
-      new CustomEvent("openclaw:open-settings", {
-        detail: { section: "archive" },
-      }),
-    )
+    window.dispatchEvent(new CustomEvent("openclaw:show-archived-chats"))
   }
 
   async function submitCreate() {

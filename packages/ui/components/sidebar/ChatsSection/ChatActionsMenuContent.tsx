@@ -7,6 +7,7 @@ export type ChatActionsMenuContentProps = {
   onOpenInNewWindow?: () => void
   onRename: () => void
   onArchive: () => void
+  archiveLabel?: string
   onDelete: () => void
 }
 
@@ -14,6 +15,7 @@ export function ChatActionsMenuContent({
   onOpenInNewWindow,
   onRename,
   onArchive,
+  archiveLabel = "Archive",
   onDelete,
 }: ChatActionsMenuContentProps) {
   return (
@@ -34,7 +36,7 @@ export function ChatActionsMenuContent({
         onClick={onRename}
       />
       <MenuAction
-        label="Archive"
+        label={archiveLabel}
         icon={<Icons.Archive size={14} strokeWidth={1.5} />}
         onClick={onArchive}
       />

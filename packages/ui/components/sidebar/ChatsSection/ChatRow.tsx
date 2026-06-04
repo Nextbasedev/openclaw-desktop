@@ -27,6 +27,7 @@ type Props = {
   onOpenInNewWindow?: () => void
   onRename: () => void
   onArchive: () => void
+  archiveLabel?: string
   onDelete: () => void
   disableReorder?: boolean
 }
@@ -58,6 +59,7 @@ export function ChatRow({
   onOpenInNewWindow,
   onRename,
   onArchive,
+  archiveLabel = "Archive",
   onDelete,
   disableReorder,
 }: Props) {
@@ -299,6 +301,7 @@ export function ChatRow({
                     onOpenInNewWindow={onOpenInNewWindow ? handleOpenInNewWindowAction : undefined}
                     onRename={handleRenameAction}
                     onArchive={handleArchiveAction}
+                    archiveLabel={archiveLabel}
                     onDelete={handleDeleteAction}
                   />
                 </motion.div>
@@ -397,6 +400,7 @@ export function ChatRow({
                   onOpenInNewWindow={onOpenInNewWindow ? handleOpenInNewWindowAction : undefined}
                   onRename={handleRenameAction}
                   onArchive={handleArchiveAction}
+                  archiveLabel={archiveLabel}
                   onDelete={handleDeleteAction}
                 />
               </motion.div>
