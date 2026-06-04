@@ -652,6 +652,40 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("bootstrap cursor uses session-scoped max projection event cursor", async () => {
+    const app = await createApp(config("bootstrap-global-session-cursor"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") return { sessionKey: "s1", sessionId: "sid-1", messages: [{ role: "user", text: "hello", __openclaw: { id: "u1", seq: 1 } }], status: "done" };
+      return { ok: true };
+    });
+    context.messages.appendProjectionEvent({ sessionKey: "other", eventType: "chat.message.upsert", payload: { sessionKey: "other" } });
+    context.messages.appendProjectionEvent({ sessionKey: "s1", eventType: "chat.message.upsert", payload: { sessionKey: "s1", messageId: "u1" } });
+    context.messages.appendProjectionEvent({ sessionKey: "other", eventType: "chat.status", payload: { sessionKey: "other" } });
+    context.messages.appendProjectionEvent({ sessionKey: "s1", eventType: "chat.status", payload: { sessionKey: "s1", status: "done" } });
+
+    const coldBootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(coldBootstrap.statusCode).toBe(200);
+    const coldCursor = context.messages.latestSessionCursor("s1");
+    expect(coldBootstrap.json().cursor).toBe(coldCursor);
+    expect(coldBootstrap.json().projection.cursor).toBe(coldCursor);
+
+    context.messages.appendProjectionEvent({ sessionKey: "other", eventType: "chat.status", payload: { sessionKey: "other" } });
+    const latestForSession = context.messages.appendProjectionEvent({ sessionKey: "s1", eventType: "chat.status", payload: { sessionKey: "s1", status: "done" } });
+    const localBootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(localBootstrap.statusCode).toBe(200);
+    expect(localBootstrap.json().cursor).toBe(latestForSession.cursor);
+    expect(localBootstrap.json().projection.cursor).toBe(latestForSession.cursor);
+    await app.close();
+  });
+
+  test("session cursor is 0 when a session has no projection events", async () => {
+    const app = await createApp(config("bootstrap-zero-session-cursor"));
+    const context = contextOf(app);
+    expect(context.messages.latestSessionCursor("s1")).toBe(0);
+    await app.close();
+  });
+
   test("logs send lifecycle metadata without user message content", async () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const app = await createApp(config("send-logs"));
