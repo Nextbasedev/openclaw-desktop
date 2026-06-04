@@ -294,7 +294,7 @@ export function CollapsedSpacesPopover({
               className={cn(
                 "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border transition-[background,box-shadow,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
                 active
-                  ? "scale-[1.08] border-white/[0.18] bg-white/[0.075] shadow-[0_18px_42px_rgba(0,0,0,0.48),0_0_30px_rgba(34,211,238,0.16),inset_0_1px_0_rgba(255,255,255,0.16)]"
+                  ? "scale-[1.07] border-transparent bg-[linear-gradient(145deg,rgba(255,255,255,0.12),rgba(255,255,255,0.035))] shadow-[0_18px_40px_rgba(0,0,0,0.48),0_12px_26px_rgba(8,145,178,0.13),inset_0_1px_0_rgba(255,255,255,0.18)]"
                   : "border-transparent shadow-[0_10px_24px_rgba(0,0,0,0.28)] hover:scale-[1.035] hover:bg-white/[0.035] hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]",
               )}
               aria-label={`Open project ${space.name}`}
@@ -302,31 +302,27 @@ export function CollapsedSpacesPopover({
               {active && (
                 <>
                   <motion.span
-                    layoutId="project-rail-active-aura"
-                    className="project-rail-active-aura absolute -inset-2 rounded-[18px]"
+                    layoutId="project-rail-active-glow"
+                    className="project-rail-active-glow absolute -inset-1.5 rounded-[17px]"
                     transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.8 }}
                   />
-                  <motion.span
-                    layoutId="project-rail-active-ring"
-                    className="project-rail-active-ring absolute -inset-[3px] rounded-[15px]"
-                    transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.7 }}
-                  />
+                  <span className="project-rail-active-colorflow absolute inset-[2px] overflow-hidden rounded-[11px]" />
                   <motion.span
                     layoutId="project-rail-active-indicator"
-                    className="absolute -right-[12px] top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-gradient-to-b from-cyan-200 via-white to-fuchsia-200 shadow-[0_0_18px_rgba(255,255,255,0.62),0_0_26px_rgba(34,211,238,0.28)]"
+                    className="absolute -right-[11px] top-1/2 h-8 w-1 -translate-y-1/2 rounded-full bg-[linear-gradient(180deg,rgba(34,211,238,0.95),rgba(255,255,255,0.96)_46%,rgba(168,85,247,0.78))] shadow-[0_0_16px_rgba(255,255,255,0.52),0_0_28px_rgba(34,211,238,0.22)]"
                     transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.7 }}
                   />
                 </>
               )}
               <span
                 className={cn(
-                  "relative flex size-full items-center justify-center overflow-hidden rounded-[10px] bg-transparent text-[14px] font-semibold text-white/80 shadow-lg shadow-black/25 backdrop-blur-sm transition-all duration-300",
+                  "relative z-10 flex size-full items-center justify-center overflow-hidden rounded-[10px] bg-transparent text-[14px] font-semibold text-white/80 shadow-lg shadow-black/25 backdrop-blur-sm transition-all duration-300",
                   "after:pointer-events-none after:absolute after:inset-0 after:bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.18),transparent_36%)] after:opacity-65",
                   emojiIcon && "bg-gradient-to-br text-[18px]",
                   emojiIcon && spaceIconEmojiColor(space),
                   !hasCustomIcon && !emojiIcon && gradientForSpace(space),
                   active
-                    ? "text-white brightness-125 saturate-150 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.20)]"
+                    ? "text-white brightness-125 saturate-150 shadow-[0_10px_22px_rgba(0,0,0,0.28)]"
                     : "group-hover:text-white group-hover:brightness-106 group-hover:saturate-120",
                 )}
               >
