@@ -9,6 +9,7 @@ import type {
 import { extractText } from "../components/ChatView/utils"
 import { extractSubagentSessionKey, extractSubagentSessionKeys } from "./subagentSession"
 import { mergeAssistantText } from "./chatMessageDedupe"
+import { buildInboundMediaUrl } from "./middlewareMedia"
 
 const BLOCKQUOTE_RE = /^((?:>[^\n]*(?:\n|$))+)\n([\s\S]+)$/
 const REFERENCE_BLOCK_RE = /Reference\s+\d+:\s*(?:\n)?([\s\S]*?)(?=\n\nReference\s+\d+:|$)/gi
@@ -563,7 +564,7 @@ function readAttachmentMimeType(raw: Record<string, unknown>): string | undefine
 }
 
 function readAttachmentName(raw: Record<string, unknown>, index: number): string {
-  return stringValue(raw.name) ?? stringValue(raw.fileName) ?? stringValue(raw.filename) ?? `attachment-${index + 1}`
+  return stringValue(raw.name) ?? stringValue(raw.fileName) ?? stringValue(raw.filename) ?? stringValue(raw.mediaId) ?? stringValue(raw.media_id) ?? `attachment-${index + 1}`
 }
 
 function readAttachmentContent(raw: Record<string, unknown>): string | undefined {
@@ -571,6 +572,14 @@ function readAttachmentContent(raw: Record<string, unknown>): string | undefined
   if (!direct) return undefined
   const dataUrl = direct.match(/^data:([^;,]+);base64,(.+)$/i)
   return dataUrl ? dataUrl[2] : direct
+}
+
+function readInboundMediaId(raw: Record<string, unknown>): string | undefined {
+  return stringValue(raw.mediaId) ?? stringValue(raw.media_id) ?? stringValue(raw.id)
+}
+
+function readAttachmentSize(raw: Record<string, unknown>): number | undefined {
+  return numberValue(raw.size) ?? numberValue(raw.bytes) ?? numberValue(raw.byteLength)
 }
 
 function mimeTypeFromAttachmentMarker(kind: string, name: string) {
@@ -623,14 +632,15 @@ function readContentBlockAttachments(content: RawHistoryMessage["content"]): Cha
     const mimeType = readAttachmentMimeType(raw) ?? readAttachmentMimeType(source) ?? (type === "image" || type === "input_image" ? "image/png" : undefined)
     if (!mimeType) return
     const content = readAttachmentContent(source) ?? readAttachmentContent(raw)
-    const url = stringValue(source.url) ?? stringValue(raw.url)
-    if (!content && !url) return
+    const mediaId = readInboundMediaId(source) ?? readInboundMediaId(raw)
+    const url = stringValue(source.url) ?? stringValue(raw.url) ?? (mediaId ? buildInboundMediaUrl(mediaId) ?? undefined : undefined)
+    if (!content && !url && !mediaId) return
     attachments.push({
-      name: readAttachmentName(raw, index),
+      name: readAttachmentName(raw, index) ?? mediaId ?? `attachment-${index + 1}`,
       mimeType,
       content,
       url,
-      size: numberValue(raw.size) ?? numberValue(source.size),
+      size: readAttachmentSize(raw) ?? readAttachmentSize(source),
     })
   })
   return attachments.length > 0 ? attachments : undefined
@@ -645,14 +655,15 @@ function readMessageAttachments(raw: RawHistoryMessage): ChatMessage["attachment
       const mimeType = readAttachmentMimeType(attachment) ?? (stringValue(attachment.type) === "image" ? "image/png" : undefined)
       if (!mimeType) return
       const content = readAttachmentContent(attachment)
-      const url = stringValue(attachment.url)
-      if (!content && !url) return
+      const mediaId = readInboundMediaId(attachment)
+      const url = stringValue(attachment.url) ?? (mediaId ? buildInboundMediaUrl(mediaId) ?? undefined : undefined)
+      if (!content && !url && !mediaId) return
       fromTopLevel.push({
-        name: readAttachmentName(attachment, index),
+        name: readAttachmentName(attachment, index) ?? mediaId ?? `attachment-${index + 1}`,
         mimeType,
         content,
         url,
-        size: numberValue(attachment.size),
+        size: readAttachmentSize(attachment),
       })
     })
   }

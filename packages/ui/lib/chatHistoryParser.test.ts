@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { describe, it } from "vitest"
+import { afterEach, describe, it, vi } from "vitest"
 
 import {
   cleanUserMessageText,
@@ -13,6 +13,10 @@ function clean(text: string): string {
     text.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim(),
   )
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe("stripGatewayPrefixes", () => {
   const gatewayCases: Array<[string, string, string]> = [
@@ -403,6 +407,46 @@ describe("parseChatHistory", () => {
     assert.equal(parsed.messages[0]?.text, "")
     assert.equal(parsed.messages[0]?.attachments?.[0]?.name, "screenshot.png")
     assert.equal(parsed.messages[0]?.attachments?.[0]?.content, "iVBORw0KGgo=")
+  })
+
+  it("restores omitted inbound image blocks as authenticated middleware media URLs", () => {
+    const storage = new Map<string, string>([
+      ["openclaw.middleware.url", "https://middleware.example.com/"],
+      ["openclaw.middleware.token", "secret token"],
+    ])
+    vi.stubGlobal("window", { location: { hostname: "localhost" } })
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+    })
+
+    const parsed = parseChatHistory([
+      {
+        id: "u1",
+        role: "user",
+        text: "look at this",
+        content: [
+          { type: "text", text: "look at this" },
+          {
+            type: "image",
+            omitted: true,
+            mediaId: "some-uuid.png",
+            mimeType: "image/png",
+            bytes: 42692,
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 1)
+    assert.deepEqual(parsed.messages[0]?.attachments, [
+      {
+        name: "some-uuid.png",
+        mimeType: "image/png",
+        content: undefined,
+        url: "https://middleware.example.com/api/chat/media/inbound/some-uuid.png?token=secret+token",
+        size: 42692,
+      },
+    ])
   })
 
   it("keeps marker-only uploaded image history as attachment metadata", () => {
