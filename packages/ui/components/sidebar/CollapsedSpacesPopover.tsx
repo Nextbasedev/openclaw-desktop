@@ -275,7 +275,7 @@ export function CollapsedSpacesPopover({
           className={cn(
             "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border text-white/80 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
             archivedSelected
-              ? "scale-[1.05] border-white/[0.08] bg-white/[0.075] shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
+              ? "scale-[1.05] border-transparent bg-white/[0.075] shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
               : "border-transparent bg-[linear-gradient(135deg,#111827_0%,rgba(31,41,55,0.9)_50%,rgba(17,24,39,0.7)_100%)] shadow-[0_10px_24px_rgba(0,0,0,0.28)] hover:scale-[1.035] hover:bg-white/[0.035] hover:text-white hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]",
           )}
           aria-label="Open archived chats"
@@ -309,7 +309,7 @@ export function CollapsedSpacesPopover({
               className={cn(
                 "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border transition-[background,box-shadow,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
                 active
-                  ? "scale-[1.05] border-white/[0.08] bg-white/[0.075] shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
+                  ? "scale-[1.05] border-transparent bg-white/[0.075] shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
                   : "border-transparent shadow-[0_10px_24px_rgba(0,0,0,0.28)] hover:scale-[1.035] hover:bg-white/[0.035] hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]",
               )}
               aria-label={`Open project ${space.name}`}
