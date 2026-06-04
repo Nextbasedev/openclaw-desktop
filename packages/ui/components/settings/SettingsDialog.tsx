@@ -24,7 +24,7 @@ export function SettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton
-        className="h-[min(760px,calc(100vh-48px))] w-[min(64rem,calc(100vw-48px))] max-w-5xl gap-0 overflow-hidden border-border/60 bg-background p-0 shadow-2xl sm:max-w-5xl"
+        className="settings-menu-dialog h-[min(760px,calc(100vh-48px))] w-[min(64rem,calc(100vw-48px))] max-w-5xl gap-0 overflow-hidden border-0 bg-[var(--glass-bg)] p-0 sm:max-w-5xl"
       >
         <DialogTitle className="sr-only">Settings</DialogTitle>
         <SettingsDashboard

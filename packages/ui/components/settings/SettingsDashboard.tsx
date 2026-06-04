@@ -66,14 +66,10 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
 
   return (
     <div
-      className="flex h-full w-full min-w-0 overflow-hidden"
-      style={{
-        background:
-          "linear-gradient(90deg, color-mix(in oklch, var(--muted) 20%, transparent) 0 220px, var(--background) 220px 100%)",
-      }}
+      className="flex h-full w-full min-w-0 overflow-hidden bg-transparent"
     >
-      <aside className="flex w-[220px] shrink-0 flex-col border-r border-border/60">
-        <div className="border-b border-border/50 px-4 py-4">
+      <aside className="flex w-[220px] shrink-0 flex-col bg-white/[0.025]">
+        <div className="px-4 py-4">
           {onBack ? (
             <button
               onClick={onBack}
@@ -109,7 +105,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
             ))}
           </div>
 
-          <div className="mt-auto border-t border-border/50 pt-3">
+          <div className="mt-auto pt-3">
             {FOOTER_ITEMS.map((item) => (
               <SettingsNavButton
                 key={item.id}
@@ -126,7 +122,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
         ref={scrollRef}
         className={cn(
           "min-h-0 flex-1 overflow-y-auto scrollbar-hide",
-          resolvedSection === "connect" ? "bg-background" : "bg-background px-8 py-7",
+          resolvedSection === "connect" ? "bg-transparent" : "bg-transparent px-8 py-7",
         )}
       >
         <div className={cn("mx-auto min-h-full", resolvedSection === "connect" ? "max-w-none" : "max-w-2xl")}>
@@ -168,10 +164,10 @@ function SettingsNavButton({
       aria-label={item.label}
       className={cn(
         "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors",
-        "outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "outline-none focus-visible:bg-white/[0.06]",
         isActive
-          ? "bg-foreground/8 text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
-          : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
+          ? "bg-white/[0.075] text-foreground"
+          : "text-muted-foreground hover:bg-white/[0.045] hover:text-foreground",
       )}
     >
       <Icon size={16} strokeWidth={isActive ? 2 : 1.5} className="shrink-0" />

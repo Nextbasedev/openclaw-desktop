@@ -30,7 +30,7 @@ function MiniMetric({
   className?: string
 }) {
   return (
-    <div className={`flex min-w-0 flex-col p-5 bg-card/40 dark:bg-[#121212] ${className}`}>
+    <div className={`flex min-w-0 flex-col rounded-md bg-white/[0.025] p-5 dark:bg-white/[0.025] ${className}`}>
       <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
@@ -48,7 +48,7 @@ function MiniMetric({
 
 function MiniMetricSkeleton({ className = "" }: { className?: string }) {
   return (
-    <div className={`flex h-[98px] min-w-0 flex-col p-5 bg-card/40 dark:bg-[#121212] ${className}`}>
+    <div className={`flex h-[98px] min-w-0 flex-col rounded-md bg-white/[0.025] p-5 dark:bg-white/[0.025] ${className}`}>
       <Skeleton className="h-3 w-16" />
       <Skeleton className="mt-4 h-7 w-20" />
       <Skeleton className="mt-2 h-3 w-24" />
@@ -64,7 +64,7 @@ type UsageStatsCardsProps = {
 export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsProps) {
   if (loading) {
     return (
-      <section className="flex flex-col rounded-md border border-border/40 overflow-hidden bg-card/40 dark:bg-[#121212]">
+      <section className="flex flex-col rounded-md bg-white/[0.025] dark:bg-white/[0.025]">
         <div className="p-6">
           <div className="flex flex-col gap-4 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between">
             <div className="flex flex-col gap-1.5">
@@ -72,7 +72,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
               <Skeleton className="h-[52px] w-48 mt-1" />
               <Skeleton className="h-4 w-64 mt-1.5" />
             </div>
-            <div className="flex h-[104px] min-w-[150px] flex-col rounded-md border border-border/40 bg-transparent p-5">
+            <div className="flex h-[104px] min-w-[150px] flex-col rounded-md bg-white/[0.035] p-5">
               <Skeleton className="h-3 w-12" />
               <Skeleton className="mt-4 h-8 w-24" />
             </div>
@@ -87,10 +87,10 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-border/40">
-          <MiniMetricSkeleton className="border-b border-r border-border/40 lg:border-b-0" />
-          <MiniMetricSkeleton className="border-b border-border/40 lg:border-b-0 lg:border-r" />
-          <MiniMetricSkeleton className="border-r border-border/40" />
+        <div className="grid grid-cols-2 gap-1 p-1 lg:grid-cols-4">
+          <MiniMetricSkeleton />
+          <MiniMetricSkeleton />
+          <MiniMetricSkeleton />
           <MiniMetricSkeleton />
         </div>
       </section>
@@ -106,7 +106,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
   const cacheShare = trackedTokens > 0 ? (cacheTokens / trackedTokens) * 100 : 0
 
   return (
-    <section className="flex flex-col rounded-md border border-border/40 overflow-hidden bg-card/40 dark:bg-[#121212]">
+    <section className="flex flex-col rounded-md bg-white/[0.025] dark:bg-white/[0.025]">
       <div className="p-6">
         <div className="flex flex-col gap-4 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between">
           <div className="flex flex-col gap-1.5">
@@ -121,7 +121,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
             </div>
           </div>
 
-          <div className="flex min-w-[150px] flex-col rounded-md border border-border/40 bg-transparent p-5">
+          <div className="flex min-w-[150px] flex-col rounded-md bg-white/[0.035] p-5">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Spend
             </div>
@@ -155,24 +155,21 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-border/40">
+      <div className="grid grid-cols-2 gap-1 p-1 lg:grid-cols-4">
         <MiniMetric
           label="Conversation"
           value={formatTokens(conversationTokens)}
           helper="Input + output"
-          className="border-b border-r border-border/40 lg:border-b-0"
         />
         <MiniMetric
           label="Input"
           value={formatTokens(summary.totalInputTokens)}
           helper={`${formatPercent(inputShare)} of conv.`}
-          className="border-b border-border/40 lg:border-b-0 lg:border-r"
         />
         <MiniMetric
           label="Output"
           value={formatTokens(summary.totalOutputTokens)}
           helper={`${formatPercent(outputShare)} of conv.`}
-          className="border-r border-border/40"
         />
         <MiniMetric
           label="Cache"

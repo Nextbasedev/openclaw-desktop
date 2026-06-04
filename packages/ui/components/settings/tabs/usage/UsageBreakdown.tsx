@@ -13,15 +13,15 @@ export function UsageBreakdown({
 }: UsageBreakdownProps) {
   if (loading) {
     return (
-      <div className="flex flex-col gap-0 rounded-md border border-border/40 bg-card/40 dark:bg-[#121212] overflow-hidden">
-        <div className="border-b border-border/40 bg-card/40 dark:bg-[#121212] px-5 py-4">
+      <div className="flex flex-col gap-0 overflow-hidden rounded-md bg-white/[0.025] dark:bg-white/[0.025]">
+        <div className="bg-white/[0.015] px-5 py-4">
           <div className="h-3 w-24 animate-pulse rounded bg-muted" />
         </div>
         <div className="flex flex-col gap-3 p-5">
           {Array.from({ length: 3 }).map((_, index) => (
             <div
               key={index}
-              className="flex items-center justify-between rounded-[10px] border border-border/40 bg-background/50 dark:bg-[#0A0A0A] px-5 py-4"
+              className="flex items-center justify-between rounded-[10px] bg-white/[0.035] px-5 py-4 dark:bg-white/[0.035]"
             >
               <div className="flex flex-col gap-2">
                 <div className="h-4 w-32 animate-pulse rounded-md bg-muted" />
@@ -42,8 +42,8 @@ export function UsageBreakdown({
   }
 
   return (
-    <div className="flex flex-col gap-0 rounded-md border border-border/40 bg-card/40 dark:bg-[#121212] overflow-hidden">
-      <div className="border-b border-border/40 px-5 py-4">
+    <div className="flex flex-col gap-0 overflow-hidden rounded-md bg-white/[0.025] dark:bg-white/[0.025]">
+      <div className="bg-white/[0.015] px-5 py-4">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Provider Status
         </span>
@@ -53,7 +53,7 @@ export function UsageBreakdown({
         {providers.map((p) => (
           <div
             key={p.provider}
-            className="flex flex-col gap-4 rounded-[10px] border border-border/40 px-5 py-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
+            className="flex flex-col gap-4 rounded-[10px] bg-white/[0.025] px-5 py-4 transition-colors hover:bg-white/[0.045] sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="flex flex-col gap-1">
               <span className="text-[14px] font-semibold text-foreground">
@@ -94,11 +94,11 @@ export function UsageBreakdown({
 
               <div className="flex-shrink-0 self-end sm:self-auto pb-[2px] sm:pb-0">
                 {p.error ? (
-                  <span className="rounded-[4px] border border-red-500/20 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-500 dark:text-red-400">
+                  <span className="rounded-[4px] bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-500 dark:text-red-400">
                     Error
                   </span>
                 ) : (
-                  <span className="rounded-[4px] border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-500">
+                  <span className="rounded-[4px] bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-500">
                     Active
                   </span>
                 )}

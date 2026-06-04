@@ -39,9 +39,9 @@ export function ThemeSelector() {
             type="button"
             onClick={() => setTheme(option.value)}
             className={cn(
-              "cursor-pointer flex flex-1 flex-col items-center justify-center gap-4 rounded-md border py-6 transition-all",
-              "border-border/50 bg-muted/20 text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-              isActive && "border-primary/50 bg-primary/5 text-primary shadow-sm ring-1 ring-primary/20"
+              "cursor-pointer flex flex-1 flex-col items-center justify-center gap-4 rounded-md py-6 transition-all",
+              "bg-white/[0.025] text-muted-foreground hover:bg-white/[0.045] hover:text-foreground",
+              isActive && "bg-white/[0.075] text-foreground"
             )}
           >
             <Icon
@@ -57,7 +57,6 @@ export function ThemeSelector() {
     </div>
   )
 }
-
 
 
 

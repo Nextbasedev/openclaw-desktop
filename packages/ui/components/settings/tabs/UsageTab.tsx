@@ -49,7 +49,7 @@ export function UsageTab() {
             type="button"
             onClick={refresh}
             disabled={loading}
-            className="shrink-0 cursor-pointer rounded-lg border border-border/45 bg-card/70 p-2 text-muted-foreground shadow-sm backdrop-blur-md transition-all hover:bg-muted/40 hover:text-foreground disabled:opacity-50"
+            className="shrink-0 cursor-pointer rounded-lg bg-white/[0.035] p-2 text-muted-foreground backdrop-blur-md transition-all hover:bg-white/[0.06] hover:text-foreground disabled:opacity-50"
             title="Refresh"
           >
             <Icons.Refresh
@@ -58,7 +58,7 @@ export function UsageTab() {
               className={loading ? "animate-spin" : ""}
             />
           </button>
-          <div className="flex min-w-0 gap-0 rounded-lg border border-border/45 bg-card/70 p-0.5 backdrop-blur-md">
+          <div className="flex min-w-0 gap-0 rounded-lg bg-white/[0.035] p-0.5 backdrop-blur-md">
             {PERIODS.map((p) => (
               <button
                 key={p.value}
@@ -79,7 +79,7 @@ export function UsageTab() {
       </div>
 
       {error && (
-        <div className="rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3">
+        <div className="rounded-xl bg-destructive/10 px-4 py-3">
           <p className="text-[12px] text-destructive">{error}</p>
         </div>
       )}
