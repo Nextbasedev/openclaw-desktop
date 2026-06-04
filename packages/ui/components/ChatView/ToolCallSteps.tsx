@@ -3,69 +3,39 @@
 import { useMemo, useState, memo } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight } from "react-icons/vsc"
-import {
-  LuBrain,
-  LuClock,
-  LuFileCode,
-  LuFileText,
-  LuGlobe,
-  LuImage,
-  LuMessageSquare,
-  LuPencil,
-  LuRefreshCw,
-  LuSettings2,
-  LuShieldCheck,
-  LuSparkles,
-  LuWrench,
-} from "react-icons/lu"
-import type { IconType } from "react-icons"
+import { LuShieldCheck } from "react-icons/lu"
 import { ToolCallDetails, getToolDetailState } from "./ToolCallDetails"
 import type { InlineToolCall } from "./types"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
-const TOOL_ICON_META: Record<string, IconType> = {
-  read: LuFileText,
-  write: LuPencil,
-  edit: LuPencil,
-  apply_patch: LuFileCode,
-  exec: LuFileCode,
-  process: LuRefreshCw,
-  web_fetch: LuGlobe,
-  web_search: LuGlobe,
-  cron: LuClock,
-  sessions_list: LuMessageSquare,
-  sessions_history: LuMessageSquare,
-  sessions_send: LuMessageSquare,
-  sessions_spawn: LuSparkles,
-  sessions_yield: LuSparkles,
-  subagents: LuSparkles,
-  session_status: LuSettings2,
-  image: LuImage,
-  image_generate: LuImage,
-  memory_get: LuBrain,
-  memory_search: LuBrain,
-  update_plan: LuWrench,
-}
-
-function toolIcon(tool: string): IconType {
+function toolBadge(tool: string) {
   const normalized = normalizeToolName(tool).toLowerCase()
-  return TOOL_ICON_META[normalized] ?? LuSparkles
+  if (normalized === "session_status") {
+    return { label: "SESSION", className: "bg-[#dcf0e3] text-[#2f6245] dark:bg-[#2a3a2e] dark:text-[#b7dfc1]" }
+  }
+  if (normalized === "read") {
+    return { label: "READ", className: "bg-[#daeaf8] text-[#1d5d96] dark:bg-[#1e3049] dark:text-[#8dbdff]" }
+  }
+  if (normalized === "memory_search" || normalized === "memory_get") {
+    return { label: normalized === "memory_search" ? "MEM SEARCH" : "MEM", className: "bg-[#ede6f8] text-[#6450a8] dark:bg-[#3a2850] dark:text-[#c9b0ff]" }
+  }
+  if (normalized === "exec" || normalized === "process") {
+    return { label: normalized === "process" ? "PROCESS" : "EXEC", className: "bg-[#e4f0d8] text-[#52762d] dark:bg-[#2a3a1e] dark:text-[#bde98f]" }
+  }
+  return { label: toolVerb(tool), className: "bg-[#e5e3de] text-[#55534f] dark:bg-[#333333] dark:text-[#c9c7c2]" }
 }
 
-function ToolIcon({ tool, status }: { tool: string; status: InlineToolCall["status"] }) {
-  const Icon = toolIcon(tool)
+function StatusDot({ status }: { status: InlineToolCall["status"] }) {
   return (
     <span
       className={cn(
-        "flex size-4 shrink-0 items-center justify-center rounded-md transition-colors",
-        status === "running" && "bg-amber-400/10 text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.18)] animate-pulse",
-        status === "error" && "bg-rose-400/10 text-rose-300 shadow-[0_0_10px_rgba(251,113,133,0.16)]",
-        status === "success" && "bg-emerald-400/10 text-emerald-300 shadow-[0_0_8px_rgba(52,211,153,0.14)]"
+        "absolute left-[3px] top-[14px] z-10 size-2 rounded-full ring-2 ring-[#ffffff] dark:ring-[#1a1a1a]",
+        status === "success" && "bg-[#16a34a] dark:bg-[#4ade8a]",
+        status === "running" && "bg-[#16a34a] dark:bg-[#4ade8a] animate-pulse",
+        status === "error" && "bg-red-500 dark:bg-red-400"
       )}
-    >
-      <Icon className="size-3" strokeWidth={2} />
-    </span>
+    />
   )
 }
 
@@ -186,6 +156,8 @@ function sortToolsByCallOrder(tools: InlineToolCall[]) {
 
 function ToolRow({
   call,
+  index,
+  total,
   open,
   onOpenChange,
   onSelect,
@@ -194,6 +166,8 @@ function ToolRow({
   sessionKey,
 }: {
   call: InlineToolCall
+  index: number
+  total: number
   open: boolean
   onOpenChange: (id: string, open: boolean) => void
   onSelect?: (id: string) => void
@@ -207,6 +181,7 @@ function ToolRow({
   const { inputText, outputText, fullOutputText, hasDetails } = getToolDetailState(call)
   const subject = toolSubject(call, inputText)
   const metrics = toolMetrics(fullOutputText ?? outputText, call)
+  const badge = toolBadge(call.tool)
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
   const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
   const approval = call.approval
@@ -223,7 +198,10 @@ function ToolRow({
   }
 
   return (
-    <div className={cn("rounded-md transition-colors duration-100", approval && "border border-amber-400/15 bg-amber-400/[0.035]")}>
+    <div className={cn("relative pl-7 transition-colors duration-100", approval && "rounded-lg bg-amber-400/[0.035]")}>
+      {index > 0 && <span className="absolute left-[6.5px] top-0 h-[14px] w-px bg-[#d4d2cd] dark:bg-[#444444]" />}
+      {index < total - 1 && <span className="absolute bottom-0 left-[6.5px] top-[22px] w-px bg-[#d4d2cd] dark:bg-[#444444]" />}
+      <StatusDot status={call.status} />
       <button
         type="button"
         onClick={(e) => {
@@ -236,17 +214,17 @@ function ToolRow({
           }
         }}
         className={cn(
-          "group flex w-full items-center gap-2 bg-transparent px-1.5 py-[5px] text-left",
-          open ? "rounded-t-md rounded-b-none bg-card/55" : "rounded-md",
+          "group flex min-h-8 w-full items-center gap-2 px-3 py-1.5 text-left",
+          open ? "rounded-t-md rounded-b-none bg-[#f3f1ee] dark:bg-[#2a2a2a]" : "rounded-md bg-[#f9f8f6] dark:bg-[#222222]",
+          "border border-[#e5e3de] dark:border-[#333333]",
           "cursor-pointer transition-colors duration-100",
-          "hover:bg-card/55"
+          "hover:bg-[#f3f1ee] dark:hover:bg-[#2a2a2a]"
         )}
       >
-        <ToolIcon tool={call.tool} status={call.status} />
-        <span className="shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-amber-300/80">
-          {toolVerb(call.tool)}
+        <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none", badge.className)}>
+          {badge.label}
         </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground/82">
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] font-semibold text-[#1c1c1a] dark:text-[#e8e6e0]">
           {subject}
         </span>
         {approval && (
@@ -254,7 +232,7 @@ function ToolRow({
             approval needed
           </span>
         )}
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground/45 tabular-nums">
+        <span className="shrink-0 font-mono text-[10px] text-[#a8a6a1] dark:text-[#555553] tabular-nums">
           {metrics}
         </span>
         <span
@@ -390,7 +368,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
   if (!total) return null
 
   return (
-    <div className="mb-2 ml-1 border-l border-border/20 pl-2">
+    <div className="mb-2 ml-1 pl-2">
       <button
         type="button"
         onClick={() => {
@@ -407,11 +385,13 @@ export const ToolCallSteps = memo(function ToolCallSteps({
         </span>
       </button>
       {stepsOpen && (
-        <div className="relative z-0 space-y-0.5 overflow-visible">
-          {orderedTools.map((call) => (
+        <div className="relative z-0 space-y-1.5 overflow-visible">
+          {orderedTools.map((call, index) => (
             <ToolRow
               key={call.id}
               call={call}
+              index={index}
+              total={total}
               open={openToolId === call.id}
               onOpenChange={handleToolOpenChange}
               onSelect={onSelectTool}
