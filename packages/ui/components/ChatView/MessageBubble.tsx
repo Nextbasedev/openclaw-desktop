@@ -1217,8 +1217,13 @@ export const MessageBubble = memo(function MessageBubble({
                     <PopoverContent
                       align="start"
                       side="right"
-                      sideOffset={4}
-                      className={cn("w-36 gap-0 p-1", GLASS_POPOVER)}
+                      sideOffset={8}
+                      className={cn(
+                        "w-44 gap-0 rounded-2xl p-1.5 ring-0",
+                        "border border-black/70 bg-[var(--glass-bg)]",
+                        "backdrop-blur-[40px] backdrop-saturate-[180%]",
+                        "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+                      )}
                     >
                       {onPin && (
                         <MenuAction
