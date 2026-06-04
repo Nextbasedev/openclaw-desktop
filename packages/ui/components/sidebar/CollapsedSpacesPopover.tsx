@@ -437,7 +437,7 @@ function ArchiveBoxIcon() {
   return (
     <svg
       aria-hidden="true"
-      className="size-4"
+      className="size-5"
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
