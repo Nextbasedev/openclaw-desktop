@@ -39,6 +39,27 @@ describe("editorGroupsReducer", () => {
     expect(next).toBe(state)
   })
 
+  it("keeps active session data in sync when updating a chat tab title and chat", () => {
+    const state = createInitialState(chatTab("a"))
+    const renamedChat = { id: "a", name: "Generated title", sessionKey: "agent:main:desktop:a" }
+
+    const next = editorGroupsReducer(state, {
+      type: "UPDATE_TAB",
+      tabId: "chat:a",
+      updates: { title: "Generated title", chat: renamedChat },
+    })
+
+    expect(next.groups[0]?.tabs[0]).toMatchObject({
+      title: "Generated title",
+      chat: renamedChat,
+    })
+    expect(next.groups[0]?.sessionData).toEqual({
+      chat: renamedChat,
+      sessionKey: "agent:main:desktop:a",
+      title: "Generated title",
+    })
+  })
+
   it("reorders tabs inside the same group without changing the active tab", () => {
     let state = createInitialState(chatTab("a"))
     state = editorGroupsReducer(state, { type: "ADD_TAB", tab: chatTab("b") })

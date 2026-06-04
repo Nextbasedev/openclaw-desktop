@@ -799,6 +799,15 @@ export class MessageRepository {
     };
   }
 
+  latestSessionCursor(sessionKey: string): number {
+    const row = this.db.prepare(`
+      SELECT COALESCE(max(cursor), 0) AS cursor
+      FROM v2_projection_events
+      WHERE session_key = @sessionKey
+    `).get({ sessionKey }) as { cursor: number | null } | undefined;
+    return row?.cursor ?? 0;
+  }
+
   appendProjectionEvent(params: { sessionKey?: string | null; eventType: string; payload: unknown; createdAtMs?: number }): ProjectionEvent {
     const createdAtMs = params.createdAtMs ?? Date.now();
     const info = this.db.prepare(`

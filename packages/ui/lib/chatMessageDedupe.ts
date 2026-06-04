@@ -92,6 +92,12 @@ function hasOverlappingToolCalls(a: ChatMessage, b: ChatMessage) {
   return (b.toolCalls ?? []).some((tool) => aIds.has(tool.id))
 }
 
+function hasOverlappingToolOnlyCalls(a: ChatMessage, b: ChatMessage) {
+  if (collapseRepeatedAssistantText(a.text) || collapseRepeatedAssistantText(b.text)) return false
+  if (!a.toolCalls?.length || !b.toolCalls?.length) return false
+  return hasOverlappingToolCalls(a, b)
+}
+
 function hasDifferentGatewayIndex(a: ChatMessage, b: ChatMessage) {
   const aIndex = a.gatewayIndex
   const bIndex = b.gatewayIndex
@@ -235,6 +241,12 @@ function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if ((isLiveAssistantEcho(a) || isLiveAssistantEcho(b)) && aText && aText === bText) return true
   if (hasSameRunId(a, b) && aText && aText === bText) return true
 
+  // Tool-only assistant rows are often replay/update projections for the same
+  // underlying tool call. Collapse those by tool id even when live/backfill
+  // sequence numbers drift, but keep text-bearing assistant replies protected
+  // by gatewayIndex so distinct answers do not merge solely because a backend
+  // accidentally reused a tool id.
+  if (hasOverlappingToolOnlyCalls(a, b)) return true
   if (hasDifferentGatewayIndex(a, b)) return false
   if (isAssistantErrorLike(a) && isAssistantErrorLike(b)) {
     return a.messageId === b.messageId || hasSameGatewayIndex(a, b)

@@ -246,6 +246,109 @@ describe("global V2 chat engine store", () => {
     expect(state.historyCoverage).toBe("full")
   })
 
+  test("late full bootstrap seed does not remove optimistic rows or reorder local messages", () => {
+    seedGlobalChatSession({
+      sessionKey: "s-late-seed",
+      cursor: 200,
+      historyCoverage: "full",
+      messageCount: 3,
+      status: "thinking",
+      messages: [
+        { messageId: "msg-1", role: "user", text: "old question", gatewayIndex: 1 },
+        { messageId: "run-1", role: "assistant", text: "old answer", gatewayIndex: 2, runId: "run-1" },
+        {
+          messageId: "client:local-1",
+          role: "user",
+          text: "new local question",
+          isOptimistic: true,
+          sendStatus: "sending",
+          __clientOptimistic: true,
+          __openclaw: { id: "client:local-1", clientMessageId: "local-1", cursor: 200 },
+        } as any,
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s-late-seed",
+      cursor: 150,
+      historyCoverage: "full",
+      messageCount: 2,
+      status: "done",
+      messages: [
+        { messageId: "msg-1", role: "user", text: "old question", gatewayIndex: 1 },
+        { messageId: "run-1", role: "assistant", text: "old answer", gatewayIndex: 2, runId: "run-1" },
+      ],
+    })
+
+    const state = getGlobalChatSession("s-late-seed")!
+    expect(state.cursor).toBe(200)
+    expect(state.messages.map((message) => message.messageId)).toEqual(["msg-1", "run-1", "client:local-1"])
+    expect(state.messages[2]).toMatchObject({ text: "new local question", isOptimistic: true, sendStatus: "sending" })
+  })
+
+  test("bootstrap seed reconciles optimistic rows to confirmed rows under the same client key", () => {
+    seedGlobalChatSession({
+      sessionKey: "s-confirm-seed",
+      cursor: 100,
+      historyCoverage: "full",
+      status: "thinking",
+      messages: [
+        {
+          messageId: "client:turn-1",
+          role: "user",
+          text: "same turn",
+          isOptimistic: true,
+          sendStatus: "sending",
+          __clientOptimistic: true,
+          __openclaw: { id: "client:turn-1", clientMessageId: "turn-1", cursor: 100 },
+        } as any,
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s-confirm-seed",
+      cursor: 105,
+      historyCoverage: "full",
+      status: "done",
+      messages: [
+        {
+          messageId: "gateway-turn-1",
+          role: "user",
+          text: "same turn",
+          gatewayIndex: 1,
+          isOptimistic: false,
+          __clientOptimistic: false,
+          __openclaw: { id: "gateway-turn-1", clientMessageId: "turn-1", cursor: 105 },
+        } as any,
+      ],
+    })
+
+    const state = getGlobalChatSession("s-confirm-seed")!
+    expect(state.messages).toHaveLength(1)
+    expect(state.messages[0]).toMatchObject({ messageId: "gateway-turn-1", text: "same turn", gatewayIndex: 1, isOptimistic: false })
+    expect(state.messages[0].sendStatus).toBeUndefined()
+  })
+
+  test("normal first bootstrap seed still populates the session fully", () => {
+    seedGlobalChatSession({
+      sessionKey: "s-first-seed",
+      cursor: 10,
+      historyCoverage: "full",
+      messageCount: 2,
+      status: "done",
+      messages: [
+        { messageId: "u1", role: "user", text: "hello", gatewayIndex: 1 },
+        { messageId: "a1", role: "assistant", text: "hi", gatewayIndex: 2, runId: "run-a" },
+      ],
+    })
+
+    const state = getGlobalChatSession("s-first-seed")!
+    expect(state.cursor).toBe(10)
+    expect(state.historyCoverage).toBe("full")
+    expect(state.messageCount).toBe(2)
+    expect(state.messages.map((message) => `${message.role}:${message.text}`)).toEqual(["user:hello", "assistant:hi"])
+  })
+
   test("paginated older history seed preserves partial coverage and survives later non-message patches", () => {
     const seen: number[] = []
     seedGlobalChatSession({
@@ -399,7 +502,7 @@ describe("global V2 chat engine store", () => {
     ]))
   })
 
-  test("session cursor reset bootstrap preserves previous transcript messages", () => {
+  test("session cursor reset bootstrap preserves previous transcript messages without reordering", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
       cursor: 42,
@@ -423,9 +526,9 @@ describe("global V2 chat engine store", () => {
       cursor: 42,
       status: "done",
       messages: [
-        { messageId: "u-new", text: "new question after reset" },
         { messageId: "u-old", text: "old question" },
         { messageId: "a-old", text: "old answer" },
+        { messageId: "u-new", text: "new question after reset" },
       ],
     })
   })
@@ -1128,6 +1231,53 @@ describe("global V2 chat engine store", () => {
 
     expect(getGlobalChatSession("s1")?.messages[0]?.toolCalls).toMatchObject([
       { id: "tc-visible", tool: "read", status: "success", resultText: "file contents" },
+    ])
+  })
+
+  test("dedupes live tool-call message blocks by stable toolCallId instead of event id", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          sessionKey: "s1",
+          runStatus: "tool_running",
+          activeRun: { status: "tool_running" },
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "event-start-1", toolCallId: "tc-stable", name: "exec", input: { command: "echo hi" } }],
+          },
+        },
+      },
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1_100,
+        payload: {
+          sessionKey: "s1",
+          runStatus: "tool_running",
+          activeRun: { status: "tool_running" },
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "event-update-2", toolCallId: "tc-stable", name: "exec", input: { command: "echo hi" } }],
+          },
+        },
+      },
+    })
+
+    const toolsInMessages = getGlobalChatSession("s1")?.messages.flatMap((message) => message.toolCalls ?? []) ?? []
+    expect(toolsInMessages).toHaveLength(1)
+    expect(toolsInMessages[0]).toMatchObject({ id: "tc-stable", tool: "exec", status: "running" })
+    expect(getGlobalChatSession("s1")?.pendingTools).toMatchObject([
+      { id: "tc-stable", tool: "exec", status: "running" },
     ])
   })
 
@@ -3099,6 +3249,156 @@ describe("global V2 chat engine store", () => {
     const state = getGlobalChatSession("s1")
     expect(state?.pendingTools.find((t) => t.id === "tc-run")?.status).toBe("running")
     expect(state?.pendingTools.find((t) => t.id === "tc-new")?.status).toBe("running")
+  })
+
+  test("live repeated tool-only assistant upserts collapse to one visible tool block with terminal state", () => {
+    const now = Date.now()
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 100,
+      status: "thinking",
+      messages: [
+        { messageId: "u1", role: "user", text: "run status", gatewayIndex: 100, runId: "run-1" },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 101,
+        type: "chat.tool.started",
+        sessionKey: "s1",
+        createdAtMs: now,
+        payload: {
+          sessionKey: "s1",
+          semanticType: "chat.tool.started",
+          runId: "run-1",
+          runStatus: "tool_running",
+          toolCallId: "tool-live",
+          toolCall: { toolCallId: "tool-live", name: "session_status", phase: "calling", status: "running", startedAtMs: now },
+        },
+      },
+    })
+
+    for (const [cursor, messageId, messageSeq] of [[102, "a-tool-1", 108], [103, "a-tool-2", 110], [104, "a-tool-3", 112]] as const) {
+      ingestGlobalChatPatchForTests({
+        type: "patch",
+        patch: {
+          cursor,
+          type: "chat.message.upsert",
+          sessionKey: "s1",
+          createdAtMs: now + cursor,
+          payload: {
+            sessionKey: "s1",
+            semanticType: "chat.message.upsert",
+            runId: "run-1",
+            messageId,
+            messageSeq,
+            message: {
+              id: messageId,
+              role: "assistant",
+              content: [{ type: "toolCall", id: "tool-live", name: "session_status", input: {} }],
+              createdAt: new Date(now + cursor).toISOString(),
+            },
+          },
+        },
+      })
+    }
+
+    for (const cursor of [105, 106, 107]) {
+      ingestGlobalChatPatchForTests({
+        type: "patch",
+        patch: {
+          cursor,
+          type: "chat.tool.result",
+          sessionKey: "s1",
+          createdAtMs: now + cursor,
+          payload: {
+            sessionKey: "s1",
+            semanticType: "chat.tool.result",
+            runId: "run-1",
+            runStatus: "tool_running",
+            toolCallId: "tool-live",
+            toolCall: { toolCallId: "tool-live", name: "session_status", phase: "result", status: "success", startedAtMs: now, finishedAtMs: now + 500, resultMeta: "ok" },
+          },
+        },
+      })
+    }
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 108,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: now + 108,
+        payload: {
+          sessionKey: "s1",
+          semanticType: "chat.message.upsert",
+          runId: "run-1",
+          runStatus: "done",
+          messageId: "a-tool-backfill",
+          messageSeq: 114,
+          message: {
+            id: "a-tool-backfill",
+            role: "assistant",
+            content: [{ type: "toolCall", id: "tool-live", name: "session_status", input: {} }],
+            createdAt: new Date(now + 108).toISOString(),
+          },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    const toolRows = state?.messages.filter((message) => message.role === "assistant" && message.toolCalls?.some((tool) => tool.id === "tool-live")) ?? []
+    expect(toolRows).toHaveLength(1)
+    expect(toolRows[0]?.toolCalls?.filter((tool) => tool.id === "tool-live")).toHaveLength(1)
+    expect(toolRows[0]?.toolCalls?.[0]).toMatchObject({ id: "tool-live", status: "success", resultText: "ok" })
+    expect(state?.pendingTools.find((tool) => tool.id === "tool-live")).toBeUndefined()
+  })
+
+  test("live adjacent tool-only assistant upserts without runStatus merge into one steps block", () => {
+    const now = Date.now()
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 200,
+      status: "thinking",
+      messages: [
+        { messageId: "u1", role: "user", text: "check several things", gatewayIndex: 200, runId: "run-merge" },
+      ],
+    })
+
+    const toolUpsert = (cursor: number, messageId: string, toolId: string, name: string) => ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: now + cursor,
+        payload: {
+          sessionKey: "s1",
+          semanticType: "chat.message.upsert",
+          runId: "run-merge",
+          messageId,
+          messageSeq: cursor,
+          message: {
+            id: messageId,
+            role: "assistant",
+            content: [{ type: "toolCall", id: toolId, name, input: {} }],
+            createdAt: new Date(now + cursor).toISOString(),
+          },
+        },
+      },
+    })
+
+    toolUpsert(201, "a-tool-read", "tool-read", "read")
+    toolUpsert(202, "a-tool-status", "tool-status", "session_status")
+    toolUpsert(203, "a-tool-edit", "tool-edit", "edit")
+
+    const state = getGlobalChatSession("s1")
+    const toolRows = state?.messages.filter((message) => message.role === "assistant" && message.toolCalls?.length) ?? []
+    expect(toolRows).toHaveLength(1)
+    expect(toolRows[0]?.toolCalls?.map((tool) => tool.id)).toEqual(["tool-read", "tool-status", "tool-edit"])
   })
 
   test("new user turn clears previous detached running tools and finalizes old visible tool rows", () => {

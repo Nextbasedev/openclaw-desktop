@@ -159,6 +159,10 @@ type SessionHistoryPayload = {
     model?: string
     usage?: unknown
     stopReason?: string
+    MediaPath?: string
+    MediaPaths?: string[]
+    MediaType?: string
+    MediaTypes?: string[]
     attachments?: Array<{
       name: string
       mimeType: string
@@ -212,6 +216,153 @@ const DEFAULT_CLIENT = {
 } satisfies GatewayClientIdentity
 const DEFAULT_ORIGIN = "http://127.0.0.1:3000"
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
+const INBOUND_MEDIA_ID_RE = /^[^\s/\\\0]+$/u
+
+type HeaderValue = string | string[] | undefined
+
+type InboundChatMediaRouteRequest = {
+  params?: { id?: string }
+  headers?: Record<string, HeaderValue>
+  query?: Record<string, unknown>
+}
+
+type InboundChatMediaRouteResponse = {
+  status(code: number): InboundChatMediaRouteResponse
+  setHeader(name: string, value: string | number): void
+  send(body: unknown): void
+}
+
+export type InboundChatMedia = {
+  id: string
+  path: string
+  mimeType: string
+  content: Buffer
+}
+
+function inboundMediaDir() {
+  return path.join(process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), ".openclaw"), "media", "inbound")
+}
+
+function isSafeInboundMediaId(id: string) {
+  return Boolean(id) && id !== ".." && !id.includes("..") && !id.includes("/") && !id.includes("\\") && !id.includes("\0") && INBOUND_MEDIA_ID_RE.test(id)
+}
+
+function mediaMimeTypeFromFileName(fileName: string) {
+  const ext = path.extname(fileName).toLowerCase()
+  if (ext === ".png") return "image/png"
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg"
+  if (ext === ".gif") return "image/gif"
+  if (ext === ".webp") return "image/webp"
+  return "application/octet-stream"
+}
+
+function inboundMediaIdFromPath(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return null
+  const dir = inboundMediaDir()
+  const filePath = path.resolve(value.trim())
+  const relative = path.relative(dir, filePath)
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return null
+  const id = path.basename(filePath)
+  return isSafeInboundMediaId(id) ? id : null
+}
+
+function inboundMediaIdsFromHistoryMessage(message: { MediaPath?: string; MediaPaths?: string[] }) {
+  const rawPaths = Array.isArray(message.MediaPaths) ? message.MediaPaths : typeof message.MediaPath === "string" ? [message.MediaPath] : []
+  return rawPaths.map(inboundMediaIdFromPath).filter((id): id is string => Boolean(id))
+}
+
+function addMediaIdsToOmittedImageBlocks(content: unknown, mediaIds: string[]) {
+  if (!Array.isArray(content) || mediaIds.length === 0) return content
+  let nextImageIndex = 0
+  return content.map((block) => {
+    if (!block || typeof block !== "object" || Array.isArray(block)) return block
+    const record = block as Record<string, unknown>
+    if (record.type !== "image" || record.omitted !== true || typeof record.mediaId === "string") return block
+    const mediaId = mediaIds[nextImageIndex]
+    nextImageIndex += 1
+    return mediaId ? { ...record, mediaId } : block
+  })
+}
+
+function firstHeaderValue(value: HeaderValue) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+function inboundMediaAuthToken() {
+  return (process.env.MIDDLEWARE_TOKEN ?? process.env.JARVIS_SERVER_TOKEN ?? "").trim()
+}
+
+function isInboundMediaRequestAuthorized(request: InboundChatMediaRouteRequest) {
+  const expectedToken = inboundMediaAuthToken()
+  if (!expectedToken) return true
+  const authorization = firstHeaderValue(request.headers?.authorization)?.trim() ?? ""
+  const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim()
+  const queryToken = typeof request.query?.token === "string" ? request.query.token.trim() : ""
+  return bearer === expectedToken || queryToken === expectedToken
+}
+
+export async function readInboundChatMedia(id: string): Promise<InboundChatMedia | null> {
+  if (!isSafeInboundMediaId(id)) {
+    const error = new Error("Invalid media id")
+    ;(error as Error & { statusCode?: number }).statusCode = 400
+    throw error
+  }
+
+  const dir = inboundMediaDir()
+  const filePath = path.join(dir, id)
+  const relative = path.relative(dir, filePath)
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    const error = new Error("Invalid media id")
+    ;(error as Error & { statusCode?: number }).statusCode = 400
+    throw error
+  }
+
+  let stat
+  try {
+    stat = await fs.lstat(filePath)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null
+    throw error
+  }
+  if (stat.isSymbolicLink()) return null
+  if (!stat.isFile()) return null
+
+  return {
+    id,
+    path: filePath,
+    mimeType: mediaMimeTypeFromFileName(id),
+    content: await fs.readFile(filePath),
+  }
+}
+
+export async function inboundChatMediaRoute(req: InboundChatMediaRouteRequest, res: InboundChatMediaRouteResponse) {
+  if (!isInboundMediaRequestAuthorized(req)) {
+    res.status(401).send({ error: "Unauthorized" })
+    return
+  }
+
+  const id = req.params?.id ?? ""
+  let media: InboundChatMedia | null
+  try {
+    media = await readInboundChatMedia(id)
+  } catch (error) {
+    if ((error as Error & { statusCode?: number }).statusCode === 400) {
+      res.status(400).send({ error: "Invalid media id" })
+      return
+    }
+    throw error
+  }
+
+  if (!media) {
+    res.status(404).send({ error: "Media not found" })
+    return
+  }
+
+  res.setHeader("Content-Type", media.mimeType)
+  res.setHeader("Content-Length", media.content.length)
+  res.setHeader("Cache-Control", "private, max-age=31536000, immutable")
+  res.send(media.content)
+}
 
 function normalizeDeviceMetadataForAuth(value: string | undefined) {
   return typeof value === "string" && value.trim()
@@ -680,18 +831,23 @@ export async function getChatHistory(sessionKey: string) {
       sessionKey,
       thinkingLevel: payload?.thinkingLevel ?? null,
       verboseLevel: payload?.verboseLevel ?? null,
-      messages: (payload?.messages ?? []).map((message) => ({
-        id: message.id ?? crypto.randomUUID(),
-        role: message.role ?? "assistant",
-        content: message.content ?? "",
-        text: contentBlocksToText(message.content),
-        createdAt: message.createdAt ?? (typeof message.timestamp === "string" ? message.timestamp : new Date().toISOString()),
-        model: message.model ?? null,
-        usage: normalizeChatTokenUsage(message.usage),
-        stopReason: message.stopReason ?? null,
-        toolCalls: extractToolCallBlocks(message.content),
-        attachments: message.attachments,
-      })),
+      messages: (payload?.messages ?? []).map((message) => {
+        const mediaIds = inboundMediaIdsFromHistoryMessage(message)
+        const content = addMediaIdsToOmittedImageBlocks(message.content, mediaIds)
+        return {
+          id: message.id ?? crypto.randomUUID(),
+          role: message.role ?? "assistant",
+          content: content ?? "",
+          text: contentBlocksToText(content),
+          createdAt: message.createdAt ?? (typeof message.timestamp === "string" ? message.timestamp : new Date().toISOString()),
+          model: message.model ?? null,
+          usage: normalizeChatTokenUsage(message.usage),
+          stopReason: message.stopReason ?? null,
+          toolCalls: extractToolCallBlocks(content),
+          attachments: message.attachments,
+          mediaIds,
+        }
+      }),
     }
   } finally {
     gateway.close()
@@ -1028,12 +1184,17 @@ export async function openChatEventStream(input: {
 
         const blocks = Array.isArray(payload.message.content) ? payload.message.content as Array<{ type?: string }> : []
         const blockTypes = blocks.map((block) => block?.type).filter(Boolean)
-        if (blockTypes.includes("toolCall") || blockTypes.includes("tool_use")) {
+        const hasToolCalls = blockTypes.includes("toolCall") || blockTypes.includes("tool_use")
+        const text = contentBlocksToText(payload.message.content)
+
+        if (hasToolCalls && !text) {
           input.onEvent({ type: "chat.status", sessionKey: input.sessionKey, state: "tool_running" })
           return
         }
 
-        const text = contentBlocksToText(payload.message.content)
+        if (hasToolCalls) {
+          input.onEvent({ type: "chat.status", sessionKey: input.sessionKey, state: "tool_running" })
+        }
         input.onEvent({
           type: "chat.message",
           sessionKey: input.sessionKey,

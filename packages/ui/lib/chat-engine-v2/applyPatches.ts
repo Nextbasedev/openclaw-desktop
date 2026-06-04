@@ -168,6 +168,26 @@ function latestAssistantIndexAfterLastUser(messages: ChatMessage[]) {
   return -1
 }
 
+function canMergeToolOnlyAssistantIntoLatest(messages: ChatMessage[], index: number, incoming: ChatMessage, activePatch: boolean) {
+  const target = messages[index]
+  if (!target || target.role !== "assistant") return false
+  // Existing live behavior: while the run is explicitly active, keep folding
+  // tool-only projections into the current assistant card even if text has
+  // already started streaming.
+  if (activePatch) return true
+
+  // Some live message.upsert projections for assistant tool calls arrive
+  // without runStatus/activeRun, so the old active-only guard appended one
+  // tool-only assistant row per tool. Refresh was correct because the history
+  // parser merges adjacent assistant tool rows. Mirror that live, but keep the
+  // fallback narrow: only merge adjacent tool-only assistant rows in the same
+  // visible assistant turn, and do not fold tools into a text-bearing answer
+  // unless the patch explicitly says the run is active (handled above).
+  if (!isToolOnlyAssistantMessage(target)) return false
+  if (target.runId && incoming.runId && target.runId !== incoming.runId) return false
+  return true
+}
+
 function mergeInlineToolCalls(existing: ChatMessage["toolCalls"], incoming: NonNullable<ChatMessage["toolCalls"]>) {
   const merged = new Map((existing ?? []).map((tool) => [tool.id, tool]))
   for (const tool of incoming) {
@@ -196,12 +216,16 @@ function mergeToolOnlyAssistantMessages(baseMessages: ChatMessage[], incoming: C
   const canMergeLiveToolMessages = Boolean(patchStatus && ACTIVE_STATUSES.has(patchStatus))
   const messages = [...baseMessages]
   for (const message of incoming) {
-    if (!canMergeLiveToolMessages || !isToolOnlyAssistantMessage(message) || !message.toolCalls?.length) {
+    if (!isToolOnlyAssistantMessage(message) || !message.toolCalls?.length) {
       messages.push(message)
       continue
     }
     const index = latestAssistantIndexAfterLastUser(messages)
     if (index < 0) {
+      messages.push(message)
+      continue
+    }
+    if (!canMergeToolOnlyAssistantIntoLatest(messages, index, message, canMergeLiveToolMessages)) {
       messages.push(message)
       continue
     }

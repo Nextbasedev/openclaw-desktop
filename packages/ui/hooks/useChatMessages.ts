@@ -69,6 +69,7 @@ import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity, type SessionState } from "@/lib/chat-engine-v2/store"
 import { getTimelineStore, deleteTimelineStore } from "@/lib/chat-engine-v2/timelineStore"
+import { stripTransientChatMessagesState } from "@/lib/chatTransientState"
 import { isStopSlashCommand } from "@/lib/controlSlashCommands"
 import { setSchedulerActiveSession, abortSessionRequests } from "@/lib/requestScheduler"
 import {
@@ -200,6 +201,7 @@ function messageTimelineSignature(message: ChatMessage) {
     createdAt: message.createdAt,
     usage: message.usage,
     stopReason: message.stopReason,
+    animateText: message.animateText,
   })
 }
 
@@ -682,9 +684,12 @@ export function useChatMessages(
   const initialSyncWarmCache = !hasInitial && !initialGlobalMessages && !initialCachedBootstrap
     ? getWarmChatCacheSync(sessionKey)
     : null
-  const initialWarmMessages = hasInitial
+  const initialWarmMessagesRaw = hasInitial
     ? initialMessages
     : initialGlobalMessages ?? warmBootstrapMessages(undefined, initialCachedBootstrap) ?? (initialSyncWarmCache?.entry?.messages?.length ? dedupeChatMessages(initialSyncWarmCache.entry.messages) : undefined)
+  const initialWarmMessages = initialWarmMessagesRaw?.length
+    ? stripTransientChatMessagesState(initialWarmMessagesRaw)
+    : undefined
   const initialKnownEmpty = !hasInitial && !initialWarmMessages && (
     isAuthoritativeKnownEmptyGlobal(initialGlobalSession) || isKnownEmptyBootstrap(initialCachedBootstrap)
   )
@@ -796,8 +801,9 @@ export function useChatMessages(
         const next = dedupeChatMessages(
           typeof update === "function" ? update(prev) : update
         )
-        schedulePersistentMessages(next)
-        updateCachedBootstrapMessages(queryClient, sessionKey, next)
+        const durableNext = stripTransientChatMessagesState(next)
+        schedulePersistentMessages(durableNext)
+        updateCachedBootstrapMessages(queryClient, sessionKey, durableNext)
         // Write-through to timeline store — store dedupes and batches.
         // Older-page loads and active runs can temporarily hold partial local
         // snapshots while live patch-stream rows still exist in the global
@@ -853,7 +859,7 @@ export function useChatMessages(
     const unsubscribe = store.subscribe((snapshot) => {
       if (snapshot.messages.length > 0 || snapshot.bootstrapSettled) {
         setLocalMessages(snapshot.messages)
-        schedulePersistentMessages(snapshot.messages)
+        schedulePersistentMessages(stripTransientChatMessagesState(snapshot.messages))
       }
     })
     return unsubscribe
@@ -898,7 +904,7 @@ export function useChatMessages(
   const lastStreamEventAtRef = useRef(Date.now())
   const activeReconcileInFlightRef = useRef(false)
   const messagesRef = useRef<ChatMessage[]>(
-    hasInitial ? initialMessages : []
+    hasInitial && initialMessages ? stripTransientChatMessagesState(initialMessages) : []
   )
 
   useEffect(() => {
@@ -1574,7 +1580,7 @@ export function useChatMessages(
       ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
       : null
     const warmMessagesRaw = (useCachedGlobal ? cachedGlobal?.messages : seededMessages) ?? warmBootstrapMessages(undefined, cachedBootstrap)
-    const warmMessages = warmMessagesRaw?.length ? warmMessagesRaw : undefined
+    const warmMessages = warmMessagesRaw?.length ? stripTransientChatMessagesState(warmMessagesRaw) : undefined
     const knownEmptyState = !warmMessages && !seededMessages && (
       (useCachedGlobal && cachedGlobalKnownEmpty) || isKnownEmptyBootstrap(cachedBootstrap)
     )
@@ -1902,10 +1908,13 @@ export function useChatMessages(
           viewGeneration,
         })
         ensureGlobalChatEngine(queryClient)
+        let handledInitialGlobalSnapshot = false
         unsubscribeV2Stream = subscribeGlobalChatSession(
           sessionKey,
           (state) => {
             if (cancelled || viewGenerationRef.current !== viewGeneration) return
+            const incomingMessages = handledInitialGlobalSnapshot ? state.messages : stripTransientChatMessagesState(state.messages)
+            handledInitialGlobalSnapshot = true
             v2CursorRef.current = state.cursor
             pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
             const dedupedSpawns = dedupeSpawnedSubagents(state.spawnedSubagents)
@@ -1918,7 +1927,7 @@ export function useChatMessages(
             setErrorMessage(state.status === "error" ? nextStatusLabel : null)
             if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, nextStatusLabel)
             else clearCachedChatActivity(sessionKey)
-            setMessages(state.messages, { status: state.status })
+            setMessages(incomingMessages, { status: state.status })
           }
         )
         return
@@ -2034,7 +2043,7 @@ export function useChatMessages(
           .map((m) => m.__openclaw?.seq)
           .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
         if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
-        const canonicalMessages = dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory(rawBootstrapMessages).messages))
+        const canonicalMessages = stripTransientChatMessagesState(dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory(rawBootstrapMessages).messages)))
         const existingGlobalBeforeSeed = getGlobalChatSession(sessionKey)
         const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
         const canonicalSpawns = enrichCanonicalSubagentsFromHistory(
@@ -2059,11 +2068,11 @@ export function useChatMessages(
         const preservedPatchMessages = existingGlobalBeforeSeed?.messages.length
           ? existingGlobalBeforeSeed.messages
           : messagesRef.current
-        const seedMessages = shouldPreserveInitialOptimisticMessages
+        const seedMessages = stripTransientChatMessagesState(shouldPreserveInitialOptimisticMessages
           ? messagesRef.current
           : shouldPreserveExistingPatchMessages
             ? preservedPatchMessages
-            : canonicalMessages
+            : canonicalMessages)
         const seedStatus = shouldPreserveInitialOptimisticMessages || shouldPreserveExistingPatchMessages
           ? statusRef.current
           : canonicalStatus
@@ -2083,9 +2092,9 @@ export function useChatMessages(
           queryClient,
         })
         const globalAfterSeed = getGlobalChatSession(sessionKey)
-        const displayMessages = globalAfterSeed?.messages.length
+        const displayMessages = stripTransientChatMessagesState(globalAfterSeed?.messages.length
           ? globalAfterSeed.messages
-          : seedMessages
+          : seedMessages)
         void setWarmChatCache(sessionKey, {
           messages: displayMessages,
           cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
@@ -2167,6 +2176,7 @@ export function useChatMessages(
         })
 
         ensureEngine("fresh-bootstrap")
+        let handledInitialGlobalSnapshot = false
         unsubscribeV2Stream = subscribeGlobalChatSession(
           sessionKey,
           (state) => {
@@ -2184,6 +2194,8 @@ export function useChatMessages(
               })
               return
             }
+            const incomingMessages = handledInitialGlobalSnapshot ? state.messages : stripTransientChatMessagesState(state.messages)
+            handledInitialGlobalSnapshot = true
             v2CursorRef.current = state.cursor
             pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
             const dedupedSpawns = dedupeSpawnedSubagents(state.spawnedSubagents)
@@ -2197,7 +2209,7 @@ export function useChatMessages(
             if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, nextStatusLabel)
             else clearCachedChatActivity(sessionKey)
             // setMessages writes through to timeline store automatically
-            setMessages(state.messages, { status: state.status })
+            setMessages(incomingMessages, { status: state.status })
           }
         )
         unsubscribeStream = null

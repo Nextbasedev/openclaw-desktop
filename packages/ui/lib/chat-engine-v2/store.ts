@@ -7,6 +7,7 @@ import { emit } from "../events"
 import { isAwaitingLiveToolResult, isInferredFallbackToolResult } from "../liveToolCalls"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey } from "../subagentSession"
+import { stripTransientChatMessagesState } from "../chatTransientState"
 import { setWarmChatCache, preloadWarmCacheToMemory, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
 import { openPatchStreamV2 } from "./client"
@@ -191,12 +192,13 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
     const cached = existing && typeof existing === "object" ? existing as CachedChatBootstrapV2 : {}
     const cursor = Math.max(cached.cursor ?? cached.v2Cursor ?? 0, state.cursor)
     const tools = state.pendingTools.map((tool) => inlineToolToProjection(sessionKey, tool))
+    const durableMessages = stripTransientChatMessagesState(state.messages)
     return {
       ...cached,
       source: cached.source ?? "middleware-projection",
       projectionVersion: cached.projectionVersion ?? CHAT_PROJECTION_VERSION,
-      messages: state.messages,
-      messageCount: state.messageCount ?? state.messages.length,
+      messages: durableMessages,
+      messageCount: state.messageCount ?? durableMessages.length,
       historyCoverage: state.historyCoverage,
       fullMessagesIncluded: state.historyCoverage === "full",
       cursor,
@@ -208,7 +210,7 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
       toolCalls: tools,
       history: {
         ...(cached.history ?? {}),
-        messages: state.messages,
+        messages: durableMessages,
         sessionStatus: legacySessionStatusFromStreamStatus(state.status),
       },
       branchData: cached.branchData ?? { branches: [] },
@@ -221,15 +223,16 @@ function persistWarmSessionSnapshot(sessionKey: string, state: SessionState) {
   const existing = warmPersistTimers.get(sessionKey)
   if (existing) clearTimeout(existing)
   const snapshot = cloneState(state)
+  const durableMessages = stripTransientChatMessagesState(snapshot.messages)
   const timer = setTimeout(() => {
     warmPersistTimers.delete(sessionKey)
     void setWarmChatCache(sessionKey, {
-      messages: snapshot.messages,
+      messages: durableMessages,
       cursor: snapshot.cursor,
       runStatus: snapshot.status,
       statusLabel: normalizeStatusLabel(snapshot.status, snapshot.statusLabel),
       pendingTools: snapshot.pendingTools,
-      messageCount: snapshot.messageCount ?? snapshot.messages.length,
+      messageCount: snapshot.messageCount ?? durableMessages.length,
     }).catch((error) => {
       frontendLog("chat", "warm-cache.live-persist.fail", {
         sessionKey,
@@ -337,6 +340,14 @@ function toolResultText(message: Record<string, unknown>) {
 function toolResultBlockId(block: Record<string, unknown>) {
   const id = block.toolCallId ?? block.tool_call_id ?? block.toolUseId ?? block.tool_use_id ?? block.id
   return typeof id === "string" && id.trim() ? id.trim() : null
+}
+
+function toolCallBlockId(block: Record<string, unknown>, fallback: string) {
+  // Prefer stable logical tool-call ids over per-event/block ids. Some live
+  // payloads include both; using the event id makes repeated tool updates look
+  // like distinct tools in Steps.
+  const id = block.toolCallId ?? block.tool_call_id ?? block.toolUseId ?? block.tool_use_id ?? block.id
+  return typeof id === "string" && id.trim() ? id.trim() : fallback
 }
 
 function toolResultBlockText(block: Record<string, unknown>) {
@@ -919,10 +930,7 @@ function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
   const messageId = messageStableId(message, frame)
   for (const [blockIndex, block] of blocks.entries()) {
     const tool = compactLabel(block.name, "unknown")
-    const id = compactLabel(
-      block.id,
-      `tool:${messageId}:${blockIndex}:${tool}`
-    )
+    const id = toolCallBlockId(block, `tool:${messageId}:${blockIndex}:${tool}`)
     const visibleTerminalTool = findVisibleTerminalToolById(state, id)
     if (visibleTerminalTool) {
       frontendLog("stream", "global-chat-session.visible-terminal-tool-block-skip", {
@@ -1093,6 +1101,110 @@ function preserveActiveTurnToolTranscript(
     mergedCount: merged.length,
   }, "debug")
   return merged
+}
+
+type ChatMessageWithProjectionMeta = ChatMessage & {
+  cursor?: number
+  __clientOptimistic?: boolean
+  __openclaw?: {
+    id?: string | null
+    clientMessageId?: string | null
+    runId?: string | null
+    cursor?: number | null
+  } | null
+}
+
+function stableSeedRowId(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  return trimmed.startsWith("client:") ? trimmed.slice("client:".length) : trimmed
+}
+
+function seedMessageRowKey(message: ChatMessage): string {
+  const meta = message as ChatMessageWithProjectionMeta
+  const clientMessageId = stableSeedRowId(meta.__openclaw?.clientMessageId ?? "")
+  if (clientMessageId) return `client:${clientMessageId}`
+  if (message.role === "user" && (message.isOptimistic || meta.__clientOptimistic)) {
+    const optimisticId = stableSeedRowId(meta.__openclaw?.id ?? message.messageId)
+    if (optimisticId) return `client:${optimisticId}`
+  }
+  const runId = meta.__openclaw?.runId ?? message.runId
+  if (message.role === "assistant" && runId?.trim()) return `run:${runId.trim()}`
+  return `msg:${meta.__openclaw?.id?.trim() || message.messageId}`
+}
+
+function seedMessageCursor(message: ChatMessage) {
+  const meta = message as ChatMessageWithProjectionMeta
+  const cursor = meta.__openclaw?.cursor ?? meta.cursor
+  return typeof cursor === "number" && Number.isFinite(cursor) ? cursor : 0
+}
+
+function seedMessageIsOptimistic(message: ChatMessage) {
+  const meta = message as ChatMessageWithProjectionMeta
+  return Boolean(message.isOptimistic || message.sendStatus || meta.__clientOptimistic)
+}
+
+function preferSeedMessage(existing: ChatMessage, incoming: ChatMessage) {
+  const existingOptimistic = seedMessageIsOptimistic(existing)
+  const incomingOptimistic = seedMessageIsOptimistic(incoming)
+  if (existingOptimistic !== incomingOptimistic) return incomingOptimistic ? existing : incoming
+
+  const existingCursor = seedMessageCursor(existing)
+  const incomingCursor = seedMessageCursor(incoming)
+  if (existingCursor !== incomingCursor) return incomingCursor > existingCursor ? incoming : existing
+
+  return incoming
+}
+
+function mergeSeedMessage(existing: ChatMessage, incoming: ChatMessage) {
+  const preferred = preferSeedMessage(existing, incoming)
+  const fallback = preferred === incoming ? existing : incoming
+  const preferredOptimistic = seedMessageIsOptimistic(preferred)
+  return {
+    ...fallback,
+    ...preferred,
+    text: preferred.text.trim() ? preferred.text : fallback.text,
+    createdAt: fallback.createdAt || preferred.createdAt,
+    attachments: preferred.attachments ?? fallback.attachments,
+    replyTo: preferred.replyTo ?? fallback.replyTo,
+    toolCalls: preferred.toolCalls ?? fallback.toolCalls,
+    embeds: preferred.embeds ?? fallback.embeds,
+    usage: preferred.usage ?? fallback.usage,
+    stopReason: preferred.stopReason ?? fallback.stopReason,
+    model: preferred.model ?? fallback.model,
+    isOptimistic: preferredOptimistic ? preferred.isOptimistic : false,
+    sendStatus: preferredOptimistic ? preferred.sendStatus : undefined,
+    sendError: preferredOptimistic ? preferred.sendError : null,
+  }
+}
+
+function mergeSeedMessages(existing: ChatMessage[], incoming: ChatMessage[]) {
+  const incomingByKey = new Map<string, ChatMessage>()
+  const incomingOrder: string[] = []
+  for (const message of incoming) {
+    const key = seedMessageRowKey(message)
+    const current = incomingByKey.get(key)
+    incomingByKey.set(key, current ? mergeSeedMessage(current, message) : message)
+    if (!current) incomingOrder.push(key)
+  }
+
+  const usedIncoming = new Set<string>()
+  const merged: ChatMessage[] = []
+  for (const message of existing) {
+    const key = seedMessageRowKey(message)
+    const incomingMessage = incomingByKey.get(key)
+    if (incomingMessage) {
+      merged.push(mergeSeedMessage(message, incomingMessage))
+      usedIncoming.add(key)
+    } else {
+      merged.push(message)
+    }
+  }
+
+  for (const key of incomingOrder) {
+    if (!usedIncoming.has(key)) merged.push(incomingByKey.get(key)!)
+  }
+  return dedupeChatMessages(merged)
 }
 
 function maybeFinalizeAnsweredRun(state: SessionState, patchType: string) {
@@ -1826,9 +1938,7 @@ export function seedGlobalChatSession(params: {
     (incomingDropsMessages || incomingDropsRunningTool)
   const shouldPreserveLocalMessages = hasNewerCursor || hasSameCursorLiveState || incomingPartialDropsLocalMessages
   const shouldPreserveLocalActivity = hasNewerCursor || (hasSameCursorLiveState && !incomingMayBePartial) || (incomingPartialDropsLocalMessages && !incomingIsTerminal)
-  state.messages = shouldPreserveLocalMessages
-    ? dedupeChatMessages([...params.messages, ...state.messages])
-    : dedupeChatMessages(params.messages)
+  state.messages = mergeSeedMessages(state.messages, params.messages)
   state.cursor = Math.max(state.cursor, incomingCursor)
   if (!shouldPreserveLocalMessages || incomingHistoryCoverage === "full") {
     state.historyCoverage = incomingHistoryCoverage

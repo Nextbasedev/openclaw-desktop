@@ -8,6 +8,7 @@ import { startCronEventListener } from "./services/cron-events.service.js"
 import * as workspaceHttp from "./services/workspace-http.service.js"
 import { connectGateway } from "./gateway/client.js"
 import { startSyncEngine } from "./sync/engine.js"
+import { inboundChatMediaRoute } from "middleware"
 
 const app: express.Express = express()
 const PORT = parseInt(process.env.JARVIS_SERVER_PORT ?? "4000", 10)
@@ -18,7 +19,7 @@ app.use(express.json({ limit: JSON_BODY_LIMIT }))
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*")
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-  res.header("Access-Control-Allow-Headers", "Content-Type")
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization")
   if (req.method === "OPTIONS") {
     res.sendStatus(204)
     return
@@ -27,6 +28,10 @@ app.use((req, res, next) => {
 })
 
 app.post("/api/ipc/:command", handleCommand)
+
+app.get("/api/chat/media/inbound/:id", (req, res, next) => {
+  inboundChatMediaRoute(req, res).catch(next)
+})
 
 app.get("/api/my/workspace/tree", (req, res, next) => {
   workspaceHttp.workspaceTreeRoute(req, res).catch(next)

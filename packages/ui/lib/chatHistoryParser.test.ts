@@ -595,6 +595,43 @@ describe("parseChatHistory", () => {
     assert.equal(parsed.messages[0]?.toolCalls?.[0]?.resultText, "found memory")
   })
 
+  it("prefers stable toolCallId over per-event block id for tool display grouping", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a-tools-start",
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "event-start-1",
+            toolCallId: "tc-stable",
+            name: "exec",
+            input: { command: "echo hi" },
+            status: "running",
+          },
+        ],
+      },
+      {
+        id: "a-tools-result",
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "event-result-2",
+            toolCallId: "tc-stable",
+            name: "exec",
+            input: { command: "echo hi" },
+            status: "success",
+            resultMeta: "ok",
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.id, "tc-stable")
+    assert.equal(parsed.messages[0]?.toolCalls?.[1]?.id, "tc-stable")
+  })
+
   it("uses the tool field as a fallback tool-call display name", () => {
     const parsed = parseChatHistory([
       {

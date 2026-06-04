@@ -75,7 +75,7 @@ export function createInitialState(tab?: EditorTab): EditorGroupsState {
         id: "group-1",
         tabs: [tab ?? DRAFT_TAB],
         activeTabId: tab?.id ?? "draft",
-        sessionData: null,
+        sessionData: tab ? sessionDataFromTab(tab) : null,
       },
     ],
     focusedGroupId: "group-1",
@@ -224,15 +224,28 @@ export function editorGroupsReducer(
     }
 
     case "UPDATE_TAB": {
-      return {
-        ...state,
-        groups: state.groups.map((g) => ({
+      let changed = false
+      const groups = state.groups.map((g) => {
+        let groupChanged = false
+        let updatedActiveTab: EditorTab | null = null
+        const tabs = g.tabs.map((t) => {
+          if (t.id !== action.tabId) return t
+          const updated = { ...t, ...action.updates }
+          if (g.activeTabId === action.tabId) updatedActiveTab = updated
+          groupChanged = true
+          changed = true
+          return updated
+        })
+        if (!groupChanged) return g
+        if (!updatedActiveTab) return { ...g, tabs }
+        const updatedSessionData = sessionDataFromTab(updatedActiveTab) ?? g.sessionData
+        return {
           ...g,
-          tabs: g.tabs.map((t) =>
-            t.id === action.tabId ? { ...t, ...action.updates } : t,
-          ),
-        })),
-      }
+          tabs,
+          sessionData: updatedSessionData,
+        }
+      })
+      return changed ? { ...state, groups } : state
     }
 
     case "REMOVE_TAB": {

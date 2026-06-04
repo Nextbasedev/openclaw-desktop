@@ -1470,8 +1470,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     if (canServeLocal) {
       const serialized = localMessages.map(serializeProjectedMessage);
       const sessionData = objectData(localSession!.data);
-      const latestEvent = context.messages.latestProjectionEvent(parsed.data.sessionKey);
-      const cursor = latestEvent?.cursor ?? 0;
+      const cursor = context.messages.latestSessionCursor(parsed.data.sessionKey);
       log.info("bootstrap.local-first", {
         sessionKey: parsed.data.sessionKey,
         messageCount: serialized.length,
@@ -1655,14 +1654,15 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     void context.chatLive.ensureSessionSubscribed(sessionKey).catch((error) => {
       log.warn("bootstrap.live-subscribe.background.fail", { sessionKey, error: errorMeta(error) });
     });
-    const event = context.messages.appendProjectionEvent({
+    context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.bootstrap",
       payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "metadata", fullMessagesIncluded: false, pruned: bootstrapPruned },
     });
     localFirstBootstrapTimestamps.set(sessionKey, nowMs());
     localFirstSqliteBlocked.delete('*');
-    log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: event.cursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: "background" } });
+    const sessionCursor = context.messages.latestSessionCursor(sessionKey);
+    log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: sessionCursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: "background" } });
 
     const totalMessages = context.messages.countMessages(sessionKey);
     const oldestSeq = projectedMessages.length > 0 ? ((projectedMessages[0] as { __openclaw?: { seq?: number } }).__openclaw?.seq ?? null) : null;
@@ -1674,7 +1674,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       messageCount: projectedMessages.length,
       knownTotalMessages: totalMessages,
       oldestLoadedSeq: typeof oldestSeq === "number" ? oldestSeq : undefined,
-      cursor: event.cursor,
+      cursor: sessionCursor,
       projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: false },
       historyMeta: { thinkingLevel: history.thinkingLevel, fastMode: history.fastMode, verboseLevel: history.verboseLevel },
     });
