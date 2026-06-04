@@ -163,8 +163,19 @@ export function ActionBar({
               <HugeiconsIcon icon={ArrowDown01Icon} size={12} />
             </button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="end" sideOffset={8} className="w-72 gap-0 p-1.5">
-            <div className="max-h-60 overflow-y-auto">
+          <PopoverContent
+            side="top"
+            align="end"
+            sideOffset={8}
+            className={cn(
+              "z-[120] w-72 gap-0 rounded-2xl p-1.5",
+              "border border-black/70 bg-[var(--glass-bg)]",
+              "backdrop-blur-[40px] backdrop-saturate-[180%]",
+              "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+              "data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[side=top]:data-[state=open]:slide-in-from-bottom-1",
+            )}
+          >
+            <div className="max-h-60 overflow-y-auto pr-1">
               {modelLoading && (
                 <p className="px-3 py-2 text-xs text-muted-foreground">
                   Loading models...
@@ -189,10 +200,10 @@ export function ActionBar({
                     key={`${model.provider}/${model.id}`}
                     type="button"
                     className={cn(
-                      "flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] transition-colors hover:bg-muted",
+                      "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors text-left",
                       isActive
-                        ? "bg-foreground/10 font-medium text-foreground"
-                        : "text-muted-foreground"
+                        ? "bg-foreground/8 font-medium text-foreground"
+                        : "text-foreground/80 hover:bg-foreground/8 hover:text-foreground"
                     )}
                     onClick={() => onModelSelect(model)}
                   >
@@ -204,7 +215,7 @@ export function ActionBar({
                       </span>
                     </span>
                     {isActive && (
-                      <HugeiconsIcon icon={Tick02Icon} size={14} className="shrink-0 text-white" />
+                      <HugeiconsIcon icon={Tick02Icon} size={14} className="shrink-0 text-foreground" />
                     )}
                   </button>
                 )
