@@ -13,9 +13,8 @@ function normalizedUserText(value: string) {
 }
 
 function normalizeUserTextForDedupe(text: string) {
-  return text
-    .replace(/^\s*\[Attached images?:[^\]]+\]\s*/gim, "")
-    .replace(/^\s*\[media attached:[\s\S]*?\]\s*/gim, "")
+  return cleanUserMessageText(text)
+    .replace(ATTACHMENT_PLACEHOLDER_RE, " ")
     .replace(/\s+/g, " ")
     .trim()
 }

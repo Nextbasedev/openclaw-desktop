@@ -217,6 +217,7 @@ const DEFAULT_CLIENT = {
 const DEFAULT_ORIGIN = "http://127.0.0.1:3000"
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
 const INBOUND_MEDIA_ID_RE = /^[^\s/\\\0]+$/u
+const MEDIA_ATTACHMENT_MARKER_CAPTURE_RE = /\[media attached:\s*([^\]]+)\]/gim
 const inboundMediaSourceById = new Map<string, string>()
 
 type HeaderValue = string | string[] | undefined
@@ -285,16 +286,62 @@ function inboundMediaIdFromPath(value: unknown) {
   return isSafeInboundMediaId(id) ? id : null
 }
 
-function inboundMediaIdsFromHistoryMessage(message: { MediaPath?: string; MediaPaths?: string[] }) {
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values))
+}
+
+function textValuesFromContent(value: unknown): string[] {
+  if (typeof value === "string") return [value]
+  if (!Array.isArray(value)) return []
+  return value.flatMap((block) => {
+    if (typeof block === "string") return [block]
+    if (!block || typeof block !== "object" || Array.isArray(block)) return []
+    const record = block as Record<string, unknown>
+    const values: string[] = []
+    if (typeof record.text === "string") values.push(record.text)
+    if (typeof record.content === "string") values.push(record.content)
+    return values
+  })
+}
+
+function inboundMediaSourcesFromText(text: string) {
+  const sources: string[] = []
+  let match: RegExpExecArray | null
+  MEDIA_ATTACHMENT_MARKER_CAPTURE_RE.lastIndex = 0
+  while ((match = MEDIA_ATTACHMENT_MARKER_CAPTURE_RE.exec(text)) !== null) {
+    const source = match[1]?.trim()
+    if (source) sources.push(source)
+  }
+  return sources
+}
+
+function defaultInboundMediaSourceForId(id: string) {
+  return path.join(inboundMediaDir(), id)
+}
+
+function cacheInboundMediaSource(id: string, source: string) {
+  if (!source.trim()) return
+  if (source.trim().toLowerCase().startsWith("media://inbound/")) {
+    inboundMediaSourceById.set(id, defaultInboundMediaSourceForId(id))
+    return
+  }
+  inboundMediaSourceById.set(id, source.trim())
+}
+
+function inboundMediaIdsFromHistoryMessage(message: { MediaPath?: string; MediaPaths?: string[]; content?: unknown; text?: string }) {
   const rawPaths = Array.isArray(message.MediaPaths) ? message.MediaPaths : typeof message.MediaPath === "string" ? [message.MediaPath] : []
+  const textSources = [
+    ...(typeof message.text === "string" ? inboundMediaSourcesFromText(message.text) : []),
+    ...textValuesFromContent(message.content).flatMap(inboundMediaSourcesFromText),
+  ]
   const ids: string[] = []
-  for (const rawPath of rawPaths) {
+  for (const rawPath of [...rawPaths, ...textSources]) {
     const id = inboundMediaIdFromPath(rawPath)
     if (!id) continue
     ids.push(id)
-    if (typeof rawPath === "string" && rawPath.trim()) inboundMediaSourceById.set(id, rawPath.trim())
+    if (typeof rawPath === "string" && rawPath.trim()) cacheInboundMediaSource(id, rawPath)
   }
-  return ids
+  return uniqueStrings(ids)
 }
 
 function addMediaIdsToOmittedImageBlocks(content: unknown, mediaIds: string[]) {
@@ -370,30 +417,44 @@ function gatewayHttpUrlFromWebSocketUrl(gatewayUrl: string) {
   return url
 }
 
+function gatewayFallbackSourcesForInboundMedia(id: string) {
+  return uniqueStrings([
+    inboundMediaSourceById.get(id),
+    defaultInboundMediaSourceForId(id),
+    path.join(os.homedir(), ".openclaw", "media", "inbound", id),
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0))
+}
+
 async function fetchInboundChatMediaFromGateway(id: string): Promise<InboundChatMedia | null> {
-  const source = inboundMediaSourceById.get(id)
-  if (!source) return null
+  const sources = gatewayFallbackSourcesForInboundMedia(id)
+  if (sources.length === 0) return null
 
   const config = await readGatewayConfig()
   const token = config.gateway?.auth?.token
   const port = config.gateway?.port ?? 18789
   const gatewayUrl = config.gateway_url ?? `ws://127.0.0.1:${port}`
-  const url = gatewayHttpUrlFromWebSocketUrl(gatewayUrl)
-  url.searchParams.set("source", source)
 
-  const response = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  })
-  if (response.status === 404) return null
-  if (!response.ok) throw new Error(`gateway media fetch failed: HTTP ${response.status}`)
+  for (const source of sources) {
+    const url = gatewayHttpUrlFromWebSocketUrl(gatewayUrl)
+    url.searchParams.set("source", source)
 
-  const content = Buffer.from(await response.arrayBuffer())
-  return {
-    id,
-    path: source,
-    mimeType: response.headers.get("content-type") ?? mediaMimeTypeFromFileName(id),
-    content,
+    const response = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
+    if (response.status === 404) continue
+    if (!response.ok) throw new Error(`gateway media fetch failed: HTTP ${response.status}`)
+
+    const content = Buffer.from(await response.arrayBuffer())
+    inboundMediaSourceById.set(id, source)
+    return {
+      id,
+      path: source,
+      mimeType: response.headers.get("content-type") ?? mediaMimeTypeFromFileName(id),
+      content,
+    }
   }
+
+  return null
 }
 
 export async function inboundChatMediaRoute(req: InboundChatMediaRouteRequest, res: InboundChatMediaRouteResponse) {

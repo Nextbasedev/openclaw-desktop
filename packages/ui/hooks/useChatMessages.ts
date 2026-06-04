@@ -134,12 +134,16 @@ type ChatBootstrapData = {
 }
 
 
+function stableUserTextHash(text: string) {
+  return stableLogHash(cleanUserMessageText(text))
+}
+
 function duplicateUserTextDiagnostics(messages: ChatMessage[]) {
   const seen = new Map<string, { messageId: string; gatewayIndex?: number; createdAt?: string; isOptimistic?: boolean }>()
   const duplicates: Array<{ textHash: string; firstMessageId: string; messageId: string; firstGatewayIndex?: number; gatewayIndex?: number; firstCreatedAt?: string; createdAt?: string; firstOptimistic?: boolean; isOptimistic?: boolean }> = []
   for (const message of messages) {
     if (message.role !== "user") continue
-    const textHash = stableLogHash(message.text)
+    const textHash = stableUserTextHash(message.text)
     if (!textHash) continue
     const existing = seen.get(textHash)
     if (existing) {
@@ -171,13 +175,13 @@ function duplicateUserTextDiagnostics(messages: ChatMessage[]) {
  * When two user messages have the same text hash, the optimistic one is dropped.
  * If neither is optimistic, the later one is dropped.
  */
-function deduplicateUserMessages(messages: ChatMessage[]): ChatMessage[] {
+export function deduplicateUserMessages(messages: ChatMessage[]): ChatMessage[] {
   const seen = new Map<string, number>()
   const removeIndices = new Set<number>()
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]!
     if (msg.role !== "user") continue
-    const textHash = stableLogHash(msg.text)
+    const textHash = stableUserTextHash(msg.text)
     if (!textHash) continue
     const existingIdx = seen.get(textHash)
     if (existingIdx !== undefined) {
