@@ -115,17 +115,22 @@ export function ConfigTab() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <div>
-        <h2 className="text-lg font-semibold text-foreground">Config</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Important workspace files for identity, rules, memory, and local setup.
-        </p>
+    <div className="flex flex-col gap-5 pb-8">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 className="text-[18px] font-semibold tracking-tight text-foreground">Config</h2>
+          <p className="mt-1 text-[13px] text-muted-foreground/70">
+            Important workspace files for identity, rules, memory, and local setup.
+          </p>
+        </div>
+        <span className="hidden rounded-full bg-white/[0.045] px-3 py-1.5 text-[11px] font-medium text-muted-foreground sm:inline-flex">
+          {CONFIG_FILES.length} files
+        </span>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <div className="overflow-hidden rounded-md border border-border/50 bg-card/40">
-          {CONFIG_FILES.map((file, index) => {
+        <div className="rounded-2xl bg-white/[0.025] p-1.5">
+          {CONFIG_FILES.map((file) => {
             const active = selected.path === file.path
             return (
               <button
@@ -133,12 +138,14 @@ export function ConfigTab() {
                 type="button"
                 onClick={() => loadFile(file)}
                 className={cn(
-                  "flex w-full cursor-pointer items-start gap-3 px-4 py-3 text-left transition-colors",
-                  index > 0 && "border-t border-border/30",
-                  active ? "bg-foreground/[0.06] text-foreground" : "text-muted-foreground hover:bg-muted/20 hover:text-foreground",
+                  "flex w-full cursor-pointer items-start gap-3 rounded-xl px-3.5 py-3 text-left transition-colors",
+                  active ? "bg-white/[0.075] text-foreground" : "text-muted-foreground hover:bg-white/[0.045] hover:text-foreground",
                 )}
               >
-                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted/40">
+                <span className={cn(
+                  "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+                  active ? "bg-white/[0.07] text-foreground" : "bg-white/[0.035] text-muted-foreground/70",
+                )}>
                   <LuFileText size={13} />
                 </span>
                 <span className="min-w-0 flex-1">
@@ -150,11 +157,16 @@ export function ConfigTab() {
           })}
         </div>
 
-        <section className="min-w-0 overflow-hidden rounded-md border border-border/50 bg-card/40">
-          <div className="flex items-center justify-between gap-3 border-b border-border/40 px-4 py-3">
+        <section className="min-w-0 overflow-hidden rounded-2xl bg-white/[0.025]">
+          <div className="flex items-center justify-between gap-3 bg-white/[0.02] px-4 py-3.5">
             <div className="min-w-0">
-              <h3 className="truncate text-[13px] font-medium text-foreground">{selected.label}</h3>
-              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{selected.description}</p>
+              <div className="flex min-w-0 items-center gap-2">
+                <h3 className="truncate text-[13px] font-semibold text-foreground">{selected.label}</h3>
+                <span className="rounded-full bg-white/[0.045] px-2 py-0.5 text-[10px] font-medium text-muted-foreground/70">
+                  {selected.path}
+                </span>
+              </div>
+              <p className="mt-1 truncate text-[11px] text-muted-foreground/65">{selected.description}</p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {editing ? (
@@ -163,7 +175,7 @@ export function ConfigTab() {
                     type="button"
                     onClick={saveFile}
                     disabled={saving}
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-foreground px-2.5 py-1.5 text-[11px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-foreground px-2.5 py-1.5 text-[11px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <LuSave size={12} />
                     {saving ? "Saving…" : "Save"}
@@ -172,7 +184,7 @@ export function ConfigTab() {
                     type="button"
                     onClick={cancelEdit}
                     disabled={saving}
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-white/[0.045] px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.075] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <LuX size={12} />
                     Cancel
@@ -184,7 +196,7 @@ export function ConfigTab() {
                     type="button"
                     onClick={() => setEditing(true)}
                     disabled={loading}
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-white/[0.045] px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.075] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <LuPencil size={12} />
                     Edit
@@ -193,7 +205,7 @@ export function ConfigTab() {
                     type="button"
                     onClick={() => loadFile(selected)}
                     disabled={loading}
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-white/[0.045] px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.075] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <LuRefreshCw size={12} className={loading ? "animate-spin" : ""} />
                     Refresh
@@ -203,8 +215,8 @@ export function ConfigTab() {
             </div>
           </div>
 
-          {error && <div className="border-b border-red-500/20 bg-red-500/10 px-4 py-2 text-[12px] text-red-400">{error}</div>}
-          {status && !error && <div className="border-b border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-[12px] text-emerald-400">{status}</div>}
+          {error && <div className="mx-4 mt-3 rounded-xl bg-red-500/10 px-4 py-2 text-[12px] text-red-400">{error}</div>}
+          {status && !error && <div className="mx-4 mt-3 rounded-xl bg-emerald-500/10 px-4 py-2 text-[12px] text-emerald-400">{status}</div>}
           {editing ? (
             <textarea
               value={draft}
@@ -220,9 +232,11 @@ export function ConfigTab() {
         </section>
       </div>
 
-      <div className="mt-8 rounded-xl border border-red-500/30 bg-red-500/5 p-5">
+      <div className="mt-8 rounded-2xl bg-red-500/[0.06] p-5">
         <div className="flex items-center gap-3">
-          <LuTrash2 size={16} className="shrink-0 text-red-400" />
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
+            <LuTrash2 size={16} />
+          </span>
           <div className="flex-1">
             <p className="text-[13px] font-medium text-foreground">Delete All Chats</p>
             <p className="text-[11px] text-muted-foreground">Removes all desktop and imported chats, messages, and cached projections. Cannot be undone.</p>
@@ -232,7 +246,7 @@ export function ConfigTab() {
             type="button"
             onClick={handleDeleteAllChats}
             disabled={deleting}
-            className="cursor-pointer rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-[12px] font-medium text-red-400 transition-colors hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
+            className="cursor-pointer rounded-lg bg-red-500/10 px-3 py-1.5 text-[12px] font-medium text-red-400 transition-colors hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
           >
             {deleting ? "Deleting..." : "Delete All"}
           </button>
