@@ -275,7 +275,7 @@ export function CollapsedSpacesPopover({
           className={cn(
             "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border text-white/80 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
             archivedSelected
-              ? "scale-[1.05] border-transparent bg-white/[0.075] shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
+              ? "scale-[1.05] border-transparent bg-black/[0.055] shadow-[0_16px_34px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.55)] dark:bg-white/[0.075] dark:shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
               : "border-transparent bg-[linear-gradient(135deg,#111827_0%,rgba(31,41,55,0.9)_50%,rgba(17,24,39,0.7)_100%)] shadow-[0_10px_24px_rgba(0,0,0,0.28)] hover:scale-[1.035] hover:bg-white/[0.035] hover:text-white hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]",
           )}
           aria-label="Open archived chats"
@@ -283,7 +283,7 @@ export function CollapsedSpacesPopover({
           {archivedSelected && (
             <motion.span
               layoutId="project-rail-active-indicator"
-              className="absolute -right-[10px] top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-white/90 shadow-[0_0_14px_rgba(255,255,255,0.38)]"
+              className="absolute -right-[10px] top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-black/70 shadow-[0_0_14px_rgba(15,23,42,0.18)] dark:bg-white/90 dark:shadow-[0_0_14px_rgba(255,255,255,0.38)]"
               transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.7 }}
             />
           )}
@@ -309,15 +309,15 @@ export function CollapsedSpacesPopover({
               className={cn(
                 "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border transition-[background,box-shadow,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
                 active
-                  ? "scale-[1.05] border-transparent bg-white/[0.075] shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
-                  : "border-transparent shadow-[0_10px_24px_rgba(0,0,0,0.28)] hover:scale-[1.035] hover:bg-white/[0.035] hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]",
+                  ? "scale-[1.05] border-transparent bg-black/[0.055] shadow-[0_16px_34px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.55)] dark:bg-white/[0.075] dark:shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
+                  : "border-transparent shadow-[0_10px_24px_rgba(15,23,42,0.08)] hover:scale-[1.035] hover:bg-black/[0.035] hover:shadow-[0_14px_28px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.55)] dark:shadow-[0_10px_24px_rgba(0,0,0,0.28)] dark:hover:bg-white/[0.035] dark:hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]",
               )}
               aria-label={`Open project ${space.name}`}
             >
               {active && (
                 <motion.span
                   layoutId="project-rail-active-indicator"
-                  className="absolute -right-[10px] top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-white/90 shadow-[0_0_14px_rgba(255,255,255,0.38)]"
+                  className="absolute -right-[10px] top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-black/70 shadow-[0_0_14px_rgba(15,23,42,0.18)] dark:bg-white/90 dark:shadow-[0_0_14px_rgba(255,255,255,0.38)]"
                   transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.7 }}
                 />
               )}
@@ -346,7 +346,7 @@ export function CollapsedSpacesPopover({
           onClick={openCreate}
           onContextMenu={openPlusMenu}
           className={cn(
-            "mt-1 flex size-10 cursor-pointer items-center justify-center rounded-xl border border-dashed border-white/[0.14] text-white/55 shadow-[0_10px_24px_rgba(0,0,0,0.28)] transition-all duration-200 hover:scale-[1.04] hover:border-white/28 hover:text-white hover:brightness-110 hover:shadow-[0_14px_30px_rgba(0,0,0,0.36)]",
+            "mt-1 flex size-10 cursor-pointer items-center justify-center rounded-xl border border-dashed border-black/[0.14] text-black/55 shadow-[0_10px_24px_rgba(15,23,42,0.10)] transition-all duration-200 hover:scale-[1.04] hover:border-black/28 hover:text-black hover:brightness-105 hover:shadow-[0_14px_30px_rgba(15,23,42,0.14)] dark:border-white/[0.14] dark:text-white/55 dark:shadow-[0_10px_24px_rgba(0,0,0,0.28)] dark:hover:border-white/28 dark:hover:text-white dark:hover:brightness-110 dark:hover:shadow-[0_14px_30px_rgba(0,0,0,0.36)]",
             NEW_SPACE_ICON_SURFACE,
           )}
           aria-label="New project"

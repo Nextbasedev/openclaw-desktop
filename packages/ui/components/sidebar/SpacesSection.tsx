@@ -205,11 +205,11 @@ export function SpacesSection({
   }
 
   return (
-    <div className="relative z-10 border-t border-white/[0.06] px-3 pb-3 pt-2.5 dark:border-white/[0.06]">
+    <div className="relative z-10 border-t border-black/[0.06] px-3 pb-3 pt-2.5 dark:border-white/[0.06]">
       <div
         className={cn(
           "flex h-9 items-center justify-between gap-2 rounded-md px-2.5",
-          "border border-white/[0.07] bg-white/[0.035] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl",
+          "border border-black/[0.07] bg-black/[0.035] shadow-[inset_0_1px_0_rgba(255,255,255,0.70)] dark:border-white/[0.07] dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl",
         )}
         aria-label="Projects"
       >
@@ -277,7 +277,7 @@ export function SpacesSection({
                   type="button"
                   title="More projects"
                   aria-label="More projects"
-                  className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground/70 transition-all hover:bg-white/[0.08] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                  className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground/70 transition-all hover:bg-black/[0.05] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/15 dark:hover:bg-white/[0.08] dark:focus-visible:ring-white/20"
                 >
                   <Icons.MoreVertical size={15} strokeWidth={1.7} />
                 </button>
@@ -314,7 +314,7 @@ export function SpacesSection({
             onClick={openCreate}
             title="New Project"
             aria-label="New Project"
-            className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground/70 transition-all hover:bg-white/[0.08] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+            className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground/70 transition-all hover:bg-black/[0.05] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/15 dark:hover:bg-white/[0.08] dark:focus-visible:ring-white/20"
           >
             <LuPlus className="size-5 stroke-[1.7]" />
           </button>

@@ -13,15 +13,15 @@ export function UsageBreakdown({
 }: UsageBreakdownProps) {
   if (loading) {
     return (
-      <div className="flex flex-col gap-0 overflow-hidden rounded-md bg-white/[0.025] dark:bg-white/[0.025]">
-        <div className="bg-white/[0.015] px-5 py-4">
+      <div className="flex flex-col gap-0 overflow-hidden rounded-md bg-black/[0.025] dark:bg-white/[0.025]">
+        <div className="bg-black/[0.015] dark:bg-white/[0.015] px-5 py-4">
           <div className="h-3 w-24 animate-pulse rounded bg-muted" />
         </div>
         <div className="flex flex-col gap-3 p-5">
           {Array.from({ length: 3 }).map((_, index) => (
             <div
               key={index}
-              className="flex items-center justify-between rounded-[10px] bg-white/[0.035] px-5 py-4 dark:bg-white/[0.035]"
+              className="flex items-center justify-between rounded-[10px] bg-black/[0.035] dark:bg-white/[0.035] px-5 py-4"
             >
               <div className="flex flex-col gap-2">
                 <div className="h-4 w-32 animate-pulse rounded-md bg-muted" />
@@ -42,8 +42,8 @@ export function UsageBreakdown({
   }
 
   return (
-    <div className="flex flex-col gap-0 overflow-hidden rounded-md bg-white/[0.025] dark:bg-white/[0.025]">
-      <div className="bg-white/[0.015] px-5 py-4">
+    <div className="flex flex-col gap-0 overflow-hidden rounded-md bg-black/[0.025] dark:bg-white/[0.025]">
+      <div className="bg-black/[0.015] dark:bg-white/[0.015] px-5 py-4">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Provider Status
         </span>
@@ -53,7 +53,7 @@ export function UsageBreakdown({
         {providers.map((p) => (
           <div
             key={p.provider}
-            className="flex flex-col gap-4 rounded-[10px] bg-white/[0.025] px-5 py-4 transition-colors hover:bg-white/[0.045] sm:flex-row sm:items-center sm:justify-between"
+            className="flex flex-col gap-4 rounded-[10px] bg-black/[0.025] dark:bg-white/[0.025] px-5 py-4 transition-colors hover:bg-black/[0.045] dark:hover:bg-white/[0.045] sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="flex flex-col gap-1">
               <span className="text-[14px] font-semibold text-foreground">

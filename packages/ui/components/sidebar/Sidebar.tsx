@@ -198,7 +198,7 @@ export function Sidebar({
         >
           <div className={cn(
             "scrollbar-hide relative flex w-[58px] shrink-0 flex-col items-center overflow-y-auto px-2.5 pb-6 pt-4",
-            "border-r border-white/[0.055] bg-black/[0.025] shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)] dark:bg-black/[0.085]",
+            "border-r border-black/[0.07] bg-black/[0.025] shadow-[inset_-1px_0_0_rgba(15,23,42,0.06)] dark:border-white/[0.055] dark:bg-black/[0.085] dark:shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)]",
           )}>
             <CollapsedSpacesPopover
               spaces={spaces}
@@ -215,7 +215,7 @@ export function Sidebar({
           </div>
 
           <div
-            className="t-panel-slide min-w-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth border-l border-white/[0.06] px-1 py-3 shadow-[inset_12px_0_24px_-22px_rgba(0,0,0,0.55)]"
+            className="t-panel-slide min-w-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth border-l border-black/[0.06] px-1 py-3 shadow-[inset_12px_0_24px_-22px_rgba(15,23,42,0.16)] dark:border-white/[0.06] dark:shadow-[inset_12px_0_24px_-22px_rgba(0,0,0,0.55)]"
             data-open={showExpandedContent ? "true" : "false"}
             style={{ "--panel-translate-y": "18px" } as CSSProperties}
           >

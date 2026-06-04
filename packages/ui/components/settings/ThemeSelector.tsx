@@ -40,8 +40,8 @@ export function ThemeSelector() {
             onClick={() => setTheme(option.value)}
             className={cn(
               "cursor-pointer flex flex-1 flex-col items-center justify-center gap-4 rounded-md py-6 transition-all",
-              "bg-white/[0.025] text-muted-foreground hover:bg-white/[0.045] hover:text-foreground",
-              isActive && "bg-white/[0.075] text-foreground"
+              "bg-black/[0.025] dark:bg-white/[0.025] text-muted-foreground hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.045]",
+              isActive && "bg-black/[0.055] dark:bg-white/[0.075] text-foreground"
             )}
           >
             <Icon

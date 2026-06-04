@@ -81,7 +81,7 @@ export function ModelSelector({ open, onOpenChange }: Props) {
       description={`Current: ${label}`}
       className="w-[min(520px,calc(100vw-32px))]"
     >
-      <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.045] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+      <div className="mb-4 rounded-2xl border border-black/[0.08] bg-black/[0.035] dark:border-white/10 dark:bg-white/[0.045] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
         <div className="flex items-center gap-3">
           <ModelLogo model={currentDisplayModel} modelId={current} size="md" />
           <div className="min-w-0 flex-1">
@@ -101,7 +101,7 @@ export function ModelSelector({ open, onOpenChange }: Props) {
       </div>
 
       <div className="mb-3">
-        <div className="relative rounded-xl bg-white/[0.025] transition-colors focus-within:bg-white/[0.045]">
+        <div className="relative rounded-xl bg-black/[0.025] transition-colors focus-within:bg-black/[0.045] dark:bg-white/[0.025] dark:focus-within:bg-white/[0.045]">
           <LuSearch
             size={13}
             className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50"
@@ -155,8 +155,8 @@ export function ModelSelector({ open, onOpenChange }: Props) {
                 "transition-all disabled:cursor-not-allowed",
                 saving && "opacity-50",
                 active
-                  ? "bg-white/[0.075] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                  : "text-foreground/80 hover:bg-white/[0.045] hover:text-foreground",
+                  ? "bg-black/[0.055] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] dark:bg-white/[0.075] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                  : "text-foreground/80 hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.045]",
               )}
             >
               <ModelLogo model={model} size="sm" />
@@ -169,14 +169,14 @@ export function ModelSelector({ open, onOpenChange }: Props) {
                 <div className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground/55">
                   <span className="truncate">{model.provider}</span>
                   {model.reasoning && (
-                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-muted-foreground/65">
+                    <span className="rounded-full border border-black/[0.08] bg-black/[0.035] dark:border-white/10 dark:bg-white/[0.04] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-muted-foreground/65">
                       reasoning
                     </span>
                   )}
                 </div>
               </div>
               {active && (
-                <span className="flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/[0.08] px-2 py-1 text-[10px] font-medium text-foreground">
+                <span className="flex shrink-0 items-center gap-1 rounded-full border border-black/[0.08] bg-black/[0.055] dark:border-white/10 dark:bg-white/[0.08] px-2 py-1 text-[10px] font-medium text-foreground">
                   <LuCheck size={12} />
                   Active
                 </span>

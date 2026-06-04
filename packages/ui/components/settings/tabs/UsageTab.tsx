@@ -49,7 +49,7 @@ export function UsageTab() {
             type="button"
             onClick={refresh}
             disabled={loading}
-            className="shrink-0 cursor-pointer rounded-lg bg-white/[0.035] p-2 text-muted-foreground backdrop-blur-md transition-all hover:bg-white/[0.06] hover:text-foreground disabled:opacity-50"
+            className="shrink-0 cursor-pointer rounded-lg bg-black/[0.035] dark:bg-white/[0.035] p-2 text-muted-foreground backdrop-blur-md transition-all hover:bg-black/[0.055] hover:text-foreground dark:hover:bg-white/[0.06] disabled:opacity-50"
             title="Refresh"
           >
             <Icons.Refresh
@@ -58,7 +58,7 @@ export function UsageTab() {
               className={loading ? "animate-spin" : ""}
             />
           </button>
-          <div className="flex min-w-0 gap-0 rounded-lg bg-white/[0.035] p-0.5 backdrop-blur-md">
+          <div className="flex min-w-0 gap-0 rounded-lg bg-black/[0.035] dark:bg-white/[0.035] p-0.5 backdrop-blur-md">
             {PERIODS.map((p) => (
               <button
                 key={p.value}

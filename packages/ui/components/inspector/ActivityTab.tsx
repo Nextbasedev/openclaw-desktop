@@ -92,8 +92,8 @@ function AgentTab({
       className={cn(
         "inline-flex h-8 max-w-[132px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium transition-colors",
         active
-          ? "border-white/15 bg-white/[0.08] text-foreground"
-          : "border-white/8 bg-white/[0.025] text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+          ? "border-black/15 bg-black/[0.055] text-foreground dark:border-white/15 dark:bg-white/[0.08]"
+          : "border-black/8 bg-black/[0.025] text-muted-foreground hover:bg-black/[0.045] hover:text-foreground dark:border-white/8 dark:bg-white/[0.025] dark:hover:bg-white/[0.05]",
       )}
     >
       <span className={cn("size-1.5 shrink-0 rounded-full", TREE_DOT_COLORS[node.status])} />
@@ -133,17 +133,17 @@ function MoreAgentsPopover({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-white/8 bg-white/[0.025] px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground"
+          className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-black/8 bg-black/[0.025] dark:border-white/8 dark:bg-white/[0.025] px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.045] dark:hover:bg-white/[0.05] hover:text-foreground"
         >
           More
-          <span className="rounded bg-white/[0.06] px-1 py-0.5 text-[10px] tabular-nums">
+          <span className="rounded bg-black/[0.045] dark:bg-white/[0.06] px-1 py-0.5 text-[10px] tabular-nums">
             {agents.length}
           </span>
           <VscChevronDown className="size-3" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 gap-2 rounded-xl border border-white/10 bg-[#151515] p-2 shadow-2xl">
-        <div className="flex h-8 items-center gap-2 rounded-lg border border-white/8 bg-black/20 px-2">
+      <PopoverContent align="end" className="w-80 gap-2 rounded-xl border border-black/[0.10] bg-[var(--glass-bg)] dark:border-white/10 dark:bg-[#151515] p-2 shadow-2xl">
+        <div className="flex h-8 items-center gap-2 rounded-lg border border-black/[0.08] bg-black/[0.035] dark:border-white/8 dark:bg-black/20 px-2">
           <VscSearch className="size-3.5 shrink-0 text-muted-foreground" />
           <input
             value={query}
@@ -162,8 +162,8 @@ function MoreAgentsPopover({
               className={cn(
                 "flex w-full cursor-pointer items-start gap-2 rounded-lg px-2 py-2 text-left transition-colors",
                 selectedId === agent.id
-                  ? "bg-white/[0.08]"
-                  : "hover:bg-white/[0.045]",
+                  ? "bg-black/[0.055] dark:bg-white/[0.08]"
+                  : "hover:bg-black/[0.04] dark:hover:bg-white/[0.045]",
               )}
             >
               <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", TREE_DOT_COLORS[agent.status])} />
@@ -210,10 +210,10 @@ function SubagentDashboardCard({
       onClick={() => onSelect(node.id, node.sessionKey ?? null, node.label)}
       className={cn(
         "group relative flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border px-4 py-3.5 text-left transition-all",
-        "bg-gradient-to-br from-white/[0.055] to-white/[0.018] shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]",
+        "bg-gradient-to-br from-black/[0.035] to-black/[0.012] shadow-[inset_0_1px_0_rgba(255,255,255,0.70)] dark:from-white/[0.055] dark:to-white/[0.018] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]",
         active
           ? "border-foreground/22 ring-1 ring-foreground/10"
-          : "border-border/35 hover:border-border/70 hover:bg-white/[0.05]",
+          : "border-border/35 hover:border-border/70 hover:bg-black/[0.045] dark:hover:bg-white/[0.05]",
       )}
     >
       <div className="flex items-start gap-2.5">
@@ -310,7 +310,7 @@ export function ActivityTab({
   }
 
   return (
-    <section className="flex h-full min-w-0 flex-col overflow-hidden bg-[#121212]">
+    <section className="flex h-full min-w-0 flex-col overflow-hidden bg-background dark:bg-[#121212]">
       <div className="shrink-0 border-b border-border/30 bg-card/45 px-4 py-3">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -323,7 +323,7 @@ export function ActivityTab({
             </h2>
           </div>
           <div className="grid shrink-0 grid-cols-4 gap-1.5 text-center font-mono text-[10px] tabular-nums">
-            <div className="rounded-lg border border-border/30 bg-white/[0.025] px-2 py-1.5">
+            <div className="rounded-lg border border-border/30 bg-black/[0.025] dark:bg-white/[0.025] px-2 py-1.5">
               <p className="text-foreground">{allSubagents.length}</p>
               <p className="uppercase tracking-wider text-muted-foreground/45">total</p>
             </div>
@@ -379,11 +379,11 @@ export function ActivityTab({
         </div>
       ) : selectedSubagentSessionKey && selectedNode ? (
         <div className="min-h-0 flex-1 overflow-hidden">
-          <div className="flex h-12 items-center gap-3 border-b border-border/30 bg-[#121212] px-4">
+          <div className="flex h-12 items-center gap-3 border-b border-border/30 bg-background px-4 dark:bg-[#121212]">
             <button
               type="button"
               onClick={() => onAgentSelect?.("root")}
-              className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.055] dark:hover:bg-white/[0.06] hover:text-foreground"
               aria-label="Back to subagents"
             >
               <VscArrowLeft className="size-4" />
@@ -413,7 +413,7 @@ export function ActivityTab({
               ))}
             </div>
           ) : (
-            <div className="flex min-h-40 items-center justify-center rounded-xl border border-border/30 bg-white/[0.02]">
+            <div className="flex min-h-40 items-center justify-center rounded-xl border border-border/30 bg-black/[0.02] dark:bg-white/[0.02]">
               <p className="text-[12px] text-muted-foreground">
                 No subagents spawned yet
               </p>

@@ -241,19 +241,19 @@ export function CreateSpaceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          "overflow-hidden rounded-[22px] border border-black/70 bg-[var(--glass-bg)] p-0 sm:max-w-[460px]",
+          "overflow-hidden rounded-[22px] border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70 p-0 sm:max-w-[460px]",
           "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
           "backdrop-blur-[40px] backdrop-saturate-[180%]",
         )}
       >
-        <DialogHeader className="border-b border-white/[0.07] px-6 py-5 text-left">
+        <DialogHeader className="border-b border-black/[0.07] dark:border-white/[0.07] px-6 py-5 text-left">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.07] text-white/60">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-black/[0.08] bg-black/[0.045] text-muted-foreground dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white/60">
               <LuSparkles size={16} strokeWidth={1.8} />
             </div>
             <div className="min-w-0">
-              <DialogTitle className="text-sm font-medium text-white">Create project</DialogTitle>
-              <DialogDescription className="mt-0.5 text-[11px] text-white/40">
+              <DialogTitle className="text-sm font-medium text-foreground dark:text-white">Create project</DialogTitle>
+              <DialogDescription className="mt-0.5 text-[11px] text-muted-foreground dark:text-white/40">
                 Keep related chats organized in one place
               </DialogDescription>
             </div>
@@ -275,7 +275,7 @@ export function CreateSpaceDialog({
               {iconEmoji.emoji}
             </button>
             <div className="min-w-0 flex-1">
-              <label className="mb-1 block text-[11px] font-medium text-cyan-300/80" htmlFor="space-name-input">
+              <label className="mb-1 block text-[11px] font-medium text-cyan-700/80 dark:text-cyan-300/80" htmlFor="space-name-input">
                 Project name
               </label>
               <input
@@ -285,12 +285,12 @@ export function CreateSpaceDialog({
                 onChange={(e) => onNameChange(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && void onSubmit()}
                 placeholder="e.g. Q3 Marketing campaign"
-                className="h-8 w-full border-0 border-b border-cyan-300/70 bg-transparent px-0 text-[14px] text-white outline-none placeholder:text-white/30 focus:border-cyan-200"
+                className="h-8 w-full border-0 border-b border-cyan-600/45 bg-transparent px-0 text-[14px] text-foreground outline-none placeholder:text-muted-foreground/45 focus:border-cyan-600 dark:border-cyan-300/70 dark:text-white dark:placeholder:text-white/30 dark:focus:border-cyan-200"
               />
             </div>
           </div>
 
-          <p className="mb-3 border-t border-white/[0.07] pt-3 text-[12px] text-white/42">
+          <p className="mb-3 border-t border-black/[0.07] dark:border-white/[0.07] pt-3 text-[12px] text-muted-foreground dark:text-white/42">
             Choose a project name and icon
           </p>
 
@@ -306,8 +306,8 @@ export function CreateSpaceDialog({
                     setEmojiQuery("")
                   }}
                   className={cn(
-                    "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-white/42 transition-colors hover:bg-white/[0.08] hover:text-white/70",
-                    selected && "bg-white/[0.10] text-cyan-200",
+                    "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.05] hover:text-foreground dark:text-white/42 dark:hover:bg-white/[0.08] dark:hover:text-white/70",
+                    selected && "bg-cyan-500/12 text-cyan-700 dark:bg-white/[0.10] dark:text-cyan-200",
                   )}
                   title={category.label}
                   aria-label={`Show ${category.label} emojis`}
@@ -318,7 +318,7 @@ export function CreateSpaceDialog({
             })}
           </div>
 
-          <div className="mb-3 flex h-9 items-center gap-2 rounded-full bg-white/[0.07] px-3 text-white/38">
+          <div className="mb-3 flex h-9 items-center gap-2 rounded-full bg-black/[0.045] px-3 text-muted-foreground dark:bg-white/[0.07] dark:text-white/38">
             <LuSearch size={15} strokeWidth={1.8} />
             <input
               value={emojiQuery}
@@ -326,7 +326,7 @@ export function CreateSpaceDialog({
                 setEmojiQuery(event.target.value)
               }}
               placeholder="Search"
-              className="min-w-0 flex-1 bg-transparent text-[13px] text-white outline-none placeholder:text-white/35"
+              className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/45 dark:text-white dark:placeholder:text-white/35"
             />
             <LuSmile size={15} strokeWidth={1.8} />
           </div>
@@ -341,7 +341,7 @@ export function CreateSpaceDialog({
                     type="button"
                     onClick={() => selectEmoji(item)}
                     className={cn(
-                      "flex size-9 cursor-pointer items-center justify-center rounded-lg text-[22px] transition-all hover:bg-white/[0.08]",
+                      "flex size-9 cursor-pointer items-center justify-center rounded-lg text-[22px] transition-all hover:bg-black/[0.05] dark:hover:bg-white/[0.08]",
                       selected && "bg-cyan-300/15 ring-1 ring-cyan-200/35",
                     )}
                     aria-label={`Use ${item.label} emoji`}
@@ -353,13 +353,13 @@ export function CreateSpaceDialog({
               })}
             </div>
             {visibleEmojis.length === 0 ? (
-              <div className="flex h-28 items-center justify-center text-[12px] text-white/38">No emoji found</div>
+              <div className="flex h-28 items-center justify-center text-[12px] text-muted-foreground dark:text-white/38">No emoji found</div>
             ) : null}
           </div>
           {iconError ? <p className="mt-2 text-xs text-destructive">{iconError}</p> : null}
         </div>
 
-        <DialogFooter className="border-t border-white/[0.07] bg-black/20 px-6 py-4">
+        <DialogFooter className="border-t border-black/[0.07] dark:border-white/[0.07] bg-black/[0.025] px-6 py-4 dark:bg-black/20">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
           <Button onClick={() => void onSubmit()} disabled={busy || !name.trim()}>
             Create project

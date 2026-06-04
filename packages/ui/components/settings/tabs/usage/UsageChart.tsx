@@ -51,7 +51,7 @@ export function UsageChart({
   }))
 
   return (
-    <div className="flex w-full flex-col gap-3 rounded-md bg-white/[0.025] p-5 dark:bg-white/[0.025]">
+    <div className="flex w-full flex-col gap-3 rounded-md bg-black/[0.025] dark:bg-white/[0.025] p-5">
       {loading ? (
         <div className="flex h-[230px] w-full flex-col gap-3 sm:h-[250px]">
           <div className="h-full w-full animate-pulse rounded-[10px] bg-muted" />
@@ -122,7 +122,7 @@ export function UsageChart({
                     }
 
                     return (
-                      <div className="flex flex-col gap-2 rounded-xl bg-[var(--glass-bg)] px-4 py-3 shadow-xl shadow-black/40 backdrop-blur-[32px] backdrop-saturate-[180%] dark:shadow-black/60">
+                      <div className="flex flex-col gap-2 rounded-xl bg-[var(--glass-bg)] px-4 py-3 shadow-xl shadow-black/10 backdrop-blur-[32px] backdrop-saturate-[180%] dark:shadow-black/60">
                         <span className="text-[13px] font-bold text-foreground mb-1">
                           {formattedDate}
                         </span>

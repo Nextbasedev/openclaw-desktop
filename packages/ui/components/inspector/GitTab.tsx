@@ -153,7 +153,7 @@ function GitChangesToolbar({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <div className="inline-flex overflow-hidden rounded-lg border border-border/20 bg-white/[0.035] p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+      <div className="inline-flex overflow-hidden rounded-lg border border-border/20 bg-black/[0.025] dark:bg-white/[0.035] p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
         {(["unified", "split"] as DiffViewMode[]).map((item) => (
           <button
             key={item}
@@ -162,8 +162,8 @@ function GitChangesToolbar({
             className={cn(
               "cursor-pointer rounded-md px-3 py-1 text-[11px] font-semibold capitalize transition-colors",
               mode === item
-                ? "bg-white/10 text-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+                ? "bg-black/[0.055] text-foreground shadow-sm dark:bg-white/10"
+                : "text-muted-foreground hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.05]",
             )}
           >
             {item}
@@ -173,7 +173,7 @@ function GitChangesToolbar({
       <button
         type="button"
         onClick={onCollapseAll}
-        className="cursor-pointer rounded-lg border border-border/20 bg-white/[0.035] px-3 py-1.5 text-[11px] font-semibold text-foreground/90 transition-colors hover:bg-white/[0.07]"
+        className="cursor-pointer rounded-lg border border-border/20 bg-black/[0.025] dark:bg-white/[0.035] px-3 py-1.5 text-[11px] font-semibold text-foreground/90 transition-colors hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
       >
         Collapse all
       </button>
@@ -198,7 +198,7 @@ function DiffFileHeader({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full cursor-pointer items-center gap-3 border-b border-border/20 bg-white/[0.025] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.045]"
+      className="flex w-full cursor-pointer items-center gap-3 border-b border-border/20 bg-black/[0.025] dark:bg-white/[0.025] px-3 py-2.5 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.045]"
     >
       <VscMarkdown className="size-3.5 shrink-0 text-sky-400/80" />
       <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/90">{path}</span>

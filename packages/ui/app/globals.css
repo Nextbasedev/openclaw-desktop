@@ -92,7 +92,7 @@
     var(--glass-bg);
   backdrop-filter: blur(40px) saturate(180%);
   -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 1px solid rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(15, 23, 42, 0.12);
   border-radius: 22px;
   box-shadow:
     0 24px 64px var(--glass-shadow),
@@ -102,6 +102,20 @@
   max-width: 440px;
   width: 92vw;
   padding: 24px;
+}
+
+
+.dark .glass-dialog {
+  border-color: rgba(0, 0, 0, 0.7);
+}
+
+.dark .glass-btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+.dark .glass-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .glass-dialog::before {
@@ -193,21 +207,21 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.045);
   color: var(--foreground);
   border: 1px solid var(--glass-border);
   border-radius: 12px;
   padding: 10px 20px;
   font-size: 13px;
   cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
   transition: background 0.15s ease, transform 0.1s ease, border-color 0.15s ease;
   white-space: nowrap;
   user-select: none;
 }
 
 .glass-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(15, 23, 42, 0.075);
   border-color: color-mix(in oklab, var(--foreground) 12%, transparent);
 }
 

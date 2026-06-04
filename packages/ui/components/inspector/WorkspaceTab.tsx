@@ -423,11 +423,11 @@ function CodeEditor({
   const gutterWidth = "48px"
 
   return (
-    <div className="relative h-full overflow-hidden bg-[#121212]">
+    <div className="relative h-full overflow-hidden bg-background dark:bg-[#121212]">
       {/* Line number gutter */}
       <div
         ref={lineNumRef}
-        className="absolute bottom-0 left-0 top-0 z-20 select-none overflow-hidden border-r border-[#333333] bg-[#121212]"
+        className="absolute bottom-0 left-0 top-0 z-20 select-none overflow-hidden border-r border-border bg-background dark:border-[#333333] dark:bg-[#121212]"
         style={{ width: gutterWidth }}
       >
         <div style={{ paddingTop: codePad, paddingBottom: codePad }}>
@@ -718,7 +718,7 @@ function FilePreviewPane({
           </span>
         )}
         {readOnlyPath && (
-          <span className="rounded bg-white/6 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+          <span className="rounded bg-black/[0.045] px-1.5 dark:bg-white/6 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
             Read only
           </span>
         )}
@@ -748,7 +748,7 @@ function FilePreviewPane({
                   className={cn(
                     "flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors",
                     canMove
-                      ? "text-muted-foreground hover:bg-white/8 hover:text-foreground"
+                      ? "text-muted-foreground hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/8"
                       : "cursor-default text-muted-foreground/30",
                   )}
                 >
@@ -770,7 +770,7 @@ function FilePreviewPane({
                       ? "cursor-default text-muted-foreground/30"
                       : downloaded
                       ? "text-emerald-400"
-                      : "text-muted-foreground hover:bg-white/8 hover:text-foreground",
+                      : "text-muted-foreground hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/8",
                   )}
                   disabled={!canDownload}
                 >
@@ -890,7 +890,7 @@ function FilePreviewPane({
       <div className="flex-1 overflow-hidden">
         {isMd && mode === "preview" ? (
           <div className={cn(
-            "prose prose-invert h-full max-w-none overflow-auto bg-[#121212] p-4 text-[13px] leading-7 text-foreground/90",
+            "prose prose-neutral dark:prose-invert h-full max-w-none overflow-auto bg-background p-4 dark:bg-[#121212] text-[13px] leading-7 text-foreground/90",
             "[&>*+*]:mt-3",
             "[&_h1]:mb-2 [&_h1]:mt-5 [&_h1]:border-b [&_h1]:border-foreground/10 [&_h1]:pb-2 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:text-foreground [&_h1]:first:mt-0",
             "[&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-[15px] [&_h2]:font-semibold [&_h2]:text-foreground",
@@ -905,12 +905,12 @@ function FilePreviewPane({
             "[&_li]:my-0.5 [&_li]:text-foreground/85 [&_li]:leading-6",
             "[&_li_p]:my-0",
             "[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-foreground/20 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-foreground/60",
-            "[&_code]:rounded [&_code]:bg-white/8 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[11px] [&_code]:text-[#e06c75]",
-            "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-white/5 [&_pre]:bg-black/40 [&_pre]:p-3",
+            "[&_code]:rounded [&_code]:bg-black/[0.06] dark:[&_code]:bg-white/8 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[11px] [&_code]:text-rose-700 dark:[&_code]:text-[#e06c75]",
+            "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-black/10 [&_pre]:bg-black/[0.04] dark:[&_pre]:border-white/5 dark:[&_pre]:bg-black/40 [&_pre]:p-3",
             "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[11px] [&_pre_code]:leading-5 [&_pre_code]:text-foreground/80",
             "[&_hr]:my-4 [&_hr]:border-foreground/10",
             "[&_table]:my-2 [&_table]:w-full [&_table]:text-[12px]",
-            "[&_th]:border [&_th]:border-foreground/10 [&_th]:bg-white/5 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold",
+            "[&_th]:border [&_th]:border-foreground/10 [&_th]:bg-black/[0.04] dark:[&_th]:bg-white/5 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold",
             "[&_td]:border [&_td]:border-foreground/10 [&_td]:px-2 [&_td]:py-1",
           )}>
             <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>

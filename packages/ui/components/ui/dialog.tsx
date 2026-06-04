@@ -61,7 +61,7 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-5 overflow-hidden rounded-[22px] border border-black/70 bg-[var(--glass-bg)] p-6 text-sm text-popover-foreground outline-none backdrop-blur-[40px] backdrop-saturate-[180%] duration-150 sm:max-w-md",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-5 overflow-hidden rounded-[22px] border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70 p-6 text-sm text-popover-foreground outline-none backdrop-blur-[40px] backdrop-saturate-[180%] duration-150 sm:max-w-md",
           "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
           "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-open:slide-in-from-top-1 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-closed:slide-out-to-top-1",
           className
@@ -108,7 +108,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "grid grid-cols-2 gap-2.5 [&>button]:h-10 [&>button]:w-full [&>button]:rounded-xl [&>button]:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] [&>button[data-variant=default]]:bg-foreground [&>button[data-variant=default]]:text-background [&>button[data-variant=outline]]:border-[var(--glass-border)] [&>button[data-variant=outline]]:bg-white/[0.06] [&>button[data-variant=destructive]]:bg-red-500/[0.14] [&>button[data-variant=destructive]]:text-red-300",
+        "grid grid-cols-2 gap-2.5 [&>button]:h-10 [&>button]:w-full [&>button]:rounded-xl [&>button]:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] [&>button[data-variant=default]]:bg-foreground [&>button[data-variant=default]]:text-background [&>button[data-variant=outline]]:border-[var(--glass-border)] [&>button[data-variant=outline]]:bg-black/[0.04] dark:[&>button[data-variant=outline]]:bg-white/[0.06] [&>button[data-variant=destructive]]:bg-red-500/[0.14] [&>button[data-variant=destructive]]:text-red-600 dark:[&>button[data-variant=destructive]]:text-red-300",
         className
       )}
       {...props}

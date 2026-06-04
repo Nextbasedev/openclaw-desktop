@@ -30,7 +30,7 @@ function MiniMetric({
   className?: string
 }) {
   return (
-    <div className={`flex min-w-0 flex-col rounded-md bg-white/[0.025] p-5 dark:bg-white/[0.025] ${className}`}>
+    <div className={`flex min-w-0 flex-col rounded-md bg-black/[0.025] dark:bg-white/[0.025] p-5 ${className}`}>
       <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
@@ -48,7 +48,7 @@ function MiniMetric({
 
 function MiniMetricSkeleton({ className = "" }: { className?: string }) {
   return (
-    <div className={`flex h-[98px] min-w-0 flex-col rounded-md bg-white/[0.025] p-5 dark:bg-white/[0.025] ${className}`}>
+    <div className={`flex h-[98px] min-w-0 flex-col rounded-md bg-black/[0.025] dark:bg-white/[0.025] p-5 ${className}`}>
       <Skeleton className="h-3 w-16" />
       <Skeleton className="mt-4 h-7 w-20" />
       <Skeleton className="mt-2 h-3 w-24" />
@@ -64,7 +64,7 @@ type UsageStatsCardsProps = {
 export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsProps) {
   if (loading) {
     return (
-      <section className="flex flex-col rounded-md bg-white/[0.025] dark:bg-white/[0.025]">
+      <section className="flex flex-col rounded-md bg-black/[0.025] dark:bg-white/[0.025]">
         <div className="p-6">
           <div className="flex flex-col gap-4 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between">
             <div className="flex flex-col gap-1.5">
@@ -72,7 +72,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
               <Skeleton className="h-[52px] w-48 mt-1" />
               <Skeleton className="h-4 w-64 mt-1.5" />
             </div>
-            <div className="flex h-[104px] min-w-[150px] flex-col rounded-md bg-white/[0.035] p-5">
+            <div className="flex h-[104px] min-w-[150px] flex-col rounded-md bg-black/[0.035] dark:bg-white/[0.035] p-5">
               <Skeleton className="h-3 w-12" />
               <Skeleton className="mt-4 h-8 w-24" />
             </div>
@@ -106,7 +106,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
   const cacheShare = trackedTokens > 0 ? (cacheTokens / trackedTokens) * 100 : 0
 
   return (
-    <section className="flex flex-col rounded-md bg-white/[0.025] dark:bg-white/[0.025]">
+    <section className="flex flex-col rounded-md bg-black/[0.025] dark:bg-white/[0.025]">
       <div className="p-6">
         <div className="flex flex-col gap-4 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between">
           <div className="flex flex-col gap-1.5">
@@ -121,7 +121,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
             </div>
           </div>
 
-          <div className="flex min-w-[150px] flex-col rounded-md bg-white/[0.035] p-5">
+          <div className="flex min-w-[150px] flex-col rounded-md bg-black/[0.035] dark:bg-white/[0.035] p-5">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Spend
             </div>

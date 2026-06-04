@@ -67,7 +67,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
     <div
       className="flex h-full w-full min-w-0 overflow-hidden bg-transparent"
     >
-      <aside className="flex w-[220px] shrink-0 flex-col bg-white/[0.025]">
+      <aside className="flex w-[220px] shrink-0 flex-col bg-black/[0.025] dark:bg-white/[0.025]">
         <div className="px-4 py-4">
           {onBack ? (
             <button
@@ -161,10 +161,10 @@ function SettingsNavButton({
       aria-label={item.label}
       className={cn(
         "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors",
-        "outline-none focus-visible:bg-white/[0.06]",
+        "outline-none focus-visible:bg-black/[0.055] dark:focus-visible:bg-white/[0.06]",
         isActive
-          ? "bg-white/[0.075] text-foreground"
-          : "text-muted-foreground hover:bg-white/[0.045] hover:text-foreground",
+          ? "bg-black/[0.055] text-foreground dark:bg-white/[0.075]"
+          : "text-muted-foreground hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.045]",
       )}
     >
       <Icon size={16} strokeWidth={isActive ? 2 : 1.5} className="shrink-0" />
