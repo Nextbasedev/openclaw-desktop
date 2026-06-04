@@ -171,6 +171,17 @@ export function CollapsedSpacesPopover({
     setCreateOpen(true)
   }
 
+  function openArchivedChats() {
+    clearPreviewTimer()
+    setContextMenu((prev) => ({ ...prev, open: false, space: null }))
+    setPlusMenu((prev) => ({ ...prev, open: false }))
+    window.dispatchEvent(
+      new CustomEvent("openclaw:open-settings", {
+        detail: { section: "archive" },
+      }),
+    )
+  }
+
   async function submitCreate() {
     if (busy || !name.trim()) return
     setBusy(true)
@@ -254,6 +265,19 @@ export function CollapsedSpacesPopover({
 
   return (
     <div className="flex flex-col items-center gap-3" aria-label="Projects" onMouseLeave={clearPreviewTimer}>
+      <GlassTooltip label="Archived chats" disabled={tooltipsDisabled || contextMenu.open}>
+        <button
+          type="button"
+          onClick={openArchivedChats}
+          className="group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border border-transparent bg-[linear-gradient(135deg,#111827_0%,rgba(31,41,55,0.9)_50%,rgba(17,24,39,0.7)_100%)] text-white/80 shadow-[0_10px_24px_rgba(0,0,0,0.28)] transition-all duration-300 hover:scale-[1.035] hover:bg-white/[0.035] hover:text-white hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]"
+          aria-label="Open archived chats"
+        >
+          <span className="relative flex size-full items-center justify-center overflow-hidden rounded-[10px] after:pointer-events-none after:absolute after:inset-0 after:bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.18),transparent_36%)] after:opacity-65">
+            <ArchiveBoxIcon />
+          </span>
+        </button>
+      </GlassTooltip>
+
       {orderedSpaces.map((space) => {
         const active = space.id === activeSpaceId
         const hasCustomIcon = Boolean(spaceIconSrc(space))
@@ -403,5 +427,26 @@ export function CollapsedSpacesPopover({
         document.body,
       )}
     </div>
+  )
+}
+
+function ArchiveBoxIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 5.25h10" />
+      <path d="M4 5.25v6.25A1.5 1.5 0 0 0 5.5 13h5A1.5 1.5 0 0 0 12 11.5V5.25" />
+      <path d="M4.75 3h6.5L12 5.25H4L4.75 3Z" />
+      <path d="M8 7.25v3" />
+      <path d="m6.75 9.25 1.25 1.25 1.25-1.25" />
+    </svg>
   )
 }

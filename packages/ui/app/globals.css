@@ -482,45 +482,54 @@ body {
   animation: shimmer 2s ease-in-out infinite;
 }
 
-@keyframes project-rail-aura-breathe {
+@keyframes project-rail-glow-breathe {
   0%,
   100% {
-    opacity: 0.48;
-    transform: scale(0.96);
+    opacity: 0.42;
+    transform: translateY(1px) scale(0.98);
   }
 
   50% {
-    opacity: 0.9;
-    transform: scale(1.04);
+    opacity: 0.78;
+    transform: translateY(-1px) scale(1.03);
   }
 }
 
-@keyframes project-rail-ring-spin {
-  to {
-    transform: rotate(360deg);
+@keyframes project-rail-sheen-pass {
+  0% {
+    transform: translateX(-140%) rotate(18deg);
+    opacity: 0;
+  }
+
+  28% {
+    opacity: 0.5;
+  }
+
+  72% {
+    opacity: 0.18;
+  }
+
+  100% {
+    transform: translateX(150%) rotate(18deg);
+    opacity: 0;
   }
 }
 
-.project-rail-active-aura {
+.project-rail-active-glow {
   background:
-    radial-gradient(circle at 35% 25%, rgba(103, 232, 249, 0.34), transparent 42%),
-    radial-gradient(circle at 70% 78%, rgba(217, 70, 239, 0.22), transparent 48%);
-  filter: blur(8px);
-  animation: project-rail-aura-breathe 2.8s ease-in-out infinite;
+    radial-gradient(ellipse at 42% 20%, rgba(255, 255, 255, 0.22), transparent 42%),
+    radial-gradient(ellipse at 50% 84%, rgba(34, 211, 238, 0.28), transparent 58%);
+  filter: blur(9px);
+  animation: project-rail-glow-breathe 3.2s ease-in-out infinite;
 }
 
-.project-rail-active-ring::before {
+.project-rail-active-sheen::after {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: conic-gradient(from 0deg, rgba(103, 232, 249, 0.12), rgba(255, 255, 255, 0.82), rgba(217, 70, 239, 0.34), rgba(103, 232, 249, 0.12));
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  animation: project-rail-ring-spin 5.5s linear infinite;
+  inset: -32% 38%;
+  width: 34%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.32), transparent);
+  animation: project-rail-sheen-pass 3.8s ease-in-out infinite;
 }
 
 @keyframes shimmer-text {
