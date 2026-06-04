@@ -6,7 +6,9 @@ import { invoke, openExternalUrl } from "@/lib/ipc"
 import { emit } from "@/lib/events"
 import { invalidateMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { getMiddlewareConnection, isOpenClawConnected, testMiddlewareConnection } from "@/lib/middleware-client"
-import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert } from "react-icons/lu"
+import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert, LuChevronDown } from "react-icons/lu"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { cn } from "@/lib/utils"
 
 type HelpLink = {
   label: string
@@ -203,6 +205,7 @@ function MiddlewareUpdateCard() {
   const [branches, setBranches] = React.useState<MiddlewareUpdateBranch[]>(() => FALLBACK_UPDATE_BRANCH_OPTIONS.map((name) => ({ name })))
   const [branchesLoading, setBranchesLoading] = React.useState(false)
   const [branchesError, setBranchesError] = React.useState<string | null>(null)
+  const [branchMenuOpen, setBranchMenuOpen] = React.useState(false)
   const lastToastMessageRef = React.useRef<string | null>(null)
 
   const updateBranch = selectedBranch === "custom" ? customBranch.trim() : selectedBranch
@@ -368,19 +371,62 @@ function MiddlewareUpdateCard() {
       <div className="mt-4 grid gap-3 rounded-2xl bg-black/15 p-3 sm:grid-cols-[minmax(0,220px)_1fr]">
         <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
           Update branch
-          <select
-            value={selectedBranch}
-            onChange={(event) => setSelectedBranch(event.target.value)}
-            disabled={busy}
-            className={HELP_FIELD_CLASS}
-          >
-            {branches.map((branch) => (
-              <option key={branch.name} value={branch.name}>
-                {branch.name}{branch.updatedAt ? ` · ${new Date(branch.updatedAt).toLocaleDateString()}` : ""}
-              </option>
-            ))}
-            <option value="custom">Custom branch…</option>
-          </select>
+          <Popover open={branchMenuOpen} onOpenChange={setBranchMenuOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={busy}
+                className={cn(HELP_FIELD_CLASS, "flex w-full items-center justify-between gap-2 text-left disabled:cursor-not-allowed disabled:opacity-60")}
+              >
+                <span className="min-w-0 truncate">{selectedBranch === "custom" ? "Custom branch…" : selectedBranch}</span>
+                <LuChevronDown size={14} className={cn("shrink-0 text-muted-foreground/70 transition-transform", branchMenuOpen && "rotate-180")} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              sideOffset={8}
+              className={cn(
+                "max-h-72 w-[var(--radix-popover-trigger-width)] gap-0 overflow-y-auto rounded-2xl p-1.5 ring-0",
+                "border border-black/70 bg-[var(--glass-bg)]",
+                "backdrop-blur-[40px] backdrop-saturate-[180%]",
+                "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+              )}
+            >
+              {branches.map((branch) => {
+                const active = selectedBranch === branch.name
+                return (
+                  <button
+                    key={branch.name}
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[12px] text-foreground transition-colors",
+                      active ? "bg-white/[0.075]" : "hover:bg-white/[0.055]",
+                    )}
+                    onClick={() => {
+                      setSelectedBranch(branch.name)
+                      setBranchMenuOpen(false)
+                    }}
+                  >
+                    <span className="min-w-0 truncate">{branch.name}</span>
+                    {branch.updatedAt && <span className="shrink-0 text-[10px] text-muted-foreground/55">{new Date(branch.updatedAt).toLocaleDateString()}</span>}
+                  </button>
+                )
+              })}
+              <button
+                type="button"
+                className={cn(
+                  "mt-1 flex w-full items-center rounded-xl px-3 py-2 text-left text-[12px] text-foreground transition-colors",
+                  selectedBranch === "custom" ? "bg-white/[0.075]" : "hover:bg-white/[0.055]",
+                )}
+                onClick={() => {
+                  setSelectedBranch("custom")
+                  setBranchMenuOpen(false)
+                }}
+              >
+                Custom branch…
+              </button>
+            </PopoverContent>
+          </Popover>
         </label>
         <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
           {selectedBranch === "custom" ? "Custom branch name" : "Selected branch"}
