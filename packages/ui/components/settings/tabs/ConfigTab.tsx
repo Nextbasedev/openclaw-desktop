@@ -129,7 +129,7 @@ export function ConfigTab() {
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <div className="rounded-2xl bg-white/[0.025] p-1.5">
+        <div className="space-y-1.5 rounded-2xl bg-white/[0.025] p-1.5">
           {CONFIG_FILES.map((file) => {
             const active = selected.path === file.path
             return (
@@ -232,7 +232,7 @@ export function ConfigTab() {
         </section>
       </div>
 
-      <div className="mt-8 rounded-2xl bg-red-500/[0.06] p-5">
+      <div className="mt-2 rounded-2xl bg-red-500/[0.06] p-5">
         <div className="flex items-center gap-3">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
             <LuTrash2 size={16} />
