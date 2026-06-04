@@ -6,33 +6,17 @@ function Bone({ className }: { className?: string }) {
   )
 }
 
-function ProjectRailBone({ active = false }: { active?: boolean }) {
-  return (
-    <div
-      className={`relative flex size-10 items-center justify-center rounded-xl ${
-        active
-          ? "bg-white/[0.075] shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
-          : "bg-white/[0.035] shadow-[0_10px_24px_rgba(0,0,0,0.24)]"
-      }`}
-    >
-      {active && (
-        <span className="absolute -right-[11px] top-1/2 h-8 w-1 -translate-y-1/2 rounded-full bg-white/80" />
-      )}
-      <Bone className="size-5 rounded-lg" />
-    </div>
-  )
+function ProjectRailBone() {
+  return <Bone className="size-10 rounded-xl bg-white/[0.045]" />
 }
 
 function ChatRowBone({ active = false, short = false }: { active?: boolean; short?: boolean }) {
   return (
-    <div
-      className={`flex h-8 items-center gap-1.5 rounded-md py-1.5 pl-2 pr-7 ${
-        active ? "bg-foreground/7" : ""
+    <Bone
+      className={`h-8 rounded-lg ${short ? "w-[72%]" : "w-full"} ${
+        active ? "bg-foreground/[0.075]" : "bg-foreground/[0.045]"
       }`}
-    >
-      <Bone className="size-4 rounded" />
-      <Bone className={`h-3 rounded-sm ${short ? "w-20" : "w-32"}`} />
-    </div>
+    />
   )
 }
 
@@ -66,10 +50,10 @@ export function AppLoadingSkeleton() {
           <nav className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
             <div className="scrollbar-hide relative flex w-[58px] shrink-0 flex-col items-center gap-3 overflow-y-auto border-r border-white/[0.055] bg-black/[0.025] px-2.5 pb-6 pt-4 shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)] dark:bg-black/[0.085]">
               <ProjectRailBone />
-              <ProjectRailBone active />
               <ProjectRailBone />
               <ProjectRailBone />
-              <Bone className="mt-1 size-10 rounded-xl border border-dashed border-white/[0.14] bg-white/[0.02]" />
+              <ProjectRailBone />
+              <Bone className="mt-1 size-10 rounded-xl bg-white/[0.025]" />
             </div>
 
             <div className="min-w-0 flex-1 overflow-hidden border-l border-white/[0.06] px-1 py-3 shadow-[inset_12px_0_24px_-22px_rgba(0,0,0,0.55)]">
