@@ -27,7 +27,7 @@ export function Footer({ className, onToggleTerminal }: FooterProps) {
     <footer
       className={cn(
         "relative flex h-[26px] shrink-0 items-center justify-between",
-        "border-t border-border/50 bg-card px-3",
+        "border-x-0 border-b-0 border-t border-border/50 bg-card px-3",
         "select-none",
         className,
       )}
