@@ -36,6 +36,48 @@ afterEach(() => {
 });
 
 describe("chat send routes", () => {
+  test("returns live session context from Gateway sessions list", async () => {
+    const app = await createApp(config("session-context"));
+    const context = contextOf(app);
+    const request = vi.spyOn(context.gateway, "request").mockResolvedValue({
+      sessions: [
+        { key: "other", totalTokens: 999 },
+        {
+          key: "agent:main:desktop:abc",
+          inputTokens: 4200,
+          outputTokens: 270,
+          cacheRead: 138000,
+          cacheWrite: 0,
+          totalTokens: 139000,
+          contextTokens: 400000,
+          estimatedCostUsd: 0.0123,
+        },
+      ],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/chat/session-context?sessionKey=agent%3Amain%3Adesktop%3Aabc",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      ok: true,
+      sessionKey: "agent:main:desktop:abc",
+      usage: {
+        input: 4200,
+        output: 270,
+        cacheRead: 138000,
+        cacheWrite: 0,
+        total: 139000,
+        cost: 0.0123,
+        contextLimit: 400000,
+      },
+    });
+    expect(request).toHaveBeenCalledWith("sessions.list", expect.objectContaining({ includeGlobal: true, includeUnknown: true }), 30_000);
+    await app.close();
+  });
+
   test("resolves exec approval through Gateway", async () => {
     const app = await createApp(config("approval-resolve"));
     const context = contextOf(app);

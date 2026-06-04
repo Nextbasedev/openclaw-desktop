@@ -20,7 +20,8 @@ import { MessageFeedbackDialog } from "./MessageFeedbackDialog"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
-import { latestGatewaySessionContextUsage } from "@/lib/sessionContextUsage"
+import { fetchSessionContextUsage } from "@/lib/chat-engine-v2/client"
+import { normalizeSessionTokenUsage, type SessionTokenUsage } from "@/lib/sessionContextUsage"
 import { type ChatComposerSubmit } from "@/lib/chatAttachments"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
@@ -949,10 +950,32 @@ export function ChatView({
     () => buildStableChatRows(visibleAllMessages),
     [visibleAllMessages, forceRenderKey]
   )
-  const sessionUsage = useMemo(
-    () => latestGatewaySessionContextUsage(renderedMessages),
-    [renderedMessages]
-  )
+  const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
+  const contextFetchSeqRef = useRef(0)
+  const wasGeneratingRef = useRef(false)
+
+  const refreshSessionUsage = useCallback(async () => {
+    const seq = ++contextFetchSeqRef.current
+    try {
+      const response = await fetchSessionContextUsage(sessionKey)
+      if (seq !== contextFetchSeqRef.current) return
+      setSessionUsage(normalizeSessionTokenUsage(response.usage))
+    } catch {
+      if (seq === contextFetchSeqRef.current) setSessionUsage(null)
+    }
+  }, [sessionKey])
+
+  useEffect(() => {
+    setSessionUsage(null)
+    void refreshSessionUsage()
+  }, [refreshSessionUsage])
+
+  useEffect(() => {
+    const wasGenerating = wasGeneratingRef.current
+    wasGeneratingRef.current = isGenerating
+    if (!wasGenerating || isGenerating) return
+    void refreshSessionUsage()
+  }, [isGenerating, refreshSessionUsage])
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
   const needsInitialScrollRef = useRef(true)

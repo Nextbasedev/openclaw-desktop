@@ -24,6 +24,10 @@ const bootstrapQuery = z.object({
   maxChars: z.coerce.number().int().positive().optional(),
 });
 
+const sessionContextQuery = z.object({
+  sessionKey: z.string().min(1),
+});
+
 
 const STALE_BOOTSTRAP_RUN_MS = 2 * 60 * 1000;
 const STALE_BOOTSTRAP_TOOL_MS = 30 * 60 * 1000;
@@ -34,6 +38,56 @@ const DEFAULT_CHAT_SEND_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = DEFAULT_CHAT_SEND_TIMEOUT_MS + 10_000;
 const localFirstBootstrapTimestamps = new Map<string, number>();
 const localFirstSqliteBlocked = new Set<string>();
+
+type SessionContextUsage = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+  cost: number | null;
+  contextLimit: number | null;
+};
+
+function positiveNumber(value: unknown): number | null {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function usageNumber(value: unknown): number {
+  const n = positiveNumber(value);
+  return n === null ? 0 : n;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function sessionContextFromGatewaySession(session: Record<string, unknown> | null): SessionContextUsage | null {
+  if (!session) return null;
+  const responseUsage = objectRecord(session.responseUsage);
+  const usage = objectRecord(responseUsage?.usage) ?? responseUsage;
+  const cost = objectRecord(usage?.cost);
+
+  const input = usageNumber(session.inputTokens ?? usage?.input ?? usage?.input_tokens ?? usage?.prompt_tokens);
+  const output = usageNumber(session.outputTokens ?? usage?.output ?? usage?.output_tokens ?? usage?.completion_tokens);
+  const cacheRead = usageNumber(session.cacheRead ?? usage?.cacheRead ?? usage?.cache_read_tokens);
+  const cacheWrite = usageNumber(session.cacheWrite ?? usage?.cacheWrite ?? usage?.cache_write_tokens);
+  const total = usageNumber(session.totalTokens ?? usage?.total ?? usage?.total_tokens) || input + output + cacheRead + cacheWrite;
+  const contextLimit = positiveNumber(session.contextTokens ?? session.contextLimit ?? usage?.contextTokens ?? usage?.contextLimit);
+  const costValue = positiveNumber(session.estimatedCostUsd ?? session.totalCost ?? usage?.totalCost ?? usage?.cost_usd ?? cost?.total);
+
+  if (total <= 0 && input <= 0 && output <= 0 && cacheRead <= 0 && cacheWrite <= 0) return null;
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    total,
+    cost: costValue,
+    contextLimit,
+  };
+}
 
 /** Clear local-first cache — for test isolation only. */
 export function clearLocalFirstBootstrapCache() {
@@ -914,6 +968,28 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       headers: request.headers,
     }) as unknown as Promise<{ statusCode: number; json(): unknown }>);
     reply.code(response.statusCode).send(response.json());
+  });
+
+  app.get("/api/chat/session-context", async (request) => {
+    const parsed = sessionContextQuery.safeParse(request.query);
+    if (!parsed.success) {
+      throw new HttpError(400, "Invalid session context query", "INVALID_QUERY", parsed.error.flatten());
+    }
+    const { sessionKey } = parsed.data;
+    const response = await context.gateway.request<Record<string, unknown>>("sessions.list", {
+      limit: 500,
+      includeGlobal: true,
+      includeUnknown: true,
+    }, 30_000);
+    const sessions = Array.isArray(response.sessions) ? response.sessions : [];
+    const session = sessions.find((entry) => objectRecord(entry)?.key === sessionKey);
+    const usage = sessionContextFromGatewaySession(objectRecord(session));
+    return {
+      ok: true,
+      sessionKey,
+      usage,
+      updatedAtMs: Date.now(),
+    };
   });
 
   app.post("/api/chat/send", async (request) => {

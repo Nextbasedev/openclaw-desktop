@@ -2,6 +2,7 @@ import { frontendLog, redactText, sanitizeForLog, sanitizeUrlForLog } from "../c
 import { logChatStreamRecoveryDecision } from "../chatTimelineDiagnostics"
 import { getMiddlewareConnection } from "../middleware-client"
 import { registerScheduledRequest, type RequestPriority } from "../requestScheduler"
+import type { SessionTokenUsage } from "../sessionContextUsage"
 import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
 export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
@@ -178,6 +179,20 @@ export async function fetchChatMessagesV2(input: {
     schedulerPriority: "active-chat",
     schedulerSessionKey: input.sessionKey,
     schedulerLabel: `messages:${input.sessionKey}`,
+  })
+}
+
+export async function fetchSessionContextUsage(sessionKey: string): Promise<{
+  ok: boolean
+  sessionKey: string
+  usage: SessionTokenUsage | null
+  updatedAtMs: number
+}> {
+  const params = new URLSearchParams({ sessionKey })
+  return fetchJson(`/api/chat/session-context?${params.toString()}`, {
+    schedulerPriority: "active-chat",
+    schedulerSessionKey: sessionKey,
+    schedulerLabel: `session-context:${sessionKey}`,
   })
 }
 
