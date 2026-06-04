@@ -293,42 +293,6 @@ export function ConnectPageView({
                       />
                     )}
 
-                    {setupMode !== "choice" && setupMode !== "remote" && (
-                      <details className="rounded-2xl bg-white/[0.025] p-4">
-                        <summary className="cursor-pointer text-sm font-medium text-zinc-300 select-none hover:text-white">
-                          Advanced manual setup
-                        </summary>
-                        <div className="mt-4 space-y-4">
-                          <ManualFields
-                            url={url}
-                            token={token}
-                            showToken={showToken}
-                            disabled={busy}
-                            onUrlChange={onUrlChange}
-                            onTokenChange={onTokenChange}
-                            onShowTokenChange={onShowTokenChange}
-                          />
-                          <div className="grid grid-cols-2 gap-3">
-                            <Button
-                              onClick={onTest}
-                              disabled={busy || missingConfig}
-                              variant="outline"
-                              size="sm"
-                            >
-                              {testing ? "Testing..." : "Test"}
-                            </Button>
-                            <Button
-                              onClick={onSave}
-                              disabled={busy || missingConfig}
-                              size="sm"
-                            >
-                              {saving ? "Connecting..." : "Save"}
-                            </Button>
-                          </div>
-                        </div>
-                      </details>
-                    )}
-
                     {(error || connectResult) && (
                       <div ref={errorBlockRef}>
                         <ConnectionErrorGuide
@@ -482,7 +446,7 @@ function ChoiceScreen({
   alignLeft?: boolean
 }) {
   return (
-    <div className="space-y-4">
+    <div className="rounded-[28px] bg-white/[0.032] p-4 shadow-[0_20px_56px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.055)]">
       <div className="grid gap-3 sm:grid-cols-2">
         <ModeCard
           active={false}
@@ -501,7 +465,7 @@ function ChoiceScreen({
       </div>
       <p
         className={cn(
-          "text-xs text-zinc-500",
+          "mt-4 text-[12px] text-zinc-500",
           alignLeft ? "text-left" : "text-center"
         )}
       >
@@ -575,28 +539,30 @@ function ModeCard({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-md border p-5 text-left transition-all",
+        "rounded-[22px] p-4 text-left transition-all",
         active
-          ? "border-emerald-500/40 bg-emerald-500/10 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]"
-          : "border-white/10 bg-white/[0.025] hover:border-white/20 hover:bg-white/[0.04]"
+          ? "bg-emerald-500/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+          : "bg-white/[0.035] hover:bg-white/[0.06]"
       )}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-start gap-3">
         <div
           className={cn(
-            "flex size-9 items-center justify-center rounded-md",
+            "flex size-10 shrink-0 items-center justify-center rounded-2xl",
             active
               ? "bg-emerald-500/15 text-emerald-300"
-              : "bg-white/5 text-zinc-400"
+              : "bg-white/[0.055] text-zinc-400"
           )}
         >
           <HugeiconsIcon icon={icon} size={18} />
         </div>
-        <p className="text-sm font-medium text-zinc-100">{title}</p>
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-zinc-100">{title}</p>
+          <p className="mt-2 text-[12px] leading-relaxed text-zinc-500">
+            {description}
+          </p>
+        </div>
       </div>
-      <p className="mt-4 text-xs leading-relaxed text-zinc-500">
-        {description}
-      </p>
     </button>
   )
 }
@@ -625,17 +591,20 @@ function LocalOpenClawPanel({
   const checking = busy || loadingStatus
 
   return (
-    <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <StepBadge step="2" label="Check local OpenClaw" />
-      <div>
-        <p className="text-sm font-medium text-zinc-100">
-          We&apos;ll look for OpenClaw on this machine.
-        </p>
-        <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-          If OpenClaw is running on this computer, Desktop connects locally. No
-          pairing code or token needed.
-        </p>
+    <div className="rounded-[28px] bg-white/[0.032] p-5 shadow-[0_20px_56px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.055)]">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[15px] font-semibold tracking-tight text-foreground">Local connection</p>
+          <p className="mt-1 max-w-[420px] text-[12px] leading-relaxed text-muted-foreground/64">
+            Detect middleware running on this computer. No pairing code is needed for local setup.
+          </p>
+        </div>
+        <span className="rounded-2xl bg-white/[0.055] px-3 py-2 text-[12px] text-zinc-300">
+          Local
+        </span>
       </div>
+
+      <div className="mt-5 space-y-4">
       <StatusMessage
         message={detectMessage}
         fallback="Checking for local OpenClaw..."
@@ -644,47 +613,35 @@ function LocalOpenClawPanel({
         type="button"
         onClick={onDetect}
         disabled={checking}
-        className="w-full"
+        className="h-12 w-full rounded-[20px] bg-foreground text-[13px] font-semibold text-background shadow-[0_16px_44px_rgba(255,255,255,0.10)] hover:bg-foreground/90 disabled:opacity-50"
       >
         {checking ? "Checking..." : "Start / detect local backend"}
       </Button>
-      <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-        <p className="text-xs font-medium text-zinc-300">Manual local URL</p>
-        <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-          Only use this if auto-detect cannot find the local Middleware. Leave
-          pairing/token empty for local setup.
-        </p>
-        <div className="mt-3 space-y-3">
-          <div className="space-y-2">
-            <Label
-              htmlFor="local-middleware-url"
-              className="text-xs text-zinc-300"
-            >
-              Middleware URL
-            </Label>
-            <Input
-              id="local-middleware-url"
-              value={url}
-              onChange={(event) => onUrlChange(event.target.value)}
-              placeholder="http://127.0.0.1:8787"
-              disabled={busy}
-              className="border-white/10 bg-black/30 text-zinc-100 placeholder:text-zinc-600"
-            />
-          </div>
-          <Button
-            onClick={onSave}
-            disabled={busy || missingConfig}
-            className="w-full"
-            size="sm"
-          >
-            {saving ? "Connecting..." : "Connect local backend"}
-          </Button>
-        </div>
+
+      <div className="space-y-2">
+        <Label className="block px-1 text-[11px] font-medium text-muted-foreground/76">
+          Manual local URL
+        </Label>
+        <Input
+          id="local-middleware-url"
+          value={url}
+          onChange={(event) => onUrlChange(event.target.value)}
+          placeholder="http://127.0.0.1:8787"
+          disabled={busy}
+          className="h-12 rounded-[18px] border-0 bg-white/[0.06] px-4 text-[13px] text-zinc-100 placeholder:text-zinc-500 focus-visible:bg-white/[0.085] focus-visible:ring-0"
+        />
       </div>
-      <PromptBox
-        title="If OpenClaw is not running, ask your local OpenClaw:"
-        prompt={LOCAL_OPENCLAW_PROMPT}
-      />
+
+      <Button
+        onClick={onSave}
+        disabled={busy || missingConfig}
+        className="h-11 w-full rounded-[18px] bg-white/[0.06] text-[13px] font-medium text-zinc-100 hover:bg-white/[0.085] disabled:opacity-50"
+      >
+        {saving ? "Connecting..." : "Connect local backend"}
+      </Button>
+
+      <SetupPromptPreview prompt={LOCAL_OPENCLAW_PROMPT} />
+      </div>
     </div>
   )
 }
@@ -865,10 +822,10 @@ function StatusMessage({
   return (
     <div
       className={cn(
-        "rounded-xl border px-3 py-2 text-xs leading-relaxed",
+        "rounded-[18px] px-3.5 py-3 text-xs leading-relaxed",
         message?.ok
-          ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-300"
-          : "border-amber-500/20 bg-amber-500/5 text-amber-300"
+          ? "bg-emerald-500/10 text-emerald-300"
+          : "bg-amber-500/10 text-amber-300"
       )}
     >
       {message?.text || fallback}
