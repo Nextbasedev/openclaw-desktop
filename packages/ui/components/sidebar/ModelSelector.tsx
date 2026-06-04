@@ -101,7 +101,7 @@ export function ModelSelector({ open, onOpenChange }: Props) {
       </div>
 
       <div className="mb-3">
-        <div className="relative">
+        <div className="relative rounded-xl bg-white/[0.025] transition-colors focus-within:bg-white/[0.045]">
           <LuSearch
             size={13}
             className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50"
@@ -112,10 +112,9 @@ export function ModelSelector({ open, onOpenChange }: Props) {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search models..."
             className={cn(
-              "h-9 w-full rounded-xl border pl-8 pr-3",
-              "border-[var(--glass-input-border)] bg-[var(--glass-input-bg)]",
+              "h-9 w-full rounded-xl border-0 bg-transparent pl-8 pr-3",
               "text-[12px] text-foreground outline-none",
-              "placeholder:text-muted-foreground/40 focus:border-foreground/15",
+              "placeholder:text-muted-foreground/40",
             )}
           />
         </div>
@@ -152,12 +151,12 @@ export function ModelSelector({ open, onOpenChange }: Props) {
                 handleSelect(`${model.provider}/${model.id}`)
               }
               className={cn(
-                "flex w-full cursor-pointer items-center gap-3 rounded-xl border px-2.5 py-2.5 text-left",
+                "flex w-full cursor-pointer items-center gap-3 rounded-xl border border-transparent px-2.5 py-2.5 text-left",
                 "transition-all disabled:cursor-not-allowed",
                 saving && "opacity-50",
                 active
-                  ? "border-white/14 bg-foreground/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                  : "border-transparent text-foreground/80 hover:border-white/8 hover:bg-foreground/5 hover:text-foreground",
+                  ? "bg-white/[0.075] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                  : "text-foreground/80 hover:bg-white/[0.045] hover:text-foreground",
               )}
             >
               <ModelLogo model={model} size="sm" />
