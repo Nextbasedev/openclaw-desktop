@@ -53,11 +53,11 @@ function safeLogSource(url: string): string {
 
 const LEVEL_STYLES: Record<LogLevel, string> = {
   error:
-    "border-[#FF4D4D]/30 bg-[#FF4D4D]/10 text-[#FF4D4D]",
-  warn: "border-[#FDC700]/30 bg-[#FDC700]/10 text-[#FDC700]",
-  info: "border-[#00D492]/30 bg-[#00D492]/10 text-[#00D492]",
-  log: "border-white/10 bg-white/4 text-foreground/70",
-  debug: "border-white/10 bg-white/4 text-foreground/55",
+    "border-red-500/25 bg-red-500/10 text-red-600 dark:border-[#FF4D4D]/30 dark:bg-[#FF4D4D]/10 dark:text-[#FF4D4D]",
+  warn: "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:border-[#FDC700]/30 dark:bg-[#FDC700]/10 dark:text-[#FDC700]",
+  info: "border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:border-[#00D492]/30 dark:bg-[#00D492]/10 dark:text-[#00D492]",
+  log: "border-black/10 bg-black/[0.035] text-foreground/70 dark:border-white/10 dark:bg-white/4",
+  debug: "border-black/10 bg-black/[0.03] text-foreground/55 dark:border-white/10 dark:bg-white/4",
 }
 
 const ALL_LEVELS: LogLevel[] = ["error", "warn", "info", "log", "debug"]
@@ -327,9 +327,9 @@ export function LogsDialog({
             }}
             style={{ transformOrigin: "top center" }}
           >
-        <div className="flex items-center justify-between gap-3 border-b border-white/6 px-5 py-3.5">
+        <div className="flex items-center justify-between gap-3 border-b border-border/70 px-5 py-3.5 dark:border-white/6">
           <div className="flex items-center gap-2.5">
-            <span className="flex size-7 items-center justify-center rounded-md border border-white/10 bg-white/4 text-foreground/80">
+            <span className="flex size-7 items-center justify-center rounded-md border border-black/[0.08] bg-black/[0.035] text-foreground/80 dark:border-white/10 dark:bg-white/4">
               <VscOutput className="size-4" />
             </span>
             <div className="flex flex-col">
@@ -356,15 +356,15 @@ export function LogsDialog({
             <button
               onClick={onClose}
               aria-label="Close logs"
-              className="ml-1 flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground cursor-pointer"
+              className="ml-1 flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/8 cursor-pointer"
             >
               <Icons.Close size={14} strokeWidth={2} />
             </button>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 border-b border-white/6 px-5 py-3">
-          <div className="flex rounded-md border border-white/8 bg-white/2 p-0.5">
+        <div className="flex flex-wrap items-center gap-3 border-b border-border/70 px-5 py-3 dark:border-white/6">
+          <div className="flex rounded-md border border-black/[0.08] bg-black/[0.025] p-0.5 dark:border-white/8 dark:bg-white/2">
             {(["all", "frontend", "backend"] as const).map((opt) => (
               <button
                 key={opt}
@@ -372,8 +372,8 @@ export function LogsDialog({
                 className={cn(
                   "rounded px-2.5 py-1 text-[11px] font-medium capitalize transition-colors cursor-pointer",
                   source === opt
-                    ? "bg-white/8 text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
+                    ? "bg-black/[0.055] text-foreground dark:bg-white/8"
+                    : "text-muted-foreground hover:bg-black/[0.035] hover:text-foreground dark:hover:bg-white/[0.045]",
                 )}
               >
                 {opt}
@@ -392,7 +392,7 @@ export function LogsDialog({
                     "rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-all cursor-pointer",
                     active
                       ? LEVEL_STYLES[level]
-                      : "border-white/8 bg-transparent text-muted-foreground/50 hover:text-muted-foreground",
+                      : "border-black/[0.08] bg-transparent text-muted-foreground/50 hover:bg-black/[0.035] hover:text-muted-foreground dark:border-white/8",
                   )}
                 >
                   {level}
@@ -408,14 +408,14 @@ export function LogsDialog({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search…"
-                className="w-44 rounded-md border border-white/8 bg-white/2 px-2.5 py-1 text-[12px] text-foreground placeholder:text-muted-foreground/50 focus:border-white/20 focus:outline-none"
+                className="w-44 rounded-md border border-black/[0.08] bg-black/[0.025] px-2.5 py-1 text-[12px] text-foreground placeholder:text-muted-foreground/50 focus:border-black/20 focus:outline-none dark:border-white/8 dark:bg-white/2 dark:focus:border-white/20"
               />
             </div>
             <button
               onClick={loadBackend}
               disabled={backendLoading}
               title="Refresh backend log"
-              className="flex size-7 items-center justify-center rounded-md border border-white/8 bg-white/2 text-muted-foreground transition-colors hover:bg-white/6 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+              className="flex size-7 items-center justify-center rounded-md border border-black/[0.08] bg-black/[0.025] text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:border-white/8 dark:bg-white/2 dark:hover:bg-white/6 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
             >
               <VscRefresh
                 className={cn("size-3.5", backendLoading && "animate-spin")}
@@ -424,7 +424,7 @@ export function LogsDialog({
             <button
               onClick={handleCopyDebugBundle}
               title="Copy debug bundle for Cozy"
-              className="flex items-center gap-1.5 rounded-md border border-[#00D492]/25 bg-[#00D492]/10 px-2.5 py-1 text-[11px] font-medium text-[#00D492] transition-colors hover:bg-[#00D492]/15 cursor-pointer"
+              className="flex items-center gap-1.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/15 dark:border-[#00D492]/25 dark:bg-[#00D492]/10 dark:text-[#00D492] dark:hover:bg-[#00D492]/15 cursor-pointer"
             >
               <VscCopy className="size-3.5" />
               Copy debug bundle
@@ -432,14 +432,14 @@ export function LogsDialog({
             <button
               onClick={handleCopy}
               title="Copy filtered logs"
-              className="flex size-7 items-center justify-center rounded-md border border-white/8 bg-white/2 text-muted-foreground transition-colors hover:bg-white/6 hover:text-foreground cursor-pointer"
+              className="flex size-7 items-center justify-center rounded-md border border-black/[0.08] bg-black/[0.025] text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:border-white/8 dark:bg-white/2 dark:hover:bg-white/6 cursor-pointer"
             >
               <VscCopy className="size-3.5" />
             </button>
             <button
               onClick={clearFrontendLogs}
               title="Clear frontend buffer"
-              className="flex size-7 items-center justify-center rounded-md border border-white/8 bg-white/2 text-muted-foreground transition-colors hover:bg-white/6 hover:text-foreground cursor-pointer"
+              className="flex size-7 items-center justify-center rounded-md border border-black/[0.08] bg-black/[0.025] text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:border-white/8 dark:bg-white/2 dark:hover:bg-white/6 cursor-pointer"
             >
               <VscTrash className="size-3.5" />
             </button>
@@ -448,10 +448,10 @@ export function LogsDialog({
 
         <div
           ref={scrollRef}
-          className="min-h-0 flex-1 overflow-y-auto bg-[#0a0b0d] font-mono text-[12px] leading-relaxed"
+          className="min-h-0 flex-1 overflow-y-auto bg-white font-mono text-[12px] leading-relaxed text-foreground dark:bg-[#0a0b0d]"
         >
           {backendError && (
-            <div className="border-b border-[#FF4D4D]/20 bg-[#FF4D4D]/5 px-5 py-2 text-[11px] text-[#FF4D4D]">
+            <div className="border-b border-red-500/20 bg-red-500/5 px-5 py-2 text-[11px] text-red-600 dark:border-[#FF4D4D]/20 dark:bg-[#FF4D4D]/5 dark:text-[#FF4D4D]">
               Backend log: {backendError}
             </div>
           )}
@@ -465,7 +465,7 @@ export function LogsDialog({
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-white/4">
+            <div className="divide-y divide-border/70 dark:divide-white/4">
               {filtered.map((entry) => (
                 <LogRow key={entry.id} entry={entry} />
               ))}
@@ -473,7 +473,7 @@ export function LogsDialog({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-white/6 px-5 py-2.5 text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between gap-3 border-t border-border/70 px-5 py-2.5 text-[11px] text-muted-foreground dark:border-white/6">
           <label className="flex cursor-pointer select-none items-center gap-2">
             <input
               type="checkbox"
@@ -484,7 +484,7 @@ export function LogsDialog({
             Auto-scroll
           </label>
           <div className="flex items-center gap-3">
-            {copyNotice && <span className="text-[#00D492]">{copyNotice}</span>}
+            {copyNotice && <span className="text-emerald-600 dark:text-[#00D492]">{copyNotice}</span>}
             <span className="tabular-nums">
               {filtered.length} / {merged.length} entries
             </span>
@@ -500,7 +500,7 @@ export function LogsDialog({
 
 function LogRow({ entry }: { entry: LogEntry }) {
   return (
-    <div className="flex items-start gap-3 px-5 py-1.5 hover:bg-white/2">
+    <div className="flex items-start gap-3 px-5 py-1.5 hover:bg-black/[0.025] dark:hover:bg-white/2">
       <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-muted-foreground/60">
         {formatTime(entry.timestamp)}
       </span>
@@ -514,7 +514,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
       </span>
       <span
         className={cn(
-          "shrink-0 rounded border border-white/10 bg-white/2 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70",
+          "shrink-0 rounded border border-black/[0.08] bg-black/[0.025] px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 dark:border-white/10 dark:bg-white/2",
         )}
       >
         {entry.source}
