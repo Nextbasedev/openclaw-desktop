@@ -10,6 +10,7 @@
     "beforeBuildCommand": "node ../../scripts/prepare-tauri-bundle.cjs"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "OpenClaw",

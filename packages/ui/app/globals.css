@@ -331,13 +331,9 @@
   }
 
   body {
-    @apply text-foreground;
+    @apply bg-background text-foreground;
     height: 100%;
     overflow: hidden;
-    border-radius: 18px;
-    background: var(--background);
-    clip-path: inset(0 round 18px);
-    isolation: isolate;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
