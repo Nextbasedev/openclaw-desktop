@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { FaArrowLeft } from "react-icons/fa"
 import {
@@ -702,8 +702,7 @@ function VpsOpenClawPanel(props: {
   onSave: () => void
 }) {
   return (
-    <div className="relative overflow-hidden rounded-[28px] bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.022))] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.06)]">
-      <div className="pointer-events-none absolute -right-20 -top-24 size-56 rounded-full bg-emerald-400/10 blur-3xl" />
+    <div className="relative overflow-hidden rounded-[28px] bg-white/[0.032] p-5 shadow-[0_20px_56px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.055)]">
       <div className="relative flex items-start justify-between gap-4">
         <div>
           <p className="text-[15px] font-semibold tracking-tight text-foreground">Remote connection</p>
@@ -724,9 +723,7 @@ function VpsOpenClawPanel(props: {
           onTokenChange={props.onTokenChange}
           onShowTokenChange={props.onShowTokenChange}
         />
-        <p className="text-center text-[11px] leading-relaxed text-muted-foreground/50">
-          Need server instructions? Use “Copy setup” and paste it into OpenClaw on the VPS.
-        </p>
+        <SetupPromptPreview prompt={VPS_OPENCLAW_PROMPT} />
       </div>
 
       <Button
@@ -736,6 +733,24 @@ function VpsOpenClawPanel(props: {
       >
         {props.saving ? "Pairing..." : "Pair and continue"}
       </Button>
+    </div>
+  )
+}
+
+function SetupPromptPreview({ prompt }: { prompt: string }) {
+  return (
+    <div className="pt-1">
+      <div className="mb-2 flex items-center justify-between gap-3 px-1">
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/54">
+          Setup prompt
+        </p>
+        <p className="text-[11px] text-muted-foreground/45">
+          Visible copy for server OpenClaw
+        </p>
+      </div>
+      <pre className="max-h-[150px] overflow-y-auto rounded-[18px] bg-black/18 px-4 py-3 font-mono text-[10.5px] leading-relaxed whitespace-pre-wrap text-zinc-400/90 shadow-[inset_0_1px_16px_rgba(0,0,0,0.18)]">
+        {prompt}
+      </pre>
     </div>
   )
 }
@@ -783,8 +798,11 @@ function RemoteCredentialFields({
   onShowTokenChange: (show: boolean) => void
 }) {
   return (
-    <div className="space-y-3">
-      <RemoteField label="Middleware URL">
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label className="block px-1 text-[11px] font-medium text-muted-foreground/76">
+          Middleware URL
+        </Label>
         <Input
           value={url}
           onChange={(event) => onUrlChange(event.target.value)}
@@ -792,10 +810,13 @@ function RemoteCredentialFields({
           disabled={disabled}
           autoComplete="off"
           spellCheck={false}
-          className="h-12 rounded-[18px] border-0 bg-white/[0.065] px-4 text-[13px] text-zinc-100 placeholder:text-zinc-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] focus-visible:bg-white/[0.09] focus-visible:ring-0"
+          className="h-12 rounded-[18px] border-0 bg-white/[0.06] px-4 text-[13px] text-zinc-100 placeholder:text-zinc-500 focus-visible:bg-white/[0.085] focus-visible:ring-0"
         />
-      </RemoteField>
-      <RemoteField label="Pairing code">
+      </div>
+      <div className="space-y-2">
+        <Label className="block px-1 text-[11px] font-medium text-muted-foreground/76">
+          Pairing code
+        </Label>
         <div className="flex gap-2">
           <Input
             value={token}
@@ -805,7 +826,7 @@ function RemoteCredentialFields({
             disabled={disabled}
             autoComplete="off"
             spellCheck={false}
-            className="h-12 rounded-[18px] border-0 bg-white/[0.065] px-4 text-[13px] text-zinc-100 placeholder:text-zinc-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] focus-visible:bg-white/[0.09] focus-visible:ring-0"
+            className="h-12 rounded-[18px] border-0 bg-white/[0.06] px-4 text-[13px] text-zinc-100 placeholder:text-zinc-500 focus-visible:bg-white/[0.085] focus-visible:ring-0"
           />
           <Button
             type="button"
@@ -813,23 +834,12 @@ function RemoteCredentialFields({
             size="icon"
             onClick={() => onShowTokenChange(!showToken)}
             disabled={disabled}
-            className="size-12 rounded-[18px] border-0 bg-white/[0.065] text-zinc-300 hover:bg-white/[0.09]"
+            className="size-12 rounded-[18px] border-0 bg-white/[0.06] text-zinc-300 hover:bg-white/[0.085]"
           >
             <HugeiconsIcon icon={showToken ? ViewOffIcon : EyeIcon} size={16} />
           </Button>
         </div>
-      </RemoteField>
-    </div>
-  )
-}
-
-function RemoteField({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="rounded-[22px] bg-black/10 p-2.5">
-      <Label className="mb-2 block px-1.5 text-[11px] font-medium text-muted-foreground/76">
-        {label}
-      </Label>
-      {children}
+      </div>
     </div>
   )
 }
