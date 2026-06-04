@@ -327,6 +327,7 @@
     @apply font-sans;
     height: 100%;
     overflow: hidden;
+    background: transparent;
   }
 
   body {
@@ -339,9 +340,11 @@
   }
 
   .app-window-frame {
-    border-radius: 14px;
+    border-radius: 18px;
     background: var(--background);
-    box-shadow: 0 0 0 1px oklch(1 0 0 / 8%);
+    box-shadow: 0 0 0 1px oklch(1 0 0 / 10%);
+    clip-path: inset(0 round 18px);
+    isolation: isolate;
   }
 
   .scrollbar-hide {
