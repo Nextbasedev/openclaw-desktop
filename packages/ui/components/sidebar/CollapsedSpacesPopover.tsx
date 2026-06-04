@@ -294,7 +294,7 @@ export function CollapsedSpacesPopover({
               className={cn(
                 "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border transition-[background,box-shadow,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
                 active
-                  ? "scale-[1.07] border-transparent bg-[linear-gradient(145deg,rgba(255,255,255,0.12),rgba(255,255,255,0.035))] shadow-[0_18px_40px_rgba(0,0,0,0.48),0_12px_26px_rgba(8,145,178,0.13),inset_0_1px_0_rgba(255,255,255,0.18)]"
+                  ? "scale-[1.05] border-white/[0.08] bg-white/[0.075] shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
                   : "border-transparent shadow-[0_10px_24px_rgba(0,0,0,0.28)] hover:scale-[1.035] hover:bg-white/[0.035] hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]",
               )}
               aria-label={`Open project ${space.name}`}
@@ -302,14 +302,13 @@ export function CollapsedSpacesPopover({
               {active && (
                 <>
                   <motion.span
-                    layoutId="project-rail-active-glow"
-                    className="project-rail-active-glow absolute -inset-1.5 rounded-[17px]"
+                    layoutId="project-rail-active-surface"
+                    className="absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_32%_20%,rgba(255,255,255,0.16),transparent_42%)]"
                     transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.8 }}
                   />
-                  <span className="project-rail-active-colorflow absolute inset-[2px] overflow-hidden rounded-[11px]" />
                   <motion.span
                     layoutId="project-rail-active-indicator"
-                    className="absolute -right-[11px] top-1/2 h-8 w-1 -translate-y-1/2 rounded-full bg-[linear-gradient(180deg,rgba(34,211,238,0.95),rgba(255,255,255,0.96)_46%,rgba(168,85,247,0.78))] shadow-[0_0_16px_rgba(255,255,255,0.52),0_0_28px_rgba(34,211,238,0.22)]"
+                    className="absolute -right-[10px] top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-white/90 shadow-[0_0_14px_rgba(255,255,255,0.38)]"
                     transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.7 }}
                   />
                 </>
@@ -322,7 +321,7 @@ export function CollapsedSpacesPopover({
                   emojiIcon && spaceIconEmojiColor(space),
                   !hasCustomIcon && !emojiIcon && gradientForSpace(space),
                   active
-                    ? "text-white brightness-125 saturate-150 shadow-[0_10px_22px_rgba(0,0,0,0.28)]"
+                    ? "text-white brightness-110 saturate-115 shadow-[0_10px_22px_rgba(0,0,0,0.24)]"
                     : "group-hover:text-white group-hover:brightness-106 group-hover:saturate-120",
                 )}
               >

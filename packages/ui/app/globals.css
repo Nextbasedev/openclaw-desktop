@@ -482,51 +482,6 @@ body {
   animation: shimmer 2s ease-in-out infinite;
 }
 
-@keyframes project-rail-glow-breathe {
-  0%,
-  100% {
-    opacity: 0.42;
-    transform: translateY(1px) scale(0.98);
-  }
-
-  50% {
-    opacity: 0.78;
-    transform: translateY(-1px) scale(1.03);
-  }
-}
-
-@keyframes project-rail-colorflow-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.project-rail-active-glow {
-  background:
-    radial-gradient(ellipse at 42% 20%, rgba(255, 255, 255, 0.22), transparent 42%),
-    radial-gradient(ellipse at 50% 84%, rgba(34, 211, 238, 0.28), transparent 58%);
-  filter: blur(9px);
-  animation: project-rail-glow-breathe 3.2s ease-in-out infinite;
-}
-
-.project-rail-active-colorflow::before {
-  content: "";
-  position: absolute;
-  inset: -55%;
-  border-radius: 999px;
-  background: conic-gradient(from 0deg, rgba(34, 211, 238, 0.0), rgba(34, 211, 238, 0.34), rgba(255, 255, 255, 0.18), rgba(168, 85, 247, 0.26), rgba(34, 211, 238, 0.0));
-  filter: blur(2px);
-  animation: project-rail-colorflow-spin 5.8s linear infinite;
-}
-
-.project-rail-active-colorflow::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.14), transparent 45%, rgba(255, 255, 255, 0.05));
-}
-
 @keyframes shimmer-text {
   0% {
     background-position: 100% 0;
