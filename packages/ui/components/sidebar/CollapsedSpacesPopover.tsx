@@ -105,6 +105,7 @@ export function CollapsedSpacesPopover({
   const previewTimerRef = useRef<number | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ open: false, x: 0, y: 0, space: null })
   const [plusMenu, setPlusMenu] = useState<PlusMenuState>({ open: false, x: 0, y: 0 })
+  const [archivedSelected, setArchivedSelected] = useState(false)
   const orderedSpaces = useMemo(() => {
     return [...spaces].sort((a, b) => getSpaceRank(a) - getSpaceRank(b))
   }, [spaces])
@@ -118,6 +119,10 @@ export function CollapsedSpacesPopover({
       if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    setArchivedSelected(false)
+  }, [activeSpaceId])
 
   useEffect(() => {
     if (!contextMenu.open && !plusMenu.open) return
@@ -158,6 +163,7 @@ export function CollapsedSpacesPopover({
 
   function openProject(space: Space) {
     clearPreviewTimer()
+    setArchivedSelected(false)
     setContextMenu((prev) => ({ ...prev, open: false, space: null }))
     void onSpaceSwitch(space.id)
   }
@@ -173,6 +179,7 @@ export function CollapsedSpacesPopover({
 
   function openArchivedChats() {
     clearPreviewTimer()
+    setArchivedSelected(true)
     setContextMenu((prev) => ({ ...prev, open: false, space: null }))
     setPlusMenu((prev) => ({ ...prev, open: false }))
     window.dispatchEvent(new CustomEvent("openclaw:show-archived-chats"))
@@ -265,9 +272,21 @@ export function CollapsedSpacesPopover({
         <button
           type="button"
           onClick={openArchivedChats}
-          className="group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border border-transparent bg-[linear-gradient(135deg,#111827_0%,rgba(31,41,55,0.9)_50%,rgba(17,24,39,0.7)_100%)] text-white/80 shadow-[0_10px_24px_rgba(0,0,0,0.28)] transition-all duration-300 hover:scale-[1.035] hover:bg-white/[0.035] hover:text-white hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]"
+          className={cn(
+            "group relative flex size-10 cursor-pointer items-center justify-center rounded-xl border text-white/80 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+            archivedSelected
+              ? "scale-[1.05] border-white/[0.08] bg-white/[0.075] shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.14)]"
+              : "border-transparent bg-[linear-gradient(135deg,#111827_0%,rgba(31,41,55,0.9)_50%,rgba(17,24,39,0.7)_100%)] shadow-[0_10px_24px_rgba(0,0,0,0.28)] hover:scale-[1.035] hover:bg-white/[0.035] hover:text-white hover:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.08)]",
+          )}
           aria-label="Open archived chats"
         >
+          {archivedSelected && (
+            <motion.span
+              layoutId="project-rail-active-indicator"
+              className="absolute -right-[10px] top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-white/90 shadow-[0_0_14px_rgba(255,255,255,0.38)]"
+              transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.7 }}
+            />
+          )}
           <span className="relative flex size-full items-center justify-center overflow-hidden rounded-[10px] after:pointer-events-none after:absolute after:inset-0 after:bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.18),transparent_36%)] after:opacity-65">
             <ArchiveBoxIcon />
           </span>
@@ -275,7 +294,7 @@ export function CollapsedSpacesPopover({
       </GlassTooltip>
 
       {orderedSpaces.map((space) => {
-        const active = space.id === activeSpaceId
+        const active = !archivedSelected && space.id === activeSpaceId
         const hasCustomIcon = Boolean(spaceIconSrc(space))
         const emojiIcon = spaceIconEmoji(space)
 
