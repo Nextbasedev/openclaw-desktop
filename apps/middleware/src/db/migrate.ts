@@ -150,11 +150,10 @@ export function migrateDatabase(db: Database.Database) {
 
   const storedProjection = readNumberMeta(db, CHAT_PROJECTION_VERSION_META_KEY);
   if (storedProjection < CHAT_PROJECTION_VERSION) {
-    const clearedOffsets = db.prepare("DELETE FROM v2_gateway_offsets").run().changes ?? 0;
     const sessions = db.prepare("SELECT session_key FROM v2_sessions").all() as Array<{ session_key: string }>;
     const writeMeta = db.prepare(`INSERT INTO v2_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
     for (const session of sessions) writeMeta.run(chatProjectionResyncRequiredMetaKey(session.session_key), String(CHAT_PROJECTION_VERSION));
-    log.info("projection.version-gate.resync", { from: storedProjection || null, to: CHAT_PROJECTION_VERSION, clearedOffsets, pendingSessions: sessions.length });
+    log.info("projection.version-gate.resync", { from: storedProjection || null, to: CHAT_PROJECTION_VERSION, pendingSessions: sessions.length });
   }
   db.prepare(`INSERT INTO v2_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
     .run(CHAT_PROJECTION_VERSION_META_KEY, String(CHAT_PROJECTION_VERSION));

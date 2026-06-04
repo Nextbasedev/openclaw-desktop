@@ -9,19 +9,12 @@ import type { ProjectedRun } from "./repo.runs.js";
 import { canonicalPatchPayload } from "./projection.js";
 import { SubagentCorrelation, type SpawnLink } from "./subagent-correlation.js";
 import { extractSubagentSessionKey, isSubagentSessionKey } from "./subagent-session.js";
+import { fetchChatHistory } from "./history-fetch.js";
 
 /** Yield control to the event loop so a large backfill burst can't block requests. */
 const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
 /** Yield every N processed items during a tight, potentially-large loop. */
 const BACKFILL_YIELD_EVERY = 8;
-
-type ChatHistoryResponse = {
-  sessionKey?: string;
-  sessionId?: string;
-  sessionFile?: string;
-  messages?: unknown[];
-  status?: string;
-};
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -830,7 +823,7 @@ export class ChatLiveIngest {
   private async backfillHistory(sessionKey: string, runId: string | null, reason: string) {
     const startedAt = Date.now();
     try {
-      const history = await this.context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 200 });
+      const history = await fetchChatHistory(this.context, { sessionKey, limit: 200 });
       const messages = history.messages ?? [];
       if (!messages.length) return;
       const normalized = normalizeHistoryMessages(sessionKey, enrichInboundMediaMessages(messages)).filter((message) => {

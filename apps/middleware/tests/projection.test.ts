@@ -21,7 +21,7 @@ describe("SQLite projection", () => {
     db.close();
   });
 
-  test("migration projection version gate clears trusted gateway offsets", () => {
+  test("migration projection version gate preserves offsets and marks sessions for lazy reconcile", () => {
     const databasePath = testDbPath("projection-version-gate");
     const seed = new Database(databasePath);
     seed.exec(`
@@ -35,7 +35,7 @@ describe("SQLite projection", () => {
     seed.close();
 
     const db = openDatabase({ databasePath });
-    expect(db.prepare("SELECT count(*) AS count FROM v2_gateway_offsets").get()).toMatchObject({ count: 0 });
+    expect(db.prepare("SELECT last_openclaw_seq FROM v2_gateway_offsets WHERE session_key = 's1'").get()).toMatchObject({ last_openclaw_seq: 42 });
     expect(db.prepare("SELECT value FROM v2_meta WHERE key = ?").get(CHAT_PROJECTION_VERSION_META_KEY)).toMatchObject({ value: String(CHAT_PROJECTION_VERSION) });
     expect(db.prepare("SELECT value FROM v2_meta WHERE key = ?").get(chatProjectionResyncRequiredMetaKey("s1"))).toMatchObject({ value: String(CHAT_PROJECTION_VERSION) });
     db.close();

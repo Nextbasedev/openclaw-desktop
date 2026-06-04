@@ -19,6 +19,7 @@ import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
 import type { ProjectedRun } from "./repo.runs.js";
 import type { OpenClawMessage, ProjectedMessage } from "./types.js";
+import { AsyncLimiter, fetchChatHistory, type ChatHistoryResponse } from "./history-fetch.js";
 
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
@@ -41,11 +42,18 @@ const localFirstSqliteBlocked = new Set<string>();
 export function clearLocalFirstBootstrapCache() {
   localFirstBootstrapTimestamps.clear();
   coldBootstrapJobs.clear();
+  backgroundReconcileJobs.clear();
+  projectionResyncAttempted.clear();
   // Block SQLite-first for all known sessions until next Gateway bootstrap
   // stamps them fresh. This ensures test sequential bootstraps go to Gateway.
   localFirstSqliteBlocked.clear();
   // Mark all as blocked — next Gateway bootstrap will unblock
   localFirstSqliteBlocked.add('*');
+}
+
+/** Allow SQLite-first bootstraps in focused tests that seed a trusted projection. */
+export function allowLocalFirstSqliteForTests() {
+  localFirstSqliteBlocked.clear();
 }
 
 function readProjectionMetaVersion(context: AppContext, key: string): number {
@@ -63,6 +71,9 @@ function markProjectionResynced(context: AppContext, sessionKey: string) {
 const MIN_REAL_TIMESTAMP_MS = 1_700_000_000_000;
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
 const archiveProjectionJobs = new Map<string, Promise<void>>();
+const backgroundReconcileJobs = new Map<string, Promise<void>>();
+const backgroundReconcileLimiter = new AsyncLimiter(1);
+const projectionResyncAttempted = new Set<string>();
 // Per-session in-flight dedupe for the cold (non-local-first) bootstrap build.
 // Mirrors archiveProjectionJobs so K concurrent first-bootstraps for the same
 // huge session collapse into ONE synchronous build instead of K parallel ones.
@@ -633,17 +644,6 @@ async function inferBootstrapToolCalls(context: AppContext, sessionKey: string, 
   return inferred;
 }
 
-type ChatHistoryResponse = {
-  sessionKey?: string;
-  sessionId?: string;
-  sessionFile?: string;
-  messages?: unknown[];
-  status?: string;
-  thinkingLevel?: string;
-  fastMode?: boolean;
-  verboseLevel?: string;
-};
-
 function objectData(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -772,7 +772,7 @@ function isMissingApprovalError(error: unknown) {
  */
 export async function prewarmArchivedHistory(context: AppContext, sessionKey: string) {
   try {
-    const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 200 }, 10_000);
+    const history = await fetchChatHistory(context, { sessionKey, limit: 200 }, 10_000);
     if (!history) return { ok: false, reason: "no-history" };
     const result = await persistArchivedHistorySegments(context, sessionKey, history);
     return { ok: true, ...result };
@@ -881,6 +881,89 @@ function scheduleArchivedHistoryProjection(params: {
     if (archiveProjectionJobs.get(params.sessionKey) === job) archiveProjectionJobs.delete(params.sessionKey);
   });
   archiveProjectionJobs.set(params.sessionKey, job);
+  return job;
+}
+
+function scheduleLocalFirstGatewayReconcile(params: {
+  context: AppContext;
+  log: ReturnType<typeof createLogger>;
+  sessionKey: string;
+  limit?: number;
+  fallbackSessionId?: string | null;
+  sessionData: Record<string, unknown>;
+  reason: "projection-resync" | "stale-local";
+  projectionResyncRequired: boolean;
+}) {
+  const existing = backgroundReconcileJobs.get(params.sessionKey);
+  if (existing) {
+    params.log.info("bootstrap.background-sync.skip", { sessionKey: params.sessionKey, reason: "already-running" });
+    return existing;
+  }
+  if (params.projectionResyncRequired) {
+    if (projectionResyncAttempted.has(params.sessionKey)) {
+      params.log.info("projection.version-gate.reconcile.skip", { sessionKey: params.sessionKey, reason: "already-attempted" });
+      return undefined;
+    }
+    // Mark the marker as attempted before queueing. If Gateway is down or slow,
+    // repeated bootstraps in the same process serve local-first and do NOT spin a
+    // retry loop. The DB marker remains for a future process/restart; success
+    // below clears it permanently.
+    projectionResyncAttempted.add(params.sessionKey);
+  }
+
+  const job = backgroundReconcileLimiter.run(async () => {
+    const startedAtMs = nowMs();
+    try {
+      await yieldToEventLoop();
+      if (!params.context.db.open) return;
+      params.log.info("bootstrap.background-sync.start", { sessionKey: params.sessionKey, reason: params.reason });
+      const history = await fetchChatHistory(params.context, {
+        sessionKey: params.sessionKey,
+        ...(params.limit ? { limit: params.limit } : {}),
+      });
+      const sk = history.sessionKey ?? params.sessionKey;
+      const msgs = history.messages ?? [];
+      const normalized = normalizeHistoryMessages(sk, enrichInboundMediaMessages(msgs));
+      await yieldToEventLoop();
+      if (!params.context.db.open) return;
+      const segment = params.context.messages.ensureActiveSegment({
+        sessionKey: sk,
+        sessionId: history.sessionId ?? params.fallbackSessionId ?? null,
+        sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
+      });
+      params.context.messages.upsertSession({
+        sessionKey: sk,
+        sessionId: history.sessionId ?? params.fallbackSessionId ?? null,
+        data: { ...params.sessionData, sessionKey: sk, sessionId: history.sessionId ?? params.fallbackSessionId ?? null, ...(history.status ? { status: history.status } : {}) },
+      });
+      const proj = params.context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+      await yieldToEventLoop();
+      if (!params.context.db.open) return;
+      const activeRun = params.context.runs.findLatestPendingRun(sk);
+      const pruned = activeRun ? 0 : params.context.messages.pruneSegmentToCanonicalMessages({ sessionKey: sk, segmentId: segment.segmentId, baseSeq: segment.baseSeq, canonicalMessages: normalized });
+      await yieldToEventLoop();
+      if (!params.context.db.open) return;
+      if (proj.upserted > 0 || pruned > 0 || params.projectionResyncRequired) {
+        const total = params.context.messages.countMessages(sk);
+        const newEvent = params.context.messages.appendProjectionEvent({ sessionKey: sk, eventType: "chat.bootstrap", payload: { sessionKey: sk, messageCount: total, lastSeq: params.context.messages.nextMessageSeq(sk) - 1, backgroundRefresh: true, pruned, projectionResync: params.projectionResyncRequired } });
+        params.context.patchBus.broadcast({ cursor: newEvent.cursor, type: newEvent.eventType, sessionKey: sk, payload: newEvent.payload, createdAtMs: newEvent.createdAtMs });
+        params.log.info("bootstrap.background-sync.changed", { sessionKey: sk, upserted: proj.upserted, pruned, cursor: newEvent.cursor, reason: params.reason });
+      } else {
+        params.log.info("bootstrap.background-sync.unchanged", { sessionKey: sk, pruned, reason: params.reason });
+      }
+      markProjectionResynced(params.context, params.sessionKey);
+      if (sk !== params.sessionKey) markProjectionResynced(params.context, sk);
+      projectionResyncAttempted.delete(params.sessionKey);
+      projectionResyncAttempted.delete(sk);
+      localFirstBootstrapTimestamps.set(sk, Date.now());
+      params.log.info("bootstrap.background-sync.end", { sessionKey: sk, reason: params.reason, durationMs: elapsedMs(startedAtMs) });
+    } catch (error) {
+      params.log.warn("bootstrap.background-sync.fail", { sessionKey: params.sessionKey, reason: params.reason, error: errorMeta(error) });
+    }
+  }).finally(() => {
+    if (backgroundReconcileJobs.get(params.sessionKey) === job) backgroundReconcileJobs.delete(params.sessionKey);
+  });
+  backgroundReconcileJobs.set(params.sessionKey, job);
   return job;
 }
 
@@ -1160,7 +1243,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
             const historyLoadStartedAtMs = nowMs();
             log.info("gateway.history.load.start", { sessionKey: input.sessionKey, limit: 200, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
-            const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
+            const history = await fetchChatHistory(context, {
               sessionKey: input.sessionKey,
               limit: 200,
             }).then((loaded) => {
@@ -1479,12 +1562,11 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     // data is valid regardless of age. Only check age when disconnected.
     const needsProjectionResync = localSession ? projectionResyncRequired(context, parsed.data.sessionKey) : false;
     const canServeFromSqlite = Boolean(
-      !needsProjectionResync &&
       !localFirstSqliteBlocked.has('*') &&
       localSession &&
       (gatewayConnected || (nowMs() - localSession.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS)
     );
-    const shouldServeLocal = !needsProjectionResync && (inMemoryFresh || canServeFromSqlite);
+    const shouldServeLocal = inMemoryFresh || canServeFromSqlite;
     const localMessages = localSession && shouldServeLocal ? context.messages.listMessages(parsed.data.sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }) : [];
     const canServeLocal = Boolean(localSession && localMessages.length > 0 && shouldServeLocal);
 
@@ -1495,7 +1577,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       log.info("bootstrap.local-first", {
         sessionKey: parsed.data.sessionKey,
         messageCount: serialized.length,
-        reason: inMemoryFresh ? "in-memory-fresh" : "sqlite-fresh-gateway-connected",
+        reason: needsProjectionResync ? "projection-resync-local-first" : inMemoryFresh ? "in-memory-fresh" : "sqlite-fresh-gateway-connected",
         sqliteAgeMs: localSession ? nowMs() - localSession.updatedAtMs : null,
         gatewayConnected,
         cursor,
@@ -1507,41 +1589,23 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       // queue dozens of Gateway calls and made the app feel frozen.
       const localAgeMs = localSession ? nowMs() - localSession.updatedAtMs : Number.POSITIVE_INFINITY;
       const shouldBackgroundSync =
-        !inMemoryFresh &&
         gatewayConnected &&
-        localAgeMs > LOCAL_FIRST_BACKGROUND_SYNC_MIN_AGE_MS;
+        (needsProjectionResync || (!inMemoryFresh && localAgeMs > LOCAL_FIRST_BACKGROUND_SYNC_MIN_AGE_MS));
       if (shouldBackgroundSync) {
-        void (async () => {
-          try {
-            const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
-              sessionKey: parsed.data.sessionKey,
-              ...(parsed.data.limit ? { limit: parsed.data.limit } : {}),
-            });
-            const sk = history.sessionKey ?? parsed.data.sessionKey;
-            const msgs = history.messages ?? [];
-            const normalized = normalizeHistoryMessages(sk, enrichInboundMediaMessages(msgs));
-            const segment = context.messages.ensureActiveSegment({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null });
-            context.messages.upsertSession({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, data: { ...sessionData, ...(history.status ? { status: history.status } : {}) } });
-            const proj = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-            const activeRun = context.runs.findLatestPendingRun(sk);
-            const pruned = activeRun ? 0 : context.messages.pruneSegmentToCanonicalMessages({ sessionKey: sk, segmentId: segment.segmentId, baseSeq: segment.baseSeq, canonicalMessages: normalized });
-            if (proj.upserted > 0 || pruned > 0) {
-              const total = context.messages.countMessages(sk);
-              const newEvent = context.messages.appendProjectionEvent({ sessionKey: sk, eventType: "chat.bootstrap", payload: { sessionKey: sk, messageCount: total, lastSeq: context.messages.nextMessageSeq(sk) - 1, backgroundRefresh: true, pruned } });
-              context.patchBus.broadcast({ cursor: newEvent.cursor, type: newEvent.eventType, sessionKey: sk, payload: newEvent.payload, createdAtMs: newEvent.createdAtMs });
-              log.info("bootstrap.background-sync.changed", { sessionKey: sk, upserted: proj.upserted, pruned, cursor: newEvent.cursor });
-            } else {
-              log.info("bootstrap.background-sync.unchanged", { sessionKey: sk, pruned });
-            }
-            localFirstBootstrapTimestamps.set(sk, Date.now());
-          } catch (error) {
-            log.warn("bootstrap.background-sync.fail", { sessionKey: parsed.data.sessionKey, error: errorMeta(error) });
-          }
-        })();
+        scheduleLocalFirstGatewayReconcile({
+          context,
+          log,
+          sessionKey: parsed.data.sessionKey,
+          limit: parsed.data.limit,
+          fallbackSessionId: localSession!.sessionId,
+          sessionData,
+          reason: needsProjectionResync ? "projection-resync" : "stale-local",
+          projectionResyncRequired: needsProjectionResync,
+        });
       } else {
         log.info("bootstrap.background-sync.skip", {
           sessionKey: parsed.data.sessionKey,
-          reason: inMemoryFresh ? "in-memory-fresh" : gatewayConnected ? "sqlite-recent" : "gateway-disconnected",
+          reason: needsProjectionResync && !gatewayConnected ? "projection-resync-gateway-disconnected" : inMemoryFresh ? "in-memory-fresh" : gatewayConnected ? "sqlite-recent" : "gateway-disconnected",
           sqliteAgeMs: Number.isFinite(localAgeMs) ? localAgeMs : null,
         });
       }
@@ -1574,7 +1638,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }
     const coldJob = (async (): Promise<ChatBootstrapSnapshot> => {
     const gatewayHistoryStartedAtMs = nowMs();
-    const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
+    const history = await fetchChatHistory(context, {
       sessionKey: parsed.data.sessionKey,
       ...(parsed.data.limit ? { limit: parsed.data.limit } : {}),
       ...(parsed.data.maxChars ? { maxChars: parsed.data.maxChars } : {}),
@@ -1774,7 +1838,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
     // Fall back to Gateway history (full, untruncated)
     try {
-      const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 500 });
+      const history = await fetchChatHistory(context, { sessionKey, limit: 500 });
       const messages = history.messages ?? [];
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i] as Record<string, unknown>;
