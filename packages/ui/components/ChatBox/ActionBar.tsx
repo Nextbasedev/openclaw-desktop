@@ -11,6 +11,7 @@ import {
 } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
+import type { SessionTokenUsage } from "@/lib/sessionContextUsage"
 import {
   Popover,
   PopoverContent,
@@ -47,16 +48,6 @@ type ActionBarProps = {
   attachmentCount?: number
   disableUpload?: boolean
   sessionUsage?: SessionTokenUsage | null
-}
-
-export type SessionTokenUsage = {
-  input: number
-  output: number
-  cacheRead: number
-  cacheWrite: number
-  total: number
-  cost?: number | null
-  contextLimit?: number | null
 }
 
 export function ActionBar({

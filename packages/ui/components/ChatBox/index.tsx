@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion"
 
 import { cn } from "@/lib/utils"
 import { ActionBar } from "./ActionBar"
-import type { SessionTokenUsage } from "./ActionBar"
+import type { SessionTokenUsage } from "@/lib/sessionContextUsage"
 import { AttachmentPreviewList } from "./AttachmentPreviewList"
 import { SlashCommandMenu, getFilteredCommands } from "./SlashCommandMenu"
 import { useSlashCommands } from "@/hooks/useSlashCommands"
