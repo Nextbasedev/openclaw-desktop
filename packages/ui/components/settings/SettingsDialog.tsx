@@ -1,72 +1,38 @@
 "use client"
 
-import { useState, useCallback } from "react"
 import {
   Dialog,
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { SettingsSidebar } from "./SettingsSidebar"
-import { AccountTab } from "./tabs/AccountTab"
-import { AppearanceTab } from "./tabs/AppearanceTab"
-import { DataControlTab } from "./tabs/DataControlTab"
-import { MaintenanceTab } from "./tabs/MaintenanceTab"
-import { HelpTab } from "./tabs/HelpTab"
-import type { SettingsTabId } from "./settings.config"
+import { SettingsDashboard, type SettingSection } from "./SettingsDashboard"
 
 type SettingsDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  defaultTab?: SettingsTabId
+  activeSection: SettingSection
+  onSectionChange: (section: SettingSection) => void
 }
 
 export function SettingsDialog({
   open,
   onOpenChange,
-  defaultTab = "account",
+  activeSection,
+  onSectionChange,
 }: SettingsDialogProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTabId>(defaultTab)
-
-  const handleTabChange = useCallback((tab: SettingsTabId) => {
-    setActiveTab(tab)
-  }, [])
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton
-        className="sm:max-w-[700px] lg:max-w-[780px] h-[min(560px,85vh)] p-0 gap-0 overflow-hidden bg-popover border-border/50"
+        className="h-[min(760px,calc(100vh-48px))] w-[min(1040px,calc(100vw-48px))] max-w-none gap-0 overflow-hidden border-border/60 bg-background p-0 shadow-2xl"
       >
         <DialogTitle className="sr-only">Settings</DialogTitle>
-
-        <div className="flex h-full">
-          <SettingsSidebar activeTab={activeTab} onTabChange={handleTabChange} />
-
-          <ScrollArea className="flex-1">
-            <div className="p-6">
-              <TabContent tab={activeTab} />
-            </div>
-          </ScrollArea>
-        </div>
+        <SettingsDashboard
+          onBack={() => onOpenChange(false)}
+          activeSection={activeSection}
+          onSectionChange={onSectionChange}
+        />
       </DialogContent>
     </Dialog>
   )
-}
-
-function TabContent({ tab }: { tab: SettingsTabId }) {
-  switch (tab) {
-    case "account":
-      return <AccountTab />
-    case "personalization":
-      return <AppearanceTab />
-    case "data-control":
-      return <DataControlTab />
-    case "maintenance":
-      return <MaintenanceTab />
-    case "help":
-      return <HelpTab />
-    default:
-      return null
-  }
 }

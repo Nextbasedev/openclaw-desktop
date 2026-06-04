@@ -13,7 +13,8 @@ import { InspectorPanel } from "@/components/inspector/InspectorPanel"
 import type { InspectorScope } from "@/components/inspector/inspectorScope"
 import { effectiveInspectorScope, readStoredInspectorScope, writeStoredInspectorScope } from "@/components/inspector/inspectorScope"
 import { SkillPage } from "@/components/SkillPage"
-import { SettingsDashboard, type SettingSection } from "@/components/settings/SettingsDashboard"
+import { type SettingSection } from "@/components/settings/SettingsDashboard"
+import { SettingsDialog } from "@/components/settings/SettingsDialog"
 import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
@@ -497,7 +498,7 @@ function AppShell({
     if (typeof window === "undefined") return initialConnect ? "connect" : "chat"
     const route = parseRoute(getRoutePath())
     if (route.kind === "inspector") return "inspector"
-    if (route.kind === "tab") return route.tab
+    if (route.kind === "tab") return route.tab === "settings" ? (initialConnect ? "connect" : "chat") : route.tab
     return initialConnect ? "connect" : "chat"
   })
   const effectiveActiveTab =
@@ -779,6 +780,9 @@ function AppShell({
   }, [clearConversationState])
 
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("usage")
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(() =>
+    typeof window !== "undefined" && isSettingsRoute(getRoutePath())
+  )
 
   useEffect(() => {
     if (activeTab === "settings" && lastSettingsTabRef.current !== "settings") {
@@ -804,7 +808,10 @@ function AppShell({
       setComposerError(null)
       if (route.tab === "settings") {
         setSettingsSection("usage")
+        setSettingsDialogOpen(true)
+        return
       }
+      setSettingsDialogOpen(false)
       setActiveTab(route.tab)
       clearConversationState()
       return
@@ -1138,15 +1145,14 @@ function AppShell({
     const currentPath = getRoutePath()
     if (!isSettingsRoute(currentPath)) {
       previousContentPathRef.current = currentPath
+      settingsPushedRef.current = true
+      window.history.pushState(null, "", routeUrl("/settings"))
     }
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setComposerError(null)
     setSettingsSection(section)
-    setActiveTab("settings")
-    clearConversationState()
-    settingsPushedRef.current = true
-    window.history.pushState(null, "", routeUrl("/settings"))
-  }, [activeTab, clearConversationState])
+    setSettingsDialogOpen(true)
+  }, [activeTab])
 
   useEffect(() => {
     function handleOpenSettings(event: Event) {
@@ -1191,6 +1197,7 @@ function AppShell({
   }, [])
 
   const handleSettingsBack = useCallback(() => {
+    setSettingsDialogOpen(false)
     if (settingsPushedRef.current) {
       settingsPushedRef.current = false
       window.history.back()
@@ -1204,9 +1211,19 @@ function AppShell({
         ? previousPath
         : fallbackPathForTab(prevTabRef.current)
 
-    window.history.replaceState(null, "", routeUrl(url))
-    void activateRoute(parseRoute(url))
+    if (isSettingsRoute(getRoutePath())) {
+      window.history.replaceState(null, "", routeUrl(url))
+      void activateRoute(parseRoute(url))
+    }
   }, [activateRoute])
+
+  const handleSettingsDialogOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      setSettingsDialogOpen(true)
+      return
+    }
+    handleSettingsBack()
+  }, [handleSettingsBack])
   const toggleTheme = useCallback(() => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark")
   }, [resolvedTheme, setTheme])
@@ -2713,6 +2730,12 @@ function AppShell({
           <ConnectPage />
         </main>
 
+        <SettingsDialog
+          open={settingsDialogOpen}
+          onOpenChange={handleSettingsDialogOpenChange}
+          activeSection={settingsSection}
+          onSectionChange={setSettingsSection}
+        />
         <LogsDialog open={logsOpen} onClose={closeLogs} />
         <AppContextMenu
           menuRef={appContextMenuRef}
@@ -3009,6 +3032,12 @@ function AppShell({
         }}
       />
 
+      <SettingsDialog
+        open={settingsDialogOpen}
+        onOpenChange={handleSettingsDialogOpenChange}
+        activeSection={settingsSection}
+        onSectionChange={setSettingsSection}
+      />
       <LogsDialog open={logsOpen} onClose={closeLogs} />
       <AppContextMenu
         menuRef={appContextMenuRef}
@@ -3089,22 +3118,6 @@ function MainContent({
   onNavigateToChat?: (chat: ActiveChat) => void | boolean | Promise<void | boolean>
   onForkNavigate?: (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => void
 }) {
-  if (activeTab === "settings") {
-    return (
-      <div
-        className="flex h-full w-full"
-        style={{ background: "#1d1d20" }}
-      >
-        <SettingsDashboard
-          key={`settings:${settingsSection}`}
-          onBack={onSettingsBack}
-          activeSection={settingsSection}
-          onSectionChange={onSettingsSectionChange}
-        />
-      </div>
-    )
-  }
-
   if (activeTab === "notifications") {
     return (
       <div className="flex h-full w-full">
