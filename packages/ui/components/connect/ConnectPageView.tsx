@@ -540,7 +540,7 @@ function ConnectProgressRail({
   }
 
   return (
-    <div className="flex w-full items-center justify-start gap-2 pt-6 sm:gap-3">
+    <div className="flex w-full items-center justify-start gap-2 pt-4 sm:gap-3">
       <ProgressSegment progress={firstStepProgress} />
       <ProgressSegment progress={secondStepProgress} />
     </div>
@@ -551,9 +551,9 @@ function ProgressSegment({ progress }: { progress: number }) {
   const clamped = Math.max(0, Math.min(100, progress))
 
   return (
-    <span className="relative h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/12 sm:h-2">
+    <span className="relative h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-white/10 sm:h-1.5">
       <span
-        className="absolute inset-y-0 left-0 rounded-full bg-white transition-[width] duration-500 ease-out"
+        className="absolute inset-y-0 left-0 rounded-full bg-foreground transition-[width] duration-500 ease-out"
         style={{ width: `${clamped}%` }}
       />
     </span>
@@ -705,28 +705,44 @@ function VpsOpenClawPanel(props: {
   onSave: () => void
 }) {
   return (
-    <div className="space-y-4 rounded-2xl bg-white/[0.03] p-4">
-      <StepBadge step="2" label="Prepare the VPS" />
-      <PromptBox
-        title="Ask OpenClaw on your VPS:"
-        prompt={VPS_OPENCLAW_PROMPT}
-      />
-      <StepBadge step="3" label="Paste the result" />
-      <ManualFields
-        url={props.url}
-        token={props.token}
-        showToken={props.showToken}
-        disabled={props.busy}
-        tokenLabel="Pairing code"
-        tokenPlaceholder="ABC-123"
-        onUrlChange={props.onUrlChange}
-        onTokenChange={props.onTokenChange}
-        onShowTokenChange={props.onShowTokenChange}
-      />
+    <div className="space-y-3 rounded-[22px] bg-white/[0.028] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]">
+      <div className="rounded-[18px] bg-white/[0.025] p-4">
+        <StepBadge step="2" label="Prepare the VPS" />
+        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground/65">
+          Copy this exact setup brief into OpenClaw on the server. It verifies middleware before giving you connection details.
+        </p>
+        <div className="mt-3">
+          <PromptBox
+            title="Server setup brief"
+            prompt={VPS_OPENCLAW_PROMPT}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-[18px] bg-white/[0.035] p-4">
+        <StepBadge step="3" label="Paste the result" />
+        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground/65">
+          Use the middleware URL and pairing code from the verified server response.
+        </p>
+        <div className="mt-4">
+          <ManualFields
+            url={props.url}
+            token={props.token}
+            showToken={props.showToken}
+            disabled={props.busy}
+            tokenLabel="Pairing code"
+            tokenPlaceholder="ABC-123"
+            onUrlChange={props.onUrlChange}
+            onTokenChange={props.onTokenChange}
+            onShowTokenChange={props.onShowTokenChange}
+          />
+        </div>
+      </div>
+
       <Button
         onClick={props.onSave}
         disabled={props.busy || props.missingConfig}
-        className="h-10 w-full rounded-xl bg-foreground text-background hover:bg-foreground/90"
+        className="h-11 w-full rounded-2xl bg-foreground text-[13px] font-medium text-background shadow-[0_10px_30px_rgba(255,255,255,0.08)] hover:bg-foreground/90 disabled:opacity-50"
       >
         {props.saving ? "Pairing..." : "Pair and continue"}
       </Button>
@@ -736,8 +752,8 @@ function VpsOpenClawPanel(props: {
 
 function StepBadge({ step, label }: { step: string; label: string }) {
   return (
-    <div className="flex items-center gap-2 text-xs font-medium text-zinc-300">
-      <span className="flex size-5 items-center justify-center rounded-full bg-emerald-500/15 text-[11px] text-emerald-300">
+    <div className="flex items-center gap-2 text-[12px] font-semibold text-foreground">
+      <span className="flex size-6 items-center justify-center rounded-full bg-emerald-500/15 text-[11px] text-emerald-300 shadow-[0_0_24px_rgba(16,185,129,0.16)]">
         {step}
       </span>
       {label}
@@ -778,21 +794,21 @@ function PromptBox({ title, prompt }: { title: string; prompt: string }) {
   }
 
   return (
-    <div className="rounded-2xl bg-black/20 p-3">
+    <div className="rounded-2xl bg-black/20 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-medium text-zinc-300">{title}</p>
+        <p className="text-[12px] font-medium text-zinc-300">{title}</p>
         <Button
           type="button"
           variant="outline"
           size="sm"
           onClick={copyPrompt}
-          className="h-7 border-0 bg-white/[0.045] px-2 text-[11px] text-zinc-300 hover:bg-white/[0.075] active:translate-y-0"
+          className="h-7 rounded-lg border-0 bg-white/[0.055] px-2 text-[11px] text-zinc-300 hover:bg-white/[0.085] active:translate-y-0"
         >
           <HugeiconsIcon icon={Copy01Icon} size={13} />
           {copied ? "Copied!" : "Copy"}
         </Button>
       </div>
-      <pre className="mt-3 h-[190px] overflow-y-auto rounded-xl bg-black/25 p-3 text-[11px] leading-relaxed whitespace-pre-wrap text-zinc-400">
+      <pre className="mt-3 h-[172px] overflow-y-auto rounded-xl bg-black/30 p-3.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-zinc-400 shadow-[inset_0_1px_12px_rgba(0,0,0,0.18)]">
         {prompt}
       </pre>
     </div>
@@ -821,9 +837,9 @@ function ManualFields({
   onShowTokenChange: (show: boolean) => void
 }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-3.5">
       <div className="space-y-1.5">
-        <Label htmlFor="middleware-url" className="text-xs">
+        <Label htmlFor="middleware-url" className="text-[11px] font-medium text-muted-foreground/80">
           Middleware URL
         </Label>
         <Input
@@ -834,11 +850,11 @@ function ManualFields({
           disabled={disabled}
           autoComplete="off"
           spellCheck={false}
-          className="h-10 rounded-xl border-0 bg-white/[0.06] text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-0 focus-visible:bg-white/[0.075]"
+          className="h-11 rounded-2xl border-0 bg-white/[0.06] px-4 text-[13px] text-zinc-100 placeholder:text-zinc-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] focus-visible:ring-0 focus-visible:bg-white/[0.085]"
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="middleware-token" className="text-xs">
+        <Label htmlFor="middleware-token" className="text-[11px] font-medium text-muted-foreground/80">
           {tokenLabel}
         </Label>
         <div className="flex gap-2">
@@ -851,7 +867,7 @@ function ManualFields({
             disabled={disabled}
             autoComplete="off"
             spellCheck={false}
-            className="h-10 rounded-xl border-0 bg-white/[0.06] text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-0 focus-visible:bg-white/[0.075]"
+            className="h-11 rounded-2xl border-0 bg-white/[0.06] px-4 text-[13px] text-zinc-100 placeholder:text-zinc-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] focus-visible:ring-0 focus-visible:bg-white/[0.085]"
           />
           <Button
             type="button"
@@ -859,7 +875,7 @@ function ManualFields({
             size="icon"
             onClick={() => onShowTokenChange(!showToken)}
             disabled={disabled}
-            className="h-10 rounded-xl border-0 bg-white/[0.06] text-zinc-300 hover:bg-white/[0.075]"
+            className="h-11 rounded-2xl border-0 bg-white/[0.06] text-zinc-300 hover:bg-white/[0.085]"
           >
             <HugeiconsIcon icon={showToken ? ViewOffIcon : EyeIcon} size={15} />
           </Button>
