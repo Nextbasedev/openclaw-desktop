@@ -31,7 +31,8 @@ const SECTION_GROUPS: SectionGroup[] = [
     label: "System",
     items: [
       { id: "appearance", label: "Appearance", icon: Icons.Settings },
-      { id: "voice", label: "Voice", icon: Icons.Automations },
+      // Voice settings are intentionally hidden from the settings sidebar for now.
+      // { id: "voice", label: "Voice", icon: Icons.Automations },
     ],
   },
 ]
