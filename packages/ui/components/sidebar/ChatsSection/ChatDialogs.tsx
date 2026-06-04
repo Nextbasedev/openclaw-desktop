@@ -56,7 +56,7 @@ export function ChatDialogs({ dialog, actions }: Props) {
             </button>
             <button
               onClick={() => setRenameOpen(false)}
-              className="glass-btn-secondary"
+              className="glass-btn-secondary flex-1"
             >
               Cancel
             </button>
