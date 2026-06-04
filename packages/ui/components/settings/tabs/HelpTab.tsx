@@ -376,7 +376,7 @@ function MiddlewareUpdateCard() {
               <button
                 type="button"
                 disabled={busy}
-                className={cn(HELP_FIELD_CLASS, "flex w-full items-center justify-between gap-2 text-left disabled:cursor-not-allowed disabled:opacity-60")}
+                className={cn(HELP_FIELD_CLASS, "flex w-full cursor-pointer items-center justify-between gap-2 text-left disabled:cursor-not-allowed disabled:opacity-60")}
               >
                 <span className="min-w-0 truncate">{selectedBranch === "custom" ? "Custom branch…" : selectedBranch}</span>
                 <LuChevronDown size={14} className={cn("shrink-0 text-muted-foreground/70 transition-transform", branchMenuOpen && "rotate-180")} />
@@ -386,11 +386,12 @@ function MiddlewareUpdateCard() {
               align="start"
               sideOffset={8}
               className={cn(
-                "max-h-72 w-[var(--radix-popover-trigger-width)] gap-0 overflow-y-auto rounded-2xl p-1.5 ring-0",
+                "w-[var(--radix-popover-trigger-width)] gap-0 overflow-y-auto overscroll-contain rounded-2xl p-1.5 ring-0",
                 "border border-black/70 bg-[var(--glass-bg)]",
                 "backdrop-blur-[40px] backdrop-saturate-[180%]",
                 "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
               )}
+              style={{ maxHeight: "min(18rem, var(--radix-popover-content-available-height))" }}
             >
               {branches.map((branch) => {
                 const active = selectedBranch === branch.name
@@ -399,7 +400,7 @@ function MiddlewareUpdateCard() {
                     key={branch.name}
                     type="button"
                     className={cn(
-                      "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[12px] text-foreground transition-colors",
+                      "flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[12px] text-foreground transition-colors",
                       active ? "bg-white/[0.075]" : "hover:bg-white/[0.055]",
                     )}
                     onClick={() => {
@@ -415,7 +416,7 @@ function MiddlewareUpdateCard() {
               <button
                 type="button"
                 className={cn(
-                  "mt-1 flex w-full items-center rounded-xl px-3 py-2 text-left text-[12px] text-foreground transition-colors",
+                  "mt-1 flex w-full cursor-pointer items-center rounded-xl px-3 py-2 text-left text-[12px] text-foreground transition-colors",
                   selectedBranch === "custom" ? "bg-white/[0.075]" : "hover:bg-white/[0.055]",
                 )}
                 onClick={() => {
