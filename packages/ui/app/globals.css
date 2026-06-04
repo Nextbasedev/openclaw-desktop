@@ -334,10 +334,23 @@
     @apply bg-background text-foreground;
     height: 100%;
     overflow: hidden;
-    user-select: none;
-    -webkit-user-select: none;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  header,
+  footer,
+  nav,
+  aside,
+  button,
+  label,
+  [role="button"],
+  [role="menu"],
+  [role="menuitem"],
+  [data-radix-popper-content-wrapper],
+  .group\/sidebar {
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   input,
