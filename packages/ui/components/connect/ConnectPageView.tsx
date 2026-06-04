@@ -908,13 +908,6 @@ function ConnectedState({
               {displayUrl}
             </p>
           </div>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {['Projects', 'Terminal', 'Git', 'Chats', 'Files'].map((item) => (
-              <span key={item} className="rounded-full bg-emerald-400/[0.08] px-2.5 py-1 text-[11px] text-emerald-100/62">
-                {item}
-              </span>
-            ))}
-          </div>
         </div>
       </div>
       <Button
