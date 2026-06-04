@@ -209,10 +209,10 @@ function ToolRow({
         }}
         className={cn(
           "group flex min-h-8 w-full items-center gap-2 px-3 py-1.5 text-left",
-          open ? "rounded-t-md rounded-b-none bg-[#f3f1ee] dark:bg-[#2a2a2a]" : "rounded-md bg-[#f9f8f6] dark:bg-[#222222]",
-          "border border-[#e5e3de] dark:border-[#333333]",
+          open ? "rounded-t-md rounded-b-none bg-white/5" : "rounded-md bg-white/5",
+          "border border-white/10",
           "cursor-pointer transition-colors duration-100",
-          "hover:bg-[#f3f1ee] dark:hover:bg-[#2a2a2a]"
+          "hover:bg-white/[0.07]"
         )}
       >
         <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none", badge.className)}>
