@@ -1,13 +1,17 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
+
+/** Yield control back to the event loop so long imports never block request handling. */
+const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../../app.js";
 import { HttpError } from "../../lib/errors.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import { cleanMessageDisplayText, messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
-import { classifyGatewayMessageSemanticType, isErrorToolResult, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
+import { classifyGatewayMessageSemanticType, extractToolEventsFromMessage, isErrorToolResult, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
@@ -34,6 +38,7 @@ const localFirstSqliteBlocked = new Set<string>();
 /** Clear local-first cache — for test isolation only. */
 export function clearLocalFirstBootstrapCache() {
   localFirstBootstrapTimestamps.clear();
+  coldBootstrapJobs.clear();
   // Block SQLite-first for all known sessions until next Gateway bootstrap
   // stamps them fresh. This ensures test sequential bootstraps go to Gateway.
   localFirstSqliteBlocked.clear();
@@ -43,13 +48,60 @@ export function clearLocalFirstBootstrapCache() {
 const MIN_REAL_TIMESTAMP_MS = 1_700_000_000_000;
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
 const archiveProjectionJobs = new Map<string, Promise<void>>();
+// Per-session in-flight dedupe for the cold (non-local-first) bootstrap build.
+// Mirrors archiveProjectionJobs so K concurrent first-bootstraps for the same
+// huge session collapse into ONE synchronous build instead of K parallel ones.
+type ChatBootstrapSnapshot = ReturnType<typeof buildChatBootstrapSnapshot>;
+const coldBootstrapJobs = new Map<string, Promise<ChatBootstrapSnapshot>>();
+// Above this message count we skip the per-message `messageFactorSummary` on the
+// hot bootstrap log line (it re-projects every message just to emit a log).
+const BOOTSTRAP_FACTOR_SUMMARY_LIMIT = 1500;
+// Chunk size for the final serialize loop so a huge window can't block the loop.
+const BOOTSTRAP_SERIALIZE_YIELD_EVERY = 200;
+// Default newest-message window read back for the foreground snapshot. Kept at
+// 1000 (no behavior change); `hasOlder`/older-pagination already supports a
+// smaller window if we later tune this down once verified live.
+const BOOTSTRAP_PROJECTION_LIMIT = 1000;
 
+
+// Hard cap on bytes read for a bounded (maxLines) probe so a multi-MB archive
+// file can never be fully slurped just to inspect its first few lines.
+const BOUNDED_READ_MAX_BYTES = 512 * 1024;
+const BOUNDED_READ_CHUNK = 64 * 1024;
+
+/** Read up to `maxLines` lines without slurping the whole file (streamed, sync). */
+function readJsonlLinesBounded(file: string, maxLines: number): string[] {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(file, "r");
+    const buffer = Buffer.allocUnsafe(BOUNDED_READ_CHUNK);
+    const decoder = new StringDecoder("utf8");
+    const lines: string[] = [];
+    let leftover = "";
+    let readTotal = 0;
+    while (lines.length < maxLines && readTotal < BOUNDED_READ_MAX_BYTES) {
+      const bytes = fs.readSync(fd, buffer, 0, BOUNDED_READ_CHUNK, null);
+      if (bytes <= 0) break;
+      readTotal += bytes;
+      const parts = (leftover + decoder.write(buffer.subarray(0, bytes))).split(/\r?\n/);
+      leftover = parts.pop() ?? "";
+      for (const part of parts) {
+        if (part) lines.push(part);
+        if (lines.length >= maxLines) break;
+      }
+    }
+    if (lines.length < maxLines) { const tail = (leftover + decoder.end()).trim(); if (tail) lines.push(tail); }
+    return lines.slice(0, maxLines);
+  } catch { return []; }
+  finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* noop */ } } }
+}
 
 function readJsonlRecords(file: string, maxLines?: number): Record<string, unknown>[] {
   try {
-    const lines = fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean);
-    const selected = typeof maxLines === "number" && maxLines >= 0 ? lines.slice(0, maxLines) : lines;
-    return selected.flatMap((line) => {
+    const lines = typeof maxLines === "number" && maxLines >= 0
+      ? readJsonlLinesBounded(file, maxLines)
+      : fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean);
+    return lines.flatMap((line) => {
       try { return [JSON.parse(line) as Record<string, unknown>]; } catch { return []; }
     });
   } catch { return []; }
@@ -130,36 +182,39 @@ function agentIdFromSessionKey(sessionKey: string) {
   return match?.[1] || "main";
 }
 
-function archivedHistoryTranscriptFiles(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; messages: unknown[] }) {
+async function archivedHistoryTranscriptFiles(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; messages: unknown[] }): Promise<string[]> {
   if (!params.sessionFile && params.messages.length === 0) return [];
   const current = params.sessionFile ? path.resolve(params.sessionFile) : "";
   const agentId = agentIdFromSessionKey(params.sessionKey);
   const sessionsDir = current ? path.dirname(current) : path.join(os.homedir(), ".openclaw", "agents", agentId, "sessions");
   const candidateDirs = Array.from(new Set([sessionsDir, path.join(sessionsDir, "archive"), path.join(sessionsDir, "archives")].map((dir) => path.resolve(dir))));
   const currentIdentity = firstHistoryIdentity(params.messages, params.sessionKey);
-  const files = candidateDirs.flatMap((dir) => {
+  const archiveSuffixRe = /\.jsonl\.(?:reset|deleted)\.\d{4}-\d{2}-\d{2}T/;
+  const candidates = candidateDirs.flatMap((dir) => {
     try {
       return fs.readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => path.join(dir, entry.name));
     } catch { return [] as string[]; }
-  });
-  const archiveSuffixRe = /\.jsonl\.(?:reset|deleted)\.\d{4}-\d{2}-\d{2}T/;
-  return files
-    .filter((file) => archiveSuffixRe.test(path.basename(file)))
-    .filter((file) => path.resolve(file) !== current)
-    .filter((file) => {
-      const archivedSessionId = archiveSessionIdFromFile(file);
+  }).filter((file) => archiveSuffixRe.test(path.basename(file)) && path.resolve(file) !== current);
 
-      if (params.sessionId && archivedSessionId === params.sessionId && !current) return true;
-      if (!currentIdentity) return params.sessionId ? archivedSessionId === params.sessionId : false;
-      const archivedMessages = transcriptMessagesFromJsonl(file, 80);
-      const archivedIdentity = firstHistoryIdentity(archivedMessages, params.sessionKey);
-      return identitiesMatch(currentIdentity, archivedIdentity);
-    })
-    .sort((a, b) => {
-      const aMs = fs.statSync(a, { throwIfNoEntry: false })?.mtimeMs ?? 0;
-      const bMs = fs.statSync(b, { throwIfNoEntry: false })?.mtimeMs ?? 0;
-      return aMs - bMs || a.localeCompare(b);
-    });
+  // Identity-match per file, yielding to the event loop so scanning a large
+  // archive corpus (hundreds of files) never blocks request handling.
+  const matched: string[] = [];
+  let scanned = 0;
+  for (const file of candidates) {
+    const archivedSessionId = archiveSessionIdFromFile(file);
+    let keep: boolean;
+    if (params.sessionId && archivedSessionId === params.sessionId && !current) keep = true;
+    else if (!currentIdentity) keep = params.sessionId ? archivedSessionId === params.sessionId : false;
+    else keep = identitiesMatch(currentIdentity, firstHistoryIdentity(transcriptMessagesFromJsonl(file, 80), params.sessionKey));
+    if (keep) matched.push(file);
+    if (++scanned % 25 === 0) await yieldToEventLoop();
+  }
+
+  return matched.sort((a, b) => {
+    const aMs = fs.statSync(a, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+    const bMs = fs.statSync(b, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+    return aMs - bMs || a.localeCompare(b);
+  });
 }
 
 function cleanSerializedMessageData(data: Record<string, unknown>, role: string) {
@@ -199,17 +254,121 @@ function serializeProjectedMessage(message: ProjectedMessage) {
   } as OpenClawMessage;
 }
 
-function persistArchivedHistorySegments(context: AppContext, sessionKey: string, history: ChatHistoryResponse) {
-  const archivedFiles = archivedHistoryTranscriptFiles({
+/**
+ * Project tool calls from a batch of (already-normalized) archived messages into
+ * v2_tool_calls. The archived-import path persisted message rows but NEVER tool
+ * rows, so huge/historical sessions reconstructed from archives showed empty
+ * tools/toolCalls even with 600+ toolCall blocks in content. Pairs toolCall and
+ * toolResult blocks by toolCallId in a single pass; idempotent via the
+ * ON CONFLICT(session_key, tool_call_id) upsert + terminal-state guard.
+ */
+type ArchivedToolResult = { status: "success" | "error"; resultMeta: unknown; finishedAtMs: number | null };
+
+/** Collect tool results keyed by toolCallId (first occurrence wins) from a batch. */
+function collectArchivedToolResults(messages: ProjectedMessage[], resultById: Map<string, ArchivedToolResult>) {
+  for (const message of messages) {
+    const ts = historyTimestampMs(message.data as Record<string, unknown>);
+    for (const event of extractToolEventsFromMessage(message.data)) {
+      if (event.phase !== "result" && event.phase !== "error") continue;
+      if (resultById.has(event.toolCallId)) continue;
+      const resultMeta = safeResultMeta(event.result);
+      resultById.set(event.toolCallId, {
+        status: event.phase === "error" || isErrorToolResult(resultMeta) ? "error" : "success",
+        resultMeta,
+        finishedAtMs: ts,
+      });
+    }
+  }
+}
+
+/** Upsert one tool row per toolCall block in a batch, attaching its paired result. */
+async function upsertArchivedToolCalls(context: AppContext, sessionKey: string, messages: ProjectedMessage[], resultById: Map<string, ArchivedToolResult>): Promise<number> {
+  let projected = 0;
+  let processed = 0;
+  for (const message of messages) {
+    const data = message.data as Record<string, unknown>;
+    const openclaw = objectData(data.__openclaw);
+    const messageId = message.messageId ?? (typeof openclaw.id === "string" ? openclaw.id : null);
+    const runId = typeof openclaw.runId === "string" ? openclaw.runId : null;
+    const ts = historyTimestampMs(data);
+    for (const event of extractToolEventsFromMessage(message.data)) {
+      if (event.phase !== "calling" && event.phase !== "start") continue;
+      if (!event.toolCallId || !event.name) continue;
+      const result = resultById.get(event.toolCallId);
+      context.runs.upsertToolCall({
+        sessionKey,
+        toolCallId: event.toolCallId,
+        runId,
+        messageId,
+        name: event.name,
+        phase: result ? "result" : "calling",
+        status: result?.status,
+        argsMeta: event.args,
+        resultMeta: result?.resultMeta,
+        startedAtMs: ts ?? undefined,
+        finishedAtMs: result?.finishedAtMs ?? undefined,
+      });
+      projected += 1;
+    }
+    // Same non-blocking discipline as 0007: yield on tool-dense batches.
+    if (++processed % 25 === 0) await yieldToEventLoop();
+  }
+  return projected;
+}
+
+export async function projectArchivedSegmentToolCalls(context: AppContext, sessionKey: string, messages: ProjectedMessage[]): Promise<number> {
+  const resultById = new Map<string, ArchivedToolResult>();
+  collectArchivedToolResults(messages, resultById);
+  return upsertArchivedToolCalls(context, sessionKey, messages, resultById);
+}
+
+/**
+ * One-shot, idempotent backfill of v2_tool_calls for an ALREADY-imported session
+ * (messages projected to SQLite before 0014 — message rows but zero tool rows).
+ * Reads projected messages in bounded chunks (two paged passes so toolCall/result
+ * pairing is session-wide and correct across chunk boundaries), yielding between
+ * pages. Idempotent via upsertToolCall's ON CONFLICT + terminal-state guard.
+ */
+export async function backfillArchivedToolCalls(context: AppContext, sessionKey: string): Promise<number> {
+  const CHUNK = 300;
+  // Pass 1: collect all tool results across the session.
+  const resultById = new Map<string, ArchivedToolResult>();
+  let afterSeq = 0;
+  for (;;) {
+    const page = context.messages.listMessages(sessionKey, { afterSeq, limit: CHUNK });
+    if (page.length === 0) break;
+    collectArchivedToolResults(page, resultById);
+    afterSeq = page[page.length - 1]!.openclawSeq;
+    if (page.length < CHUNK) break;
+    await yieldToEventLoop();
+  }
+  // Pass 2: upsert one row per toolCall block, attaching its (session-wide) result.
+  let total = 0;
+  afterSeq = 0;
+  for (;;) {
+    const page = context.messages.listMessages(sessionKey, { afterSeq, limit: CHUNK });
+    if (page.length === 0) break;
+    total += await upsertArchivedToolCalls(context, sessionKey, page, resultById);
+    afterSeq = page[page.length - 1]!.openclawSeq;
+    if (page.length < CHUNK) break;
+    await yieldToEventLoop();
+  }
+  return total;
+}
+
+async function persistArchivedHistorySegments(context: AppContext, sessionKey: string, history: ChatHistoryResponse) {
+  const archivedFiles = await archivedHistoryTranscriptFiles({
     sessionKey,
     sessionId: history.sessionId ?? null,
     sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
     messages: history.messages ?? [],
   });
   let upserted = 0;
+  let projectedTools = 0;
   let importedFiles = 0;
   let skippedFiles = 0;
   let changedFiles = 0;
+  let processed = 0;
   for (const file of archivedFiles) {
     const archivedSessionId = archiveSessionIdFromFile(file);
     if (archivedSessionId && archivedSessionId === history.sessionId && history.sessionFile) continue;
@@ -238,11 +397,17 @@ function persistArchivedHistorySegments(context: AppContext, sessionKey: string,
     const normalized = normalizeHistoryMessages(sessionKey, archivedMessages);
     const importBaseSeq = staleImport ? context.messages.nextMessageSeq(sessionKey) - 1 : segment.baseSeq;
     upserted += context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: importBaseSeq }).upserted;
+    // Project tool calls for this file's messages — the missing step that left
+    // archived/historical sessions with empty tools/toolCalls.
+    projectedTools += await projectArchivedSegmentToolCalls(context, sessionKey, normalized);
     context.messages.recordArchiveImport({ sessionKey, filePath, fileMtimeMs, fileSize, segmentId: segment.segmentId, messageCount: normalized.length });
     importedFiles += 1;
     if (staleImport) changedFiles += 1;
+    // Yield between (potentially large) file imports so a big corpus can't
+    // monopolise the event loop on a cold cache.
+    if (++processed % 3 === 0) await yieldToEventLoop();
   }
-  return { fileCount: archivedFiles.length, importedFiles, skippedFiles, changedFiles, upserted, changed: importedFiles > 0 || changedFiles > 0 };
+  return { fileCount: archivedFiles.length, importedFiles, skippedFiles, changedFiles, upserted, projectedTools, changed: importedFiles > 0 || changedFiles > 0 };
 }
 
 function lastMessageIsAssistantText(messages: unknown[]) {
@@ -331,39 +496,91 @@ function oldestRunningToolAgeMs(context: AppContext, sessionKey: string, runId: 
   return Math.max(0, Date.now() - Math.min(...startedAtMs));
 }
 
-function inferToolResultFromHistory(messages: unknown[], messageIndex: number, toolCallId?: string | null) {
-  for (let index = messageIndex + 1; index < messages.length; index += 1) {
-    const message = messages[index];
+type InferredToolResult = {
+  status: "success" | "error";
+  finishedAtMs: number | null;
+  resultMeta: unknown;
+};
+
+type ToolResultIndex = {
+  /** First forward index of a tool-role result message carrying this toolCallId. */
+  idResultIndex: Map<string, number>;
+  /** Per-index parsed tool-role result info (null when not a tool-role message). */
+  resultInfo: Array<InferredToolResult | null>;
+  /** Suffix array: nearest index >= i that is an id-less tool result OR assistant-final. */
+  nextStopAtOrAfter: Int32Array;
+  /** historyTimestampMs per message index. */
+  finishedAtMs: Array<number | null>;
+};
+
+/**
+ * Single forward pass that replaces the old O(n) per-tool `inferToolResultFromHistory`
+ * scan with O(1) lookups. For 600+ tools over thousands of messages this turns the
+ * old O(n²) into O(n). Yields every ~25 messages so a huge history can't freeze the loop.
+ */
+async function buildToolResultIndex(messages: unknown[]): Promise<ToolResultIndex> {
+  const n = messages.length;
+  const idResultIndex = new Map<string, number>();
+  const resultInfo: Array<InferredToolResult | null> = new Array(n).fill(null);
+  const finishedAtMs: Array<number | null> = new Array(n).fill(null);
+  const isStop: boolean[] = new Array(n).fill(false);
+  for (let i = 0; i < n; i += 1) {
+    const message = messages[i];
     if (!message || typeof message !== "object" || Array.isArray(message)) continue;
     const data = message as Record<string, unknown>;
+    finishedAtMs[i] = historyTimestampMs(data);
     if (data.role === "tool" || data.role === "tool_result" || data.role === "toolResult") {
       const resultToolCallId = readToolCallId(data);
-      if (!toolCallId || !resultToolCallId || resultToolCallId === toolCallId) {
-        const resultMeta = safeResultMeta(data.result ?? data.output ?? data.text ?? data.content ?? data.message ?? data.value);
-        return {
-          status: isErrorToolResult(resultMeta) ? "error" as const : "success" as const,
-          finishedAtMs: historyTimestampMs(data),
-          resultMeta,
-        };
-      }
-    }
-    if (projectGatewayMessage(data).assistantHasFinalText) {
-      return {
-        status: "success" as const,
-        finishedAtMs: historyTimestampMs(data),
-        resultMeta: undefined,
+      const resultMeta = safeResultMeta(data.result ?? data.output ?? data.text ?? data.content ?? data.message ?? data.value);
+      resultInfo[i] = {
+        status: isErrorToolResult(resultMeta) ? "error" : "success",
+        finishedAtMs: finishedAtMs[i],
+        resultMeta,
       };
+      if (resultToolCallId) {
+        if (!idResultIndex.has(resultToolCallId)) idResultIndex.set(resultToolCallId, i);
+      } else {
+        // Id-less tool result — matches the next tool call forward (original behavior).
+        isStop[i] = true;
+      }
+    } else if (projectGatewayMessage(data).assistantHasFinalText) {
+      isStop[i] = true;
     }
+    if (i % 25 === 24) await yieldToEventLoop();
+  }
+  const nextStopAtOrAfter = new Int32Array(n + 1).fill(-1);
+  for (let i = n - 1; i >= 0; i -= 1) {
+    nextStopAtOrAfter[i] = isStop[i] ? i : nextStopAtOrAfter[i + 1];
+  }
+  return { idResultIndex, resultInfo, nextStopAtOrAfter, finishedAtMs };
+}
+
+/** O(1) replacement for the forward scan: nearest of {matching-id result, id-less result, assistant-final}. */
+function resolveInferredToolResult(index: ToolResultIndex, messageIndex: number, toolCallId: string): InferredToolResult | null {
+  const idIdxRaw = index.idResultIndex.get(toolCallId);
+  const idIdx = idIdxRaw !== undefined && idIdxRaw > messageIndex ? idIdxRaw : -1;
+  const stopIdxRaw = messageIndex + 1 < index.nextStopAtOrAfter.length ? index.nextStopAtOrAfter[messageIndex + 1] : -1;
+  const stopIdx = stopIdxRaw;
+  if (idIdx >= 0 && (stopIdx < 0 || idIdx <= stopIdx)) {
+    return index.resultInfo[idIdx];
+  }
+  if (stopIdx >= 0) {
+    const info = index.resultInfo[stopIdx];
+    if (info) return info; // id-less tool result
+    // assistant-final fallback
+    return { status: "success", finishedAtMs: index.finishedAtMs[stopIdx], resultMeta: undefined };
   }
   return null;
 }
 
-function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messages: unknown[], run: ProjectedRun | null, completed: boolean) {
+async function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messages: unknown[], run: ProjectedRun | null, completed: boolean) {
   let inferred = 0;
-  messages.forEach((message, messageIndex) => {
-    if (!message || typeof message !== "object" || Array.isArray(message)) return;
+  const index = await buildToolResultIndex(messages);
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+    const message = messages[messageIndex];
+    if (!message || typeof message !== "object" || Array.isArray(message)) continue;
     const data = message as Record<string, unknown>;
-    if (data.role !== "assistant") return;
+    if (data.role !== "assistant") continue;
     const openclaw = objectData(data.__openclaw);
     const messageId = typeof openclaw.id === "string" ? openclaw.id : typeof data.id === "string" ? data.id : typeof data.messageId === "string" ? data.messageId : null;
     for (const toolEvent of projectGatewayMessage(data).toolEvents) {
@@ -378,7 +595,7 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
       // a run_id; if those rows are replayed after a fresh user send, assigning
       // them to the current run resurrects ancient tool cards as live activity.
       if (existingTool && !existingTool.runId && run && existingTool.startedAtMs < run.startedAtMs - 1000) continue;
-      const result = inferToolResultFromHistory(messages, messageIndex, toolCallId) ?? (completed
+      const result = resolveInferredToolResult(index, messageIndex, toolCallId) ?? (completed
         ? { status: "success" as const, finishedAtMs: historyTimestampMs(data), resultMeta: undefined }
         : null);
       context.runs.upsertToolCall({
@@ -396,7 +613,8 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
       });
       inferred += 1;
     }
-  });
+    if (messageIndex % 25 === 24) await yieldToEventLoop();
+  }
   return inferred;
 }
 
@@ -541,7 +759,7 @@ export async function prewarmArchivedHistory(context: AppContext, sessionKey: st
   try {
     const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 200 }, 10_000);
     if (!history) return { ok: false, reason: "no-history" };
-    const result = persistArchivedHistorySegments(context, sessionKey, history);
+    const result = await persistArchivedHistorySegments(context, sessionKey, history);
     return { ok: true, ...result };
   } catch {
     return { ok: false, reason: "error" };
@@ -560,7 +778,7 @@ function scheduleArchivedHistoryProjection(params: {
     return existing;
   }
   const job = new Promise<void>((resolve, reject) => {
-    setImmediate(() => {
+    setImmediate(async () => {
       try {
         if (!params.context.db.open) {
           resolve();
@@ -568,7 +786,7 @@ function scheduleArchivedHistoryProjection(params: {
         }
         const startedAtMs = nowMs();
         params.log.info("bootstrap.archived-history.background.start", { sessionKey: params.sessionKey });
-        const archivedProjection = persistArchivedHistorySegments(params.context, params.sessionKey, params.history);
+        const archivedProjection = await persistArchivedHistorySegments(params.context, params.sessionKey, params.history);
         if (archivedProjection.fileCount > 0) {
           params.log.info("bootstrap.archived-history.persist", {
             sessionKey: params.sessionKey,
@@ -577,6 +795,7 @@ function scheduleArchivedHistoryProjection(params: {
             skippedFiles: archivedProjection.skippedFiles,
             changedFiles: archivedProjection.changedFiles,
             upserted: archivedProjection.upserted,
+            projectedTools: archivedProjection.projectedTools,
             background: true,
           });
         }
@@ -591,9 +810,19 @@ function scheduleArchivedHistoryProjection(params: {
             background: true,
           });
         }
+        // Lazy backfill for sessions imported BEFORE 0014 (messages projected but
+        // zero tool rows). Idempotent + bounded; only runs when the session has no
+        // tool rows at all, so post-0014 imports skip it.
+        let backfilledTools = 0;
+        if (params.context.db.open && params.context.runs.countToolCalls(params.sessionKey) === 0) {
+          backfilledTools = await backfillArchivedToolCalls(params.context, params.sessionKey);
+          if (backfilledTools > 0) {
+            params.log.info("bootstrap.archived-history.tools.backfill", { sessionKey: params.sessionKey, backfilledTools });
+          }
+        }
         // Broadcast a bootstrap-refresh event so the UI knows archived
-        // messages are now available and can refetch/update the chat.
-        if (archivedProjection.changed && params.context.db.open) {
+        // messages (and now tool cards) are available and can refetch/update.
+        if ((archivedProjection.changed || backfilledTools > 0) && params.context.db.open) {
           const projectedMessages = params.context.messages.listMessages(params.sessionKey, { limit: 1000, latest: true });
           const refreshEvent = params.context.messages.appendProjectionEvent({
             sessionKey: params.sessionKey,
@@ -668,22 +897,22 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
   // Backward-compatible aliases for old clients
   app.post("/api/chat/message", async (request, reply) => {
-    const response = await app.inject({
+    const response = await (app.inject({
       method: "POST",
       url: "/api/chat/send",
-      payload: request.body,
+      payload: request.body as string | Buffer | object | undefined,
       headers: request.headers,
-    });
+    }) as unknown as Promise<{ statusCode: number; json(): unknown }>);
     reply.code(response.statusCode).send(response.json());
   });
 
   app.post("/api/v1/chat/message", async (request, reply) => {
-    const response = await app.inject({
+    const response = await (app.inject({
       method: "POST",
       url: "/api/chat/send",
-      payload: request.body,
+      payload: request.body as string | Buffer | object | undefined,
       headers: request.headers,
-    });
+    }) as unknown as Promise<{ statusCode: number; json(): unknown }>);
     reply.code(response.statusCode).send(response.json());
   });
 
@@ -1313,17 +1542,31 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }
     // ── End local-first fast path ──
 
+    // Per-session in-flight dedupe (mirrors archiveProjectionJobs): collapse K
+    // concurrent cold first-bootstraps for the same session into ONE build so a
+    // huge session can't run the full synchronous chain K times in parallel.
+    const coldKey = parsed.data.sessionKey;
+    const existingColdJob = coldBootstrapJobs.get(coldKey);
+    if (existingColdJob) {
+      log.info("bootstrap.cold.dedupe", { sessionKey: coldKey, durationMs: elapsedMs(bootstrapStartedAtMs) });
+      return existingColdJob;
+    }
+    const coldJob = (async (): Promise<ChatBootstrapSnapshot> => {
     const gatewayHistoryStartedAtMs = nowMs();
     const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
       sessionKey: parsed.data.sessionKey,
       ...(parsed.data.limit ? { limit: parsed.data.limit } : {}),
       ...(parsed.data.maxChars ? { maxChars: parsed.data.maxChars } : {}),
     });
-    log.info("bootstrap.gateway.history", { sessionKey: history.sessionKey ?? parsed.data.sessionKey, sessionId: history.sessionId ?? null, durationMs: elapsedMs(gatewayHistoryStartedAtMs), messageFactors: messageFactorSummary(history.messages ?? []), status: history.status ?? null });
+    const historyMessageCount = history.messages?.length ?? 0;
+    log.info("bootstrap.gateway.history", { sessionKey: history.sessionKey ?? parsed.data.sessionKey, sessionId: history.sessionId ?? null, durationMs: elapsedMs(gatewayHistoryStartedAtMs), messageFactors: historyMessageCount <= BOOTSTRAP_FACTOR_SUMMARY_LIMIT ? messageFactorSummary(history.messages ?? []) : { total: historyMessageCount, summarySkipped: true }, status: history.status ?? null });
 
     const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
     const messages = history.messages ?? [];
     const normalized = normalizeHistoryMessages(sessionKey, messages);
+    // Yield after the (synchronous) normalize so concurrent requests (incl. /health)
+    // are served before the heavy SQLite stages start.
+    await yieldToEventLoop();
     const existingSession = context.messages.getSession(sessionKey);
     const segment = context.messages.ensureActiveSegment({
       sessionKey,
@@ -1346,7 +1589,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
     log.info("bootstrap.session.persist", { sessionKey, sessionId: history.sessionId ?? existingSession?.sessionId ?? null, status: typeof sessionData.status === "string" ? sessionData.status : null });
     const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+    await yieldToEventLoop();
     const bootstrapPruned = context.runs.findLatestPendingRun(sessionKey) ? 0 : context.messages.pruneSegmentToCanonicalMessages({ sessionKey, segmentId: segment.segmentId, baseSeq: segment.baseSeq, canonicalMessages: normalized });
+    await yieldToEventLoop();
     const bootstrapLastSeq = context.messages.nextMessageSeq(sessionKey) - 1;
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, pruned: bootstrapPruned, lastSeq: bootstrapLastSeq });
     void scheduleArchivedHistoryProjection({ context, log, sessionKey, history });
@@ -1355,7 +1600,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const activeRun = context.runs.findLatestPendingRun(sessionKey);
     const bootstrapCompleted = isTerminalSendStatus(sessionData.status) || lastMessageIsAssistantText(messages);
     const inferenceRun = activeRun ?? latestRun;
-    const inferredToolCount = inferBootstrapToolCalls(context, sessionKey, messages, inferenceRun ?? null, bootstrapCompleted);
+    const inferredToolCount = await inferBootstrapToolCalls(context, sessionKey, messages, inferenceRun ?? null, bootstrapCompleted);
     if (inferredToolCount > 0) log.info("bootstrap.tools.inferred", { sessionKey, inferredToolCount, runId: inferenceRun?.runId ?? null, completed: bootstrapCompleted });
     if (activeRun && context.runs.hasRunningTools(sessionKey, activeRun.runId)) {
       context.runs.updateRunStatus(activeRun.runId, "tool_running", { statusLabel: context.runs.listRunningToolCalls(sessionKey, activeRun.runId)[0]?.name ?? activeRun.statusLabel ?? null });
@@ -1398,8 +1643,15 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       }
     }
 
-    const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }).map(serializeProjectedMessage);
-    log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length, limit: parsed.data.limit ?? 1000 });
+    const projectionLimit = parsed.data.limit ?? BOOTSTRAP_PROJECTION_LIMIT;
+    const rawProjected = context.messages.listMessages(sessionKey, { limit: projectionLimit, latest: true });
+    const projectedMessages: ReturnType<typeof serializeProjectedMessage>[] = [];
+    for (let i = 0; i < rawProjected.length; i += 1) {
+      projectedMessages.push(serializeProjectedMessage(rawProjected[i]!));
+      // Chunk the serialize so a 1000-message window can't block the event loop.
+      if (i % BOOTSTRAP_SERIALIZE_YIELD_EVERY === BOOTSTRAP_SERIALIZE_YIELD_EVERY - 1) await yieldToEventLoop();
+    }
+    log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length, limit: projectionLimit });
     void context.chatLive.ensureSessionSubscribed(sessionKey).catch((error) => {
       log.warn("bootstrap.live-subscribe.background.fail", { sessionKey, error: errorMeta(error) });
     });
@@ -1426,6 +1678,13 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: false },
       historyMeta: { thinkingLevel: history.thinkingLevel, fastMode: history.fastMode, verboseLevel: history.verboseLevel },
     });
+    })().finally(() => {
+      // On success OR failure clear the entry so a bad build can't wedge future
+      // callers; awaiters still receive the same resolved snapshot or rejection.
+      if (coldBootstrapJobs.get(coldKey) === coldJob) coldBootstrapJobs.delete(coldKey);
+    });
+    coldBootstrapJobs.set(coldKey, coldJob);
+    return coldJob;
   });
 
   app.get("/api/chat/messages", async (request) => {

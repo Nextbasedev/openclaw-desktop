@@ -345,6 +345,11 @@ export class RunRepository {
     return (rows as Record<string, unknown>[]).map(rowToTool);
   }
 
+  countToolCalls(sessionKey: string): number {
+    const row = this.db.prepare(`SELECT count(*) AS count FROM v2_tool_calls WHERE session_key = @sessionKey`).get({ sessionKey }) as { count?: number } | undefined;
+    return Number(row?.count ?? 0);
+  }
+
   hasRunningTools(sessionKey: string, runId: string): boolean {
     const row = this.db.prepare(`
       SELECT 1 FROM v2_tool_calls
