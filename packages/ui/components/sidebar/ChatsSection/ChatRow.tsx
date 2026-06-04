@@ -38,7 +38,7 @@ type ContextMenuState = {
 }
 
 const CHAT_MENU_OPEN_EVENT = "openclaw:sidebar-chat-menu-open"
-const CONTEXT_MENU_WIDTH = 184
+const CONTEXT_MENU_WIDTH = 216
 const CONTEXT_MENU_HEIGHT = 184
 const VIEWPORT_MARGIN = 12
 const MENU_SPRING = {
@@ -278,7 +278,7 @@ export function ChatRow({
                 side="right"
                 sideOffset={4}
                 className={cn(
-                  "z-[120] w-44 gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none",
+                  "z-[120] w-52 gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none",
                   "border border-black/70 bg-[var(--glass-bg)]",
                   "backdrop-blur-[40px] backdrop-saturate-[180%]",
                   "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
@@ -387,7 +387,7 @@ export function ChatRow({
                   transformOrigin: "top left",
                 }}
                 className={cn(
-                  "z-[120] w-44 rounded-2xl p-1.5",
+                  "z-[120] w-52 rounded-2xl p-1.5",
                   "border border-black/70 bg-[var(--glass-bg)]",
                   "backdrop-blur-[40px] backdrop-saturate-[180%]",
                   "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",

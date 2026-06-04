@@ -33,7 +33,6 @@ export function ChatActionsMenuContent({
         icon={<Icons.Edit size={14} strokeWidth={1.5} />}
         onClick={onRename}
       />
-      <div className="my-0.5 h-px bg-border/20" />
       <MenuAction
         label="Archive"
         icon={<Icons.Archive size={14} strokeWidth={1.5} />}

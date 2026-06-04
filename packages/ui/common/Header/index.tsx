@@ -218,7 +218,7 @@ export function Header({
     if (tab.kind !== "chat") return
     event.preventDefault()
     event.stopPropagation()
-    const maxX = Math.max(12, window.innerWidth - 184 - 12)
+    const maxX = Math.max(12, window.innerWidth - 216 - 12)
     const maxY = Math.max(12, window.innerHeight - 184 - 12)
     setChatTabMenu({
       open: true,
@@ -564,7 +564,7 @@ export function Header({
                   transformOrigin: "top left",
                 }}
                 className={cn(
-                  "z-[130] w-44 rounded-2xl p-1.5",
+                  "z-[130] w-52 rounded-2xl p-1.5",
                   "border border-black/70 bg-[var(--glass-bg)]",
                   "backdrop-blur-[40px] backdrop-saturate-[180%]",
                   "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
