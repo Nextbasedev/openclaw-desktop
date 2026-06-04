@@ -469,6 +469,8 @@ const MESSAGE_TOOL_RE =
 const ASYNC_RESULT_RE =
   /^An async command you ran earlier has completed\.[^\n]*(?:\n[^\n]*Handle the result internally[^\n]*)?(?:\n[^\n]*Do not relay[^\n]*)?\n*/m
 const MEDIA_ATTACHMENT_HEADER_RE = /^\[media attached:[\s\S]*?\]\s*/
+const MEDIA_ATTACHMENT_MARKER_RE = /\s*\[media attached:[^\]]+\]\s*/gim
+const MEDIA_ATTACHMENT_MARKER_CAPTURE_RE = /\[media attached:\s*([^\]]+)\]/gim
 const ATTACHED_FILE_MARKER_RE = /^\s*\[Attached (?:images?|audio(?: file)?|file):[^\]]+\]\s*/gim
 const ATTACHED_FILE_MARKER_CAPTURE_RE = /\[Attached (images?|audio(?: file)?|file):([^\]]+)\]/gim
 const MEDIA_REPLY_INSTRUCTION_RE =
@@ -488,6 +490,8 @@ function stripMediaAttachmentPreamble(text: string): string {
   if (hadMediaHeader) {
     result = result.replace(MEDIA_REPLY_INSTRUCTION_RE, "")
   }
+
+  result = result.replace(MEDIA_ATTACHMENT_MARKER_RE, "\n")
 
   return result
 }
@@ -578,13 +582,36 @@ function readInboundMediaId(raw: Record<string, unknown>): string | undefined {
   return stringValue(raw.mediaId) ?? stringValue(raw.media_id) ?? stringValue(raw.id)
 }
 
+function mediaIdFromUrl(value: string): string | undefined {
+  const trimmed = value.trim()
+  if (!trimmed.toLowerCase().startsWith("media://inbound/")) return undefined
+  return trimmed.slice("media://inbound/".length)
+}
+
+function resolveAttachmentUrl(rawUrl: string | undefined, mediaId: string | undefined): string | undefined {
+  const urlMediaId = rawUrl ? mediaIdFromUrl(rawUrl) : undefined
+  const inboundId = urlMediaId ?? mediaId
+  if (inboundId) return buildInboundMediaUrl(inboundId) ?? rawUrl
+  return rawUrl
+}
+
+function basename(value: string): string {
+  const withoutQuery = value.split(/[?#]/, 1)[0] ?? value
+  const name = withoutQuery.split(/[\\/]/).filter(Boolean).pop() ?? value
+  try {
+    return decodeURIComponent(name)
+  } catch {
+    return name
+  }
+}
+
 function readAttachmentSize(raw: Record<string, unknown>): number | undefined {
   return numberValue(raw.size) ?? numberValue(raw.bytes) ?? numberValue(raw.byteLength)
 }
 
 function mimeTypeFromAttachmentMarker(kind: string, name: string) {
   const lowerName = name.toLowerCase()
-  if (kind.startsWith("image")) {
+  if (kind.startsWith("image") || /\.(png|jpe?g|webp|gif|svg)$/.test(lowerName)) {
     if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg"
     if (lowerName.endsWith(".webp")) return "image/webp"
     if (lowerName.endsWith(".gif")) return "image/gif"
@@ -605,15 +632,32 @@ function readAttachmentMarkerAttachments(text: string): ChatMessage["attachments
   const attachments: NonNullable<ChatMessage["attachments"]> = []
   for (const match of text.matchAll(ATTACHED_FILE_MARKER_CAPTURE_RE)) {
     const kind = match[1]?.toLowerCase() ?? "file"
-    const rawNames = match[2] ?? ""
-    for (const rawName of rawNames.split(/,| and /i)) {
-      const name = rawName.trim()
-      if (!name) continue
-      attachments.push({
-        name,
-        mimeType: mimeTypeFromAttachmentMarker(kind, name),
-      })
-    }
+    const name = (match[2] ?? "").trim()
+    if (!name) continue
+    attachments.push({
+      name,
+      mimeType: mimeTypeFromAttachmentMarker(kind, name),
+    })
+  }
+  return attachments.length > 0 ? attachments : undefined
+}
+
+function readMediaAttachmentMarkerAttachments(text: string): ChatMessage["attachments"] {
+  const attachments: NonNullable<ChatMessage["attachments"]> = []
+  for (const match of text.matchAll(MEDIA_ATTACHMENT_MARKER_CAPTURE_RE)) {
+    const marker = (match[1] ?? "").trim()
+    if (!marker) continue
+    const mimeType = marker.match(/\(([^()\s]+\/[^()\s]+)\)/)?.[1]
+    const primaryRef = marker.split("|")[0]?.replace(/\s*\([^)]*\)\s*$/, "").trim()
+    if (!primaryRef) continue
+    const mediaId = mediaIdFromUrl(primaryRef)
+    if (!mediaId) continue
+    const url = resolveAttachmentUrl(primaryRef, mediaId)
+    attachments.push({
+      name: basename(mediaId ?? primaryRef),
+      mimeType: mimeType ?? mimeTypeFromAttachmentMarker("file", mediaId ?? primaryRef),
+      url,
+    })
   }
   return attachments.length > 0 ? attachments : undefined
 }
@@ -633,7 +677,7 @@ function readContentBlockAttachments(content: RawHistoryMessage["content"]): Cha
     if (!mimeType) return
     const content = readAttachmentContent(source) ?? readAttachmentContent(raw)
     const mediaId = readInboundMediaId(source) ?? readInboundMediaId(raw)
-    const url = stringValue(source.url) ?? stringValue(raw.url) ?? (mediaId ? buildInboundMediaUrl(mediaId) ?? undefined : undefined)
+    const url = resolveAttachmentUrl(stringValue(source.url) ?? stringValue(raw.url), mediaId)
     if (!content && !url && !mediaId) return
     attachments.push({
       name: readAttachmentName(raw, index) ?? mediaId ?? `attachment-${index + 1}`,
@@ -656,7 +700,7 @@ function readMessageAttachments(raw: RawHistoryMessage): ChatMessage["attachment
       if (!mimeType) return
       const content = readAttachmentContent(attachment)
       const mediaId = readInboundMediaId(attachment)
-      const url = stringValue(attachment.url) ?? (mediaId ? buildInboundMediaUrl(mediaId) ?? undefined : undefined)
+      const url = resolveAttachmentUrl(stringValue(attachment.url), mediaId)
       if (!content && !url && !mediaId) return
       fromTopLevel.push({
         name: readAttachmentName(attachment, index) ?? mediaId ?? `attachment-${index + 1}`,
@@ -669,10 +713,16 @@ function readMessageAttachments(raw: RawHistoryMessage): ChatMessage["attachment
   }
 
   const fromContent = readContentBlockAttachments(raw.content) ?? []
-  const fromMarkers = (readAttachmentMarkerAttachments(raw.text || extractText(raw.content)) ?? [])
+  const markerText = raw.text || extractText(raw.content)
+  const fromMarkers = [
+    ...(readAttachmentMarkerAttachments(markerText) ?? []),
+    ...(readMediaAttachmentMarkerAttachments(markerText) ?? []),
+  ]
     .filter((marker) =>
       ![...fromTopLevel, ...fromContent].some(
-        (attachment) => attachment.name === marker.name && attachment.mimeType === marker.mimeType
+        (attachment) =>
+          (attachment.name === marker.name && attachment.mimeType === marker.mimeType) ||
+          (Boolean(attachment.url) && attachment.url === marker.url)
       )
     )
   const all = [...fromTopLevel, ...fromContent, ...fromMarkers]

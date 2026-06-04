@@ -654,6 +654,53 @@ it("dedupes optimistic user message against history copy with attachment marker"
     expect(messages[0].messageId).toBe("history-user")
   })
 
+it("merges optimistic image attachment previews with canonical media attachment URLs", () => {
+  const messages = dedupeChatMessages([
+    {
+      messageId: "optimistic-user",
+      role: "user",
+      text: "canyou describe image\n\n[Attached image: ChatGPT Image May 13, 2026, 10_35_12 PM.png]",
+      createdAt: "2026-06-04T10:00:00.000Z",
+      isOptimistic: true,
+      attachments: [
+        {
+          name: "ChatGPT Image May 13, 2026, 10_35_12 PM.png",
+          mimeType: "image/png",
+          content: "iVBORw0KGgo=",
+        },
+      ],
+    },
+    {
+      messageId: "history-user",
+      role: "user",
+      text: "canyou describe image\n[media attached: media://inbound/ChatGPT_Image_May_13_2026_10_35_12_PM---e613cc28-cbae-40d4-a96d-f9b3e8d11a2b.png]",
+      createdAt: "2026-06-04T10:00:02.000Z",
+      attachments: [
+        {
+          name: "ChatGPT_Image_May_13_2026_10_35_12_PM---e613cc28-cbae-40d4-a96d-f9b3e8d11a2b.png",
+          mimeType: "image/png",
+          url: "https://middleware.example.com/api/chat/media/inbound/ChatGPT_Image_May_13_2026_10_35_12_PM---e613cc28-cbae-40d4-a96d-f9b3e8d11a2b.png?token=secret",
+        },
+      ],
+    },
+  ])
+
+  expect(messages).toHaveLength(1)
+  expect(messages[0]).toMatchObject({
+    messageId: "history-user",
+    text: "canyou describe image\n[media attached: media://inbound/ChatGPT_Image_May_13_2026_10_35_12_PM---e613cc28-cbae-40d4-a96d-f9b3e8d11a2b.png]",
+    isOptimistic: false,
+  })
+  expect(messages[0].attachments).toEqual([
+    {
+      name: "ChatGPT Image May 13, 2026, 10_35_12 PM.png",
+      mimeType: "image/png",
+      content: "iVBORw0KGgo=",
+      url: "https://middleware.example.com/api/chat/media/inbound/ChatGPT_Image_May_13_2026_10_35_12_PM---e613cc28-cbae-40d4-a96d-f9b3e8d11a2b.png?token=secret",
+    },
+  ])
+})
+
 it("merges same-run assistant duplicates even when backend sequences differ", () => {
   const messages = dedupeChatMessages([
       {

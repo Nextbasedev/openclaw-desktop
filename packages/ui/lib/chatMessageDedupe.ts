@@ -26,6 +26,44 @@ function hasSameAttachments(a: ChatMessage, b: ChatMessage) {
   return aNames === bNames
 }
 
+function isImageAttachment(attachment: NonNullable<ChatMessage["attachments"]>[number]) {
+  return attachment.mimeType?.toLowerCase().startsWith("image/") ?? false
+}
+
+function mergeAttachments(
+  existing: ChatMessage["attachments"],
+  incoming: ChatMessage["attachments"],
+): ChatMessage["attachments"] {
+  if (!incoming?.length) return existing
+  if (!existing?.length) return incoming
+
+  const unmatchedExisting = [...existing]
+  const merged = incoming.map((attachment) => {
+    const matchIndex = unmatchedExisting.findIndex((candidate) =>
+      (candidate.name === attachment.name && candidate.mimeType === attachment.mimeType) ||
+      (Boolean(candidate.url) && candidate.url === attachment.url) ||
+      (existing.length === 1 && incoming.length === 1 && isImageAttachment(candidate) && isImageAttachment(attachment))
+    )
+    if (matchIndex < 0) return attachment
+    const match = unmatchedExisting.splice(matchIndex, 1)[0]
+    return {
+      ...match,
+      ...attachment,
+      // Optimistic rows usually retain the original local filename/content;
+      // canonical Gateway rows usually retain the authenticated media URL.
+      // Combine both instead of replacing the useful optimistic preview with a
+      // generated media id filename.
+      name: match.name || attachment.name,
+      content: match.content ?? attachment.content,
+      url: attachment.url ?? match.url,
+      size: attachment.size ?? match.size,
+      mimeType: attachment.mimeType ?? match.mimeType,
+    }
+  })
+
+  return [...merged, ...unmatchedExisting]
+}
+
 function stripNoReplyLines(text: string) {
   return text
     .split("\n")
@@ -452,7 +490,7 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
         stopReason: message.stopReason ?? existing.stopReason,
         model: message.model ?? existing.model,
         toolCalls: mergeToolCalls(existing.toolCalls, message.toolCalls),
-        attachments: message.attachments ?? existing.attachments,
+        attachments: mergeAttachments(existing.attachments, message.attachments),
       }
       seenIds.add(message.messageId)
       continue
@@ -483,7 +521,7 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
         stopReason: preferred.stopReason ?? existing.stopReason,
         model: preferred.model ?? existing.model,
         toolCalls: mergeToolCalls(existing.toolCalls, message.toolCalls),
-        attachments: preferred.attachments ?? existing.attachments,
+        attachments: mergeAttachments(existing.attachments, preferred.attachments),
       }
       seenIds.add(message.messageId)
       continue
@@ -505,7 +543,7 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
         messageId: preferred.messageId,
         text: preferred.text.trim() ? preferred.text : fallback.text,
         createdAt: fallback.createdAt || preferred.createdAt,
-        attachments: preferred.attachments ?? fallback.attachments,
+        attachments: mergeAttachments(fallback.attachments, preferred.attachments),
         replyTo: preferred.replyTo ?? fallback.replyTo,
         isOptimistic: preferIncoming ? false : preferred.isOptimistic,
         sendStatus: preferIncoming ? undefined : preferred.sendStatus,
