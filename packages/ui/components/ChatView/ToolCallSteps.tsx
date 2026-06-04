@@ -156,8 +156,6 @@ function sortToolsByCallOrder(tools: InlineToolCall[]) {
 
 function ToolRow({
   call,
-  index,
-  total,
   open,
   onOpenChange,
   onSelect,
@@ -166,8 +164,6 @@ function ToolRow({
   sessionKey,
 }: {
   call: InlineToolCall
-  index: number
-  total: number
   open: boolean
   onOpenChange: (id: string, open: boolean) => void
   onSelect?: (id: string) => void
@@ -199,8 +195,6 @@ function ToolRow({
 
   return (
     <div className={cn("relative pl-7 transition-colors duration-100", approval && "rounded-lg bg-amber-400/[0.035]")}>
-      {index > 0 && <span className="absolute left-[6.5px] top-0 h-[14px] w-px bg-[#d4d2cd] dark:bg-[#444444]" />}
-      {index < total - 1 && <span className="absolute bottom-0 left-[6.5px] top-[22px] w-px bg-[#d4d2cd] dark:bg-[#444444]" />}
       <StatusDot status={call.status} />
       <button
         type="button"
@@ -385,13 +379,11 @@ export const ToolCallSteps = memo(function ToolCallSteps({
         </span>
       </button>
       {stepsOpen && (
-        <div className="relative z-0 space-y-1.5 overflow-visible">
-          {orderedTools.map((call, index) => (
+        <div className="relative z-0 space-y-1.5 overflow-visible before:absolute before:bottom-4 before:left-[6.5px] before:top-4 before:w-px before:bg-[#d4d2cd] before:content-[''] dark:before:bg-[#444444]">
+          {orderedTools.map((call) => (
             <ToolRow
               key={call.id}
               call={call}
-              index={index}
-              total={total}
               open={openToolId === call.id}
               onOpenChange={handleToolOpenChange}
               onSelect={onSelectTool}
