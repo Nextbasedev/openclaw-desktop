@@ -299,23 +299,39 @@ function ContextUsageBadge({ usage }: { usage?: SessionTokenUsage | null }) {
 
   const contextLimit = usage.contextLimit && usage.contextLimit > 0 ? usage.contextLimit : 128_000
   const percent = Math.min(100, (usage.total / contextLimit) * 100)
-  const totalCost = typeof usage.cost === "number" && Number.isFinite(usage.cost) ? usage.cost : null
+  const ringOffset = 100 - percent
 
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="hidden h-8 cursor-pointer items-center gap-1.5 rounded-full bg-white/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground sm:flex"
+          className="hidden h-8 cursor-pointer items-center gap-1.5 rounded-full px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.045] hover:text-foreground sm:flex"
           aria-label="Session context usage"
         >
           <span>{formatPercent(percent)}</span>
-          <span
-            className="size-3.5 rounded-full"
-            style={{
-              background: `conic-gradient(rgb(59 130 246) ${percent * 3.6}deg, rgba(255,255,255,0.16) 0deg)`,
-            }}
-          />
+          <svg className="size-3.5 -rotate-90" viewBox="0 0 36 36" aria-hidden="true">
+            <circle
+              cx="18"
+              cy="18"
+              r="15.5"
+              fill="none"
+              stroke="rgba(255,255,255,0.16)"
+              strokeWidth="4"
+            />
+            <circle
+              cx="18"
+              cy="18"
+              r="15.5"
+              fill="none"
+              stroke="rgba(255,255,255,0.9)"
+              strokeWidth="4"
+              strokeLinecap="round"
+              pathLength="100"
+              strokeDasharray="100"
+              strokeDashoffset={ringOffset}
+            />
+          </svg>
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -338,7 +354,7 @@ function ContextUsageBadge({ usage }: { usage?: SessionTokenUsage | null }) {
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
             <div
-              className="h-full rounded-full bg-blue-500 transition-[width]"
+              className="h-full rounded-full bg-white/85 transition-[width]"
               style={{ width: `${percent}%` }}
             />
           </div>
@@ -347,12 +363,6 @@ function ContextUsageBadge({ usage }: { usage?: SessionTokenUsage | null }) {
             <UsageRow label="Output" value={usage.output} />
             {usage.cacheRead > 0 && <UsageRow label="Cache read" value={usage.cacheRead} />}
             {usage.cacheWrite > 0 && <UsageRow label="Cache write" value={usage.cacheWrite} />}
-          </div>
-          <div className="flex justify-between gap-3 border-t border-white/[0.07] pt-3 text-[11px]">
-            <span className="text-muted-foreground/65">Total cost</span>
-            <span className="font-mono text-foreground/85">
-              {totalCost == null ? "—" : `$${totalCost.toFixed(totalCost < 1 ? 4 : 2)}`}
-            </span>
           </div>
         </div>
       </PopoverContent>
