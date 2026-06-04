@@ -198,14 +198,6 @@ export function Sidebar({
             "scrollbar-hide relative flex w-[58px] shrink-0 flex-col items-center overflow-y-auto px-2.5 pb-6 pt-4",
             "border-r border-white/[0.055] bg-black/[0.025] shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)] dark:bg-black/[0.085]",
           )}>
-            <div className="mb-3 mt-0.5 flex h-6 w-9 items-center justify-center rounded-full border border-white/[0.045] bg-white/[0.025] shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]" aria-hidden="true">
-              <span className="grid grid-cols-2 gap-0.5 opacity-45">
-                <span className="size-1 rounded-full bg-current" />
-                <span className="size-1 rounded-full bg-current" />
-                <span className="size-1 rounded-full bg-current" />
-                <span className="size-1 rounded-full bg-current" />
-              </span>
-            </div>
             <CollapsedSpacesPopover
               spaces={spaces}
               activeSpaceId={activeSpaceId}
