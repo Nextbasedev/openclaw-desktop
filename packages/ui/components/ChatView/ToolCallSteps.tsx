@@ -210,7 +210,7 @@ function ToolRow({
         className={cn(
           "group flex min-h-8 w-full items-center gap-2 px-3 py-1.5 text-left",
           open ? "rounded-t-md rounded-b-none bg-white/5" : "rounded-md bg-white/5",
-          "border border-white/10",
+          "border border-white/2",
           "cursor-pointer transition-colors duration-100",
           "hover:bg-white/[0.07]"
         )}
