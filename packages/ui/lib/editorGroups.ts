@@ -75,7 +75,7 @@ export function createInitialState(tab?: EditorTab): EditorGroupsState {
         id: "group-1",
         tabs: [tab ?? DRAFT_TAB],
         activeTabId: tab?.id ?? "draft",
-        sessionData: null,
+        sessionData: tab ? sessionDataFromTab(tab) : null,
       },
     ],
     focusedGroupId: "group-1",

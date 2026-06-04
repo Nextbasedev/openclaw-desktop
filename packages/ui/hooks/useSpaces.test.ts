@@ -6,14 +6,16 @@ const mocks = vi.hoisted(() => ({
   effects: [] as Array<() => unknown>,
 }))
 
-vi.mock("react", () => ({
+vi.mock("react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react")>()),
   useState: vi.fn((initial: unknown) => {
     const slot = mocks.stateSets.length
     mocks.stateSets.push([initial])
     return [
       initial,
       (value: unknown) => {
-        mocks.stateSets[slot].push(value)
+        const previous = mocks.stateSets[slot][mocks.stateSets[slot].length - 1]
+        mocks.stateSets[slot].push(typeof value === "function" ? (value as (prev: unknown) => unknown)(previous) : value)
       },
     ]
   }),
@@ -21,6 +23,7 @@ vi.mock("react", () => ({
     mocks.effects.push(fn)
   }),
   useCallback: vi.fn((fn: unknown) => fn),
+  useRef: vi.fn((initial: unknown) => ({ current: initial })),
 }))
 
 vi.mock("@/lib/ipc", () => ({ invoke: mocks.invoke }))

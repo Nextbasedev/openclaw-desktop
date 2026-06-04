@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
   stateSets: [] as unknown[][],
 }))
 
-vi.mock("react", () => ({
+vi.mock("react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react")>()),
   useState: vi.fn((initial: unknown) => {
     const slot = mocks.stateSets.length
     mocks.stateSets.push([initial])
@@ -26,7 +27,7 @@ vi.mock("react", () => ({
   useEffect: vi.fn(),
   useCallback: vi.fn((fn: unknown) => fn),
   useMemo: vi.fn((fn: () => unknown) => fn()),
-  useRef: vi.fn(() => ({ current: null })),
+  useRef: vi.fn((initial: unknown) => ({ current: initial })),
 }))
 
 vi.mock("@/lib/ipc", () => ({ invoke: mocks.invoke }))

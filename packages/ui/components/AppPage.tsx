@@ -1,7 +1,7 @@
 "use client"
 
 import { randomId } from "@/lib/id"
-import { useState, useCallback, useRef, useEffect, useReducer, type MouseEvent as ReactMouseEvent } from "react"
+import { useState, useCallback, useRef, useEffect, useMemo, useReducer, type MouseEvent as ReactMouseEvent } from "react"
 import { invoke } from "@/lib/ipc"
 import { Header } from "@/common/Header"
 import { Sidebar, DEFAULT_DRAGGABLE_ITEMS } from "@/components/sidebar"
@@ -31,6 +31,7 @@ import { openChatInFocusedWindow, openRouteInNewWindow } from "@/lib/openRouteWi
 import { emit } from "@/lib/events"
 import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
 import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace } from "@/lib/chatListCache"
+import { localSyncSubscribeChats } from "@/lib/localFirstSync"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
 import { getGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
@@ -58,6 +59,7 @@ import {
   type EditorTab,
   type SessionData,
 } from "@/lib/editorGroups"
+import { deriveEditorGroupsTabTitles } from "@/lib/editorTabDisplay"
 import { EditorGroupsContainer } from "@/components/EditorGroupsContainer"
 import { AppContextMenu } from "@/components/AppContextMenu"
 
@@ -630,9 +632,52 @@ function AppShell({
     })
   }, [activeChat, activeSessionKey, activeTopic])
 
+  const [liveChatTitleById, setLiveChatTitleById] = useState<Map<string, string>>(() => new Map())
+
+  const rememberLiveChatTitles = useCallback((chats: Array<{ id?: string | null; name?: string | null }>) => {
+    setLiveChatTitleById((prev) => {
+      let changed = false
+      const next = new Map(prev)
+      for (const chat of chats) {
+        if (!chat.id || !chat.name) continue
+        const name = chat.name.trim()
+        if (!name || next.get(chat.id) === name) continue
+        next.set(chat.id, name)
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!activeSpaceId) return
+    let cancelled = false
+    loadCachedChatsForSpace(activeSpaceId)
+      .then((cachedChats) => {
+        if (!cancelled && cachedChats?.length) rememberLiveChatTitles(cachedChats)
+      })
+      .catch(() => {})
+
+    const unsubscribe = localSyncSubscribeChats(activeSpaceId, (state) => {
+      rememberLiveChatTitles(state.chats || [])
+    })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [activeSpaceId, rememberLiveChatTitles])
+
   const focusedGroup = getFocusedGroup(editorGroups)
   const allTabs = editorGroups.groups.flatMap((g) => g.tabs)
   const totalNonDraftTabs = allTabs.filter((t) => t.kind !== "draft").length
+  const displayedEditorGroups = useMemo(() => {
+    const liveChatTitles = new Map<string, string | { chat: ActiveChat; sessionKey: string; title: string }>(liveChatTitleById)
+    for (const [chatId, resolved] of resolvedChatCacheRef.current.entries()) {
+      liveChatTitles.set(chatId, resolved)
+    }
+    if (activeChat?.id) liveChatTitles.set(activeChat.id, activeChat.name)
+    return deriveEditorGroupsTabTitles(editorGroups, liveChatTitles, activeChat)
+  }, [activeChat, editorGroups, liveChatTitleById])
 
   useEffect(() => {
     if (effectiveActiveTab !== "chat") return
@@ -2731,7 +2776,7 @@ function AppShell({
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
         sidebarReservedWidth={renderedSidebarWidth}
-        editorGroups={effectiveActiveTab === "chat" ? editorGroups : null}
+        editorGroups={effectiveActiveTab === "chat" ? displayedEditorGroups : null}
         onSelectChatTab={effectiveActiveTab === "chat" ? handleEditorTabSelect : undefined}
         onCloseChatTab={effectiveActiveTab === "chat" ? handleEditorTabClose : undefined}
         onOpenChatTabWindow={effectiveActiveTab === "chat" ? handleOpenChatTabWindow : undefined}
