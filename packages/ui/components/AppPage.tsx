@@ -232,8 +232,8 @@ function focusedChatWindowParams() {
   }
 }
 
-const SIDEBAR_MIN = 240
-const SIDEBAR_MAX = 480
+const SIDEBAR_MIN = 220
+const SIDEBAR_MAX = 420
 const SIDEBAR_DEFAULT = 240
 const SIDEBAR_COLLAPSED = 56
 const INSPECTOR_DEFAULT_WIDTH = 460
@@ -1363,15 +1363,7 @@ function AppShell({
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
       if (isResizing.current) {
-        if (e.clientX < SIDEBAR_MIN) {
-          setSidebarOpen(false)
-          setSidebarPreviewOpen(false)
-          isResizing.current = false
-          document.body.style.cursor = ""
-          document.body.style.userSelect = ""
-          return
-        }
-        const newWidth = Math.min(SIDEBAR_MAX, e.clientX)
+        const newWidth = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX))
         setSidebarWidth(newWidth)
       }
       if (isSplitResizing.current) {
