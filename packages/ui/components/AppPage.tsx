@@ -218,26 +218,6 @@ function isFocusedChatWindowMode(): boolean {
   return new URLSearchParams(window.location.search).get("openclawWindowMode") === "focused-chat"
 }
 
-function useTransparentRoundedWindow() {
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.__TAURI_INTERNALS__) return
-
-    let cancelled = false
-    async function applyTransparentWindowBackground() {
-      try {
-        if (cancelled) return
-        await invoke("plugin:window|set_background_color", { color: [0, 0, 0, 0] })
-      } catch {
-        // Older runtimes/configs may not expose the runtime background-color API.
-        // The static transparent window config and CSS clipping still apply.
-      }
-    }
-
-    void applyTransparentWindowBackground()
-    return () => { cancelled = true }
-  }, [])
-}
-
 function focusedChatWindowParams() {
   const search = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)
   const route = typeof window === "undefined" ? { kind: "home" as const } : parseRoute(getRoutePath())
@@ -343,8 +323,6 @@ function FocusedChatWindowPage({
 }: {
   useNativeWindowChrome?: boolean
 }) {
-  useTransparentRoundedWindow()
-
   const [state, setState] = useState(() => focusedChatWindowParams())
   const stateRef = useRef(state)
   const [resolvedSessionKey, setResolvedSessionKey] = useState<string | null>(state.sessionKey)
@@ -442,7 +420,7 @@ function FocusedChatWindowPage({
   const title = resolvedTitle || state.title || "Focused Chat"
 
   return (
-    <div className="app-window-frame relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
+    <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
       <Header
         minimal
         user={{ name: title }}
@@ -488,8 +466,6 @@ function AppShell({
   onDeleteAccount,
   useNativeWindowChrome = false,
 }: AppShellProps) {
-  useTransparentRoundedWindow()
-
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
   const [chatMode, setChatMode] = useState<"simple" | "mission">("simple")
@@ -2710,7 +2686,7 @@ function AppShell({
   if (connectionScreenActive) {
     return (
       <div
-        className="app-window-frame relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
+        className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
         onContextMenu={handleAppContextMenu}
       >
         <Header
@@ -2744,7 +2720,7 @@ function AppShell({
 
   return (
     <div
-      className="app-window-frame relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
+      className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
       onContextMenu={handleAppContextMenu}
     >
       <Header

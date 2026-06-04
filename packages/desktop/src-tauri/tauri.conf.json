@@ -22,6 +22,8 @@
         "maximized": true,
         "decorations": false,
         "transparent": true,
+        "backgroundColor": [0, 0, 0, 0],
+        "shadow": true,
         "center": true,
         "dragDropEnabled": false
       }

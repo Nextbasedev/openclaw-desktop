@@ -21,7 +21,6 @@
     "core:window:allow-set-focus",
     "core:window:allow-set-size",
     "core:window:allow-set-position",
-    "core:window:allow-set-background-color",
     "core:window:allow-is-maximized",
     "core:window:allow-is-minimized",
     "core:window:allow-is-fullscreen",
