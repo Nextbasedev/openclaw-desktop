@@ -386,46 +386,50 @@ function MiddlewareUpdateCard() {
               align="start"
               sideOffset={8}
               className={cn(
-                "w-[var(--radix-popover-trigger-width)] gap-0 overflow-y-auto overscroll-contain rounded-2xl p-1.5 ring-0",
+                "w-[min(340px,var(--radix-popover-content-available-width))] gap-0 overflow-hidden rounded-2xl p-1.5 ring-0",
                 "border border-black/70 bg-[var(--glass-bg)]",
                 "backdrop-blur-[40px] backdrop-saturate-[180%]",
                 "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
               )}
-              style={{ maxHeight: "min(18rem, var(--radix-popover-content-available-height))" }}
             >
-              {branches.map((branch) => {
-                const active = selectedBranch === branch.name
-                return (
-                  <button
-                    key={branch.name}
-                    type="button"
-                    className={cn(
-                      "flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[12px] text-foreground transition-colors",
-                      active ? "bg-white/[0.075]" : "hover:bg-white/[0.055]",
-                    )}
-                    onClick={() => {
-                      setSelectedBranch(branch.name)
-                      setBranchMenuOpen(false)
-                    }}
-                  >
-                    <span className="min-w-0 truncate">{branch.name}</span>
-                    {branch.updatedAt && <span className="shrink-0 text-[10px] text-muted-foreground/55">{new Date(branch.updatedAt).toLocaleDateString()}</span>}
-                  </button>
-                )
-              })}
-              <button
-                type="button"
-                className={cn(
-                  "mt-1 flex w-full cursor-pointer items-center rounded-xl px-3 py-2 text-left text-[12px] text-foreground transition-colors",
-                  selectedBranch === "custom" ? "bg-white/[0.075]" : "hover:bg-white/[0.055]",
-                )}
-                onClick={() => {
-                  setSelectedBranch("custom")
-                  setBranchMenuOpen(false)
-                }}
+              <div
+                className="max-h-72 overflow-y-scroll overscroll-contain pr-1"
+                onWheel={(event) => event.stopPropagation()}
               >
-                Custom branch…
-              </button>
+                {branches.map((branch) => {
+                  const active = selectedBranch === branch.name
+                  return (
+                    <button
+                      key={branch.name}
+                      type="button"
+                      className={cn(
+                        "flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[12px] text-foreground transition-colors",
+                        active ? "bg-white/[0.075]" : "hover:bg-white/[0.055]",
+                      )}
+                      onClick={() => {
+                        setSelectedBranch(branch.name)
+                        setBranchMenuOpen(false)
+                      }}
+                    >
+                      <span className="min-w-0 truncate">{branch.name}</span>
+                      {branch.updatedAt && <span className="shrink-0 text-[10px] text-muted-foreground/55">{new Date(branch.updatedAt).toLocaleDateString()}</span>}
+                    </button>
+                  )
+                })}
+                <button
+                  type="button"
+                  className={cn(
+                    "mt-1 flex w-full cursor-pointer items-center rounded-xl px-3 py-2 text-left text-[12px] text-foreground transition-colors",
+                    selectedBranch === "custom" ? "bg-white/[0.075]" : "hover:bg-white/[0.055]",
+                  )}
+                  onClick={() => {
+                    setSelectedBranch("custom")
+                    setBranchMenuOpen(false)
+                  }}
+                >
+                  Custom branch…
+                </button>
+              </div>
             </PopoverContent>
           </Popover>
         </label>
