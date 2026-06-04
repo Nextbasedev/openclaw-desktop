@@ -13,16 +13,16 @@ type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 function toolBadge(tool: string) {
   const normalized = normalizeToolName(tool).toLowerCase()
   if (normalized === "session_status") {
-    return { label: "SESSION", className: "bg-gradient-to-b from-[#dcf0e3] to-[#a8d9bc] text-[#2f6245]" }
+    return { label: "SESSION", className: "bg-[#dcf0e3] text-[#2f6245] dark:bg-[#2a3a2e] dark:text-[#b7dfc1]" }
   }
   if (normalized === "read") {
-    return { label: "READ", className: "bg-gradient-to-b from-[#daeaf8] to-[#9ac4ea] text-[#1d5d96]" }
+    return { label: "READ", className: "bg-[#daeaf8] text-[#1d5d96] dark:bg-[#1e3049] dark:text-[#8dbdff]" }
   }
   if (normalized === "memory_search" || normalized === "memory_get") {
-    return { label: normalized === "memory_search" ? "MEM SEARCH" : "MEM", className: "bg-gradient-to-b from-[#ede6f8] to-[#c4aaed] text-[#6450a8]" }
+    return { label: normalized === "memory_search" ? "MEM SEARCH" : "MEM", className: "bg-[#ede6f8] text-[#6450a8] dark:bg-[#3a2850] dark:text-[#c9b0ff]" }
   }
   if (normalized === "exec" || normalized === "process") {
-    return { label: normalized === "process" ? "PROCESS" : "EXEC", className: "bg-gradient-to-b from-[#e4f0d8] to-[#aad080] text-[#52762d]" }
+    return { label: normalized === "process" ? "PROCESS" : "EXEC", className: "bg-[#e4f0d8] text-[#52762d] dark:bg-[#2a3a1e] dark:text-[#bde98f]" }
   }
   return { label: toolVerb(tool), className: "bg-[#e5e3de] text-[#55534f] dark:bg-[#333333] dark:text-[#c9c7c2]" }
 }
@@ -222,7 +222,7 @@ function ToolRow({
           "hover:bg-white/[0.07]"
         )}
       >
-        <span className={cn("flex h-5 shrink-0 items-center rounded-md px-2 font-mono text-[10px] font-semibold leading-none shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]", badge.className)}>
+        <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none", badge.className)}>
           {badge.label}
         </span>
         <span className="min-w-0 flex-1 truncate font-mono text-[12px] font-semibold text-[#1c1c1a] dark:text-[#e8e6e0]">
