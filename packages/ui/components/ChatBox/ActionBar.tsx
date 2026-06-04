@@ -168,7 +168,7 @@ export function ActionBar({
             align="end"
             sideOffset={8}
             className={cn(
-              "z-[120] w-72 gap-0 rounded-2xl p-1.5",
+              "z-[120] w-72 gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none",
               "border border-black/70 bg-[var(--glass-bg)]",
               "backdrop-blur-[40px] backdrop-saturate-[180%]",
               "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
