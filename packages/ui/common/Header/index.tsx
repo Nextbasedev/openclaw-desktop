@@ -95,6 +95,19 @@ function isWindowDragExcludedTarget(target: EventTarget | null) {
   )
 }
 
+
+function chatFromEditorTab(tab: EditorTab | null): ActiveChat | null {
+  if (!tab || tab.kind !== "chat") return null
+  const id = tab.chat?.id ?? tab.id.replace(/^chat:/, "")
+  if (!id || id === tab.id) return null
+  return {
+    id,
+    name: tab.chat?.name ?? tab.title,
+    sessionKey: tab.chat?.sessionKey,
+    spaceId: tab.chat?.spaceId,
+  }
+}
+
 export function Header({
   user = DEFAULT_USER,
   className,
@@ -546,7 +559,7 @@ export function Header({
       {typeof document !== "undefined" &&
         createPortal(
           <AnimatePresence>
-            {chatTabMenu.open && chatTabMenu.tab?.chat && (
+            {chatTabMenu.open && chatFromEditorTab(chatTabMenu.tab) && (
               <motion.div
                 ref={chatTabMenuRef}
                 initial={{ opacity: 0, scale: 0.92, y: -4 }}
@@ -576,17 +589,17 @@ export function Header({
                     if (chatTabMenu.tab) onOpenChatTabWindow?.(chatTabMenu.tab)
                   }}
                   onRename={() => {
-                    const chat = chatTabMenu.tab?.chat
+                    const chat = chatFromEditorTab(chatTabMenu.tab)
                     closeChatTabMenu()
                     if (chat) onRenameChat?.(chat)
                   }}
                   onArchive={() => {
-                    const chat = chatTabMenu.tab?.chat
+                    const chat = chatFromEditorTab(chatTabMenu.tab)
                     closeChatTabMenu()
                     if (chat) onArchiveChat?.(chat)
                   }}
                   onDelete={() => {
-                    const chat = chatTabMenu.tab?.chat
+                    const chat = chatFromEditorTab(chatTabMenu.tab)
                     closeChatTabMenu()
                     if (chat) onDeleteChat?.(chat)
                   }}
