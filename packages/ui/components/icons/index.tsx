@@ -50,7 +50,7 @@ import {
     Archive02Icon,
 } from "@hugeicons/core-free-icons"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
-import { LuMaximize2, LuMinimize2, LuPuzzle, LuZap } from "react-icons/lu"
+import { LuMaximize2, LuMinimize2, LuPuzzle, LuRefreshCw, LuZap } from "react-icons/lu"
 
 /**
  * Global Icons System
@@ -126,7 +126,7 @@ export const Icons = {
     Back: wrapHugeicon(ArrowLeft01Icon),
     Forward: wrapHugeicon(ArrowRight01Icon),
     Menu: wrapHugeicon(Menu01Icon),
-    Refresh: wrapHugeicon(Clock01Icon),
+    Refresh: wrapReactIcon(LuRefreshCw),
 
     // System
     Notification: wrapHugeicon(Notification02Icon),
