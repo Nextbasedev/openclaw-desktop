@@ -306,7 +306,7 @@ function ContextUsageBadge({ usage }: { usage?: SessionTokenUsage | null }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="hidden h-8 cursor-pointer items-center gap-1.5 rounded-full px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.045] hover:text-foreground sm:flex"
+          className="hidden h-8 cursor-pointer items-center gap-1.5 rounded-full px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.045] sm:flex"
           aria-label="Session context usage"
         >
           <span>{formatPercent(percent)}</span>
@@ -316,7 +316,8 @@ function ContextUsageBadge({ usage }: { usage?: SessionTokenUsage | null }) {
               cy="18"
               r="15.5"
               fill="none"
-              stroke="rgba(255,255,255,0.16)"
+              className="stroke-foreground/15 dark:stroke-white/15"
+              stroke="currentColor"
               strokeWidth="4"
             />
             <circle
@@ -324,7 +325,8 @@ function ContextUsageBadge({ usage }: { usage?: SessionTokenUsage | null }) {
               cy="18"
               r="15.5"
               fill="none"
-              stroke="rgba(255,255,255,0.9)"
+              className="stroke-foreground/75 dark:stroke-white/90"
+              stroke="currentColor"
               strokeWidth="4"
               strokeLinecap="round"
               pathLength="100"
