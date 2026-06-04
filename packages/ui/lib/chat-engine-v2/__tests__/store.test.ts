@@ -246,6 +246,109 @@ describe("global V2 chat engine store", () => {
     expect(state.historyCoverage).toBe("full")
   })
 
+  test("late full bootstrap seed does not remove optimistic rows or reorder local messages", () => {
+    seedGlobalChatSession({
+      sessionKey: "s-late-seed",
+      cursor: 200,
+      historyCoverage: "full",
+      messageCount: 3,
+      status: "thinking",
+      messages: [
+        { messageId: "msg-1", role: "user", text: "old question", gatewayIndex: 1 },
+        { messageId: "run-1", role: "assistant", text: "old answer", gatewayIndex: 2, runId: "run-1" },
+        {
+          messageId: "client:local-1",
+          role: "user",
+          text: "new local question",
+          isOptimistic: true,
+          sendStatus: "sending",
+          __clientOptimistic: true,
+          __openclaw: { id: "client:local-1", clientMessageId: "local-1", cursor: 200 },
+        } as any,
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s-late-seed",
+      cursor: 150,
+      historyCoverage: "full",
+      messageCount: 2,
+      status: "done",
+      messages: [
+        { messageId: "msg-1", role: "user", text: "old question", gatewayIndex: 1 },
+        { messageId: "run-1", role: "assistant", text: "old answer", gatewayIndex: 2, runId: "run-1" },
+      ],
+    })
+
+    const state = getGlobalChatSession("s-late-seed")!
+    expect(state.cursor).toBe(200)
+    expect(state.messages.map((message) => message.messageId)).toEqual(["msg-1", "run-1", "client:local-1"])
+    expect(state.messages[2]).toMatchObject({ text: "new local question", isOptimistic: true, sendStatus: "sending" })
+  })
+
+  test("bootstrap seed reconciles optimistic rows to confirmed rows under the same client key", () => {
+    seedGlobalChatSession({
+      sessionKey: "s-confirm-seed",
+      cursor: 100,
+      historyCoverage: "full",
+      status: "thinking",
+      messages: [
+        {
+          messageId: "client:turn-1",
+          role: "user",
+          text: "same turn",
+          isOptimistic: true,
+          sendStatus: "sending",
+          __clientOptimistic: true,
+          __openclaw: { id: "client:turn-1", clientMessageId: "turn-1", cursor: 100 },
+        } as any,
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s-confirm-seed",
+      cursor: 105,
+      historyCoverage: "full",
+      status: "done",
+      messages: [
+        {
+          messageId: "gateway-turn-1",
+          role: "user",
+          text: "same turn",
+          gatewayIndex: 1,
+          isOptimistic: false,
+          __clientOptimistic: false,
+          __openclaw: { id: "gateway-turn-1", clientMessageId: "turn-1", cursor: 105 },
+        } as any,
+      ],
+    })
+
+    const state = getGlobalChatSession("s-confirm-seed")!
+    expect(state.messages).toHaveLength(1)
+    expect(state.messages[0]).toMatchObject({ messageId: "gateway-turn-1", text: "same turn", gatewayIndex: 1, isOptimistic: false })
+    expect(state.messages[0].sendStatus).toBeUndefined()
+  })
+
+  test("normal first bootstrap seed still populates the session fully", () => {
+    seedGlobalChatSession({
+      sessionKey: "s-first-seed",
+      cursor: 10,
+      historyCoverage: "full",
+      messageCount: 2,
+      status: "done",
+      messages: [
+        { messageId: "u1", role: "user", text: "hello", gatewayIndex: 1 },
+        { messageId: "a1", role: "assistant", text: "hi", gatewayIndex: 2, runId: "run-a" },
+      ],
+    })
+
+    const state = getGlobalChatSession("s-first-seed")!
+    expect(state.cursor).toBe(10)
+    expect(state.historyCoverage).toBe("full")
+    expect(state.messageCount).toBe(2)
+    expect(state.messages.map((message) => `${message.role}:${message.text}`)).toEqual(["user:hello", "assistant:hi"])
+  })
+
   test("paginated older history seed preserves partial coverage and survives later non-message patches", () => {
     const seen: number[] = []
     seedGlobalChatSession({
@@ -399,7 +502,7 @@ describe("global V2 chat engine store", () => {
     ]))
   })
 
-  test("session cursor reset bootstrap preserves previous transcript messages", () => {
+  test("session cursor reset bootstrap preserves previous transcript messages without reordering", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
       cursor: 42,
@@ -423,9 +526,9 @@ describe("global V2 chat engine store", () => {
       cursor: 42,
       status: "done",
       messages: [
-        { messageId: "u-new", text: "new question after reset" },
         { messageId: "u-old", text: "old question" },
         { messageId: "a-old", text: "old answer" },
+        { messageId: "u-new", text: "new question after reset" },
       ],
     })
   })

@@ -1095,6 +1095,110 @@ function preserveActiveTurnToolTranscript(
   return merged
 }
 
+type ChatMessageWithProjectionMeta = ChatMessage & {
+  cursor?: number
+  __clientOptimistic?: boolean
+  __openclaw?: {
+    id?: string | null
+    clientMessageId?: string | null
+    runId?: string | null
+    cursor?: number | null
+  } | null
+}
+
+function stableSeedRowId(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  return trimmed.startsWith("client:") ? trimmed.slice("client:".length) : trimmed
+}
+
+function seedMessageRowKey(message: ChatMessage): string {
+  const meta = message as ChatMessageWithProjectionMeta
+  const clientMessageId = stableSeedRowId(meta.__openclaw?.clientMessageId ?? "")
+  if (clientMessageId) return `client:${clientMessageId}`
+  if (message.role === "user" && (message.isOptimistic || meta.__clientOptimistic)) {
+    const optimisticId = stableSeedRowId(meta.__openclaw?.id ?? message.messageId)
+    if (optimisticId) return `client:${optimisticId}`
+  }
+  const runId = meta.__openclaw?.runId ?? message.runId
+  if (message.role === "assistant" && runId?.trim()) return `run:${runId.trim()}`
+  return `msg:${meta.__openclaw?.id?.trim() || message.messageId}`
+}
+
+function seedMessageCursor(message: ChatMessage) {
+  const meta = message as ChatMessageWithProjectionMeta
+  const cursor = meta.__openclaw?.cursor ?? meta.cursor
+  return typeof cursor === "number" && Number.isFinite(cursor) ? cursor : 0
+}
+
+function seedMessageIsOptimistic(message: ChatMessage) {
+  const meta = message as ChatMessageWithProjectionMeta
+  return Boolean(message.isOptimistic || message.sendStatus || meta.__clientOptimistic)
+}
+
+function preferSeedMessage(existing: ChatMessage, incoming: ChatMessage) {
+  const existingOptimistic = seedMessageIsOptimistic(existing)
+  const incomingOptimistic = seedMessageIsOptimistic(incoming)
+  if (existingOptimistic !== incomingOptimistic) return incomingOptimistic ? existing : incoming
+
+  const existingCursor = seedMessageCursor(existing)
+  const incomingCursor = seedMessageCursor(incoming)
+  if (existingCursor !== incomingCursor) return incomingCursor > existingCursor ? incoming : existing
+
+  return incoming
+}
+
+function mergeSeedMessage(existing: ChatMessage, incoming: ChatMessage) {
+  const preferred = preferSeedMessage(existing, incoming)
+  const fallback = preferred === incoming ? existing : incoming
+  const preferredOptimistic = seedMessageIsOptimistic(preferred)
+  return {
+    ...fallback,
+    ...preferred,
+    text: preferred.text.trim() ? preferred.text : fallback.text,
+    createdAt: fallback.createdAt || preferred.createdAt,
+    attachments: preferred.attachments ?? fallback.attachments,
+    replyTo: preferred.replyTo ?? fallback.replyTo,
+    toolCalls: preferred.toolCalls ?? fallback.toolCalls,
+    embeds: preferred.embeds ?? fallback.embeds,
+    usage: preferred.usage ?? fallback.usage,
+    stopReason: preferred.stopReason ?? fallback.stopReason,
+    model: preferred.model ?? fallback.model,
+    isOptimistic: preferredOptimistic ? preferred.isOptimistic : false,
+    sendStatus: preferredOptimistic ? preferred.sendStatus : undefined,
+    sendError: preferredOptimistic ? preferred.sendError : null,
+  }
+}
+
+function mergeSeedMessages(existing: ChatMessage[], incoming: ChatMessage[]) {
+  const incomingByKey = new Map<string, ChatMessage>()
+  const incomingOrder: string[] = []
+  for (const message of incoming) {
+    const key = seedMessageRowKey(message)
+    const current = incomingByKey.get(key)
+    incomingByKey.set(key, current ? mergeSeedMessage(current, message) : message)
+    if (!current) incomingOrder.push(key)
+  }
+
+  const usedIncoming = new Set<string>()
+  const merged: ChatMessage[] = []
+  for (const message of existing) {
+    const key = seedMessageRowKey(message)
+    const incomingMessage = incomingByKey.get(key)
+    if (incomingMessage) {
+      merged.push(mergeSeedMessage(message, incomingMessage))
+      usedIncoming.add(key)
+    } else {
+      merged.push(message)
+    }
+  }
+
+  for (const key of incomingOrder) {
+    if (!usedIncoming.has(key)) merged.push(incomingByKey.get(key)!)
+  }
+  return dedupeChatMessages(merged)
+}
+
 function maybeFinalizeAnsweredRun(state: SessionState, patchType: string) {
   // Legacy/corrupt-stream fallback only. In the normal middleware contract,
   // run completion is authoritative via canonical runStatus/chat.run.* patches.
@@ -1826,9 +1930,7 @@ export function seedGlobalChatSession(params: {
     (incomingDropsMessages || incomingDropsRunningTool)
   const shouldPreserveLocalMessages = hasNewerCursor || hasSameCursorLiveState || incomingPartialDropsLocalMessages
   const shouldPreserveLocalActivity = hasNewerCursor || (hasSameCursorLiveState && !incomingMayBePartial) || (incomingPartialDropsLocalMessages && !incomingIsTerminal)
-  state.messages = shouldPreserveLocalMessages
-    ? dedupeChatMessages([...params.messages, ...state.messages])
-    : dedupeChatMessages(params.messages)
+  state.messages = mergeSeedMessages(state.messages, params.messages)
   state.cursor = Math.max(state.cursor, incomingCursor)
   if (!shouldPreserveLocalMessages || incomingHistoryCoverage === "full") {
     state.historyCoverage = incomingHistoryCoverage
