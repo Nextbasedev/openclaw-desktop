@@ -525,6 +525,14 @@ function BranchNav({
   )
 }
 
+function isAssistantStatusSnapshot(text: string) {
+  const normalized = text.trim()
+  if (!normalized.startsWith("OpenClaw ")) return false
+
+  const markers = ["Model:", "Tokens:", "Context:", "Session:", "Runtime:"]
+  return markers.filter((marker) => normalized.includes(marker)).length >= 3
+}
+
 interface MessageBubbleProps {
   message: ChatMessage
   onEdit?: (messageId: string, newText: string) => void
@@ -627,6 +635,7 @@ export const MessageBubble = memo(function MessageBubble({
   const shouldAnimateSend = isUser && message.isOptimistic && message.sendStatus === "sending"
   const hideAssistantActions =
     !isUser && (Boolean(isActivelyStreaming) || Boolean(suppressActions))
+  const isStatusSnapshot = !isUser && isAssistantStatusSnapshot(message.text)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState("")
   const [selectionAction, setSelectionAction] = useState<{
@@ -693,7 +702,7 @@ export const MessageBubble = memo(function MessageBubble({
   }, [hideAssistantActions, popoverOpen, onPopoverOpenChange])
 
   const updateSelectionAction = useCallback(() => {
-    if (isUser || !onAskSelectedText || !messageBodyRef.current) return
+    if (isUser || isStatusSnapshot || !onAskSelectedText || !messageBodyRef.current) return
 
     const selection = window.getSelection()
     const selectedText = selection?.toString().trim()
@@ -737,7 +746,7 @@ export const MessageBubble = memo(function MessageBubble({
       top: Math.max(12, rect.top - 14),
     })
     setSelectionComment("")
-  }, [isUser, onAskSelectedText])
+  }, [isUser, isStatusSnapshot, onAskSelectedText])
 
   const refreshPersistentSelection = useCallback(() => {
     const range = selectionRangeRef.current
@@ -799,7 +808,7 @@ export const MessageBubble = memo(function MessageBubble({
   }, [refreshPersistentSelection, selectionAction])
 
   useEffect(() => {
-    if (isUser || !onAskSelectedText) return
+    if (isUser || isStatusSnapshot || !onAskSelectedText) return
 
     const handlePointerUp = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node | null
@@ -820,7 +829,7 @@ export const MessageBubble = memo(function MessageBubble({
       document.removeEventListener("touchend", handlePointerUp)
       document.removeEventListener("selectionchange", handleSelectionChange)
     }
-  }, [isUser, onAskSelectedText, selectionAction, updateSelectionAction])
+  }, [isUser, isStatusSnapshot, onAskSelectedText, selectionAction, updateSelectionAction])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -922,6 +931,7 @@ export const MessageBubble = memo(function MessageBubble({
                 onKeyUp={updateSelectionAction}
                 className={cn(
                   "max-w-full min-w-0 overflow-hidden text-[14px] leading-relaxed",
+                  isStatusSnapshot && "select-none",
                   isUser && userSlashCommandName
                     ? "relative rounded-2xl border border-border/45 bg-muted px-3 py-2 text-foreground shadow-sm"
                     : isUser
