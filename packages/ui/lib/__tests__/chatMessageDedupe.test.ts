@@ -701,6 +701,58 @@ it("merges optimistic image attachment previews with canonical media attachment 
   ])
 })
 
+it("collapses optimistic image user echo when canonical gateway index differs", () => {
+  const messages = dedupeChatMessages([
+    {
+      messageId: "openclaw:2",
+      role: "user",
+      text: "what is in this image\n[media attached: media://inbound/image---canonical.png]",
+      gatewayIndex: 2,
+      createdAt: "2026-06-04T10:36:00.000Z",
+      attachments: [
+        {
+          name: "image---canonical.png",
+          mimeType: "image/png",
+          url: "https://middleware.example.com/api/chat/media/inbound/image---canonical.png?token=secret",
+        },
+      ],
+    },
+    {
+      messageId: "3f2eaa2f-optimistic",
+      role: "user",
+      text: "what is in this image\n\n[Attached image: image.png]",
+      gatewayIndex: 1,
+      createdAt: "2026-06-04T10:36:05.000Z",
+      isOptimistic: true,
+      sendStatus: "sending",
+      attachments: [
+        {
+          name: "image.png",
+          mimeType: "image/png",
+          content: "iVBORw0KGgo=",
+        },
+      ],
+    },
+  ])
+
+  expect(messages).toHaveLength(1)
+  expect(messages[0]).toMatchObject({
+    messageId: "openclaw:2",
+    role: "user",
+    gatewayIndex: 2,
+    sendStatus: undefined,
+  })
+  expect(messages[0].isOptimistic).not.toBe(true)
+  expect(messages[0].attachments).toEqual([
+    {
+      name: "image.png",
+      mimeType: "image/png",
+      content: "iVBORw0KGgo=",
+      url: "https://middleware.example.com/api/chat/media/inbound/image---canonical.png?token=secret",
+    },
+  ])
+})
+
 it("merges same-run assistant duplicates even when backend sequences differ", () => {
   const messages = dedupeChatMessages([
       {

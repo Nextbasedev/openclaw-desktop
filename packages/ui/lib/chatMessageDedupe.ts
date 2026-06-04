@@ -234,10 +234,15 @@ export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   const bText = normalizeUserTextForDedupe(b.text)
   if (hasSameGatewayIndex(a, b)) return true
   if (hasSameRunId(a, b) && aText && aText === bText) return true
-  if (hasDifferentGatewayIndex(a, b)) return false
+  const hasOptimisticCandidate = isOptimisticUserCandidate(a) || isOptimisticUserCandidate(b)
+  // Optimistic client rows can carry synthetic/local gateway indexes that drift
+  // from the canonical Gateway echo (especially image sends restored through
+  // bootstrap/warm cache). Do not let the index mismatch short-circuit the
+  // stronger optimistic-turn check below; otherwise the duplicate is detected
+  // diagnostically but remains visible as a second user bubble.
+  if (hasDifferentGatewayIndex(a, b) && !hasOptimisticCandidate) return false
   if (a.messageId && b.messageId && a.messageId === b.messageId) return true
 
-  const hasOptimisticCandidate = isOptimisticUserCandidate(a) || isOptimisticUserCandidate(b)
   if (!hasOptimisticCandidate && !isSyntheticMessageId(a.messageId) && !isSyntheticMessageId(b.messageId)) return false
 
   if (!aText || aText !== bText) return false
