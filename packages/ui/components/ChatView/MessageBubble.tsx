@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect, memo, type ReactNode } from "react"
+import { useState, useCallback, useRef, useEffect, memo, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
@@ -657,6 +657,13 @@ export const MessageBubble = memo(function MessageBubble({
   const messageBodyRef = useRef<HTMLDivElement>(null)
   const selectionComposerRef = useRef<HTMLDivElement>(null)
   const selectionRangeRef = useRef<Range | null>(null)
+  const selectedTextMenuRef = useRef<HTMLDivElement>(null)
+  const [selectedTextMenu, setSelectedTextMenu] = useState<{
+    open: boolean
+    x: number
+    y: number
+    text: string
+  }>({ open: false, x: 0, y: 0, text: "" })
 
   const hasBranches = message.branches && message.branches.length > 0
   const approvalPrompt = !isUser ? parseApprovalPrompt(message.text) : null
@@ -708,6 +715,41 @@ export const MessageBubble = memo(function MessageBubble({
     setSelectionComment("")
     setSelectionCommentOpen(false)
   }, [])
+
+  const closeSelectedTextMenu = useCallback(() => {
+    setSelectedTextMenu((current) => ({ ...current, open: false }))
+  }, [])
+
+  const handleSelectedTextContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (isUser || isStatusSnapshot || !messageBodyRef.current) return
+
+    const selection = window.getSelection()
+    const selectedText = selection?.toString().trim()
+    if (!selection || !selectedText || selection.rangeCount === 0) return
+
+    const body = messageBodyRef.current
+    const anchorNode = selection.anchorNode
+    const focusNode = selection.focusNode
+    if (!anchorNode || !focusNode || !body.contains(anchorNode) || !body.contains(focusNode)) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    setSelectedTextMenu({
+      open: true,
+      x: Math.min(event.clientX, window.innerWidth - 188),
+      y: Math.min(event.clientY, window.innerHeight - 132),
+      text: selectedText,
+    })
+  }, [isStatusSnapshot, isUser])
+
+  const copySelectedText = useCallback(async () => {
+    const text = selectedTextMenu.text
+    closeSelectedTextMenu()
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {}
+  }, [closeSelectedTextMenu, selectedTextMenu.text])
 
   const refreshPersistentSelection = useCallback(() => {
     const range = selectionRangeRef.current
@@ -791,6 +833,25 @@ export const MessageBubble = memo(function MessageBubble({
       document.removeEventListener("selectionchange", handleSelectionChange)
     }
   }, [isUser, isStatusSnapshot, onAskSelectedText, selectionAction, updateSelectionAction])
+
+  useEffect(() => {
+    if (!selectedTextMenu.open) return
+
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (selectedTextMenuRef.current?.contains(event.target as Node)) return
+      closeSelectedTextMenu()
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeSelectedTextMenu()
+    }
+
+    window.addEventListener("pointerdown", closeOnPointerDown)
+    window.addEventListener("keydown", closeOnEscape)
+    return () => {
+      window.removeEventListener("pointerdown", closeOnPointerDown)
+      window.removeEventListener("keydown", closeOnEscape)
+    }
+  }, [closeSelectedTextMenu, selectedTextMenu.open])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -891,6 +952,7 @@ export const MessageBubble = memo(function MessageBubble({
                 onMouseDown={isStatusSnapshot ? (event) => event.preventDefault() : undefined}
                 onMouseUp={updateSelectionAction}
                 onKeyUp={updateSelectionAction}
+                onContextMenu={handleSelectedTextContextMenu}
                 className={cn(
                   "max-w-full min-w-0 overflow-hidden text-[14px] leading-relaxed",
                   isStatusSnapshot && "select-none [&_*]:select-none",
@@ -991,6 +1053,52 @@ export const MessageBubble = memo(function MessageBubble({
                 </button>
               </div>
             )}
+            {selectedTextMenu.open &&
+              !isUser &&
+              createPortal(
+                <div
+                  ref={selectedTextMenuRef}
+                  style={{
+                    position: "fixed",
+                    left: Math.max(12, selectedTextMenu.x),
+                    top: Math.max(12, selectedTextMenu.y),
+                    transformOrigin: "top left",
+                  }}
+                  className={cn(
+                    "z-[9999] w-44 rounded-2xl p-1.5",
+                    "border border-black/70 bg-[var(--glass-bg)]",
+                    "backdrop-blur-[40px] backdrop-saturate-[180%]",
+                    "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+                  )}
+                >
+                  {onReply && (
+                    <MenuAction
+                      label="Reply"
+                      icon={<LuReply className="size-3.5" />}
+                      onClick={() => {
+                        closeSelectedTextMenu()
+                        onReply(message.messageId)
+                      }}
+                    />
+                  )}
+                  <MenuAction
+                    label="Copy"
+                    icon={<LuCopy className="size-3.5" />}
+                    onClick={copySelectedText}
+                  />
+                  {onPin && (
+                    <MenuAction
+                      label={isPinned ? "Unpin" : "Pin"}
+                      icon={<LuPin className="size-3.5" />}
+                      onClick={() => {
+                        closeSelectedTextMenu()
+                        onPin(message.messageId)
+                      }}
+                    />
+                  )}
+                </div>,
+                document.body
+              )}
             {selectionAction &&
               selectionRects.length > 0 &&
               createPortal(
