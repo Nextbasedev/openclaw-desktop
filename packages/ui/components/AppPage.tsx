@@ -420,7 +420,7 @@ function FocusedChatWindowPage({
   const title = resolvedTitle || state.title || "Focused Chat"
 
   return (
-    <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
+    <div className="app-window-frame relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
       <Header
         minimal
         user={{ name: title }}
@@ -2686,7 +2686,7 @@ function AppShell({
   if (connectionScreenActive) {
     return (
       <div
-        className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
+        className="app-window-frame relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
         onContextMenu={handleAppContextMenu}
       >
         <Header
@@ -2720,7 +2720,7 @@ function AppShell({
 
   return (
     <div
-      className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
+      className="app-window-frame relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
       onContextMenu={handleAppContextMenu}
     >
       <Header

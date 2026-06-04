@@ -21,7 +21,7 @@
         "fullscreen": false,
         "maximized": true,
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
         "center": true,
         "dragDropEnabled": false
       }

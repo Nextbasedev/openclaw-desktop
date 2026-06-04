@@ -330,11 +330,18 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
     height: 100%;
     overflow: hidden;
+    background: transparent;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  .app-window-frame {
+    border-radius: 14px;
+    background: var(--background);
+    box-shadow: 0 0 0 1px oklch(1 0 0 / 8%);
   }
 
   .scrollbar-hide {
