@@ -191,10 +191,15 @@ function RepoRow({ repo, onSelect }: { repo: RepoItem; onSelect: (r: { name: str
     <button
       type="button"
       onClick={() => onSelect({ name: repo.name, path: repo.path })}
-      className={cn("flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left", "transition-colors hover:bg-secondary/40")}
+      className={cn(
+        "group flex w-full cursor-pointer items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-left",
+        "transition-all duration-150 ease-out",
+        "hover:border-white/[0.08] hover:bg-white/[0.075] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_10px_24px_rgba(0,0,0,0.18)]",
+        "focus-visible:border-white/[0.14] focus-visible:bg-white/[0.08] focus-visible:outline-none",
+      )}
     >
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary/40">
-        <LuFolderGit2 size={14} className="text-muted-foreground" />
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary/40 transition-colors group-hover:bg-white/[0.09]">
+        <LuFolderGit2 size={14} className="text-muted-foreground transition-colors group-hover:text-foreground/80" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-[13px] font-medium text-foreground/90">{repo.name}</span>
