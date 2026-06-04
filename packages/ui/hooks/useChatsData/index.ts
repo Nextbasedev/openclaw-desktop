@@ -509,10 +509,17 @@ export function useChatsData(
     const activityOrdered = [...chats]
       .sort(compareChatsByActivity)
       .map((chat) => chat.id)
-    const pinned = activityOrdered.filter((id) => pinnedChats.has(id))
-    const unpinned = activityOrdered.filter((id) => !pinnedChats.has(id))
+    const knownIds = new Set(activityOrdered)
+    const ordered = [
+      ...chatOrder.filter((id) => knownIds.has(id)),
+      ...activityOrdered.filter((id) => !chatOrder.includes(id)),
+    ]
+    if (chatOrder.length > 0) return ordered
+
+    const pinned = ordered.filter((id) => pinnedChats.has(id))
+    const unpinned = ordered.filter((id) => !pinnedChats.has(id))
     return [...pinned, ...unpinned]
-  }, [pinnedChats, chats])
+  }, [chatOrder, pinnedChats, chats])
 
   const dialogState: ChatDialogState = {
     renameOpen,
