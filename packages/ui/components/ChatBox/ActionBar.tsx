@@ -11,7 +11,6 @@ import {
 } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
-import { GLASS_POPOVER } from "@/constants/glassPopover"
 import {
   Popover,
   PopoverContent,
@@ -110,24 +109,26 @@ export function ActionBar({
             align="start"
             sideOffset={10}
             className={cn(
-              "w-[190px] gap-0 py-2 px-2 shadow-2xl shadow-black/40 ring-1 ring-white/6",
-              GLASS_POPOVER,
+              "z-[120] w-[190px] gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none",
+              "border border-black/70 bg-[var(--glass-bg)]",
+              "backdrop-blur-[40px] backdrop-saturate-[180%]",
+              "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+              "data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[side=top]:data-[state=open]:slide-in-from-bottom-1",
             )}
           >
             <button
               type="button"
               onClick={onUploadClick}
               disabled={disableUpload}
-              className="flex w-full cursor-pointer items-center gap-1 text-sm font-medium text-popover-foreground transition-all disabled:cursor-not-allowed disabled:opacity-50"
+              className={cn(
+                "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors",
+                "text-foreground/80 hover:bg-foreground/8 hover:text-foreground",
+                "disabled:cursor-not-allowed disabled:opacity-50",
+              )}
             >
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-black/10 text-foreground/75">
-                <HugeiconsIcon icon={AttachmentIcon} size={16} />
-              </span>
-              <span className="min-w-0 flex flex-1 flex-col">
-                <span className="truncate">
-                  {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Add photos & files"}
-                </span>
-                
+              <HugeiconsIcon icon={AttachmentIcon} size={14} strokeWidth={1.5} />
+              <span className="min-w-0 flex-1 truncate">
+                {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Add photos & files"}
               </span>
             </button>
           </PopoverContent>
