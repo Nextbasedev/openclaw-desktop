@@ -21,7 +21,6 @@ import {
   LuArrowUpRight,
   LuRefreshCw,
   LuPower,
-  LuSparkles,
   LuFolder,
   LuMessageSquare,
   LuHash,
@@ -61,7 +60,6 @@ type CommandPaletteProps = {
   }) => void | Promise<void>
   onNavigateSpace: (space: SearchSpaceResult) => void | Promise<void>
   onNewChat: () => void
-  onSendPrompt: (prompt: string) => void
   onOpenSettings: () => void
   onToggleTerminal: () => void
   onToggleTheme: () => void
@@ -84,21 +82,6 @@ const QUICK_ACTIONS: QuickAction[] = [
   { id: "quit", label: "Quit Application", icon: LuPower, keys: { win: ["Ctrl", "Q"], mac: ["⌘", "Q"] }, scope: "Global" },
 ]
 
-const PROMPT_SUGGESTIONS: { chip: string; prompt: string }[] = [
-  { chip: "Write a function to", prompt: "Write a function that takes input parameters, processes the data, and returns the expected output. Include proper error handling, type safety, and edge case coverage." },
-  { chip: "Debug this error", prompt: "Help me debug this error. Analyze the stack trace, identify the root cause, and suggest a fix with an explanation of why the error occurred." },
-  { chip: "Explain this code", prompt: "Explain this code in detail. Walk through the logic step by step, describe what each section does, and highlight any important patterns or design decisions." },
-  { chip: "Create unit tests", prompt: "Create comprehensive unit tests for this code. Cover the happy path, edge cases, error scenarios, and boundary conditions with clear test descriptions." },
-  { chip: "Review my code", prompt: "Review my code for potential issues. Check for bugs, performance problems, security vulnerabilities, and suggest improvements following best practices." },
-  { chip: "Refactor this module", prompt: "Refactor this module to improve readability, maintainability, and performance. Preserve existing behavior while applying clean code principles." },
-  { chip: "Add documentation", prompt: "Add clear and concise documentation to this code. Include function descriptions, parameter explanations, return values, and usage examples." },
-  { chip: "Optimize performance", prompt: "Analyze this code for performance bottlenecks and optimize it. Suggest improvements for speed, memory usage, and efficiency with before/after comparisons." },
-  { chip: "Fix this bug", prompt: "Help me fix this bug. Identify what's going wrong, explain the root cause, and provide a corrected implementation with an explanation of the fix." },
-  { chip: "Design a component", prompt: "Design a reusable UI component with proper props interface, state management, accessibility support, and responsive styling using our existing design system." },
-  { chip: "Setup CI pipeline", prompt: "Help me set up a CI/CD pipeline with build, test, lint, and deployment stages. Include proper caching, environment configuration, and failure notifications." },
-  { chip: "Generate types for", prompt: "Generate TypeScript type definitions for this data structure. Include all fields, proper optionality, union types where needed, and export the types for reuse." },
-]
-
 type FlatItem =
   | { type: "recent"; id: string; session: Session }
   | { type: "action"; id: string; action: QuickAction }
@@ -118,7 +101,6 @@ export function CommandPalette({
   onNavigateSearchMessage,
   onNavigateSpace,
   onNewChat,
-  onSendPrompt,
   onOpenSettings,
   onToggleTerminal,
   onToggleTheme,
@@ -379,11 +361,6 @@ export function CommandPalette({
     onToggleTheme,
   ])
 
-  const handlePromptClick = useCallback((prompt: string) => {
-    onClose()
-    onSendPrompt(prompt)
-  }, [onClose, onSendPrompt])
-
   useEffect(() => {
     if (!open) return
 
@@ -449,19 +426,6 @@ export function CommandPalette({
             K
           </kbd>
         </div>
-
-        {/* I'm looking for — prompt chips */}
-        {!debouncedQuery && (
-          <div className="border-b border-border/70 bg-background/35 px-5 py-3.5 dark:border-white/[0.07] dark:bg-white/[0.015]">
-            <div className="flex items-center gap-1.5 pb-2.5">
-              <LuSparkles size={11} className="text-muted-foreground dark:text-white/35" />
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground dark:text-white/35">
-                I&apos;m looking for
-              </p>
-            </div>
-            <PromptMarquee suggestions={PROMPT_SUGGESTIONS} onSelect={handlePromptClick} />
-          </div>
-        )}
 
         {/* Scrollable results */}
         <div ref={listRef} className="max-h-[360px] overflow-y-auto scroll-smooth px-2 py-2 scrollbar-hide">
@@ -680,37 +644,6 @@ export function CommandPalette({
       </div>
     </div>,
     document.body,
-  )
-}
-
-function PromptMarquee({
-  suggestions,
-  onSelect,
-}: {
-  suggestions: { chip: string; prompt: string }[]
-  onSelect: (prompt: string) => void
-}) {
-  return (
-    <div className="relative overflow-hidden">
-      <div className="flex gap-2 overflow-x-auto scroll-smooth pb-0.5 pr-8 scrollbar-hide">
-        {suggestions.map((s) => (
-          <button
-            key={s.chip}
-            type="button"
-            onClick={() => onSelect(s.prompt)}
-            className={cn(
-              "shrink-0 cursor-pointer whitespace-nowrap rounded-full border px-3.5 py-1.5",
-              "border-border/70 bg-muted/65 text-[12px] font-medium text-muted-foreground shadow-sm",
-              "dark:border-white/[0.10] dark:bg-white/[0.045] dark:text-white/58",
-              "transition-[background-color,color] duration-150 ease-out hover:bg-muted hover:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-white",
-            )}
-          >
-            {s.chip}
-          </button>
-        ))}
-      </div>
-
-    </div>
   )
 }
 

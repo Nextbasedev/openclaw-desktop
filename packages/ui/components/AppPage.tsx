@@ -3003,7 +3003,6 @@ function AppShell({
           void handleSpaceSwitch(space.id)
         }}
         onNewChat={() => { setPendingPrompt(null); handleNewChat() }}
-        onSendPrompt={handlePromptDraft}
         onOpenSettings={openSettings}
         onToggleTerminal={toggleTerminal}
         onToggleTheme={toggleTheme}
