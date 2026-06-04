@@ -702,51 +702,12 @@ export const MessageBubble = memo(function MessageBubble({
   }, [hideAssistantActions, popoverOpen, onPopoverOpenChange])
 
   const updateSelectionAction = useCallback(() => {
-    if (isUser || isStatusSnapshot || !onAskSelectedText || !messageBodyRef.current) return
-
-    const selection = window.getSelection()
-    const selectedText = selection?.toString().trim()
-    if (!selection || !selectedText || selection.rangeCount === 0) {
-      setSelectionAction(null)
-      return
-    }
-
-    const body = messageBodyRef.current
-    const anchorNode = selection.anchorNode
-    const focusNode = selection.focusNode
-    if (
-      !anchorNode ||
-      !focusNode ||
-      !body.contains(anchorNode) ||
-      !body.contains(focusNode)
-    ) {
-      setSelectionAction(null)
-      return
-    }
-
-    const range = selection.getRangeAt(0)
-    const rect = range.getBoundingClientRect()
-    if (!rect.width && !rect.height) {
-      setSelectionAction(null)
-      return
-    }
-
-    selectionRangeRef.current = range.cloneRange()
-    setSelectionRects(
-      Array.from(range.getClientRects()).map((lineRect) => ({
-        left: lineRect.left,
-        top: lineRect.top,
-        width: lineRect.width,
-        height: lineRect.height,
-      }))
-    )
-    setSelectionAction({
-      text: selectedText,
-      left: rect.left + rect.width / 2,
-      top: Math.max(12, rect.top - 14),
-    })
+    selectionRangeRef.current = null
+    setSelectionRects([])
+    setSelectionAction(null)
     setSelectionComment("")
-  }, [isUser, isStatusSnapshot, onAskSelectedText])
+    setSelectionCommentOpen(false)
+  }, [])
 
   const refreshPersistentSelection = useCallback(() => {
     const range = selectionRangeRef.current
