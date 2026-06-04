@@ -228,9 +228,9 @@ export function ConnectPageView({
             )}
           >
             {showSplitShell ? (
-              <div className="flex h-full w-full max-w-[620px] flex-col rounded-2xl bg-white/[0.025] p-5 sm:p-6">
+              <div className="flex h-full w-full max-w-[640px] flex-col rounded-[26px] bg-white/[0.026] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] sm:p-6">
                 <div className="flex items-center justify-between pb-5">
-                  <p className="text-md font-medium text-zinc-100">OpenClaw</p>
+                  <p className="text-[15px] font-semibold tracking-tight text-zinc-100">OpenClaw</p>
                   {setupMode !== "choice" && (
                     <Button
                       type="button"
@@ -247,18 +247,15 @@ export function ConnectPageView({
                   )}
                 </div>
 
-                <header className="space-y-3 pb-5 text-left">
-                  <div className="flex size-12 items-center justify-center rounded-2xl bg-white/[0.045] text-zinc-200">
-                    <HugeiconsIcon
-                      icon={ServerStack01Icon}
-                      size={22}
-                    />
+                <header className="flex items-start gap-4 pb-5 text-left">
+                  <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-white/[0.055] text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)]">
+                    <HugeiconsIcon icon={ServerStack01Icon} size={22} />
                   </div>
-                  <div>
-                    <p className="text-xl font-semibold tracking-tight text-white">
+                  <div className="min-w-0">
+                    <p className="text-[20px] font-semibold tracking-tight text-white">
                       Connect OpenClaw Middleware
                     </p>
-                    <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+                    <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-500">
                       Ask OpenClaw to prepare the Middleware, then paste the URL
                       and pairing code here.
                     </p>
@@ -296,7 +293,7 @@ export function ConnectPageView({
                       />
                     )}
 
-                    {setupMode !== "choice" && (
+                    {setupMode !== "choice" && setupMode !== "remote" && (
                       <details className="rounded-2xl bg-white/[0.025] p-4">
                         <summary className="cursor-pointer text-sm font-medium text-zinc-300 select-none hover:text-white">
                           Advanced manual setup
@@ -705,44 +702,50 @@ function VpsOpenClawPanel(props: {
   onSave: () => void
 }) {
   return (
-    <div className="space-y-3 rounded-[22px] bg-white/[0.028] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]">
-      <div className="rounded-[18px] bg-white/[0.025] p-4">
-        <StepBadge step="2" label="Prepare the VPS" />
-        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground/65">
-          Copy this exact setup brief into OpenClaw on the server. It verifies middleware before giving you connection details.
-        </p>
-        <div className="mt-3">
-          <PromptBox
-            title="Server setup brief"
-            prompt={VPS_OPENCLAW_PROMPT}
-          />
-        </div>
+    <div className="rounded-[24px] bg-white/[0.032] p-4 shadow-[0_20px_60px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.045)]">
+      <div className="flex items-center gap-2 rounded-2xl bg-emerald-400/[0.07] px-3 py-2 text-[12px] font-medium text-emerald-200/90">
+        <span className="size-1.5 rounded-full bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.75)]" />
+        Remote server setup
       </div>
 
-      <div className="rounded-[18px] bg-white/[0.035] p-4">
-        <StepBadge step="3" label="Paste the result" />
-        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground/65">
-          Use the middleware URL and pairing code from the verified server response.
-        </p>
-        <div className="mt-4">
-          <ManualFields
-            url={props.url}
-            token={props.token}
-            showToken={props.showToken}
-            disabled={props.busy}
-            tokenLabel="Pairing code"
-            tokenPlaceholder="ABC-123"
-            onUrlChange={props.onUrlChange}
-            onTokenChange={props.onTokenChange}
-            onShowTokenChange={props.onShowTokenChange}
-          />
+      <div className="mt-4 grid gap-3">
+        <PromptBox
+          title="Copy setup brief"
+          prompt={VPS_OPENCLAW_PROMPT}
+        />
+
+        <div className="rounded-[20px] bg-white/[0.035] p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[13px] font-semibold text-foreground">Connection details</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground/62">
+                Paste the verified URL and pairing code from your server.
+              </p>
+            </div>
+            <span className="rounded-full bg-white/[0.045] px-2.5 py-1 text-[10px] font-medium text-muted-foreground/70">
+              Step 2
+            </span>
+          </div>
+          <div className="mt-4">
+            <ManualFields
+              url={props.url}
+              token={props.token}
+              showToken={props.showToken}
+              disabled={props.busy}
+              tokenLabel="Pairing code"
+              tokenPlaceholder="ABC-123"
+              onUrlChange={props.onUrlChange}
+              onTokenChange={props.onTokenChange}
+              onShowTokenChange={props.onShowTokenChange}
+            />
+          </div>
         </div>
       </div>
 
       <Button
         onClick={props.onSave}
         disabled={props.busy || props.missingConfig}
-        className="h-11 w-full rounded-2xl bg-foreground text-[13px] font-medium text-background shadow-[0_10px_30px_rgba(255,255,255,0.08)] hover:bg-foreground/90 disabled:opacity-50"
+        className="mt-4 h-12 w-full rounded-[18px] bg-foreground text-[13px] font-semibold text-background shadow-[0_14px_40px_rgba(255,255,255,0.10)] hover:bg-foreground/90 disabled:opacity-50"
       >
         {props.saving ? "Pairing..." : "Pair and continue"}
       </Button>
