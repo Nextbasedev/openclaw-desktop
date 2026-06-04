@@ -654,6 +654,105 @@ it("dedupes optimistic user message against history copy with attachment marker"
     expect(messages[0].messageId).toBe("history-user")
   })
 
+it("merges optimistic image attachment previews with canonical media attachment URLs", () => {
+  const messages = dedupeChatMessages([
+    {
+      messageId: "optimistic-user",
+      role: "user",
+      text: "canyou describe image\n\n[Attached image: ChatGPT Image May 13, 2026, 10_35_12 PM.png]",
+      createdAt: "2026-06-04T10:00:00.000Z",
+      isOptimistic: true,
+      attachments: [
+        {
+          name: "ChatGPT Image May 13, 2026, 10_35_12 PM.png",
+          mimeType: "image/png",
+          content: "iVBORw0KGgo=",
+        },
+      ],
+    },
+    {
+      messageId: "history-user",
+      role: "user",
+      text: "canyou describe image\n[media attached: media://inbound/ChatGPT_Image_May_13_2026_10_35_12_PM---e613cc28-cbae-40d4-a96d-f9b3e8d11a2b.png]",
+      createdAt: "2026-06-04T10:00:02.000Z",
+      attachments: [
+        {
+          name: "ChatGPT_Image_May_13_2026_10_35_12_PM---e613cc28-cbae-40d4-a96d-f9b3e8d11a2b.png",
+          mimeType: "image/png",
+          url: "https://middleware.example.com/api/chat/media/inbound/ChatGPT_Image_May_13_2026_10_35_12_PM---e613cc28-cbae-40d4-a96d-f9b3e8d11a2b.png?token=secret",
+        },
+      ],
+    },
+  ])
+
+  expect(messages).toHaveLength(1)
+  expect(messages[0]).toMatchObject({
+    messageId: "history-user",
+    text: "canyou describe image\n[media attached: media://inbound/ChatGPT_Image_May_13_2026_10_35_12_PM---e613cc28-cbae-40d4-a96d-f9b3e8d11a2b.png]",
+    isOptimistic: false,
+  })
+  expect(messages[0].attachments).toEqual([
+    {
+      name: "ChatGPT Image May 13, 2026, 10_35_12 PM.png",
+      mimeType: "image/png",
+      content: "iVBORw0KGgo=",
+      url: "https://middleware.example.com/api/chat/media/inbound/ChatGPT_Image_May_13_2026_10_35_12_PM---e613cc28-cbae-40d4-a96d-f9b3e8d11a2b.png?token=secret",
+    },
+  ])
+})
+
+it("collapses optimistic image user echo when canonical gateway index differs", () => {
+  const messages = dedupeChatMessages([
+    {
+      messageId: "openclaw:2",
+      role: "user",
+      text: "what is in this image\n[media attached: media://inbound/image---canonical.png]",
+      gatewayIndex: 2,
+      createdAt: "2026-06-04T10:36:00.000Z",
+      attachments: [
+        {
+          name: "image---canonical.png",
+          mimeType: "image/png",
+          url: "https://middleware.example.com/api/chat/media/inbound/image---canonical.png?token=secret",
+        },
+      ],
+    },
+    {
+      messageId: "3f2eaa2f-optimistic",
+      role: "user",
+      text: "what is in this image\n\n[Attached image: image.png]",
+      gatewayIndex: 1,
+      createdAt: "2026-06-04T10:36:05.000Z",
+      isOptimistic: true,
+      sendStatus: "sending",
+      attachments: [
+        {
+          name: "image.png",
+          mimeType: "image/png",
+          content: "iVBORw0KGgo=",
+        },
+      ],
+    },
+  ])
+
+  expect(messages).toHaveLength(1)
+  expect(messages[0]).toMatchObject({
+    messageId: "openclaw:2",
+    role: "user",
+    gatewayIndex: 2,
+    sendStatus: undefined,
+  })
+  expect(messages[0].isOptimistic).not.toBe(true)
+  expect(messages[0].attachments).toEqual([
+    {
+      name: "image.png",
+      mimeType: "image/png",
+      content: "iVBORw0KGgo=",
+      url: "https://middleware.example.com/api/chat/media/inbound/image---canonical.png?token=secret",
+    },
+  ])
+})
+
 it("merges same-run assistant duplicates even when backend sequences differ", () => {
   const messages = dedupeChatMessages([
       {

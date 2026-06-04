@@ -1504,17 +1504,20 @@ function AppShell({
     const currentRoute = parseRoute(getRoutePath())
     if (currentRoute.kind !== "home") return
     layoutRestoreAttemptedRef.current = true
+    const restoreRequestId = routeRequestRef.current
     let cancelled = false
+    const restoreIsStale = () => cancelled || routeRequestRef.current !== restoreRequestId
     async function restoreLastWorkspaceLayout() {
       const snapshot = await loadWorkspaceLayoutSnapshot().catch(() => null)
-      if (!snapshot || cancelled) return
+      if (!snapshot || restoreIsStale()) return
       const validSpace = snapshot.activeSpaceId
         ? spaces.some((space) => space.id === snapshot.activeSpaceId)
         : false
       const restoreSpaceId = validSpace ? snapshot.activeSpaceId : activeSpaceId
-      if (!restoreSpaceId) return
+      if (!restoreSpaceId || restoreIsStale()) return
       if (snapshot.activeSpaceId && validSpace && snapshot.activeSpaceId !== activeSpaceId) {
         await switchSpace(snapshot.activeSpaceId).catch(() => {})
+        if (restoreIsStale()) return
       }
 
       const chatIds = new Set<string>()
@@ -1534,11 +1537,13 @@ function AppShell({
           "middleware_chats_list",
           { input: { spaceId: restoreSpaceId } },
         ).catch(() => ({ chats: [] }))
+        if (restoreIsStale()) return
         for (const chat of result.chats || []) {
           if (!chat.archived) chatsById.set(chat.id, chat)
         }
       }
 
+      if (restoreIsStale()) return
       const restoredGroups = snapshot.editorGroups.groups.map((group) => {
         const tabs = group.tabs.flatMap((tab): EditorTab[] => {
           if (tab.kind === "draft") return [tab]
@@ -1564,7 +1569,7 @@ function AppShell({
         }
       }).filter((group) => group.tabs.length > 0)
 
-      if (cancelled || restoredGroups.length === 0) return
+      if (restoreIsStale() || restoredGroups.length === 0) return
       layoutRestoreAppliedRef.current = true
       setConnectAutoOpenEnabled(false)
       setSplitRatio(Math.max(0.3, Math.min(0.7, snapshot.splitRatio || 0.5)))
@@ -1734,6 +1739,7 @@ function AppShell({
     const targetGroupId = groupId ?? editorGroups.focusedGroupId
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
+    layoutRestoreAttemptedRef.current = true
     setPendingPrompt(null)
     setComposerError(null)
     setActiveTab("chat")
