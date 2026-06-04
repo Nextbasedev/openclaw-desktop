@@ -73,9 +73,9 @@ export function ProjectDialogs({ dialog, actions }: Props) {
           </div>
 
           {projectError && <p className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2 text-[12px] text-red-400">{projectError}</p>}
-          <div className="mt-1 flex gap-2.5">
-            <button onClick={() => setCreateProjectOpen(false)} className="glass-btn-secondary flex-1">Cancel</button>
-            <button onClick={handleCreateProject} disabled={creatingProject || !newProjectName.trim()} className="glass-btn-primary flex-1">{creatingProject ? "Creating…" : <><LuSparkles size={14} /> Create project</>}</button>
+          <div className="mt-1 grid grid-cols-2 gap-2.5">
+            <button onClick={() => setCreateProjectOpen(false)} className="glass-btn-secondary">Cancel</button>
+            <button onClick={handleCreateProject} disabled={creatingProject || !newProjectName.trim()} className="glass-btn-primary">{creatingProject ? "Creating…" : <><LuSparkles size={14} /> Create project</>}</button>
           </div>
         </div>
       </GlassDialog>
@@ -87,28 +87,34 @@ export function ProjectDialogs({ dialog, actions }: Props) {
             <input ref={topicNameRef} className="glass-input" placeholder="e.g. Deploy flow, Bug fixes…" value={newTopicName} onChange={(e) => setNewTopicName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleCreateTopic()} />
           </div>
           {topicError && <p className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2 text-[12px] text-red-400">{topicError}</p>}
-          <div className="mt-1 flex gap-2.5">
-            <button onClick={handleCreateTopic} disabled={creatingTopic || !newTopicName.trim()} className="glass-btn-primary flex-1">{creatingTopic ? "Creating…" : "Create Topic"}</button>
+          <div className="mt-1 grid grid-cols-2 gap-2.5">
+            <button onClick={handleCreateTopic} disabled={creatingTopic || !newTopicName.trim()} className="glass-btn-primary">{creatingTopic ? "Creating…" : "Create Topic"}</button>
             <button onClick={() => setCreateTopicOpen(false)} className="glass-btn-secondary">Cancel</button>
           </div>
         </div>
       </GlassDialog>
 
       <GlassDialog open={renameProjectOpen} onClose={() => setRenameProjectOpen(false)} title="Rename Project">
-        <div className="flex flex-col gap-3">
-          <input ref={renameProjectRef} className="glass-input" value={renameProjectName} onChange={(e) => setRenameProjectName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleRenameProject()} />
-          <div className="flex gap-2.5">
-            <button onClick={handleRenameProject} disabled={!renameProjectName.trim()} className="glass-btn-primary flex-1">Save</button>
+        <div className="flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] font-medium text-muted-foreground">Project name</span>
+            <input ref={renameProjectRef} className="glass-input h-10" value={renameProjectName} onChange={(e) => setRenameProjectName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleRenameProject()} />
+          </label>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button onClick={handleRenameProject} disabled={!renameProjectName.trim()} className="glass-btn-primary">Save</button>
             <button onClick={() => setRenameProjectOpen(false)} className="glass-btn-secondary">Cancel</button>
           </div>
         </div>
       </GlassDialog>
 
       <GlassDialog open={renameTopicOpen} onClose={() => setRenameTopicOpen(false)} title="Rename Topic">
-        <div className="flex flex-col gap-3">
-          <input ref={renameTopicRef} className="glass-input" value={renameTopicName} onChange={(e) => setRenameTopicName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleRenameTopicSave()} />
-          <div className="flex gap-2.5">
-            <button onClick={handleRenameTopicSave} disabled={!renameTopicName.trim()} className="glass-btn-primary flex-1">Save</button>
+        <div className="flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] font-medium text-muted-foreground">Topic name</span>
+            <input ref={renameTopicRef} className="glass-input h-10" value={renameTopicName} onChange={(e) => setRenameTopicName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleRenameTopicSave()} />
+          </label>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button onClick={handleRenameTopicSave} disabled={!renameTopicName.trim()} className="glass-btn-primary">Save</button>
             <button onClick={() => setRenameTopicOpen(false)} className="glass-btn-secondary">Cancel</button>
           </div>
         </div>
@@ -119,9 +125,9 @@ export function ProjectDialogs({ dialog, actions }: Props) {
           <p className="text-[13px] text-muted-foreground">
             Permanently delete <span className="font-medium text-foreground">{deleteProjectTarget?.name}</span>? All topics, sessions, and data will be removed. This cannot be undone.
           </p>
-          <div className="flex gap-2.5">
-            <button onClick={() => setDeleteProjectOpen(false)} className="glass-btn-secondary flex-1">Cancel</button>
-            <button onClick={handleDeleteProject} disabled={deletingProject} className="glass-btn-danger flex-1">{deletingProject ? "Deleting…" : "Delete"}</button>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button onClick={() => setDeleteProjectOpen(false)} className="glass-btn-secondary">Cancel</button>
+            <button onClick={handleDeleteProject} disabled={deletingProject} className="glass-btn-danger">{deletingProject ? "Deleting…" : "Delete"}</button>
           </div>
         </div>
       </GlassDialog>
@@ -131,9 +137,9 @@ export function ProjectDialogs({ dialog, actions }: Props) {
           <p className="text-[13px] text-muted-foreground">
             Permanently delete <span className="font-medium text-foreground">{deleteTopicTarget?.name}</span>? This cannot be undone.
           </p>
-          <div className="flex gap-2.5">
-            <button onClick={() => setDeleteTopicOpen(false)} className="glass-btn-secondary flex-1">Cancel</button>
-            <button onClick={handleDeleteTopic} disabled={deletingTopic} className="glass-btn-danger flex-1">{deletingTopic ? "Deleting…" : "Delete"}</button>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button onClick={() => setDeleteTopicOpen(false)} className="glass-btn-secondary">Cancel</button>
+            <button onClick={handleDeleteTopic} disabled={deletingTopic} className="glass-btn-danger">{deletingTopic ? "Deleting…" : "Delete"}</button>
           </div>
         </div>
       </GlassDialog>

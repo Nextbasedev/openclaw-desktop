@@ -979,7 +979,7 @@ export function ChatBox({
             <div className="rounded-xl bg-[var(--glass-input-bg)] px-3 py-2.5 text-[12px] leading-relaxed text-muted-foreground">
               Current status: {voiceDisabledReason}
             </div>
-            <div className="flex justify-end gap-2">
+            <div className="grid grid-cols-2 gap-2.5">
               <button
                 type="button"
                 onClick={() => setVoiceSetupOpen(false)}
@@ -992,7 +992,7 @@ export function ChatBox({
                 onClick={openVoiceSettings}
                 className="glass-btn-primary"
               >
-                Open Voice settings
+                Open settings
               </button>
             </div>
           </div>
