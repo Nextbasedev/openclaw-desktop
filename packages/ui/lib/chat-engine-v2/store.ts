@@ -1704,6 +1704,26 @@ function restoreGlobalCursor() {
 }
 
 function handleFrame(frame: StreamFrame) {
+  if (frame.type === "hello") {
+    // Backend epoch-reset detection. The server reports its current highest
+    // projection-event cursor. If our persisted globalCursor is AHEAD of it,
+    // the stored cursor belongs to a dead epoch (the middleware/projection
+    // store was redeployed/rebuilt on the same URL). Left unhandled, every
+    // freshly-bootstrapped session's small cursor looks "behind" the stale
+    // global cursor, firing focused-session-behind-global-cursor recovery on a
+    // loop (the chat flicker). Reset to the server's epoch and re-persist.
+    const serverCursor = frame.latestCursor
+    if (typeof serverCursor === "number" && Number.isSafeInteger(serverCursor) && serverCursor < globalCursor) {
+      frontendLog("stream", "global-chat-engine.cursor-epoch-reset", {
+        staleGlobalCursor: globalCursor,
+        serverLatestCursor: serverCursor,
+        reason: "server-epoch-behind-client",
+      }, "warn")
+      globalCursor = serverCursor
+      persistGlobalCursor()
+    }
+    return
+  }
   if (frame.type !== "patch") return
   handlePatch(frame)
   persistGlobalCursor()
@@ -1945,6 +1965,14 @@ export function subscribeGlobalChatSession(sessionKey: string, listener: Listene
 
 export function ingestGlobalChatPatchForTests(frame: PatchFrame) {
   handlePatch(frame)
+}
+
+export function ingestGlobalChatFrameForTests(frame: StreamFrame) {
+  handleFrame(frame)
+}
+
+export function getGlobalCursorForTests() {
+  return globalCursor
 }
 
 export function clearGlobalChatEngineForTests() {

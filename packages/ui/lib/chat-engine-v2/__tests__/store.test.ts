@@ -4,6 +4,8 @@ import {
   clearGlobalChatEngineForTests,
   ensureGlobalChatEngine,
   getGlobalChatSession,
+  getGlobalCursorForTests,
+  ingestGlobalChatFrameForTests,
   ingestGlobalChatPatchForTests,
   seedGlobalChatSession,
   subscribeGlobalChatSession,
@@ -74,6 +76,60 @@ describe("global V2 chat engine store", () => {
     })
 
     expect(recoveryEvents).toEqual([{ sessionKey: "s-pruned", reason: "bootstrap-pruned", cursor: 11 }])
+  })
+
+  test("hello latestCursor below global cursor resets the stale epoch and re-persists", () => {
+    // Simulate a stale persisted global cursor (client survived a backend
+    // redeploy/projection rebuild on the same URL).
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: { cursor: 1000, type: "chat.history", sessionKey: "s1", createdAtMs: Date.now(), payload: { sessionKey: "s1" } },
+    })
+    expect(getGlobalCursorForTests()).toBe(1000)
+
+    // Server reconnects from a fresh, lower epoch (latestCursor 5).
+    ingestGlobalChatFrameForTests({
+      type: "hello",
+      clientId: "c1",
+      afterCursor: 1000,
+      replayCount: 0,
+      replayHasMore: false,
+      latestCursor: 5,
+    })
+
+    expect(getGlobalCursorForTests()).toBe(5)
+    expect(_lsStore.get("openclaw:patchCursor:default")).toBe("5")
+  })
+
+  test("hello latestCursor at or above global cursor does NOT lower it (normal epoch)", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: { cursor: 1000, type: "chat.history", sessionKey: "s1", createdAtMs: Date.now(), payload: { sessionKey: "s1" } },
+    })
+    ingestGlobalChatFrameForTests({
+      type: "hello",
+      clientId: "c1",
+      afterCursor: 1000,
+      replayCount: 0,
+      replayHasMore: false,
+      latestCursor: 1000,
+    })
+    expect(getGlobalCursorForTests()).toBe(1000)
+  })
+
+  test("hello without latestCursor (older server) leaves cursor untouched", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: { cursor: 1000, type: "chat.history", sessionKey: "s1", createdAtMs: Date.now(), payload: { sessionKey: "s1" } },
+    })
+    ingestGlobalChatFrameForTests({
+      type: "hello",
+      clientId: "c1",
+      afterCursor: 1000,
+      replayCount: 0,
+      replayHasMore: false,
+    })
+    expect(getGlobalCursorForTests()).toBe(1000)
   })
 
   test("focused window stream does not rewind below persisted global cursor", async () => {

@@ -139,6 +139,16 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
     // the later terminal/canonical patches that make the transcript consistent.
     // Tell the UI to recover via bootstrap and only stream new live patches.
     const replayWindow = replayHasMore ? [] : replay;
+    // Current highest projection-event cursor. Sent so the client can detect a
+    // backend epoch reset: if the client connected at an afterCursor that is
+    // ahead of this value, its persisted global cursor is from a dead epoch
+    // (e.g. this middleware/projection store was redeployed/rebuilt on the same
+    // URL) and the client should reset rather than treat every session as
+    // "behind" and re-bootstrap on a loop.
+    const latestCursorRow = context.db
+      .prepare(`SELECT max(cursor) AS latestCursor FROM v2_projection_events`)
+      .get() as { latestCursor: number | null };
+    const latestCursor = latestCursorRow?.latestCursor ?? 0;
     socket.send(JSON.stringify({
       type: "hello",
       clientId: id,
@@ -148,8 +158,9 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
       replayWindowExceeded: replayHasMore,
       recovery: replayHasMore ? "bootstrap" : null,
       droppedReplayCount: replayHasMore ? replay.length - 1 : 0,
+      latestCursor,
     }));
-    log.info("stream.replay", { clientId: id, afterCursor, replayCount: replayWindow.length, replayHasMore });
+    log.info("stream.replay", { clientId: id, afterCursor, replayCount: replayWindow.length, replayHasMore, latestCursor });
     for (const patch of replayWindow) {
       socket.send(JSON.stringify({ type: "patch", patch }));
       client.lastSentCursor = patch.cursor;

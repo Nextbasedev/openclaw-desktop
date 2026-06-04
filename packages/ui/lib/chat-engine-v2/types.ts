@@ -105,6 +105,11 @@ export type HelloFrame = {
   replayWindowExceeded?: boolean
   recovery?: "bootstrap" | string | null
   droppedReplayCount?: number
+  // The server's current highest projection-event cursor at connect time.
+  // Lets the client detect a backend epoch reset (e.g. middleware/projection
+  // redeploy on the same URL): if this is below the client's persisted global
+  // cursor, the stored cursor belongs to a dead epoch and must be reset.
+  latestCursor?: number
 }
 
 export type StreamFrame = PatchFrame | HelloFrame
