@@ -96,8 +96,6 @@ export function ActionBar({
     <div className="flex items-center justify-between px-3 pb-3 pt-2">
       {/* Left controls */}
       <div className="flex items-center gap-1.5">
-        <ContextUsageBadge usage={sessionUsage} />
-
         {/* + menu */}
         <Popover open={plusOpen} onOpenChange={onPlusOpenChange}>
           <PopoverTrigger asChild>
@@ -138,6 +136,8 @@ export function ActionBar({
             </button>
           </PopoverContent>
         </Popover>
+
+        <ContextUsageBadge usage={sessionUsage} />
 
         {/* Web search pill — desktop only */}
         {webSearchEnabled && (
