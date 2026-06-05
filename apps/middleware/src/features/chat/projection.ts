@@ -88,9 +88,25 @@ export function toolCallProjection(tool: ProjectedToolCall, options: { includeDe
   };
 }
 
-function recentToolCallIds(tools: ProjectedToolCall[], latestRun: ProjectedRun | null): Set<string> {
-  if (!latestRun) return new Set();
-  return new Set(tools.filter((tool) => tool.runId === latestRun.runId).map((tool) => tool.toolCallId));
+const SUBAGENT_TOOL_NAMES = new Set(["sessions_spawn", "subagents", "sessions_yield"]);
+
+export function bootstrapToolProjection(tool: ProjectedToolCall) {
+  return {
+    toolCallId: tool.toolCallId,
+    id: tool.toolCallId,
+    name: tool.name,
+    status: tool.status,
+    phase: tool.phase,
+    messageId: tool.messageId,
+    startedAtMs: tool.startedAtMs,
+    finishedAtMs: tool.finishedAtMs,
+  };
+}
+
+function bootstrapTools(rawTools: ProjectedToolCall[], latestRun: ProjectedRun | null) {
+  return rawTools
+    .filter((tool) => (latestRun !== null && tool.runId === latestRun.runId) || SUBAGENT_TOOL_NAMES.has(tool.name))
+    .map(bootstrapToolProjection);
 }
 
 export function canonicalPatchPayload(params: {
@@ -146,16 +162,8 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
   const latestRun = activeRun ?? context.runs.latestRun(params.sessionKey);
   const runStatus = latestRun?.status ?? canonicalRunStatusFromLegacy(params.sessionData.status);
   const statusLabel = runStatusLabel(runStatus, latestRun, params.sessionData.statusLabel);
-  // Scope tools to the run ONLY while a run is actively live. For terminal /
-  // historical sessions (no active run) return session-wide tools so historical,
-  // run-detached (runId NULL) tool cards — e.g. those projected from archived
-  // segments — render instead of being hidden by a stale terminal latestRun scope.
-  const rawTools = (activeRun
-    ? context.runs.listToolCalls(params.sessionKey, activeRun.runId)
-    : context.runs.listToolCalls(params.sessionKey)
-  );
-  const recentIds = recentToolCallIds(rawTools, latestRun);
-  const tools = rawTools.map((tool) => toolCallProjection(tool, { includeDetails: recentIds.has(tool.toolCallId) }));
+  const rawTools = context.runs.listToolCalls(params.sessionKey);
+  const tools = bootstrapTools(rawTools, latestRun);
   const sessionStatus = legacySessionStatusFromRunStatus(runStatus);
 
   return {
@@ -175,7 +183,6 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
     messages: params.messages,
     messageCount: params.messageCount,
     tools,
-    toolCalls: tools,
     cursor: params.cursor,
     sessionStatus,
     thinkingLevel: params.historyMeta?.thinkingLevel,

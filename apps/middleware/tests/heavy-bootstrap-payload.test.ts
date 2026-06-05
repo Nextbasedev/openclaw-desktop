@@ -67,6 +67,19 @@ function seedToolSession(context: AppContext, sessionKey: string, count = 2, bod
         finishedAtMs: 1_500,
         updatedAtMs: 2_000,
       });
+      context.runs.upsertToolCall({
+        sessionKey,
+        runId: "run-old",
+        toolCallId: "spawn-old",
+        name: "sessions_spawn",
+        phase: "result",
+        status: "success",
+        argsMeta: { prompt: oldBody },
+        resultMeta: { sessionId: "agent:main:subagent:child", out: oldBody },
+        startedAtMs: 110,
+        finishedAtMs: 160,
+        updatedAtMs: 210,
+      });
     }
     messages.push({
       role: "assistant",
@@ -111,19 +124,32 @@ describe("heavy chat payload contract", () => {
     expect(text).not.toContain("OLD_SENTINEL_0_" + "x".repeat(1000));
     expect(text).toContain("RECENT_SENTINEL_0_");
 
-    const oldTool = body.toolCalls.find((tool: { toolCallId: string }) => tool.toolCallId === "old-0");
-    expect(oldTool).toMatchObject({ toolCallId: "old-0", name: "read", status: "success", phase: "result", detailTruncated: true });
-    expect(oldTool).not.toHaveProperty("argsMeta");
-    expect(oldTool).not.toHaveProperty("resultMeta");
+    expect(body).not.toHaveProperty("toolCalls");
+    expect(body.tools.map((tool: { toolCallId: string }) => tool.toolCallId).sort()).toEqual(["recent-0", "spawn-old"]);
 
-    const recentTool = body.toolCalls.find((tool: { toolCallId: string }) => tool.toolCallId === "recent-0");
-    expect(recentTool.argsMeta.q).toContain("RECENT_SENTINEL_0_");
-    expect(recentTool.resultMeta.out).toContain("RECENT_SENTINEL_0_");
+    const oldTool = body.tools.find((tool: { toolCallId: string }) => tool.toolCallId === "old-0");
+    expect(oldTool).toBeUndefined();
+
+    const recentTool = body.tools.find((tool: { toolCallId: string }) => tool.toolCallId === "recent-0");
+    expect(recentTool).toMatchObject({ toolCallId: "recent-0", id: "recent-0", name: "write", status: "success", phase: "result", messageId: null, startedAtMs: 1_000, finishedAtMs: 1_500 });
+    expect(recentTool).not.toHaveProperty("argsMeta");
+    expect(recentTool).not.toHaveProperty("resultMeta");
+    expect(recentTool).not.toHaveProperty("argsPreview");
+    expect(recentTool).not.toHaveProperty("resultPreview");
+
+    const subagentTool = body.tools.find((tool: { toolCallId: string }) => tool.toolCallId === "spawn-old");
+    expect(subagentTool).toMatchObject({ toolCallId: "spawn-old", name: "sessions_spawn", status: "success", phase: "result" });
+    expect(subagentTool).not.toHaveProperty("argsPreview");
+    expect(subagentTool).not.toHaveProperty("resultPreview");
 
     const oldMessage = body.messages.find((message: { messageId?: string }) => message.messageId === "m-old-0");
     const oldUse = oldMessage.content.find((block: { toolCallId?: string }) => block.toolCallId === "old-0");
     expect(oldUse).toMatchObject({ toolCallId: "old-0", name: "read", detailTruncated: true });
     expect(oldUse).not.toHaveProperty("input");
+
+    const recentMessage = body.messages.find((message: { messageId?: string }) => message.messageId === "m-recent");
+    const recentUse = recentMessage.content.find((block: { toolCallId?: string }) => block.toolCallId === "recent-0");
+    expect(recentUse.input.q).toContain("RECENT_SENTINEL_0_");
     await app.close();
   });
 
@@ -162,7 +188,13 @@ describe("heavy chat payload contract", () => {
     const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s-heavy" });
     expect(res.statusCode).toBe(200);
     const unstrippedLowerBound = count * bodySize * 4;
+    const legacyTopLevelDuplicateBytes = JSON.stringify({
+      tools: Array.from({ length: count }, (_, i) => ({ toolCallId: `old-${i}`, id: `old-${i}`, name: "read", status: "success", phase: "result", argsMeta: { q: `OLD_SENTINEL_${i}_` + "x".repeat(bodySize) }, resultMeta: { out: `OLD_SENTINEL_${i}_` + "x".repeat(bodySize) } })),
+      toolCalls: Array.from({ length: count }, (_, i) => ({ toolCallId: `old-${i}`, id: `old-${i}`, name: "read", status: "success", phase: "result", argsMeta: { q: `OLD_SENTINEL_${i}_` + "x".repeat(bodySize) }, resultMeta: { out: `OLD_SENTINEL_${i}_` + "x".repeat(bodySize) } })),
+    }).length;
     expect(res.body.length).toBeLessThan(unstrippedLowerBound / 5);
+    expect(res.body.length).toBeLessThan(legacyTopLevelDuplicateBytes);
+    expect(res.json()).not.toHaveProperty("toolCalls");
     expect(res.body).not.toContain("OLD_SENTINEL_29_" + "x".repeat(1000));
     expect(res.body).toContain("RECENT_SENTINEL_0_");
     await app.close();

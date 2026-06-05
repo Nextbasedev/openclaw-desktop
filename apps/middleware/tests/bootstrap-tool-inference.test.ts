@@ -50,9 +50,11 @@ describe("single-pass bootstrap tool inference", () => {
     const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s-infer" });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { tools: Array<{ toolCallId: string; name: string; status: string; phase: string }> };
-    const byId = Object.fromEntries(body.tools.map((t) => [t.toolCallId, t]));
-    expect(byId["t-ok"]).toMatchObject({ name: "search", status: "success", phase: "result" });
-    expect(byId["t-err"]).toMatchObject({ name: "fetch", status: "error" });
+    expect(body.tools).toEqual([]);
+    expect(context.runs.getToolCall("s-infer", "t-ok")).toMatchObject({ name: "search", status: "success", phase: "result" });
+    expect(context.runs.getToolCall("s-infer", "t-err")).toMatchObject({ name: "fetch", status: "error" });
+    const detail = await app.inject({ method: "GET", url: "/api/chat/tool-detail?sessionKey=s-infer&ids=t-ok,t-err" });
+    expect(detail.json().tools.map((t: { toolCallId: string }) => t.toolCallId)).toEqual(["t-ok", "t-err"]);
     await app.close();
   });
 
@@ -74,7 +76,8 @@ describe("single-pass bootstrap tool inference", () => {
 
     const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s-fallback" });
     const body = res.json() as { tools: Array<{ toolCallId: string; status: string }> };
-    expect(body.tools.find((t) => t.toolCallId === "t-noresult")?.status).toBe("success");
+    expect(body.tools).toEqual([]);
+    expect(context.runs.getToolCall("s-fallback", "t-noresult")?.status).toBe("success");
     await app.close();
   });
 });

@@ -23,17 +23,19 @@ function snapshotArgs(sessionKey: string) {
 }
 
 describe("bootstrap snapshot tool scoping (P2.7)", () => {
-  test("terminal session surfaces session-wide historical (runId NULL) tools", () => {
+  test("terminal session exposes latest-run tools plus historical subagent tools only", () => {
     const db = openDatabase({ databasePath: testDbPath("terminal") });
     const runs = new RunRepository(db);
     const context = { runs } as unknown as AppContext;
-    // A terminal run exists, but the historical tools are run-detached (runId NULL).
-    runs.upsertRun({ runId: "r-done", sessionKey: "s1", status: "done", startedAtMs: 100, updatedAtMs: 200 });
-    runs.upsertToolCall({ sessionKey: "s1", toolCallId: "h1", name: "search", phase: "result", status: "success", startedAtMs: 50, updatedAtMs: 60 });
-    runs.upsertToolCall({ sessionKey: "s1", toolCallId: "h2", name: "fetch", phase: "result", status: "success", startedAtMs: 70, updatedAtMs: 80 });
+    runs.upsertRun({ runId: "r-old", sessionKey: "s1", status: "done", startedAtMs: 100, updatedAtMs: 200 });
+    runs.upsertRun({ runId: "r-done", sessionKey: "s1", status: "done", startedAtMs: 300, updatedAtMs: 400 });
+    runs.upsertToolCall({ sessionKey: "s1", runId: "r-old", toolCallId: "h1", name: "search", phase: "result", status: "success", startedAtMs: 50, updatedAtMs: 60 });
+    runs.upsertToolCall({ sessionKey: "s1", runId: "r-done", toolCallId: "latest-1", name: "fetch", phase: "result", status: "success", startedAtMs: 350, updatedAtMs: 360 });
+    runs.upsertToolCall({ sessionKey: "s1", runId: "r-old", toolCallId: "spawn-1", name: "sessions_spawn", phase: "result", status: "success", startedAtMs: 70, updatedAtMs: 80 });
 
     const snapshot = buildChatBootstrapSnapshot(context, snapshotArgs("s1"));
-    expect(snapshot.tools.map((t) => t.toolCallId).sort()).toEqual(["h1", "h2"]);
+    expect(snapshot.tools.map((t) => t.toolCallId).sort()).toEqual(["latest-1", "spawn-1"]);
+    expect(snapshot).not.toHaveProperty("toolCalls");
     db.close();
   });
 

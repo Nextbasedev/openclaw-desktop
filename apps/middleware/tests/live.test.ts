@@ -1540,7 +1540,7 @@ describe("chat live ingest", () => {
     expect(bootstrap.json()).toMatchObject({
       runStatus: "tool_running",
       activeRun: expect.objectContaining({ runId: "run-1" }),
-      toolCalls: [expect.objectContaining({ toolCallId: "tool-1", name: "read", status: "running" })],
+      tools: [expect.objectContaining({ toolCallId: "tool-1", name: "read", status: "running" })],
     });
 
     listener({
@@ -1595,7 +1595,7 @@ describe("chat live ingest", () => {
     expect(finalBootstrap.json()).toMatchObject({
       runStatus: "done",
       activeRun: null,
-      toolCalls: [expect.objectContaining({ toolCallId: "tool-1", name: "read", status: "success" })],
+      tools: [expect.objectContaining({ toolCallId: "tool-1", name: "read", status: "success" })],
     });
     await app.close();
   });
@@ -1625,12 +1625,7 @@ describe("chat live ingest", () => {
     expect(bootstrap.json()).toMatchObject({
       runStatus: "done",
       activeRun: null,
-      toolCalls: [expect.objectContaining({
-        toolCallId: "tool-1",
-        name: "web_fetch",
-        status: "success",
-        messageId: "a-tools",
-      })],
+      tools: [],
     });
     await app.close();
   });
@@ -1661,13 +1656,7 @@ describe("chat live ingest", () => {
     expect(bootstrap.json()).toMatchObject({
       runStatus: "done",
       activeRun: null,
-      toolCalls: [expect.objectContaining({
-        toolCallId: "tool-1",
-        name: "web_fetch",
-        status: "success",
-        detailTruncated: true,
-        resultPreview: '"# Hoppscotch\\nOpen source API development ecosystem."',
-      })],
+      tools: [],
     });
     await app.close();
   });
@@ -1701,7 +1690,7 @@ describe("chat live ingest", () => {
     expect(bootstrap.json()).toMatchObject({
       runStatus: "done",
       activeRun: null,
-      toolCalls: [expect.objectContaining({ toolCallId: "old-tool", runId: "stale-run", status: "success" })],
+      tools: [expect.objectContaining({ toolCallId: "old-tool", status: "success" })],
     });
     expect(context.runs.getRun("stale-run")).toMatchObject({ status: "done" });
     await app.close();
@@ -1737,7 +1726,7 @@ describe("chat live ingest", () => {
       runStatus: "streaming",
       statusLabel: "Streaming",
       activeRun: expect.objectContaining({ runId: "run-current", status: "streaming" }),
-      toolCalls: [expect.objectContaining({ toolCallId: "tool-old", runId: "run-current", status: "success" })],
+      tools: [expect.objectContaining({ toolCallId: "tool-old", status: "success" })],
     });
     expect(context.runs.getToolCall("s1", "tool-old")).toMatchObject({ status: "success" });
     await app.close();
@@ -1773,7 +1762,7 @@ describe("chat live ingest", () => {
     expect(bootstrap.json()).toMatchObject({
       runStatus: "thinking",
       activeRun: expect.objectContaining({ runId: "run-2" }),
-      toolCalls: [],
+      tools: [],
     });
     expect(context.runs.getToolCall("s1", "tool-old")).toMatchObject({ runId: "run-1", status: "success" });
     await app.close();
@@ -1820,9 +1809,10 @@ describe("chat live ingest", () => {
     expect(bootstrap.json()).toMatchObject({
       runStatus: "tool_running",
       activeRun: expect.objectContaining({ runId: "run-2" }),
-      toolCalls: [expect.objectContaining({ toolCallId: "current-tool", runId: "run-2", status: "running" })],
+      tools: [expect.objectContaining({ toolCallId: "current-tool", status: "running" })],
     });
-    expect(bootstrap.json().toolCalls).toHaveLength(1);
+    expect(bootstrap.json()).not.toHaveProperty("toolCalls");
+    expect(bootstrap.json().tools).toHaveLength(1);
     await app.close();
   });
 
@@ -1870,12 +1860,10 @@ describe("chat live ingest", () => {
     const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=parent-1" });
     expect(bootstrap.statusCode).toBe(200);
     expect(bootstrap.json()).toMatchObject({
-      toolCalls: [expect.objectContaining({
+      tools: [expect.objectContaining({
         toolCallId: "spawn-1",
         name: "sessions_spawn",
         status: "success",
-        argsMeta: expect.objectContaining({ task: "Audit child", label: "Auditor" }),
-        resultMeta: expect.objectContaining({ childSessionKey: "agent:main:subagent:child-1" }),
       })],
     });
     await app.close();
@@ -2021,7 +2009,7 @@ describe("chat live ingest", () => {
       messages: expect.arrayContaining([
         expect.objectContaining({ role: "assistant", __openclaw: expect.objectContaining({ id: "a-tools" }) }),
       ]),
-      toolCalls: [expect.objectContaining({ toolCallId: "tool-1", name: "read", status: "running" })],
+      tools: [expect.objectContaining({ toolCallId: "tool-1", name: "read", status: "running" })],
     });
     const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
     expect(replay.json().patches).not.toEqual(expect.arrayContaining([
