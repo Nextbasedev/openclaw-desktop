@@ -68,9 +68,17 @@ export function ChatsSection({
       setShowArchived(true)
       setCurrentPage(0)
     }
+    function showActiveChats() {
+      setShowArchived(false)
+      setCurrentPage(0)
+    }
 
     window.addEventListener("openclaw:show-archived-chats", showArchivedChats)
-    return () => window.removeEventListener("openclaw:show-archived-chats", showArchivedChats)
+    window.addEventListener("openclaw:show-active-chats", showActiveChats)
+    return () => {
+      window.removeEventListener("openclaw:show-archived-chats", showArchivedChats)
+      window.removeEventListener("openclaw:show-active-chats", showActiveChats)
+    }
   }, [])
 
   useEffect(() => {

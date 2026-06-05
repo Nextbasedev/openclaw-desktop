@@ -165,6 +165,7 @@ export function CollapsedSpacesPopover({
     clearPreviewTimer()
     setArchivedSelected(false)
     setContextMenu((prev) => ({ ...prev, open: false, space: null }))
+    window.dispatchEvent(new CustomEvent("openclaw:show-active-chats"))
     void onSpaceSwitch(space.id)
   }
 
