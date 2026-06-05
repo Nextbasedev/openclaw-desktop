@@ -5,6 +5,8 @@ export const OLDER_HISTORY_FAST_SCROLL_MIN_VELOCITY_PX_PER_MS = 1.1
 export const OLDER_HISTORY_REARM_VIEWPORT_RATIO = 0.75
 export const OLDER_HISTORY_REARM_MIN_PX = 500
 export const OLDER_HISTORY_NEAR_TOP_PX = 96
+export const OLDER_HISTORY_PREFETCH_ROOT_MARGIN_VIEWPORTS = 2
+export const OLDER_HISTORY_PREFETCH_MIN_MARGIN_PX = 900
 
 type OlderHistoryAutoLoadInput = {
   scrollTop: number
@@ -15,6 +17,43 @@ type OlderHistoryAutoLoadInput = {
   lastLoadScrollTop?: number | null
   currentTimeMs?: number
   previousScrollTimeMs?: number
+}
+
+type OlderHistoryPrefetchInput = {
+  isIntersecting: boolean
+  hasOlderMessages: boolean
+  isFetchInFlight: boolean
+  isGenerating: boolean
+  hasUserIntent: boolean
+  autoLoadBlockedUntilMs?: number
+  currentTimeMs?: number
+}
+
+export function olderHistoryPrefetchRootMargin(clientHeight: number) {
+  const marginPx = Math.max(
+    OLDER_HISTORY_PREFETCH_MIN_MARGIN_PX,
+    Math.round(Math.max(0, clientHeight) * OLDER_HISTORY_PREFETCH_ROOT_MARGIN_VIEWPORTS)
+  )
+  return `${marginPx}px 0px 0px 0px`
+}
+
+export function shouldPrefetchOlderHistory({
+  isIntersecting,
+  hasOlderMessages,
+  isFetchInFlight,
+  isGenerating,
+  hasUserIntent,
+  autoLoadBlockedUntilMs = 0,
+  currentTimeMs = Date.now(),
+}: OlderHistoryPrefetchInput) {
+  return Boolean(
+    isIntersecting &&
+    hasOlderMessages &&
+    !isFetchInFlight &&
+    !isGenerating &&
+    hasUserIntent &&
+    currentTimeMs >= autoLoadBlockedUntilMs
+  )
 }
 
 function olderHistoryLoadThreshold(scrollHeight: number, clientHeight: number, remainingRatio = OLDER_HISTORY_LOAD_REMAINING_RATIO) {

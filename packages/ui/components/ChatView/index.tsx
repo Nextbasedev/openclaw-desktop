@@ -10,8 +10,13 @@ import { ChatSearch } from "./ChatSearch"
 import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
 import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
 import { dedupeSpawnedSubagents } from "@/lib/chat-engine-v2/store"
-import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
+import {
+  olderHistoryPrefetchRootMargin,
+  shouldAutoLoadOlderHistory,
+  shouldPrefetchOlderHistory,
+} from "./chatHistoryAutoLoad"
 import { logChatScrollDebug } from "./chatScrollDebug"
+import { captureMessageScrollAnchor, settleMessageScrollAnchor, type MessageScrollAnchor } from "./chatScrollAnchor"
 import { LoadOlderMessagesButton } from "./LoadOlderMessagesButton"
 import { isSubagentToolName } from "@/lib/toolStepLabel"
 
@@ -80,120 +85,7 @@ import {
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 const VIRTUAL_MESSAGE_OVERSCAN_PX = 1400
 const VIRTUAL_MESSAGE_ESTIMATED_HEIGHT_PX = 168
-
-type MessageScrollAnchor = {
-  id: string
-  uiId: string
-  messageId: string
-  top: number
-  previousScrollHeight: number
-  previousScrollTop: number
-}
-
-function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrollAnchor | null {
-  if (!container) return null
-  const containerRect = container.getBoundingClientRect()
-  const containerTop = containerRect.top
-  const anchorY = containerTop + Math.min(180, Math.max(80, containerRect.height * 0.25))
-  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-  const visibleRow =
-    rows.find((row) => {
-      const rect = row.getBoundingClientRect()
-      return rect.top <= anchorY && rect.bottom >= anchorY
-    }) ?? rows.find((row) => row.getBoundingClientRect().bottom > containerTop + 1)
-  if (!visibleRow) {
-    return {
-      id: "",
-      uiId: "",
-      messageId: "",
-      top: containerTop,
-      previousScrollHeight: container.scrollHeight,
-      previousScrollTop: container.scrollTop,
-    }
-  }
-  return {
-    id: visibleRow.id,
-    uiId: visibleRow.dataset.uiId ?? "",
-    messageId: visibleRow.dataset.messageId ?? "",
-    top: visibleRow.getBoundingClientRect().top,
-    previousScrollHeight: container.scrollHeight,
-    previousScrollTop: container.scrollTop,
-  }
-}
-
-function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null) {
-  if (!container || !anchor) return
-  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-  if (anchor.uiId || anchor.messageId) {
-    const row = rows.find((item) => item.dataset.uiId === anchor.uiId) ??
-      rows.find((item) => item.dataset.messageId === anchor.messageId)
-    if (row) {
-      const deltaPx = row.getBoundingClientRect().top - anchor.top
-      container.scrollTop += deltaPx
-      logChatScrollDebug({
-        source: "chat",
-        event: "restore-anchor-row",
-        anchorId: anchor.uiId || anchor.messageId,
-        anchorTop: anchor.top,
-        deltaPx,
-        scrollTop: container.scrollTop,
-        scrollHeight: container.scrollHeight,
-        clientHeight: container.clientHeight,
-      })
-      return
-    }
-  }
-  if (anchor.id) {
-    const row = document.getElementById(anchor.id)
-    if (row) {
-      const deltaPx = row.getBoundingClientRect().top - anchor.top
-      container.scrollTop += deltaPx
-      logChatScrollDebug({ source: "chat", event: "restore-anchor-dom-id", anchorId: anchor.id, anchorTop: anchor.top, deltaPx, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
-      return
-    }
-  }
-  const delta = container.scrollHeight - anchor.previousScrollHeight
-  container.scrollTop = anchor.previousScrollTop + Math.max(0, delta)
-  logChatScrollDebug({ source: "chat", event: "restore-anchor-height-delta", anchorId: anchor.uiId || anchor.id, deltaPx: delta, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
-}
-
-function settleMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null, done: () => void) {
-  let finished = false
-  let frame: number | null = null
-  let observer: ResizeObserver | null = null
-  const timeouts: number[] = []
-
-  const restore = () => {
-    if (finished) return
-    restoreMessageScrollAnchor(container, anchor)
-  }
-  const scheduleRestore = () => {
-    if (finished || frame !== null) return
-    frame = requestAnimationFrame(() => {
-      frame = null
-      restore()
-    })
-  }
-  const finish = () => {
-    if (finished) return
-    finished = true
-    if (frame !== null) cancelAnimationFrame(frame)
-    for (const timeout of timeouts) window.clearTimeout(timeout)
-    observer?.disconnect()
-    restoreMessageScrollAnchor(container, anchor)
-    done()
-  }
-
-  restore()
-  scheduleRestore()
-  if (container && typeof ResizeObserver !== "undefined") {
-    observer = new ResizeObserver(scheduleRestore)
-    observer.observe(container)
-  }
-  timeouts.push(window.setTimeout(restore, 80))
-  timeouts.push(window.setTimeout(restore, 180))
-  timeouts.push(window.setTimeout(finish, 360))
-}
+const OLDER_HISTORY_PREFETCH_FOLLOWUP_LIMIT = 2
 
 function useVirtualMessageWindow({
   messages,
@@ -1032,13 +924,24 @@ export function ChatView({
   const userScrollIntentRef = useRef(false)
   const needsInitialScrollRef = useRef(true)
   const loadOlderClickInFlightRef = useRef(false)
+  const olderPrefetchSentinelRef = useRef<HTMLDivElement | null>(null)
+  const olderPrefetchLastIntersectingRef = useRef(false)
+  const olderPrefetchFollowupCountRef = useRef(0)
   const olderLoadAwaitingRenderRef = useRef(false)
   const lastOlderLoadAtRef = useRef(0)
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
   const previousScrollTopRef = useRef(0)
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const olderAutoLoadBlockedUntilRef = useRef(0)
+  const hasOlderMessagesRef = useRef(hasOlderMessages)
+  const loadingOlderMessagesRef = useRef(loadingOlderMessages)
+  const isGeneratingRef = useRef(isGenerating)
+  const [manualOlderLoading, setManualOlderLoading] = useState(false)
   const virtualMessages = useVirtualMessageWindow({ messages: renderedMessages, scrollContainerRef })
+
+  hasOlderMessagesRef.current = hasOlderMessages
+  loadingOlderMessagesRef.current = loadingOlderMessages
+  isGeneratingRef.current = isGenerating
 
   useEffect(() => {
     olderAutoLoadBlockedUntilRef.current = Date.now() + 1500
@@ -1059,6 +962,9 @@ export function ChatView({
     userScrollIntentRef.current = false
     needsInitialScrollRef.current = true
     loadOlderClickInFlightRef.current = false
+    olderPrefetchLastIntersectingRef.current = false
+    olderPrefetchFollowupCountRef.current = 0
+    setManualOlderLoading(false)
     lastOlderLoadAtRef.current = 0
     lastOlderLoadScrollTopRef.current = null
     previousScrollTopRef.current = 0
@@ -1237,13 +1143,14 @@ export function ChatView({
     [sessionKey, messageActionState.reactions]
   )
 
-  const loadOlderWithoutJump = useCallback(async () => {
+  const loadOlderWithoutJump = useCallback(async (source: "prefetch" | "fallback" = "prefetch") => {
     const now = Date.now()
     if (!hasOlderMessages || loadingOlderMessages || loadOlderClickInFlightRef.current) return
     if (isGenerating || now < olderAutoLoadBlockedUntilRef.current) return
     if (now - lastOlderLoadAtRef.current < 900) return
     lastOlderLoadAtRef.current = now
     loadOlderClickInFlightRef.current = true
+    if (source === "fallback") setManualOlderLoading(true)
     olderLoadAwaitingRenderRef.current = true
     pendingOlderAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
     logChatScrollDebug({
@@ -1262,8 +1169,13 @@ export function ChatView({
       pendingOlderAnchorRef.current = null
       olderLoadAwaitingRenderRef.current = false
       loadOlderClickInFlightRef.current = false
+      if (source === "fallback") setManualOlderLoading(false)
     }
   }, [hasOlderMessages, isGenerating, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey])
+
+  const triggerOlderPrefetch = useCallback(() => {
+    void loadOlderWithoutJump("prefetch")
+  }, [loadOlderWithoutJump])
 
   useLayoutEffect(() => {
     const anchor = pendingOlderAnchorRef.current
@@ -1277,8 +1189,61 @@ export function ChatView({
         lastOlderLoadScrollTopRef.current = el.scrollTop
       }
       loadOlderClickInFlightRef.current = false
+      setManualOlderLoading(false)
+      const canFollowUp =
+        olderPrefetchLastIntersectingRef.current &&
+        olderPrefetchFollowupCountRef.current < OLDER_HISTORY_PREFETCH_FOLLOWUP_LIMIT &&
+        shouldPrefetchOlderHistory({
+          isIntersecting: true,
+          hasOlderMessages: hasOlderMessagesRef.current,
+          isFetchInFlight: loadingOlderMessagesRef.current || loadOlderClickInFlightRef.current,
+          isGenerating: isGeneratingRef.current,
+          hasUserIntent: userScrollIntentRef.current,
+          autoLoadBlockedUntilMs: olderAutoLoadBlockedUntilRef.current,
+        })
+      if (canFollowUp) {
+        olderPrefetchFollowupCountRef.current += 1
+        window.setTimeout(triggerOlderPrefetch, 900)
+      }
     })
-  }, [renderedMessages.length, scrollContainerRef])
+  }, [hasOlderMessages, renderedMessages.length, scrollContainerRef, triggerOlderPrefetch])
+
+  useEffect(() => {
+    const root = scrollContainerRef.current
+    const sentinel = olderPrefetchSentinelRef.current
+    if (!root || !sentinel || typeof IntersectionObserver === "undefined") return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const isIntersecting = Boolean(entry?.isIntersecting)
+        olderPrefetchLastIntersectingRef.current = isIntersecting
+        if (!isIntersecting) {
+          olderPrefetchFollowupCountRef.current = 0
+          return
+        }
+        if (olderPrefetchFollowupCountRef.current === 0 && shouldPrefetchOlderHistory({
+          isIntersecting,
+          hasOlderMessages,
+          isFetchInFlight: loadingOlderMessages || loadOlderClickInFlightRef.current,
+          isGenerating,
+          hasUserIntent: userScrollIntentRef.current,
+          autoLoadBlockedUntilMs: olderAutoLoadBlockedUntilRef.current,
+        })) {
+          olderPrefetchFollowupCountRef.current = 1
+          logChatScrollDebug({ source: "chat", event: "load-older-prefetch-trigger", sessionKey, scrollTop: root.scrollTop, scrollHeight: root.scrollHeight, clientHeight: root.clientHeight })
+          triggerOlderPrefetch()
+        }
+      },
+      {
+        root,
+        rootMargin: olderHistoryPrefetchRootMargin(root.clientHeight),
+        threshold: 0,
+      }
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasOlderMessages, isGenerating, loadingOlderMessages, renderedMessages.length, scrollContainerRef, sessionKey, triggerOlderPrefetch])
 
   const handleScroll = useCallback(() => {
     virtualMessages.recomputeViewport()
@@ -1297,7 +1262,7 @@ export function ChatView({
         lastLoadScrollTop: lastOlderLoadScrollTopRef.current,
       })) {
         logChatScrollDebug({ source: "chat", event: "load-older-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
-        void loadOlderWithoutJump()
+        void loadOlderWithoutJump("prefetch")
       }
       previousScrollTopRef.current = el.scrollTop
     }
@@ -2130,8 +2095,14 @@ export function ChatView({
           <div className="mx-auto max-w-3xl px-4 pt-8" />
           <LoadOlderMessagesButton
             hasOlderMessages={hasOlderMessages}
-            loadingOlderMessages={loadingOlderMessages || loadOlderClickInFlightRef.current}
-            onLoadOlderMessages={loadOlderWithoutJump}
+            loadingOlderMessages={manualOlderLoading}
+            onLoadOlderMessages={() => void loadOlderWithoutJump("fallback")}
+          />
+          <div
+            ref={olderPrefetchSentinelRef}
+            aria-hidden="true"
+            data-chat-older-prefetch-sentinel="true"
+            className="h-px w-full overflow-hidden opacity-0 pointer-events-none"
           />
           <div data-chat-virtualized="true" style={{ height: virtualMessages.topSpacerHeight }} />
           {virtualMessages.virtualRows.map(({ message: msg, index }) => (

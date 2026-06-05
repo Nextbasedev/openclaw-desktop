@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { shouldAutoLoadOlderHistory } from "@/components/ChatView/chatHistoryAutoLoad"
+import {
+  olderHistoryPrefetchRootMargin,
+  shouldAutoLoadOlderHistory,
+  shouldPrefetchOlderHistory,
+} from "@/components/ChatView/chatHistoryAutoLoad"
 
 const base = {
   scrollHeight: 10_000,
@@ -63,5 +67,37 @@ describe("shouldAutoLoadOlderHistory", () => {
 
   it("does not load if the container is not scrollable", () => {
     expect(shouldAutoLoadOlderHistory({ ...base, scrollHeight: 900, clientHeight: 1_000, scrollTop: 0 })).toBe(false)
+  })
+})
+
+describe("shouldPrefetchOlderHistory", () => {
+  const prefetchBase = {
+    isIntersecting: true,
+    hasOlderMessages: true,
+    isFetchInFlight: false,
+    isGenerating: false,
+    hasUserIntent: true,
+    currentTimeMs: 2_000,
+  }
+
+  it("fires from the observer when the invisible top sentinel intersects early", () => {
+    expect(shouldPrefetchOlderHistory(prefetchBase)).toBe(true)
+  })
+
+  it("does not fire on the initial programmatic bottom scroll before user intent", () => {
+    expect(shouldPrefetchOlderHistory({ ...prefetchBase, hasUserIntent: false })).toBe(false)
+  })
+
+  it("does not fire while an older-history fetch is already in flight", () => {
+    expect(shouldPrefetchOlderHistory({ ...prefetchBase, isFetchInFlight: true })).toBe(false)
+  })
+
+  it("respects the generation/autoload block window", () => {
+    expect(shouldPrefetchOlderHistory({ ...prefetchBase, autoLoadBlockedUntilMs: 2_500 })).toBe(false)
+  })
+
+  it("uses a large root margin so observation happens well before the top is visible", () => {
+    expect(olderHistoryPrefetchRootMargin(720)).toBe("1440px 0px 0px 0px")
+    expect(olderHistoryPrefetchRootMargin(320)).toBe("900px 0px 0px 0px")
   })
 })
