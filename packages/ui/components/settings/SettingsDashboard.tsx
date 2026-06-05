@@ -120,11 +120,12 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
       <div
         ref={scrollRef}
         className={cn(
-          "min-h-0 flex-1 overflow-y-auto scrollbar-hide",
-          resolvedSection === "connect" || resolvedSection === "config" ? "bg-transparent" : "bg-transparent px-8 py-7",
+          "min-h-0 flex-1 scrollbar-hide",
+          resolvedSection === "config" ? "overflow-hidden bg-transparent" : "overflow-y-auto",
+          resolvedSection === "connect" ? "bg-transparent" : resolvedSection === "config" ? "bg-transparent" : "bg-transparent px-8 py-7",
         )}
       >
-        <div className={cn("mx-auto min-h-full", resolvedSection === "connect" || resolvedSection === "config" ? "max-w-none" : "max-w-2xl")}>
+        <div className={cn("mx-auto min-h-full", resolvedSection === "config" && "h-full", resolvedSection === "connect" || resolvedSection === "config" ? "max-w-none" : "max-w-2xl")}>
           {resolvedSection === "usage" && <UsageTab />}
 
           {resolvedSection === "config" && <ConfigTab />}

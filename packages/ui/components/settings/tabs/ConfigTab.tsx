@@ -3,10 +3,7 @@
 import * as React from "react"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
-import { middlewareFetch } from "@/lib/middleware-client"
-import { localSyncClearAll } from "@/lib/localFirstSync"
-import { persistentCacheClearAll } from "@/lib/persistentCache"
-import { LuFileText, LuRefreshCw, LuPencil, LuSave, LuX, LuTrash2 } from "react-icons/lu"
+import { LuFileText, LuRefreshCw, LuPencil, LuSave, LuX } from "react-icons/lu"
 
 type ConfigFile = {
   path: string
@@ -31,30 +28,8 @@ export function ConfigTab() {
   const [content, setContent] = React.useState("")
   const [draft, setDraft] = React.useState("")
   const [loading, setLoading] = React.useState(false)
-  const [deleting, setDeleting] = React.useState(false)
-  const [deleteResult, setDeleteResult] = React.useState<string | null>(null)
   const loadRequestRef = React.useRef(0)
   const selectedPathRef = React.useRef(CONFIG_FILES[0].path)
-
-  async function handleDeleteAllChats() {
-    if (!confirm("Delete ALL chats? This removes all desktop and imported Telegram chats, messages, and projections. This cannot be undone.")) return
-    setDeleting(true)
-    setDeleteResult(null)
-    try {
-      const result = await middlewareFetch<{ ok: boolean; deleted: number; sessionsCleaned: number }>("/api/chats", { method: "DELETE", timeoutMs: 60_000 })
-      setDeleteResult(`Deleted ${result.deleted} chats, cleaned ${result.sessionsCleaned} sessions.`)
-    } catch (error) {
-      // Deletion likely succeeded server-side even if we timed out
-      setDeleteResult(error instanceof Error && error.message.includes("timed out")
-        ? "Chats deleted (server cleanup still finishing)."
-        : `Failed: ${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      // Always clear frontend caches and refresh sidebar
-      await Promise.all([localSyncClearAll(), persistentCacheClearAll()]).catch(() => {})
-      window.dispatchEvent(new CustomEvent("sidebar:refresh"))
-      setDeleting(false)
-    }
-  }
   const [saving, setSaving] = React.useState(false)
   const [editing, setEditing] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -115,8 +90,8 @@ export function ConfigTab() {
   }
 
   return (
-    <div className="flex min-h-full w-full bg-transparent">
-      <aside className="flex w-[270px] shrink-0 animate-in slide-in-from-left-8 fade-in-0 flex-col border-r border-black/[0.055] bg-black/[0.018] duration-300 dark:border-white/[0.055] dark:bg-white/[0.018]">
+    <div className="flex h-full min-h-0 w-full bg-transparent">
+      <aside className="sticky top-0 flex h-full w-[270px] shrink-0 animate-in slide-in-from-left-8 fade-in-0 flex-col border-r border-black/[0.055] bg-black/[0.018] duration-300 dark:border-white/[0.055] dark:bg-white/[0.018]">
         <div className="border-b border-black/[0.04] px-5 py-6 dark:border-white/[0.045]">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -159,32 +134,10 @@ export function ConfigTab() {
           })}
         </div>
 
-        <div className="border-t border-black/[0.04] p-3 dark:border-white/[0.045]">
-          <div className="rounded-xl bg-red-500/[0.055] p-3 ring-1 ring-red-500/10">
-            <div className="flex items-start gap-2.5">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-red-400">
-                <LuTrash2 size={15} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-[12px] font-medium text-foreground">Delete all chats</p>
-                <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground/75">Desktop/imported chats and cached projections.</p>
-                {deleteResult && <p className={`mt-1.5 text-[10px] leading-snug ${deleteResult.startsWith("Failed") ? "text-red-400" : "text-green-400"}`}>{deleteResult}</p>}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleDeleteAllChats}
-              disabled={deleting}
-              className="mt-3 w-full cursor-pointer rounded-lg bg-red-500/10 px-3 py-1.5 text-[11px] font-semibold text-red-400 transition-colors hover:bg-red-500/20 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {deleting ? "Deleting…" : "Delete all"}
-            </button>
-          </div>
-        </div>
       </aside>
 
-      <main className="min-w-0 flex-1 px-7 py-6">
-        <section className="flex min-h-full min-w-0 flex-col overflow-hidden">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col px-7 py-6">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-2 pb-4">
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
@@ -249,7 +202,7 @@ export function ConfigTab() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               spellCheck={false}
-              className="min-h-[calc(100vh-220px)] w-full flex-1 resize-y bg-transparent px-2 py-1 font-mono text-[12px] leading-relaxed text-foreground/85 outline-none placeholder:text-muted-foreground/40"
+              className="min-h-0 w-full flex-1 resize-none overflow-auto bg-transparent px-2 py-1 font-mono text-[12px] leading-relaxed text-foreground/85 outline-none placeholder:text-muted-foreground/40"
             />
           ) : (
             <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words px-2 py-1 font-mono text-[12px] leading-relaxed text-foreground/80 [overflow-wrap:anywhere]">
