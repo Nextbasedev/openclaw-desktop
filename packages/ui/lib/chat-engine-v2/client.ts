@@ -296,6 +296,9 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
       try {
         const frame = JSON.parse(String(event.data)) as StreamFrame
         if (frame.type === "patch") cursor = Math.max(cursor, frame.patch.cursor)
+        if (frame.type === "hello" && typeof frame.latestCursor === "number" && Number.isFinite(frame.latestCursor)) {
+          cursor = Math.max(cursor, frame.latestCursor)
+        }
         frontendLog("stream", "patch-stream.event", {
           frameType: frame.type,
           cursor: frame.type === "patch" ? frame.patch.cursor : undefined,
@@ -306,7 +309,7 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
         }, "debug")
         if (frame.type === "hello" && (frame.recovery === "bootstrap" || frame.replayWindowExceeded)) {
           const replayCount = Math.max(0, frame.replayCount ?? 0)
-          const isFreshConnection = connectionCursor === 0 && replayCount === 0 && !frame.replayHasMore
+          const isFreshConnection = connectionCursor === 0 && replayCount === 0
           suppressReplayUntilCursor = Math.max(
             suppressReplayUntilCursor,
             connectionCursor + replayCount,

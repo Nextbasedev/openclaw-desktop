@@ -1661,21 +1661,25 @@ export function useChatMessages(
       setErrorMessage(warmStatus === "error" ? warmStatusLabel : null)
       const warmCursor = useCachedGlobal && typeof cachedGlobal?.cursor === "number"
         ? cachedGlobal.cursor
-        : typeof cachedBootstrap?.cursor === "number"
-          ? cachedBootstrap.cursor
-          : typeof cachedBootstrap?.v2Cursor === "number"
-            ? cachedBootstrap.v2Cursor
-            : undefined
-      if (seededMessages) {
+        : typeof cachedBootstrap?.headCursor === "number"
+          ? cachedBootstrap.headCursor
+          : typeof cachedBootstrap?.cursor === "number"
+            ? cachedBootstrap.cursor
+            : typeof cachedBootstrap?.v2Cursor === "number"
+              ? cachedBootstrap.v2Cursor
+              : undefined
+      if (typeof warmCursor === "number") v2CursorRef.current = Math.max(v2CursorRef.current, warmCursor)
+      if (typeof warmCursor === "number" || seededMessages || useCachedGlobal) {
         seedGlobalChatSession({
           sessionKey,
           messages: warmMessages,
           cursor: typeof warmCursor === "number" ? warmCursor : v2CursorRef.current,
           status: warmStatus,
           statusLabel: warmStatusLabel,
-          pendingTools: [],
-          messageCount: cachedBootstrap?.messageCount ?? warmMessages.length,
-          historyCoverage: "metadata",
+          pendingTools: useCachedGlobal ? (cachedGlobal?.pendingTools ?? []) : [],
+          spawnedSubagents: useCachedGlobal ? (cachedGlobal?.spawnedSubagents ?? []) : [],
+          messageCount: cachedBootstrap?.messageCount ?? cachedGlobal?.messageCount ?? warmMessages.length,
+          historyCoverage: useCachedGlobal ? cachedGlobal?.historyCoverage ?? "metadata" : "metadata",
           queryClient,
         })
       }
@@ -1693,8 +1697,8 @@ export function useChatMessages(
         spawnMapRef.current = new Map(cachedGlobal.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
         setSpawnedSubagents(cachedGlobal.spawnedSubagents)
       }
-      if (useCachedGlobal && typeof cachedGlobal?.cursor === "number") v2CursorRef.current = cachedGlobal.cursor
-      else if (typeof cachedBootstrap?.v2Cursor === "number") v2CursorRef.current = cachedBootstrap.v2Cursor
+      if (useCachedGlobal && typeof cachedGlobal?.cursor === "number") v2CursorRef.current = Math.max(v2CursorRef.current, cachedGlobal.cursor)
+      else if (typeof cachedBootstrap?.v2Cursor === "number") v2CursorRef.current = Math.max(v2CursorRef.current, cachedBootstrap.v2Cursor)
     } else if (knownEmptyState) {
       setLoading(false)
       setHasOlderMessages(false)

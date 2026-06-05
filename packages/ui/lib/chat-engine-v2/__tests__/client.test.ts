@@ -69,6 +69,35 @@ describe("middleware client", () => {
     expect(url).toContain("sessionKey=s1")
     expect(url).toContain("ids=a%2Cb")
   })
+  it("suppresses destructive recovery for a fresh cursor-0 hello even when replay has more", async () => {
+    const data = new Map<string, string>()
+    const dispatchEvent = vi.fn()
+    vi.stubGlobal("window", { location: { hostname: "localhost" }, console, addEventListener: vi.fn(), dispatchEvent, setTimeout, clearTimeout, setInterval, clearInterval })
+    vi.stubGlobal("localStorage", { getItem: vi.fn((key: string) => data.get(key) ?? null) })
+    vi.stubGlobal("fetch", vi.fn())
+
+    const sockets: Array<{ onmessage?: (event: { data: string }) => void; close: () => void }> = []
+    class FakeWebSocket {
+      onmessage?: (event: { data: string }) => void
+      onopen?: () => void
+      onerror?: () => void
+      onclose?: (event: { code: number; wasClean: boolean }) => void
+      constructor(_url: string) { sockets.push(this) }
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket)
+
+    const { openPatchStreamV2 } = await import("../client")
+    const frames: unknown[] = []
+    openPatchStreamV2(0, (frame) => frames.push(frame))
+
+    sockets[0].onmessage?.({ data: JSON.stringify({ type: "hello", clientId: "c1", afterCursor: 0, replayCount: 0, replayHasMore: true, replayWindowExceeded: true, latestCursor: 4326 }) })
+
+    expect(dispatchEvent).not.toHaveBeenCalled()
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+    expect(frames).toEqual([expect.objectContaining({ type: "hello", replayHasMore: true })])
+  })
+
   it("continues delivering live patches after backlog replay finishes", async () => {
     const data = new Map<string, string>()
     vi.stubGlobal("window", { location: { hostname: "localhost" }, console, addEventListener: vi.fn(), dispatchEvent: vi.fn() })

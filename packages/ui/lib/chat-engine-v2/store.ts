@@ -1760,6 +1760,10 @@ function handlePatch(frame: PatchFrame, allowUnsubscribed = false) {
 
 function handleFrame(frame: StreamFrame) {
   if (frame.type === "hello") {
+    if (typeof frame.latestCursor === "number" && Number.isFinite(frame.latestCursor)) {
+      streamCursor = Math.max(streamCursor, frame.latestCursor)
+      lastReceivedCursor = Math.max(lastReceivedCursor, frame.latestCursor)
+    }
     return
   }
   if (frame.type !== "patch") return
@@ -1816,6 +1820,9 @@ export function ensureGlobalChatEngine(
   }
   for (const state of states.values()) {
     streamCursor = Math.max(streamCursor, state.cursor)
+  }
+  if (typeof options?.replayFromCursor === "number" && Number.isFinite(options.replayFromCursor)) {
+    streamCursor = Math.max(streamCursor, options.replayFromCursor)
   }
   if (options?.sessionKey) void reconcileFocusedSessionCursor(options.sessionKey)
   if (unsubscribeStream) return

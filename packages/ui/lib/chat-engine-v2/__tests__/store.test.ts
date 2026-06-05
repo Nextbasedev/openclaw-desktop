@@ -215,6 +215,73 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalCursorForTests()).toBe(1000)
   })
 
+  test("cold-load warm baseline connects at cached session cursor and does not recover", async () => {
+    const target = new EventTarget()
+    const recoveryEvents: unknown[] = []
+    vi.stubGlobal("window", {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      dispatchEvent: target.dispatchEvent.bind(target),
+      setInterval,
+      clearInterval,
+    })
+    window.addEventListener("openclaw:chat-bootstrap-recovery", (event) => recoveryEvents.push((event as CustomEvent).detail))
+    const client = await import("../client")
+    vi.mocked(client.fetchChatSessionHeadV2).mockResolvedValueOnce({ ok: true, sessionKey: "warm-session", headCursor: 4326, knownVisibleTotal: 2, oldestVisibleSeq: 1 })
+
+    seedGlobalChatSession({
+      sessionKey: "warm-session",
+      cursor: 4326,
+      status: "done",
+      messages: [
+        { messageId: "u1", role: "user", text: "Question", gatewayIndex: 1 },
+        { messageId: "a1", role: "assistant", text: "Answer", gatewayIndex: 2 },
+      ],
+      historyCoverage: "metadata",
+    })
+    ensureGlobalChatEngine(undefined, { sessionKey: "warm-session", replayFromCursor: 4326, reason: "warm-cache-state" })
+    await Promise.resolve()
+
+    expect(vi.mocked(client.openPatchStreamV2)).toHaveBeenCalledWith(4326, expect.any(Function))
+    expect(recoveryEvents).toEqual([])
+    expect(getGlobalChatSession("warm-session")?.messages.map((message) => message.messageId)).toEqual(["u1", "a1"])
+  })
+
+  test("focused scoped replay starts from seeded baseline cursor, not zero", async () => {
+    const client = await import("../client")
+    vi.mocked(client.fetchChatSessionHeadV2).mockResolvedValueOnce({ ok: true, sessionKey: "gap-session", headCursor: 4310, knownVisibleTotal: 3, oldestVisibleSeq: 1 })
+    vi.mocked(client.replayScopedPatchesV2).mockImplementationOnce(async ({ onFrame }) => {
+      onFrame({
+        type: "patch",
+        patch: {
+          cursor: 4310,
+          type: "chat.message.upsert",
+          sessionKey: "gap-session",
+          createdAtMs: Date.now(),
+          payload: {
+            sessionKey: "gap-session",
+            messageSeq: 3,
+            message: { role: "assistant", messageId: "a2", text: "tail", __openclaw: { seq: 3 } },
+          },
+        },
+      })
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "gap-session",
+      cursor: 4300,
+      status: "streaming",
+      messages: [{ messageId: "u1", role: "user", text: "Question", gatewayIndex: 1 }],
+      historyCoverage: "metadata",
+    })
+    ensureGlobalChatEngine(undefined, { sessionKey: "gap-session", replayFromCursor: 4300, reason: "focus" })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(vi.mocked(client.replayScopedPatchesV2)).toHaveBeenCalledWith(expect.objectContaining({ sessionKey: "gap-session", afterCursor: 4300 }))
+    expect(getGlobalChatSession("gap-session")?.cursor).toBe(4310)
+  })
+
   test("focused window stream uses in-memory stream cursor, not persisted global cursor", async () => {
     stubLocalStorage({ "openclaw:patchCursor:default": "1000" })
     seedGlobalChatSession({
