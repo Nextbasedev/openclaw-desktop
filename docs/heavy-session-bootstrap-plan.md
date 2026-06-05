@@ -407,3 +407,311 @@ Run:
 2. Detail endpoint budget: should a single huge tool result return inline JSON, streamed text, or a temporary downloadable artifact?
 3. Header wording: should UX prefer `31 displayed tools` or `31 tools · 27 subagents` for clarity?
 4. Projection version: decide after Phase 1 implementation whether the stored projection shape changes. If response-only, keep version 4; if stored metadata fields change, bump to 5.
+
+---
+
+## Bug 3: live send-echo ordering/duplication
+
+### Status
+
+Confirmed. This is a separate bug from the heavy bootstrap payload and projection-version gate work. The failing layer is the live/send echo reconciliation around optimistic user rows, Gateway user echoes, and send-path history persistence.
+
+It can be fixed mostly in middleware. A small UI hardening pass is optional but not the root fix.
+
+### Field evidence
+
+Real production bootstrap data from `https://oc-234eeeae.tail094d3a.ts.net/api/chat/bootstrap` still shows the duplicate user-row shape after the previous projection fixes:
+
+- `agent:main:desktop:mpzflak3-c7gnwk`:
+  - seq `1`, role `user`, id `840f78be-0933-49fe-9dae-7f424ccd2fda`, `isOptimistic:true`, runId present, no gatewaySeq.
+  - seq `2`, role `user`, no id, `gatewaySeq:2`, same visible text, no run/idempotency metadata.
+  - seq `3`, role `assistant`, `gatewaySeq:2`.
+- `agent:main:desktop:mpzc50ru-cefu9j`:
+  - seq `1`, role `user`, id `3f2eaa2f-b71c-4c5b-aa31-a5ce4dd5d405`, `isOptimistic:true`, runId present, no gatewaySeq.
+  - seq `2`, role `user`, no id, `gatewaySeq:2`, same visible text, no run/idempotency metadata.
+  - seq `3`, role `assistant`, `gatewaySeq:2`.
+
+This is exactly the reported visible state: one local optimistic row plus one Gateway echo row for the same turn, with the assistant projected after/around the duplicate. It also explains why refresh/sync can show `two user messages + two answers` temporarily and then self-correct once canonical history re-projection/pruning wins.
+
+The supplied log also confirms the history-backfill/reprojection self-heal pattern: `/root/.openclaw/media/inbound/message---34617cff-0b4f-41b1-937e-4c0027087e8a.txt` line 275 logs `history.backfill.end` with `changedMessages:51` for `agent:main:main`, proving a backfill burst can rewrite a large set of message rows after live patches already rendered.
+
+### Canonical source confirmation
+
+All referenced product source files below are git-tracked canonical files. Middleware source that ships is under `apps/middleware/**`; no `packages/desktop/src-tauri/bundled/**`, `packages/middleware`, or `packages/server` files are used for this plan.
+
+Confirmed git-tracked files for this bug:
+
+- `apps/middleware/src/features/chat/live.ts`
+- `apps/middleware/src/features/chat/send-queue.ts`
+- `apps/middleware/src/features/chat/message-normalizer.ts`
+- `apps/middleware/src/features/chat/repo.messages.ts`
+- `apps/middleware/src/features/chat/gateway-event-projector.ts`
+- `apps/middleware/src/features/chat/projection.ts`
+- `apps/middleware/src/features/chat/routes.ts`
+- `packages/ui/lib/chat-engine-v2/store.ts`
+- `packages/ui/lib/chatHistoryParser.ts`
+- `packages/ui/lib/chatMessageDedupe.ts`
+- `packages/ui/hooks/useChatMessages.ts`
+
+### Send/live ingest trace
+
+#### 1. Frontend creates an optimistic row immediately
+
+Evidence:
+
+- `packages/ui/hooks/useChatMessages.ts:2432-2443` builds the local optimistic user `ChatMessage` with `messageId = optimisticId`, `role:user`, `isOptimistic:true`, and `sendStatus:"sending"`.
+- `packages/ui/hooks/useChatMessages.ts:2444-2454` dedupes it into the local transcript and seeds the global chat session with that optimistic row.
+- `packages/ui/hooks/useChatMessages.ts:2477-2483` sends `/api/chat/send` with a stable `idempotencyKey` and the same `clientMessageId = optimisticId`.
+
+#### 2. Middleware persists and broadcasts the same optimistic user row
+
+Evidence:
+
+- `apps/middleware/src/features/chat/routes.ts:1096-1107` creates a local run keyed by the idempotency key and stores `clientMessageId` + `idempotencyKey`.
+- `apps/middleware/src/features/chat/routes.ts:1109-1121` builds the optimistic Gateway-facing user message with `__openclaw.id`, `clientMessageId`, `idempotencyKey`, and `runId`.
+- `apps/middleware/src/features/chat/routes.ts:1122-1127` records that optimistic row in `ChatLive.addOptimisticUser`.
+- `apps/middleware/src/features/chat/routes.ts:1129-1137` persists it with `openclawSeq = context.messages.nextMessageSeq(sessionKey)` and `messageId = clientMessageId`.
+- `apps/middleware/src/features/chat/routes.ts:1144-1165` broadcasts `chat.message.upsert` / semantic `chat.user.created` for that optimistic row.
+
+#### 3. Send work is serialized only by session queue
+
+Evidence:
+
+- `apps/middleware/src/features/chat/routes.ts:1215-1227` runs the Gateway send inside `context.sendQueue.run(sessionKey, ...)`, then calls `chat.send` with `idempotencyKey`.
+- `apps/middleware/src/features/chat/send-queue.ts:3-21` is a per-session promise tail. It serializes sends, but it does not dedupe message identity and cannot protect against replayed Gateway echoes within one send.
+
+#### 4. Gateway history is loaded and projected after send
+
+Evidence:
+
+- `apps/middleware/src/features/chat/routes.ts:1244-1255` calls `fetchChatHistory(... limit:200)` after `chat.send`.
+- `apps/middleware/src/features/chat/routes.ts:1263-1266` normalizes Gateway history and computes projected seq as `segment.baseSeq + (message.gatewaySeq ?? message.openclawSeq)`.
+- `apps/middleware/src/features/chat/routes.ts:1266-1270` searches for a Gateway user echo by text at/after the optimistic seq and confirms the optimistic row with `confirmOptimisticUser` when found.
+- `apps/middleware/src/features/chat/routes.ts:1293-1324` filters some duplicate user rows, then persists remaining normalized history via `upsertMessages`.
+
+#### 5. Live ingest separately handles Gateway `session.message` echoes
+
+Evidence:
+
+- `apps/middleware/src/features/chat/live.ts:250-266` receives a live `session.message`, attempts `takeMatchingOptimisticUser`, and normalizes it with `payload.messageSeq` or `nextMessageSeq` fallback.
+- `apps/middleware/src/features/chat/live.ts:268-278` skips a confirmed user duplicate only if `findRecentConfirmedUserEcho` matches.
+- `apps/middleware/src/features/chat/live.ts:297-300` confirms an optimistic row when `takeMatchingOptimisticUser` matched; otherwise it calls `upsertMessages(normalized)`.
+- `apps/middleware/src/features/chat/live.ts:358-374` broadcasts either `chat.message.confirmed` or `chat.message.upsert` with `messageSeq`.
+
+### Existing duplicate guards and why they are insufficient
+
+The preliminary hypothesis is confirmed, with one refinement: the repo now has some stripped-replay protection, but the persisted identity is still incomplete, and one real production duplicate remains visible.
+
+Evidence:
+
+- `apps/middleware/src/features/chat/live.ts:59-60` defines the duplicate guard as an in-memory TTL cache: 2 minutes and 20 entries.
+- `apps/middleware/src/features/chat/live.ts:71-80` documents the fresh-chat double echo: first echo carries the optimistic `clientMessageId/idempotencyKey`; second echo has a real Gateway messageId, no idempotency key, and higher Gateway seq.
+- `apps/middleware/src/features/chat/live.ts:81-107` matches recent confirmed echoes by normalized text, idempotency key/runId when present, or loose stripped-echo heuristics.
+- `apps/middleware/src/features/chat/live.ts:427-441` only records confirmed users in `recentlyConfirmedUsers`, the in-memory TTL map.
+- `apps/middleware/src/features/chat/live.ts:444-452` explicitly documents the send-path bug: Gateway replays prior user turns with stripped messageId and the send path can re-persist previous user turns as new rows one seq down.
+- `apps/middleware/src/features/chat/live.ts:455-477` rechecks only that in-memory map.
+- `apps/middleware/src/features/chat/live.ts:480-501` consumes optimistic rows from another in-memory map, keyed by client id/idempotency/text with a 10-minute cleanup.
+
+Failure modes:
+
+- Middleware restart loses both `optimisticUsers` and `recentlyConfirmedUsers`.
+- TTL expiry loses the confirmed-user cache even though the DB row remains.
+- Gateway stripped echoes have no `clientMessageId`, no `idempotencyKey`, and sometimes no messageId, so identity falls back to text+seq heuristics.
+- The second fresh-chat echo can arrive after assistant/tool rows and with a higher Gateway seq; seq-only or adjacency guards miss it.
+- Intentional repeated sends with identical text must remain possible, so text-only global dedupe is unsafe.
+
+### Repo projection trace: how the duplicate gets a different seq
+
+Evidence:
+
+- `apps/middleware/src/features/chat/message-normalizer.ts:239-251` creates `ProjectedMessage.openclawSeq` from `message.__openclaw.seq` or a fallback seq. Stripped Gateway rows without canonical OpenClaw metadata therefore inherit Gateway/fallback ordering.
+- `apps/middleware/src/features/chat/repo.messages.ts:243-256` stores messages with primary conflict behavior on `(session_key, openclaw_seq)`, not on logical message identity.
+- `apps/middleware/src/features/chat/repo.messages.ts:321-323` maps Gateway seq into `openclawSeq = baseSeq + gatewaySeq` when a segment is present.
+- `apps/middleware/src/features/chat/repo.messages.ts:325-352` tries existing lookup by `messageId`, `__openclaw.gatewayId`, gateway seq, or stripped-replay text matching.
+- `apps/middleware/src/features/chat/repo.messages.ts:385-394` intentionally appends to `maxSeq + 1` when a different message collides at the projected seq. This preserves user rows from assistant/tool collisions, but it also means an unmatched echo can become a new visible row at a fresh seq.
+- `apps/middleware/src/features/chat/repo.messages.ts:608-708` `confirmOptimisticUser` updates the existing optimistic row in place, keeps its local `openclawSeq`, stores `gatewaySeq` separately, writes `__openclaw.gatewayId/gatewaySeq`, and deletes a duplicate Gateway row only by exact Gateway `messageId` or exact projected seq equal to the confirmed seq.
+
+Why the production duplicate is possible:
+
+- The optimistic row is seq 1 with a client id and no gatewaySeq.
+- The stripped Gateway echo is seq 2/gatewaySeq 2 with no stable client id/idempotency.
+- Because the echo is not recognized as the same logical send, `(session_key, openclaw_seq)` does not conflict with seq 1; it inserts as seq 2.
+- The assistant then also projects with gatewaySeq 2. Collision/append logic can push one side to seq 3, yielding the observed `user seq1`, `user seq2`, `assistant seq3` order.
+
+### UI ordering and why the latest user appears hidden/reordered
+
+Ordering key:
+
+- `packages/ui/lib/chatHistoryParser.ts:163-178` says `openclawSeq` is canonical; only if absent does it use `gatewayOrderBase + gatewaySeq`.
+- `packages/ui/lib/chatHistoryParser.ts:186-197` derives message id from `__openclaw.id`, raw ids, or `openclawSeq`.
+- `packages/ui/lib/chatHistoryParser.ts:719-723` raw-message identity is `seq:<openclawSeq>` first, then ids.
+- `packages/ui/lib/chatMessageDedupe.ts:384-423` sorts UI messages by `gatewayIndex` first when present; `gatewayIndex` is the parsed message seq/openclawSeq for persisted rows. It preserves arrival order for optimistic rows and falls back to time/order when seq is missing.
+- `packages/ui/lib/chatMessageDedupe.ts:429-522` dedupes by messageId, assistant similarity, then `sameUserMessage`, and returns `sortChatMessagesByTimeline(...)`.
+
+Why hidden/reordered happens:
+
+- `packages/ui/lib/chatMessageDedupe.ts:193-207` only collapses user duplicates if they share gateway index/run id/message id, or if one is an optimistic candidate and `sameOptimisticUserTurn` accepts it.
+- `packages/ui/lib/chatMessageDedupe.ts:147-190` intentionally refuses broad text-only matching for non-identical optimistic rows because two identical user sends can be legitimate.
+- If the backend echo arrives as a non-optimistic persisted user with a different seq/gatewayIndex and no run/idempotency, UI dedupe must keep it. That can make the original optimistic/latest user appear to vanish/reposition because a later canonical row with the same text now sorts by seq near the assistant row, while the optimistic row is merged/replaced only when the heuristic thinks it is safe.
+- `packages/ui/hooks/useChatMessages.ts:220-237` preserves optimistic rows during bootstrap only when no canonical message has the same id or `sameUserMessage`. If the duplicate is canonical-but-stripped and different seq, the UI may keep both or prefer the incoming canonical row depending on timing.
+- `packages/ui/hooks/useChatMessages.ts:798-830` writes deduped local messages into the timeline store and removes absent ids when not preserving rows. A canonical/bootstrap snapshot that lacks the optimistic id can therefore remove the local optimistic row even though a same-text stripped echo remains.
+- `packages/ui/hooks/useChatMessages.ts:1892-1931` skips initial bootstrap for new chats that already have initial optimistic messages and relies on patch stream state, so live patch ordering is especially important on fresh-chat sends.
+
+Frontend conclusion: the UI is behaving defensively. Without a stable persisted identity on the backend echo, it cannot reliably distinguish a duplicate echo from a deliberate repeated same-text send.
+
+### Why history/backfill resolves it
+
+Evidence:
+
+- `apps/middleware/src/features/chat/live.ts:823-847` backfill loads Gateway history and filters recent confirmed duplicate users through the same in-memory guard.
+- `apps/middleware/src/features/chat/live.ts:886-920` then upserts normalized history and broadcasts patches for changed messages.
+- `apps/middleware/src/features/chat/live.ts:946` logs `history.backfill.end` with changed-message counts.
+- `apps/middleware/src/features/chat/routes.ts:1539-1681` `/api/chat/bootstrap` also re-fetches Gateway history on cold/non-local-first paths, upserts normalized history, prunes segment rows to the canonical set, and returns messages ordered from SQLite.
+- `apps/middleware/src/features/chat/routes.ts:1676-1678` cold bootstrap calls `upsertMessages(...)` then `pruneSegmentToCanonicalMessages(...)` when there is no pending run.
+- `apps/middleware/src/features/chat/repo.messages.ts:831-885` `listMessages` always returns SQLite rows ordered by `openclaw_seq ASC`.
+
+Interpretation:
+
+- While live send/echo is running, the UI renders incremental optimistic + live/history patches.
+- Once backfill/bootstrap sees the full canonical Gateway history, `upsertMessages` and pruning/resequence can remove or overwrite stale local/provisional rows and list messages in canonical `openclaw_seq` order.
+- That is why the ordering appears wrong during sync and correct after sync completes.
+- This self-heal is not durable enough: it leaves users watching duplicate/reordered rows during the most important live send window.
+
+### Durable fix design
+
+Do not tune the TTL. Replace live-only heuristics with a persisted logical user-turn identity.
+
+#### Recommended implementation
+
+Middleware, phase 1:
+
+1. Add persisted identity columns/indices to the canonical SQLite projection:
+   - `client_message_id TEXT NULL`
+   - `idempotency_key TEXT NULL`
+   - `run_id TEXT NULL`
+   - `logical_turn_key TEXT NULL`
+   - unique partial indexes such as:
+     - `(session_key, client_message_id)` where non-null
+     - `(session_key, idempotency_key)` where non-null
+     - `(session_key, logical_turn_key)` where non-null
+2. Populate those fields when inserting the optimistic user in `routes.ts`.
+3. In `confirmOptimisticUser`, keep the optimistic row as the canonical row and persist Gateway identity onto it:
+   - client id
+   - idempotency key
+   - run id
+   - Gateway message id as `gatewayId`
+   - Gateway seq as `gatewaySeq`
+   - normalized text hash if needed for stripped replays.
+4. Add a DB-backed lookup before inserting any user row in live ingest/send-history/backfill:
+   - first by `clientMessageId` / `idempotencyKey` / `runId` when present;
+   - then by Gateway id/seq;
+   - then, only for stripped Gateway user echoes, by a bounded active-send identity: same session + normalized text hash + echo seq at/near the current run's Gateway seq + row created/confirmed for an active or recent run.
+5. When a stripped echo matches a persisted logical turn, update/confirm the existing row in place and do not insert a new `openclaw_seq` row.
+6. Stop relying on `recentlyConfirmedUsers` for correctness. It can remain as a fast path/logging hint, but DB identity must be authoritative across restart/TTL.
+7. Ensure the send-path history persist does not call `upsertMessages` for the current Gateway user echo after `confirmOptimisticUser`; it should explicitly drop that echo and any stripped duplicate that resolves to the same logical turn.
+
+Middleware, phase 2:
+
+1. Add a small projection-version bump because DB identity/index semantics and canonical dedupe behavior change. Existing duplicate rows should be resynced/pruned on first bootstrap after upgrade.
+2. Add a migration cleanup for already-duplicated rows:
+   - identify adjacent/same-run user duplicates where one row is `__clientOptimistic:false` or `isOptimistic:true` with stable id and another is stripped/no-id with same normalized text and same/near gatewaySeq;
+   - merge Gateway metadata into the stable row;
+   - delete the stripped duplicate;
+   - preserve deliberate repeated sends by requiring run/idempotency/temporal/gateway evidence, not text alone.
+3. Use `pruneSegmentToCanonicalMessages` after full canonical history sync to delete leftover rows outside active runs.
+
+Frontend hardening, optional but useful:
+
+1. In `packages/ui/lib/chatMessageDedupe.ts`, prefer `clientMessageId` / `idempotencyKey` / `runId` from parsed `__openclaw` when comparing user rows.
+2. Add diagnostics when two user rows have identical normalized text within a tiny seq window but no shared identity, so future backend misses are obvious.
+3. Do not broaden text-only dedupe; that risks hiding intentional repeated sends.
+
+#### Alternatives considered
+
+Alternative A: increase `RECENT_CONFIRMED_USER_ECHO_TTL_MS` and map size.
+
+- Pros: very small patch.
+- Failure modes: still loses state on middleware restart, still misses normalization differences, still cannot recover old duplicate rows, still makes correctness depend on timing.
+- Reject as primary fix.
+
+Alternative B: text-only dedupe all adjacent same-text user rows in repo/UI.
+
+- Pros: simple and catches the visible duplicate.
+- Failure modes: hides legitimate repeated sends such as “continue”, “yes”, or re-sending the same prompt after a failure.
+- Reject.
+
+Alternative C: use Gateway seq as the only identity.
+
+- Pros: deterministic when Gateway seq is reliable.
+- Failure modes: production evidence shows the stripped user echo and assistant can share/overlap gatewaySeq (`gatewaySeq:2` in the duplicate sessions), and current code already has to append on collisions to avoid deleting users.
+- Reject as sole identity; keep gatewaySeq as one signal.
+
+Alternative D: make UI collapse optimistic/canonical same-text rows more aggressively.
+
+- Pros: masks the symptom quickly.
+- Failure modes: backend DB remains polluted; refresh/bootstrap/live subscribers can still disagree; repeated sends can be hidden.
+- Use only as diagnostics/hardening after middleware identity is fixed.
+
+### Middleware vs frontend split
+
+Middleware redeploy required:
+
+- DB migration for persisted turn identity.
+- `repo.messages.ts` identity-aware upsert/confirm/cleanup.
+- `routes.ts` send-history filtering to drop current and prior stripped user echoes deterministically.
+- `live.ts` to replace in-memory-only confirmed-user duplicate checks with DB-backed checks.
+- Projection-version bump and one-time duplicate cleanup/resync.
+
+Frontend desktop build required only if we add hardening:
+
+- Parse/use `clientMessageId`, `idempotencyKey`, and `runId` in `sameUserMessage`.
+- Add duplicate-user diagnostics or a temporary visual protection.
+
+Recommended rollout:
+
+1. Ship middleware first. It should stop new DB duplicates and clean old duplicates on bootstrap.
+2. Then build frontend hardening if diagnostics still show same-text duplicate candidates.
+
+### Test plan
+
+Middleware tests under `apps/middleware/tests/`:
+
+1. Fresh-chat double echo:
+   - create a new session;
+   - insert optimistic user with `clientMessageId/idempotencyKey/runId`;
+   - deliver Gateway user echo with that identity and confirm;
+   - deliver second decorated/stripped echo with same text, real Gateway messageId or no id, higher Gateway seq;
+   - assert exactly one user row remains, at the original optimistic `openclawSeq`, with `gatewaySeq/gatewayId` attached.
+2. Stripped replay on subsequent send:
+   - send turn A and confirm;
+   - send turn B;
+   - make Gateway history include stripped replay of turn A plus current turn B;
+   - assert turn A is not re-persisted at a new seq and turn B confirms normally.
+3. Middleware restart/cold map:
+   - persist an optimistic-confirmed user row with identity;
+   - instantiate a fresh `ChatLive`/context with empty in-memory maps;
+   - deliver stripped same-text echo;
+   - assert DB-backed lookup prevents duplicate insertion.
+4. Echo after assistant/tool rows:
+   - persist optimistic user, assistant/tool rows, then late stripped user echo;
+   - assert the echo updates/skips the existing user and does not append after assistant/tool rows.
+5. Ordering after backfill:
+   - create polluted rows matching the production shape (`seq1 optimistic user`, `seq2 stripped user`, `seq3 assistant`);
+   - run canonical history backfill/bootstrap cleanup;
+   - assert rows are `user, assistant` in canonical order and no duplicate user survives.
+6. Repeated-send safety:
+   - send identical user text twice with different client ids/idempotency keys;
+   - assert both user turns remain visible and ordered.
+
+UI tests under `packages/ui` if frontend hardening is implemented:
+
+1. `dedupeChatMessages` collapses optimistic/canonical rows that share `clientMessageId` or `idempotencyKey` even if seq/gatewayIndex differs.
+2. `dedupeChatMessages` keeps two intentional same-text sends with different identities.
+3. `parseChatHistory` exposes `clientMessageId/idempotencyKey/runId` metadata for user-dedupe comparisons.
+4. Bootstrap/global seed merge prefers the canonical confirmed row over the optimistic row without losing text/attachments.
+
+### Open questions
+
+- Confirm the exact Gateway contract for `messageSeq`: in the production duplicate, user and assistant can share `gatewaySeq:2`; the fix should not assume uniqueness unless Gateway guarantees it.
+- Decide whether `logical_turn_key` should be a stored deterministic string (`client:<id>`, `idem:<key>`, `run:<id>`, `stripped:<textHash>:<runWindow>`) or separate nullable columns plus lookup logic. I recommend separate columns plus a generated lookup helper, to avoid encoding migration mistakes into one opaque key.
+- Decide how aggressive one-time cleanup should be for already-polluted rows. Safe default: cleanup only rows with stable optimistic identity plus stripped same-text echo in the same tiny Gateway/run window.
