@@ -43,7 +43,6 @@ export function ConfigTab() {
   const [saving, setSaving] = React.useState(false)
   const [editing, setEditing] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [status, setStatus] = React.useState<string | null>(null)
 
   const loadFile = React.useCallback(async (file: ConfigFile) => {
     const requestId = ++loadRequestRef.current
@@ -51,7 +50,6 @@ export function ConfigTab() {
     setSelected(file)
     setLoading(true)
     setError(null)
-    setStatus(null)
     setEditing(false)
     try {
       const res = await invoke<ReadResponse>("middleware_memory_read", { input: { path: file.path } })
@@ -78,13 +76,11 @@ export function ConfigTab() {
     const draftAtSave = draft
     setSaving(true)
     setError(null)
-    setStatus(null)
     try {
       await invoke("middleware_memory_write", { input: { path: pathAtSave, content: draftAtSave } })
       if (selectedPathRef.current !== pathAtSave) return
       setContent(draftAtSave)
       setEditing(false)
-      setStatus("Saved.")
     } catch (err) {
       if (selectedPathRef.current !== pathAtSave) return
       setError(err instanceof Error ? err.message : String(err))
@@ -201,7 +197,6 @@ export function ConfigTab() {
           </div>
 
           {error && <div className="mx-4 mt-3 rounded-xl bg-red-500/10 px-4 py-2 text-[12px] text-red-400">{error}</div>}
-          {status && !error && <div className="mx-4 mt-3 rounded-xl bg-emerald-500/10 px-4 py-2 text-[12px] text-emerald-400">{status}</div>}
           {editing ? (
             <textarea
               value={draft}
