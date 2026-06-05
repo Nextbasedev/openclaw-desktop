@@ -183,9 +183,9 @@ export function ConfigTab() {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 px-8 py-7">
-        <section className="min-w-0 overflow-hidden rounded-2xl bg-black/[0.025] dark:bg-white/[0.025]">
-          <div className="flex items-center justify-between gap-3 bg-black/[0.02] dark:bg-white/[0.02] px-4 py-3.5">
+      <main className="min-w-0 flex-1 px-7 py-6">
+        <section className="flex min-h-full min-w-0 flex-col overflow-hidden">
+          <div className="flex items-center justify-between gap-3 px-2 pb-4">
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
                 <h3 className="truncate text-[13px] font-semibold text-foreground">{selected.label}</h3>
@@ -249,10 +249,10 @@ export function ConfigTab() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               spellCheck={false}
-              className="min-h-[520px] w-full resize-y bg-transparent p-4 font-mono text-[12px] leading-relaxed text-foreground/85 outline-none placeholder:text-muted-foreground/40"
+              className="min-h-[calc(100vh-220px)] w-full flex-1 resize-y bg-transparent px-2 py-1 font-mono text-[12px] leading-relaxed text-foreground/85 outline-none placeholder:text-muted-foreground/40"
             />
           ) : (
-            <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-[12px] leading-relaxed text-foreground/80 [overflow-wrap:anywhere]">
+            <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words px-2 py-1 font-mono text-[12px] leading-relaxed text-foreground/80 [overflow-wrap:anywhere]">
               {loading ? "Loading…" : content || "Empty file."}
             </pre>
           )}
