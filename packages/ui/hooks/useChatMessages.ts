@@ -80,7 +80,7 @@ import {
   WARM_CHAT_WRITE_DEBOUNCE_MS,
 } from "@/lib/warmChatCache"
 
-type RawMessage = {
+export type RawMessage = {
   id?: string
   messageId?: string
   __openclaw?: {
@@ -101,6 +101,12 @@ type RawMessage = {
   }>
   usage?: ChatMessage["usage"]
   stopReason?: string | null
+  toolCallId?: string
+  tool_call_id?: string
+  toolUseId?: string
+  tool_use_id?: string
+  toolName?: string
+  tool_name?: string
   isOptimistic?: boolean
   __clientOptimistic?: boolean
 }
@@ -505,7 +511,7 @@ function streamStatusFromCanonicalRun(status: RunStatusV2 | string | null | unde
   return "idle"
 }
 
-function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | null {
+export function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | null {
   const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
     ? tool.toolCallId
     : typeof tool.id === "string" && tool.id.trim()
@@ -542,7 +548,7 @@ function subagentLabelFromToolInput(input: unknown) {
   return task ? `${task.slice(0, 60)}${task.length > 60 ? "..." : ""}` : "Sub-agent"
 }
 
-function subagentFromCanonicalTool(tool: InlineToolCall): SpawnedSubagent | null {
+export function subagentFromCanonicalTool(tool: InlineToolCall): SpawnedSubagent | null {
   if (tool.tool !== "sessions_spawn") return null
   const childSessionKey = extractSubagentSessionKey(tool.resultText) ?? extractSubagentSessionKey(tool.input)
   return {
@@ -554,7 +560,7 @@ function subagentFromCanonicalTool(tool: InlineToolCall): SpawnedSubagent | null
   }
 }
 
-function enrichCanonicalSubagentsFromHistory(
+export function enrichCanonicalSubagentsFromHistory(
   spawns: SpawnedSubagent[],
   rawMessages: RawMessage[],
   runStatus: string | null | undefined,
@@ -583,6 +589,28 @@ function enrichCanonicalSubagentsFromHistory(
       status,
     }
   })
+}
+
+export function deriveBootstrapChatState({
+  sessionKey,
+  rawMessages,
+  canonicalTools,
+  runStatus,
+}: {
+  sessionKey: string
+  rawMessages: RawMessage[]
+  canonicalTools?: ToolCallProjectionV2[]
+  runStatus?: string | null
+}) {
+  const parsedMessages = parseChatHistory(rawMessages).messages
+  const canonicalMessages = stripTransientChatMessagesState(dedupeChatMessages(hydrateCachedAttachments(sessionKey, parsedMessages)))
+  const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
+  const canonicalSpawns = enrichCanonicalSubagentsFromHistory(
+    inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn)),
+    rawMessages,
+    runStatus,
+  )
+  return { canonicalMessages, inlineTools, canonicalSpawns }
 }
 
 function hydrateCachedAttachments(sessionKey: string, messages: ChatMessage[]) {
@@ -2043,14 +2071,13 @@ export function useChatMessages(
           .map((m) => m.__openclaw?.seq)
           .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
         if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
-        const canonicalMessages = stripTransientChatMessagesState(dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory(rawBootstrapMessages).messages)))
-        const existingGlobalBeforeSeed = getGlobalChatSession(sessionKey)
-        const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
-        const canonicalSpawns = enrichCanonicalSubagentsFromHistory(
-          inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn)),
-          rawBootstrapMessages,
+        const { canonicalMessages, inlineTools, canonicalSpawns } = deriveBootstrapChatState({
+          sessionKey,
+          rawMessages: rawBootstrapMessages,
+          canonicalTools,
           runStatus,
-        )
+        })
+        const existingGlobalBeforeSeed = getGlobalChatSession(sessionKey)
         pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
         spawnMapRef.current = new Map(canonicalSpawns.map((spawn) => [spawn.toolCallId, spawn]))
         const canonicalStatus = streamStatusFromCanonicalRun(runStatus)

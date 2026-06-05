@@ -41,6 +41,10 @@ describe("shouldAutoLoadOlderHistory", () => {
     expect(shouldAutoLoadOlderHistory({ ...base, scrollTop: 4_000, hasUserIntent: false })).toBe(false)
   })
 
+  it("loads at the real scroll container top even if the previous scroll ref is stale", () => {
+    expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 0, scrollTop: 0 })).toBe(true)
+  })
+
   it("does not repeatedly load from tiny upward movement after a page was prepended", () => {
     expect(shouldAutoLoadOlderHistory({ ...base, previousScrollTop: 5_200, scrollTop: 5_150, lastLoadScrollTop: 5_300 })).toBe(false)
   })
