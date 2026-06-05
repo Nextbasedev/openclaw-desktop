@@ -7,6 +7,8 @@ export type OpenClawMessage = Record<string, unknown> & {
     gatewaySeq?: number | null;
     segmentId?: string | null;
     runId?: string | null;
+    clientMessageId?: string | null;
+    idempotencyKey?: string | null;
     replacedLiveMessageId?: string | null;
   };
 };
