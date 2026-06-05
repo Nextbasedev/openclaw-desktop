@@ -211,6 +211,9 @@ type RawToolBlock = ContentBlock & {
   phase?: string
   startedAtMs?: number
   finishedAtMs?: number | null
+  detailTruncated?: boolean
+  argsPreview?: string
+  resultPreview?: string
 }
 
 function isToolBlock(block: ContentBlock) {
@@ -253,7 +256,7 @@ function toolBlockName(block: RawToolBlock) {
 }
 
 function toolBlockInput(block: RawToolBlock) {
-  return block.arguments ?? block.input ?? block.args ?? block.parameters ?? block.argsMeta
+  return block.arguments ?? block.input ?? block.args ?? block.parameters ?? block.argsMeta ?? block.argsPreview
 }
 
 function toolBlockResultText(block: RawToolBlock) {
@@ -271,6 +274,12 @@ function toolBlockResultText(block: RawToolBlock) {
   } catch {
     return String(result)
   }
+}
+
+function toolBlockResultPreview(block: RawToolBlock) {
+  const resultText = toolBlockResultText(block)
+  if (resultText !== undefined) return resultText
+  return typeof block.resultPreview === "string" ? block.resultPreview : undefined
 }
 
 function isAwaitingToolResult(value: unknown) {
@@ -822,7 +831,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
         const durationMs = blockDurationMs(block)
         const startedAt = rawTimestampMs(item) ?? realTimestampMs(block.startedAtMs) ?? undefined
         const finishedAt = realTimestampMs(block.finishedAtMs)
-        const resultText = toolBlockResultText(block)
+        const resultText = toolBlockResultPreview(block)
         const fallbackDurationMs =
           typeof startedAt === "number" && typeof finishedAt === "number"
             ? finishedAt - startedAt
@@ -837,6 +846,9 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           completedAt: finishedAt,
           startedAtMs: startedAt,
           resultText,
+          detailTruncated: block.detailTruncated === true,
+          argsPreview: typeof block.argsPreview === "string" ? block.argsPreview : undefined,
+          resultPreview: typeof block.resultPreview === "string" ? block.resultPreview : undefined,
         }
         pendingToolCalls.push(call)
         resultQueue.push(call)

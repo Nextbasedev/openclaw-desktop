@@ -157,6 +157,40 @@ describe("stripGatewayPrefixes", () => {
   }
 })
 
+describe("parseChatHistory tool metadata", () => {
+  it("keeps truncated tool calls as metadata with previews", () => {
+    const parsed = parseChatHistory([
+      {
+        role: "assistant",
+        messageId: "m1",
+        content: [],
+        tools: [
+          {
+            toolCallId: "tool-1",
+            name: "exec",
+            status: "success",
+            phase: "result",
+            detailTruncated: true,
+            argsPreview: '{"command":"echo hello"}',
+            resultPreview: "hello",
+            startedAtMs: 1000,
+            finishedAtMs: 1200,
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 1)
+    const tool = parsed.messages[0].toolCalls?.[0]
+    assert.equal(tool?.id, "tool-1")
+    assert.equal(tool?.tool, "exec")
+    assert.equal(tool?.status, "success")
+    assert.equal(tool?.detailTruncated, true)
+    assert.equal(tool?.input, '{"command":"echo hello"}')
+    assert.equal(tool?.resultText, "hello")
+  })
+})
+
 describe("cleanUserMessageText", () => {
   it("combines bootstrap and gateway cleanup for all history renderers", () => {
     assert.equal(
