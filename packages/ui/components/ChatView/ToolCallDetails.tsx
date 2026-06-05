@@ -92,9 +92,10 @@ function DetailBlock({
       </div>
       <pre
         className={cn(
-          "overflow-auto bg-white/5 px-5 py-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap",
+          "overflow-auto bg-[#0B0F16]/70 px-5 py-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap",
           expanded ? "max-h-[80vh]" : "max-h-48",
-          (isInput || isOutput) && "text-[#252E3A]",
+          isInput && "text-[#A0AABB]",
+          isOutput && "text-[#A0AABB]",
           tone === "error" && "text-red-700 dark:text-[#FF4D4D]/80"
         )}
       >
@@ -164,7 +165,7 @@ export function ToolCallDetails({
   )
 
   return (
-    <div className="overflow-hidden rounded-b-lg border-x border-b border-white/2 bg-white/5 opacity-100">
+    <div className="overflow-hidden rounded-b-lg border-x border-b border-white/2 bg-[#0B0F16]/70 opacity-100">
       {inputText && (
         <DetailBlock label="Input" tone="input">
           {inputText}
