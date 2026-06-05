@@ -423,15 +423,18 @@ export function useProjectsData(
 
   const handleProjectClick = useCallback(
     (project: Project) => {
+      const willExpand = !expandedProjects.has(project.id)
       setExpandedProjects((prev) => {
         const next = new Set(prev)
         if (next.has(project.id)) next.delete(project.id)
         else next.add(project.id)
         return next
       })
-      if (!projectTopics[project.id]) loadProjectTopics(project.id)
+      // A project can keep stale/empty topic state across archive → restore.
+      // Always refresh when expanding so restored projects load their topics and sessions again.
+      if (willExpand) loadProjectTopics(project.id, true)
     },
-    [projectTopics, loadProjectTopics]
+    [expandedProjects, loadProjectTopics]
   )
 
   const togglePinProject = useCallback((projectId: string) => {
@@ -705,13 +708,24 @@ export function useProjectsData(
           next.delete(projectId)
           return next
         })
+        setProjectTopics((prev) => {
+          const next = { ...prev }
+          delete next[projectId]
+          return next
+        })
+        setTopicOrder((prev) => {
+          const next = { ...prev }
+          delete next[projectId]
+          return next
+        })
+        if (activeTopic?.projectId === projectId) onTopicClear()
         await loadProjects()
         emit("archive:changed")
       } catch (e) {
         console.error("archive project failed", e)
       }
     },
-    [loadProjects]
+    [activeTopic, loadProjects, onTopicClear]
   )
 
   const handleArchiveTopic = useCallback(
