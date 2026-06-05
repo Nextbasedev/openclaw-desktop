@@ -91,6 +91,82 @@ function isStrippedReplayCandidate(message: ProjectedMessage) {
 export class MessageRepository {
   constructor(private readonly db: Database.Database) {}
 
+  private visibleMessagesForSession(sessionKey: string): ProjectedMessage[] {
+    const rows = this.db.prepare(`
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms, client_message_id, idempotency_key, run_id, logical_turn_key, text_fingerprint
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+      ORDER BY openclaw_seq ASC
+    `).all({ sessionKey }) as Array<{
+      session_key: string;
+      segment_id: string | null;
+      session_id: string | null;
+      gateway_seq: number | null;
+      openclaw_seq: number;
+      message_id: string | null;
+      role: string | null;
+      data_json: string;
+      updated_at_ms: number;
+      client_message_id: string | null;
+      idempotency_key: string | null;
+      run_id: string | null;
+      logical_turn_key: string | null;
+      text_fingerprint: string | null;
+    }>;
+
+    const hiddenSeqs = new Set<number>();
+    for (const stable of rows) {
+      if (stable.role !== "user" || !stable.text_fingerprint) continue;
+      if (!(stable.client_message_id || stable.idempotency_key || stable.run_id || stable.logical_turn_key)) continue;
+      for (const dup of rows) {
+        if (dup.session_key !== stable.session_key) continue;
+        if (dup.segment_id !== stable.segment_id) continue;
+        if (dup.role !== "user") continue;
+        if (dup.text_fingerprint !== stable.text_fingerprint) continue;
+        if (dup.openclaw_seq <= stable.openclaw_seq || dup.openclaw_seq > stable.openclaw_seq + 4) continue;
+        if (dup.client_message_id || dup.idempotency_key || dup.run_id || dup.logical_turn_key) continue;
+        hiddenSeqs.add(dup.openclaw_seq);
+      }
+    }
+
+    return rows
+      .filter((row) => !hiddenSeqs.has(row.openclaw_seq))
+      .map((row): ProjectedMessage => ({
+        sessionKey: row.session_key,
+        segmentId: row.segment_id,
+        sessionId: row.session_id,
+        gatewaySeq: row.gateway_seq,
+        openclawSeq: row.openclaw_seq,
+        messageId: row.message_id,
+        role: row.role,
+        data: fromJson(row.data_json) as OpenClawMessage,
+        updatedAtMs: row.updated_at_ms,
+      }))
+      .filter((row) => {
+        const role = (row.role ?? (row.data && typeof row.data === "object" && !Array.isArray(row.data) ? (row.data as { role?: unknown }).role : null));
+        if (role === "hidden" || role === "transient") return false;
+        return !isInternalSubagentCompletionMessage(row.data);
+      });
+  }
+
+  visibleMessageStats(sessionKey: string): { knownVisibleTotal: number; oldestVisibleSeq: number | null } {
+    const visible = this.visibleMessagesForSession(sessionKey);
+    return {
+      knownVisibleTotal: visible.length,
+      oldestVisibleSeq: visible[0]?.openclawSeq ?? null,
+    };
+  }
+
+  listVisibleMessages(sessionKey: string, opts: { afterSeq?: number; beforeSeq?: number; limit?: number; latest?: boolean } = {}): ProjectedMessage[] {
+    const limit = Math.max(1, Math.min(1000, opts.limit ?? 200));
+    const afterSeq = opts.afterSeq ?? 0;
+    const beforeSeq = opts.beforeSeq ?? Number.POSITIVE_INFINITY;
+    const filtered = this.visibleMessagesForSession(sessionKey).filter((message) => message.openclawSeq > afterSeq && message.openclawSeq < beforeSeq);
+    if (opts.latest) return filtered.slice(-limit);
+    if (opts.beforeSeq !== undefined) return filtered.slice(-limit);
+    return filtered.slice(0, limit);
+  }
+
   getActiveSegment(sessionKey: string): { segmentId: string; sessionKey: string; sessionId: string | null; segmentIndex: number; baseSeq: number } | null {
     const row = this.db.prepare(`
       SELECT segment_id, session_key, session_id, segment_index, base_seq

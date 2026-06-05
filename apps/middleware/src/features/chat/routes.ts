@@ -1062,10 +1062,10 @@ function scheduleLocalFirstGatewayReconcile(params: {
       await yieldToEventLoop();
       if (!params.context.db.open) return;
       if (proj.upserted > 0 || pruned > 0 || params.projectionResyncRequired) {
-        const total = params.context.messages.countMessages(sk);
-        const newEvent = params.context.messages.appendProjectionEvent({ sessionKey: sk, eventType: "chat.bootstrap", payload: { sessionKey: sk, messageCount: total, lastSeq: params.context.messages.nextMessageSeq(sk) - 1, backgroundRefresh: true, pruned, projectionResync: params.projectionResyncRequired } });
-        params.context.patchBus.broadcast({ cursor: newEvent.cursor, type: newEvent.eventType, sessionKey: sk, payload: newEvent.payload, createdAtMs: newEvent.createdAtMs });
-        params.log.info("bootstrap.background-sync.changed", { sessionKey: sk, upserted: proj.upserted, pruned, cursor: newEvent.cursor, reason: params.reason });
+        const beforeCursor = params.context.messages.latestSessionCursor(sk);
+        emitBackgroundMessagePatches({ context: params.context, sessionKey: sk, changedMessages: proj.changedMessages, pruned, projectionResyncRequired: params.projectionResyncRequired, lastSeq: params.context.messages.nextMessageSeq(sk) - 1, log: params.log });
+        const afterCursor = params.context.messages.latestSessionCursor(sk);
+        params.log.info("bootstrap.background-sync.changed", { sessionKey: sk, upserted: proj.upserted, pruned, cursor: afterCursor > beforeCursor ? afterCursor : null, reason: params.reason, projectionResync: params.projectionResyncRequired });
       } else {
         params.log.info("bootstrap.background-sync.unchanged", { sessionKey: sk, pruned, reason: params.reason });
       }
@@ -1083,6 +1083,62 @@ function scheduleLocalFirstGatewayReconcile(params: {
   });
   backgroundReconcileJobs.set(params.sessionKey, job);
   return job;
+}
+
+function emitBackgroundMessagePatches(params: {
+  context: AppContext;
+  sessionKey: string;
+  changedMessages: ProjectedMessage[];
+  pruned: number;
+  projectionResyncRequired: boolean;
+  lastSeq: number;
+  log: ReturnType<typeof createLogger>;
+}) {
+  if (params.projectionResyncRequired) {
+    const total = params.context.messages.countMessages(params.sessionKey);
+    const event = params.context.messages.appendProjectionEvent({
+      sessionKey: params.sessionKey,
+      eventType: "chat.bootstrap",
+      payload: { sessionKey: params.sessionKey, messageCount: total, lastSeq: params.lastSeq, backgroundRefresh: true, pruned: params.pruned, projectionResync: true },
+    });
+    params.context.patchBus.broadcast({ cursor: event.cursor, type: event.eventType, sessionKey: event.sessionKey, payload: event.payload, createdAtMs: event.createdAtMs });
+    return;
+  }
+
+  const toolContext = toolSerializationContext(params.context, params.sessionKey);
+  for (const message of params.changedMessages) {
+    const event = params.context.messages.appendProjectionEvent({
+      sessionKey: params.sessionKey,
+      eventType: "chat.message.upsert",
+      payload: canonicalPatchPayload({
+        sessionKey: params.sessionKey,
+        semanticType: "chat.message.upsert",
+        messageId: message.messageId,
+        payload: {
+          sessionKey: params.sessionKey,
+          message: serializeProjectedMessage(message, toolContext),
+          messageSeq: message.openclawSeq,
+          lastSeq: params.lastSeq,
+          backgroundRefresh: true,
+        },
+      }),
+    });
+    params.context.patchBus.broadcast({ cursor: event.cursor, type: event.eventType, sessionKey: event.sessionKey, payload: event.payload, createdAtMs: event.createdAtMs });
+  }
+
+  if (params.changedMessages.length === 0 && params.pruned > 0) {
+    const event = params.context.messages.appendProjectionEvent({
+      sessionKey: params.sessionKey,
+      eventType: "chat.message.upsert",
+      payload: canonicalPatchPayload({
+        sessionKey: params.sessionKey,
+        semanticType: "chat.message.upsert",
+        payload: { sessionKey: params.sessionKey, messageSeq: params.lastSeq, lastSeq: params.lastSeq, backgroundRefresh: true, pruned: params.pruned },
+      }),
+    });
+    params.context.patchBus.broadcast({ cursor: event.cursor, type: event.eventType, sessionKey: event.sessionKey, payload: event.payload, createdAtMs: event.createdAtMs });
+    params.log.info("bootstrap.background-sync.pruned-message-patch", { sessionKey: params.sessionKey, cursor: event.cursor, pruned: params.pruned });
+  }
 }
 
 export async function registerChatRoutes(app: FastifyInstance, context: AppContext) {
@@ -1655,6 +1711,22 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     return { ok: true };
   });
 
+  app.get("/api/chat/session-head", async (request) => {
+    const parsed = z.object({ sessionKey: z.string().min(1) }).safeParse(request.query);
+    if (!parsed.success) {
+      throw new HttpError(400, "Invalid chat session-head query", "INVALID_QUERY", parsed.error.flatten());
+    }
+    const sessionKey = parsed.data.sessionKey;
+    const stats = context.messages.visibleMessageStats(sessionKey);
+    return {
+      ok: true,
+      sessionKey,
+      headCursor: context.messages.latestSessionCursor(sessionKey),
+      knownVisibleTotal: stats.knownVisibleTotal,
+      oldestVisibleSeq: stats.oldestVisibleSeq,
+    };
+  });
+
   app.get("/api/chat/bootstrap", async (request) => {
     const parsed = bootstrapQuery.safeParse(request.query);
     if (!parsed.success) {
@@ -1686,7 +1758,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       (gatewayConnected || (nowMs() - localSession.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS)
     );
     const shouldServeLocal = inMemoryFresh || canServeFromSqlite;
-    const localMessages = localSession && shouldServeLocal ? context.messages.listMessages(parsed.data.sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }) : [];
+    const localMessages = localSession && shouldServeLocal ? context.messages.listVisibleMessages(parsed.data.sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }) : [];
     const canServeLocal = Boolean(localSession && localMessages.length > 0 && shouldServeLocal);
 
     if (canServeLocal) {
@@ -1731,6 +1803,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       }
       void context.chatLive.ensureSessionSubscribed(parsed.data.sessionKey).catch(() => {});
       const totalMessages = context.messages.countMessages(parsed.data.sessionKey);
+      const visibleStats = context.messages.visibleMessageStats(parsed.data.sessionKey);
       const oldestSeq = serialized.length > 0 ? (localMessages[0]?.openclawSeq ?? null) : null;
       return buildChatBootstrapSnapshot(context, {
         sessionKey: parsed.data.sessionKey,
@@ -1739,6 +1812,8 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         messages: serialized,
         messageCount: serialized.length,
         knownTotalMessages: totalMessages,
+        knownVisibleTotal: visibleStats.knownVisibleTotal,
+        oldestVisibleSeq: visibleStats.oldestVisibleSeq,
         oldestLoadedSeq: typeof oldestSeq === "number" ? oldestSeq : undefined,
         cursor,
         projection: { upserted: 0, lastSeq: context.messages.nextMessageSeq(parsed.data.sessionKey) - 1, liveSubscribed: false },
@@ -1849,7 +1924,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }
 
     const projectionLimit = parsed.data.limit ?? BOOTSTRAP_PROJECTION_LIMIT;
-    const rawProjected = context.messages.listMessages(sessionKey, { limit: projectionLimit, latest: true });
+    const rawProjected = context.messages.listVisibleMessages(sessionKey, { limit: projectionLimit, latest: true });
     const toolContext = toolSerializationContext(context, sessionKey);
     const projectedMessages: ReturnType<typeof serializeProjectedMessage>[] = [];
     for (let i = 0; i < rawProjected.length; i += 1) {
@@ -1873,6 +1948,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: sessionCursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: "background" } });
 
     const totalMessages = context.messages.countMessages(sessionKey);
+    const visibleStats = context.messages.visibleMessageStats(sessionKey);
     const oldestSeq = projectedMessages.length > 0 ? ((projectedMessages[0] as { __openclaw?: { seq?: number } }).__openclaw?.seq ?? null) : null;
     return buildChatBootstrapSnapshot(context, {
       sessionKey,
@@ -1881,6 +1957,8 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       messages: projectedMessages,
       messageCount: projectedMessages.length,
       knownTotalMessages: totalMessages,
+      knownVisibleTotal: visibleStats.knownVisibleTotal,
+      oldestVisibleSeq: visibleStats.oldestVisibleSeq,
       oldestLoadedSeq: typeof oldestSeq === "number" ? oldestSeq : undefined,
       cursor: sessionCursor,
       projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: false },
@@ -1907,11 +1985,13 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }
     log.info("messages.read.start", { sessionKey: parsed.data.sessionKey, afterSeq: parsed.data.afterSeq ?? 0, beforeSeq: parsed.data.beforeSeq ?? null, limit: parsed.data.limit });
     const toolContext = toolSerializationContext(context, parsed.data.sessionKey);
-    const messages = context.messages.listMessages(parsed.data.sessionKey, {
+    const messages = context.messages.listVisibleMessages(parsed.data.sessionKey, {
       afterSeq: parsed.data.afterSeq,
       beforeSeq: parsed.data.beforeSeq,
       limit: parsed.data.limit,
     });
+    const visibleStats = context.messages.visibleMessageStats(parsed.data.sessionKey);
+    const oldestLoadedSeq = messages[0]?.openclawSeq ?? null;
     log.info("messages.read.end", { sessionKey: parsed.data.sessionKey, messageCount: messages.length });
     return {
       ok: true,
@@ -1928,6 +2008,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         updatedAtMs: message.updatedAtMs,
       })),
       messageCount: messages.length,
+      knownVisibleTotal: visibleStats.knownVisibleTotal,
+      oldestVisibleSeq: visibleStats.oldestVisibleSeq,
+      oldestLoadedSeq,
+      hasOlder: typeof oldestLoadedSeq === "number" && typeof visibleStats.oldestVisibleSeq === "number" ? oldestLoadedSeq > visibleStats.oldestVisibleSeq : false,
     };
   });
 

@@ -68,14 +68,15 @@ export class PatchBus {
   }
 }
 
-export function listPatchesAfter(context: AppContext, afterCursor: number, limit = 1000): PatchPayload[] {
+export function listPatchesAfter(context: AppContext, afterCursor: number, limit = 1000, sessionKey?: string): PatchPayload[] {
   const rows = context.db.prepare(`
     SELECT cursor, session_key, event_type, payload_json, created_at_ms
     FROM v2_projection_events
     WHERE cursor > @afterCursor
+      AND (@sessionKey IS NULL OR session_key = @sessionKey)
     ORDER BY cursor ASC
     LIMIT @limit
-  `).all({ afterCursor, limit: Math.max(1, Math.min(5000, limit)) }) as Array<{
+  `).all({ afterCursor, sessionKey: sessionKey ?? null, limit: Math.max(1, Math.min(5000, limit)) }) as Array<{
     cursor: number;
     session_key: string | null;
     event_type: string;
@@ -95,13 +96,14 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
   const log = createLogger("patch-route");
 
   app.get("/api/patches", async (request) => {
-    const query = request.query as { afterCursor?: string; limit?: string };
+    const query = request.query as { afterCursor?: string; limit?: string; sessionKey?: string };
     const afterCursor = Math.max(0, Number.parseInt(query.afterCursor ?? "0", 10) || 0);
     const limit = Math.max(1, Math.min(5000, Number.parseInt(query.limit ?? "1000", 10) || 1000));
-    log.info("patches.read.start", { afterCursor, limit });
-    const patches = listPatchesAfter(context, afterCursor, limit);
+    const sessionKey = typeof query.sessionKey === "string" && query.sessionKey.trim() ? query.sessionKey.trim() : undefined;
+    log.info("patches.read.start", { afterCursor, limit, sessionKey: sessionKey ?? null });
+    const patches = listPatchesAfter(context, afterCursor, limit, sessionKey);
     const latestCursor = patches.at(-1)?.cursor ?? afterCursor;
-    log.info("patches.read.end", { afterCursor, limit, count: patches.length, latestCursor, hasMore: patches.length === limit });
+    log.info("patches.read.end", { afterCursor, limit, sessionKey: sessionKey ?? null, count: patches.length, latestCursor, hasMore: patches.length === limit });
     const hasMore = patches.length === limit;
     return {
       ok: true,
@@ -120,8 +122,9 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
   }));
 
   app.get("/api/stream/ws", { websocket: true }, (socket, request) => {
-    const query = request.query as { afterCursor?: string };
+    const query = request.query as { afterCursor?: string; sessionKey?: string };
     const afterCursor = Number.parseInt(query.afterCursor ?? "0", 10) || 0;
+    const sessionKey = typeof query.sessionKey === "string" && query.sessionKey.trim() ? query.sessionKey.trim() : undefined;
     const id = crypto.randomUUID();
     const client = { id, socket, connectedAtMs: Date.now(), lastSentCursor: afterCursor };
     context.patchBus.addClient(client);
@@ -132,7 +135,7 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
     // visible UI stall during startup / space switches. Active ChatView mounts
     // and sends subscribe their own session explicitly, which is the only live
     // stream the foreground UI needs.
-    const replay = listPatchesAfter(context, afterCursor, 1001);
+    const replay = listPatchesAfter(context, afterCursor, 1001, sessionKey);
     const replayHasMore = replay.length > 1000;
     // If the browser cursor is too far behind, a partial replay is worse than
     // no replay: the UI can briefly apply old running tool/user patches without
@@ -160,7 +163,7 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
       droppedReplayCount: replayHasMore ? replay.length - 1 : 0,
       latestCursor,
     }));
-    log.info("stream.replay", { clientId: id, afterCursor, replayCount: replayWindow.length, replayHasMore, latestCursor });
+    log.info("stream.replay", { clientId: id, afterCursor, sessionKey: sessionKey ?? null, replayCount: replayWindow.length, replayHasMore, latestCursor });
     for (const patch of replayWindow) {
       socket.send(JSON.stringify({ type: "patch", patch }));
       client.lastSentCursor = patch.cursor;

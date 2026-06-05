@@ -153,6 +153,8 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
   messages: unknown[];
   messageCount: number;
   knownTotalMessages?: number;
+  knownVisibleTotal?: number;
+  oldestVisibleSeq?: number | null;
   oldestLoadedSeq?: number;
   cursor: number;
   projection: { upserted: number; lastSeq: number; liveSubscribed: boolean };
@@ -165,6 +167,12 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
   const rawTools = context.runs.listToolCalls(params.sessionKey);
   const tools = bootstrapTools(rawTools, latestRun);
   const sessionStatus = legacySessionStatusFromRunStatus(runStatus);
+  const knownVisibleTotal = params.knownVisibleTotal ?? params.knownTotalMessages ?? params.messageCount;
+  const oldestVisibleSeq = params.oldestVisibleSeq ?? null;
+  const oldestLoadedSeq = params.oldestLoadedSeq ?? null;
+  const hasOlder = typeof oldestLoadedSeq === "number" && typeof oldestVisibleSeq === "number"
+    ? oldestLoadedSeq > oldestVisibleSeq
+    : false;
 
   return {
     ok: true,
@@ -175,11 +183,13 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
     runStatus,
     statusLabel,
     activeRun: activeRunProjection(activeRun),
-    historyCoverage: (params.knownTotalMessages ?? params.messageCount) > params.messageCount ? "windowed" : "full",
-    fullMessagesIncluded: (params.knownTotalMessages ?? params.messageCount) <= params.messageCount,
-    hasOlder: (params.knownTotalMessages ?? params.messageCount) > params.messageCount,
+    historyCoverage: hasOlder ? "windowed" : "full",
+    fullMessagesIncluded: !hasOlder,
+    hasOlder,
     knownTotalMessages: params.knownTotalMessages ?? params.messageCount,
-    oldestLoadedSeq: params.oldestLoadedSeq ?? null,
+    knownVisibleTotal,
+    oldestVisibleSeq,
+    oldestLoadedSeq,
     messages: params.messages,
     messageCount: params.messageCount,
     tools,
