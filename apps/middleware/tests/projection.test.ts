@@ -17,7 +17,8 @@ function testDbPath(name: string) {
 describe("SQLite projection", () => {
   test("migration creates schema version", () => {
     const db = openDatabase({ databasePath: testDbPath("schema") });
-    expect(readSchemaVersion(db)).toBe(3);
+    expect(readSchemaVersion(db)).toBe(4);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'v2_subagents'").get()).toMatchObject({ name: "v2_subagents" });
     db.close();
   });
 

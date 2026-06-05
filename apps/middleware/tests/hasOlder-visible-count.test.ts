@@ -60,6 +60,28 @@ describe("authoritative visible count and hasOlder", () => {
     }
   });
 
+  test("excludes tool and transient rows from visible totals", async () => {
+    allowLocalFirstSqliteForTests();
+    const app = await createApp(config("tool-rows"));
+    try {
+      const context = contextOf(app);
+      context.messages.upsertSession({ sessionKey: "s1", sessionId: "sid", data: { sessionKey: "s1" } });
+      insertRaw(context, { sessionKey: "s1", seq: 1, role: "tool", id: "tool-1", text: "not transcript" });
+      insertRaw(context, { sessionKey: "s1", seq: 2, role: "toolResult", id: "tool-result-1", text: "not transcript" });
+      insertRaw(context, { sessionKey: "s1", seq: 3, role: "user", id: "u1", text: "hello" });
+      insertRaw(context, { sessionKey: "s1", seq: 4, role: "assistant", id: "a1", text: "hi" });
+      insertRaw(context, { sessionKey: "s1", seq: 5, role: "transient", id: "thinking", text: "thinking" });
+      context.messages.appendProjectionEvent({ sessionKey: "s1", eventType: "chat.message.upsert", payload: { sessionKey: "s1" } });
+
+      const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1&limit=10" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ knownVisibleTotal: 2, oldestVisibleSeq: 3, oldestLoadedSeq: 3, hasOlder: false });
+      expect(res.json().messages.map((message: { messageId?: string }) => message.messageId)).toEqual(["u1", "a1"]);
+    } finally {
+      await app.close();
+    }
+  });
+
   test("hasOlder is true when the returned window starts after the oldest visible row", async () => {
     allowLocalFirstSqliteForTests();
     const app = await createApp(config("windowed"));

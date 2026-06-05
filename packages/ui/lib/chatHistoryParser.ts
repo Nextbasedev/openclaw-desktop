@@ -860,7 +860,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           const label =
             (typeof args.label === "string" && args.label) ||
             (typeof args.agentId === "string" && args.agentId) ||
-            (task ? task.slice(0, 60) : `Sub-agent ${subagents.length + 1}`)
+            (task ? task.slice(0, 60) : "Sub-agent")
           subagentByToolId.set(call.id, {
             id: `spawn:${call.id}`,
             label,

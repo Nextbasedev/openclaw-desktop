@@ -144,7 +144,7 @@ export class MessageRepository {
       }))
       .filter((row) => {
         const role = (row.role ?? (row.data && typeof row.data === "object" && !Array.isArray(row.data) ? (row.data as { role?: unknown }).role : null));
-        if (role === "hidden" || role === "transient") return false;
+        if (role !== "user" && role !== "assistant") return false;
         return !isInternalSubagentCompletionMessage(row.data);
       });
   }

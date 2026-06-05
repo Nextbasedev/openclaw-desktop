@@ -3,9 +3,10 @@ import { createHash } from "node:crypto";
 import { createLogger } from "../lib/logger.js";
 import { CHAT_PROJECTION_VERSION, CHAT_PROJECTION_VERSION_META_KEY, chatProjectionResyncRequiredMetaKey } from "./chat-projection-version.js";
 import { normalizeMessageText, textFromMessage } from "../features/chat/message-normalizer.js";
+import { extractSubagentSessionKey } from "../features/chat/subagent-session.js";
 import type { OpenClawMessage } from "../features/chat/types.js";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const log = createLogger("db");
 
 const schema = `
@@ -76,6 +77,18 @@ CREATE TABLE IF NOT EXISTS v2_tool_calls (
 );
 CREATE INDEX IF NOT EXISTS idx_v2_tool_calls_session_key ON v2_tool_calls(session_key);
 CREATE INDEX IF NOT EXISTS idx_v2_tool_calls_run_id ON v2_tool_calls(run_id) WHERE run_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS v2_subagents (
+  parent_session_key TEXT NOT NULL,
+  tool_call_id TEXT NOT NULL,
+  child_session_key TEXT,
+  label TEXT NOT NULL DEFAULT 'Sub-agent',
+  status TEXT NOT NULL DEFAULT 'spawning',
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (parent_session_key, tool_call_id)
+);
+CREATE INDEX IF NOT EXISTS idx_v2_subagents_parent_session ON v2_subagents(parent_session_key, created_at_ms);
+CREATE INDEX IF NOT EXISTS idx_v2_subagents_child_session ON v2_subagents(child_session_key) WHERE child_session_key IS NOT NULL;
 CREATE TABLE IF NOT EXISTS v2_projection_events (cursor INTEGER PRIMARY KEY AUTOINCREMENT, session_key TEXT, event_type TEXT NOT NULL, payload_json TEXT NOT NULL, created_at_ms INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_v2_projection_events_cursor ON v2_projection_events(cursor);
 CREATE TABLE IF NOT EXISTS v2_gateway_offsets (session_key TEXT PRIMARY KEY, last_openclaw_seq INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL);
@@ -192,6 +205,69 @@ function cleanupDuplicateUserEchoes(db: Database.Database) {
   log.info("messages.user-echo-cleanup", { duplicateRowsCollapsed: duplicates.length });
 }
 
+function parseAnyJson(value: string | null | undefined): unknown {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try { return JSON.parse(value); } catch { return value; }
+}
+
+function subagentLabelFromArgs(args: unknown): string {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return "Sub-agent";
+  const record = args as Record<string, unknown>;
+  for (const key of ["label", "agentId", "task"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim().slice(0, 60);
+  }
+  return "Sub-agent";
+}
+
+function backfillSubagents(db: Database.Database) {
+  const rows = db.prepare(`
+    SELECT session_key, tool_call_id, args_meta_json, result_meta_json, status, started_at_ms, updated_at_ms
+    FROM v2_tool_calls
+    WHERE name = 'sessions_spawn'
+  `).all() as Array<{
+    session_key: string;
+    tool_call_id: string;
+    args_meta_json: string | null;
+    result_meta_json: string | null;
+    status: string | null;
+    started_at_ms: number | null;
+    updated_at_ms: number | null;
+  }>;
+  if (rows.length === 0) return;
+  const insert = db.prepare(`
+    INSERT INTO v2_subagents(parent_session_key, tool_call_id, child_session_key, label, status, created_at_ms, updated_at_ms)
+    VALUES (@parentSessionKey, @toolCallId, @childSessionKey, @label, @status, @createdAtMs, @updatedAtMs)
+    ON CONFLICT(parent_session_key, tool_call_id) DO UPDATE SET
+      child_session_key = COALESCE(v2_subagents.child_session_key, excluded.child_session_key),
+      label = COALESCE(NULLIF(v2_subagents.label, 'Sub-agent'), NULLIF(excluded.label, 'Sub-agent'), v2_subagents.label, excluded.label),
+      status = CASE
+        WHEN v2_subagents.status IN ('completed', 'failed') THEN v2_subagents.status
+        ELSE excluded.status
+      END,
+      updated_at_ms = max(v2_subagents.updated_at_ms, excluded.updated_at_ms)
+  `);
+  const tx = db.transaction(() => {
+    for (const row of rows) {
+      const args = parseAnyJson(row.args_meta_json);
+      const result = parseAnyJson(row.result_meta_json);
+      const childSessionKey = extractSubagentSessionKey(result);
+      const status = row.status === "error" ? "failed" : childSessionKey ? "working" : "spawning";
+      const now = Date.now();
+      insert.run({
+        parentSessionKey: row.session_key,
+        toolCallId: row.tool_call_id,
+        childSessionKey,
+        label: subagentLabelFromArgs(args),
+        status,
+        createdAtMs: row.started_at_ms ?? row.updated_at_ms ?? now,
+        updatedAtMs: row.updated_at_ms ?? row.started_at_ms ?? now,
+      });
+    }
+  });
+  tx();
+}
+
 function backfillLegacyMessageSegments(db: Database.Database) {
   const sessions = db.prepare(`
     SELECT session_key, min(openclaw_seq) AS min_seq, max(openclaw_seq) AS max_seq
@@ -261,7 +337,10 @@ export function migrateDatabase(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_v2_messages_logical_turn_key ON v2_messages(session_key, logical_turn_key) WHERE logical_turn_key IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_v2_messages_text_fingerprint ON v2_messages(session_key, text_fingerprint) WHERE text_fingerprint IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_v2_tool_calls_segment_id ON v2_tool_calls(segment_id) WHERE segment_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_v2_subagents_parent_session ON v2_subagents(parent_session_key, created_at_ms);
+    CREATE INDEX IF NOT EXISTS idx_v2_subagents_child_session ON v2_subagents(child_session_key) WHERE child_session_key IS NOT NULL;
   `);
+  backfillSubagents(db);
   backfillMessageTurnIdentity(db);
   cleanupDuplicateUserEchoes(db);
   backfillLegacyMessageSegments(db);

@@ -1,4 +1,6 @@
+import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
+import { migrateDatabase, readSchemaVersion } from "../src/db/migrate.js";
 import { SubagentCorrelation } from "../src/features/chat/subagent-correlation.js";
 import { extractSubagentSessionKey } from "../src/features/chat/subagent-session.js";
 
@@ -36,6 +38,32 @@ describe("subagent correlation", () => {
       toolCallId: "spawn-1",
       childSessionKey: "agent:main:desktop:subagent:child-1",
     });
+  });
+});
+
+describe("subagent migration", () => {
+  test("creates v2_subagents and backfills sessions_spawn tool results", () => {
+    const db = new Database(":memory:");
+    try {
+      migrateDatabase(db);
+      db.prepare(`
+        INSERT INTO v2_tool_calls(tool_call_id, session_key, name, phase, status, args_meta_json, result_meta_json, started_at_ms, updated_at_ms)
+        VALUES ('spawn-1', 'parent-1', 'sessions_spawn', 'result', 'success', ?, ?, 10, 20)
+      `).run(JSON.stringify({ label: "Worker" }), JSON.stringify({ childSessionKey: "agent:main:desktop:subagent:child-1" }));
+
+      migrateDatabase(db);
+
+      expect(readSchemaVersion(db)).toBe(4);
+      expect(db.prepare("SELECT parent_session_key, tool_call_id, child_session_key, label, status FROM v2_subagents").get()).toMatchObject({
+        parent_session_key: "parent-1",
+        tool_call_id: "spawn-1",
+        child_session_key: "agent:main:desktop:subagent:child-1",
+        label: "Worker",
+        status: "working",
+      });
+    } finally {
+      db.close();
+    }
   });
 });
 

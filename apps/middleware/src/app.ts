@@ -8,6 +8,7 @@ import { openDatabase, type MiddlewareDatabase } from "./db/connection.js";
 import { GatewayClient } from "./features/gateway/client.js";
 import { MessageRepository } from "./features/chat/repo.messages.js";
 import { RunRepository } from "./features/chat/repo.runs.js";
+import { SubagentRepository } from "./features/chat/repo.subagents.js";
 import { ChatLiveIngest } from "./features/chat/live.js";
 import { SessionSendQueue } from "./features/chat/send-queue.js";
 import { PatchBus, registerPatchRoutes } from "./features/patches.js";
@@ -25,6 +26,7 @@ export type AppContext = {
   db: MiddlewareDatabase;
   messages: MessageRepository;
   runs: RunRepository;
+  subagents: SubagentRepository;
   chatLive: ChatLiveIngest;
   sendQueue: SessionSendQueue;
   patchBus: PatchBus;
@@ -49,6 +51,7 @@ export async function createApp(config: MiddlewareConfig) {
   const gateway = new GatewayClient(config);
   const messages = new MessageRepository(db);
   const runs = new RunRepository(db);
+  const subagents = new SubagentRepository(db);
   const startupStaleCleanup = runs.finalizeStaleActivity();
   if (startupStaleCleanup.runsFinalized || startupStaleCleanup.toolsFinalized || startupStaleCleanup.detachedToolsFinalized) {
     createLogger("chat-cleanup").warn("startup.stale-activity-finalized", startupStaleCleanup);
@@ -60,6 +63,7 @@ export async function createApp(config: MiddlewareConfig) {
     db,
     messages,
     runs,
+    subagents,
     chatLive: undefined as unknown as ChatLiveIngest,
     sendQueue: new SessionSendQueue(),
     patchBus,

@@ -949,7 +949,7 @@ function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
         ? (input as Record<string, unknown>)
         : {}
       const task = typeof args.task === "string" ? args.task : ""
-      const fallback = task ? `${task.slice(0, 60)}${task.length > 60 ? "..." : ""}` : `Sub-agent ${spawns.size + 1}`
+      const fallback = task ? `${task.slice(0, 60)}${task.length > 60 ? "..." : ""}` : "Sub-agent"
       spawns.set(id, {
         id: `spawn:${id}`,
         label: compactLabel(args.label ?? args.agentId, fallback),

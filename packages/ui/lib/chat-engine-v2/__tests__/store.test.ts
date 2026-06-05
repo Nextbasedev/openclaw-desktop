@@ -105,6 +105,26 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("session-A")?.lastPatchAtMs).toBe(beforeGeneration)
   })
 
+  test("fresh session with cursor 0 and no messages does not dispatch bootstrap recovery", async () => {
+    const target = new EventTarget()
+    const recoveryEvents: unknown[] = []
+    vi.stubGlobal("window", {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      dispatchEvent: target.dispatchEvent.bind(target),
+      setInterval,
+      clearInterval,
+    })
+    window.addEventListener("openclaw:chat-bootstrap-recovery", (event) => recoveryEvents.push((event as CustomEvent).detail))
+    const client = await import("../client")
+    vi.mocked(client.fetchChatSessionHeadV2).mockResolvedValueOnce({ ok: true, sessionKey: "new-session", headCursor: 0, knownVisibleTotal: 0, oldestVisibleSeq: null })
+
+    ensureGlobalChatEngine(undefined, { sessionKey: "new-session", replayFromCursor: 0, reason: "fresh" })
+    await Promise.resolve()
+
+    expect(recoveryEvents).toEqual([])
+  })
+
   test("bootstrap prune metadata no longer triggers routine client recovery", () => {
     const target = new EventTarget()
     const recoveryEvents: Array<{ sessionKey?: string; reason?: string; cursor?: number }> = []
@@ -2561,6 +2581,61 @@ describe("global V2 chat engine store", () => {
 
     expect(getGlobalChatSession("parent-1")?.spawnedSubagents).toMatchObject([
       { toolCallId: "spawn-canonical", sessionKey: "agent:main:desktop:subagent:child-1", status: "working" },
+    ])
+  })
+
+  test("keeps subagent registry parent-scoped with server labels and child transcript isolated", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.subagent.spawn_started",
+        sessionKey: "parent-A",
+        createdAtMs: Date.now(),
+        payload: { semanticType: "chat.subagent.spawn_started", sessionKey: "parent-A", toolCallId: "spawn-1", label: "Server label A" },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.subagent.spawn_linked",
+        sessionKey: "parent-A",
+        createdAtMs: Date.now(),
+        payload: { semanticType: "chat.subagent.spawn_linked", sessionKey: "parent-A", toolCallId: "spawn-1", label: "Server label A", childSessionKey: "agent:main:desktop:subagent:child-A" },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.subagent.spawn_started",
+        sessionKey: "parent-B",
+        createdAtMs: Date.now(),
+        payload: { semanticType: "chat.subagent.spawn_started", sessionKey: "parent-B", toolCallId: "spawn-1", label: "Server label B" },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 4,
+        type: "chat.message.upsert",
+        sessionKey: "agent:main:desktop:subagent:child-A",
+        createdAtMs: Date.now(),
+        payload: { sessionKey: "agent:main:desktop:subagent:child-A", messageSeq: 1, message: { role: "assistant", text: "child text", __openclaw: { seq: 1 } } },
+      },
+    })
+
+    expect(getGlobalChatSession("parent-A")?.spawnedSubagents).toEqual([
+      expect.objectContaining({ toolCallId: "spawn-1", label: "Server label A", sessionKey: "agent:main:desktop:subagent:child-A" }),
+    ])
+    expect(getGlobalChatSession("parent-B")?.spawnedSubagents).toEqual([
+      expect.objectContaining({ toolCallId: "spawn-1", label: "Server label B", sessionKey: null }),
+    ])
+    expect(getGlobalChatSession("parent-A")?.spawnedSubagents).toHaveLength(1)
+    expect(getGlobalChatSession("parent-A")?.messages).toEqual([])
+    expect(getGlobalChatSession("agent:main:desktop:subagent:child-A")?.messages).toEqual([
+      expect.objectContaining({ text: "child text" }),
     ])
   })
 

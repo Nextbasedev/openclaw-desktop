@@ -545,11 +545,20 @@ export class ChatLiveIngest {
   }
 
   private emitSpawnLinked(link: SpawnLink, sourceEvent: string) {
+    const persisted = this.context.subagents.upsert({
+      parentSessionKey: link.parentSessionKey,
+      toolCallId: link.toolCallId,
+      childSessionKey: link.childSessionKey,
+      label: link.label,
+      status: "working",
+    });
     this.emitSubagentPatch(link.parentSessionKey, "chat.subagent.spawn_linked", {
       phase: "spawn_linked",
       toolCallId: link.toolCallId,
       childSessionKey: link.childSessionKey,
       parentSessionKey: link.parentSessionKey,
+      label: persisted.label,
+      status: persisted.status,
       result: { childSessionKey: link.childSessionKey },
       subagentOf: `spawn:${link.toolCallId}`,
       sourceEvent,
@@ -561,6 +570,15 @@ export class ChatLiveIngest {
 
   private discoverSubagentChild(childSessionKey: string | null, sourceEvent: string) {
     if (!childSessionKey || !isSubagentSessionKey(childSessionKey)) return null;
+    const persisted = this.context.subagents.findByChildSessionKey(childSessionKey);
+    if (persisted) return {
+      parentSessionKey: persisted.parentSessionKey,
+      toolCallId: persisted.toolCallId,
+      label: persisted.label,
+      createdAtMs: persisted.createdAtMs,
+      linkedChildSessionKey: childSessionKey,
+      childSessionKey,
+    } satisfies SpawnLink;
     const link = this.subagents.discoverChild(childSessionKey);
     if (link) this.emitSpawnLinked(link, sourceEvent);
     return link;
@@ -569,11 +587,22 @@ export class ChatLiveIngest {
   private emitChildActivity(childSessionKey: string, sourceEvent: string, payload: Record<string, unknown> = {}) {
     const link = this.subagents.linkedSpawnForChild(childSessionKey) ?? this.discoverSubagentChild(childSessionKey, sourceEvent);
     if (!link) return;
+    const childStatus = typeof payload.childStatus === "string" ? payload.childStatus : null;
+    const status = childStatus === "done" || childStatus === "completed" ? "completed" : childStatus === "error" || childStatus === "failed" ? "failed" : "working";
+    const persisted = this.context.subagents.upsert({
+      parentSessionKey: link.parentSessionKey,
+      toolCallId: link.toolCallId,
+      childSessionKey,
+      label: link.label,
+      status,
+    });
     this.emitSubagentPatch(link.parentSessionKey, "chat.subagent.child_activity", {
       phase: "child_activity",
       toolCallId: link.toolCallId,
       childSessionKey,
       parentSessionKey: link.parentSessionKey,
+      label: persisted.label,
+      status: persisted.status,
       subagentOf: `spawn:${link.toolCallId}`,
       sourceEvent,
       ...payload,
@@ -647,12 +676,14 @@ export class ChatLiveIngest {
             : undefined;
       const task = typeof args.task === "string" ? args.task : undefined;
       if (phase === "start" || phase === "calling") {
-        const { link } = this.subagents.registerSpawn({ parentSessionKey: sessionKey, toolCallId, label, task });
+        const stable = this.context.subagents.upsert({ parentSessionKey: sessionKey, toolCallId, label, status: "spawning" });
+        const { link } = this.subagents.registerSpawn({ parentSessionKey: sessionKey, toolCallId, label: stable.label, task });
         this.emitSubagentPatch(sessionKey, "chat.subagent.spawn_started", {
           phase: "spawn_started",
           toolCallId,
           parentSessionKey: sessionKey,
-          label: label ?? "Sub-agent",
+          label: stable.label,
+          status: stable.status,
           ...(task ? { task } : {}),
         });
         if (link) this.emitSpawnLinked(link, "pending_child_before_spawn");
@@ -686,10 +717,19 @@ export class ChatLiveIngest {
         ? this.subagents.linkSpecific(toolCallId, childSessionKey)
         : null;
       if (link) this.emitSpawnLinked(link, "sessions_spawn_result");
+      const persisted = this.context.subagents.upsert({
+        parentSessionKey: sessionKey,
+        toolCallId,
+        childSessionKey: childSessionKey && childSessionKey !== sessionKey ? childSessionKey : null,
+        label: link?.label,
+        status: phase === "error" ? "failed" : childSessionKey ? "working" : "spawning",
+      });
       this.emitSubagentPatch(sessionKey, phase === "error" ? "chat.subagent.spawn_failed" : "chat.subagent.spawn_done", {
         phase: phase === "error" ? "spawn_failed" : "spawn_done",
         toolCallId,
         parentSessionKey: sessionKey,
+        label: persisted.label,
+        status: persisted.status,
         ...(childSessionKey ? { childSessionKey, result: { childSessionKey } } : {}),
         ...(phase === "error" ? { error: data.error ?? liveResultValue ?? true } : {}),
       });

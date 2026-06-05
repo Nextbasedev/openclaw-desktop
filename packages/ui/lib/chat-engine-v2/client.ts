@@ -305,29 +305,33 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
           replayHasMore: frame.type === "hello" ? frame.replayHasMore : undefined,
         }, "debug")
         if (frame.type === "hello" && (frame.recovery === "bootstrap" || frame.replayWindowExceeded)) {
+          const replayCount = Math.max(0, frame.replayCount ?? 0)
+          const isFreshConnection = connectionCursor === 0 && replayCount === 0 && !frame.replayHasMore
           suppressReplayUntilCursor = Math.max(
             suppressReplayUntilCursor,
-            connectionCursor + Math.max(0, frame.replayCount ?? 0),
+            connectionCursor + replayCount,
           )
-          frontendLog("stream", "patch-stream.bootstrap-recovery", { afterCursor: connectionCursor, replayCount: frame.replayCount, replayHasMore: frame.replayHasMore }, "warn")
-          logChatStreamRecoveryDecision({
-            targetSessionKey: null,
-            activeSessionKey: null,
-            renderedSessionKey: null,
-            cursor: connectionCursor,
-            willApply: true,
-            reason: frame.replayWindowExceeded ? "replay-window-exceeded" : "stream-hello-recovery",
-            extra: {
-              replayCount: frame.replayCount,
-              replayHasMore: frame.replayHasMore,
-            },
-          })
-          window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
-            detail: {
-              reason: frame.replayWindowExceeded ? "replay-window-exceeded" : "stream-hello-recovery",
+          frontendLog("stream", "patch-stream.bootstrap-recovery", { afterCursor: connectionCursor, replayCount: frame.replayCount, replayHasMore: frame.replayHasMore, suppressedFreshConnection: isFreshConnection }, isFreshConnection ? "debug" : "warn")
+          if (!isFreshConnection) {
+            logChatStreamRecoveryDecision({
+              targetSessionKey: null,
+              activeSessionKey: null,
+              renderedSessionKey: null,
               cursor: connectionCursor,
-            },
-          }))
+              willApply: true,
+              reason: frame.replayWindowExceeded ? "replay-window-exceeded" : "stream-hello-recovery",
+              extra: {
+                replayCount: frame.replayCount,
+                replayHasMore: frame.replayHasMore,
+              },
+            })
+            window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
+              detail: {
+                reason: frame.replayWindowExceeded ? "replay-window-exceeded" : "stream-hello-recovery",
+                cursor: connectionCursor,
+              },
+            }))
+          }
           onFrame(frame)
           return
         }

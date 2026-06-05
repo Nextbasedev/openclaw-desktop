@@ -1235,7 +1235,7 @@ export function useChatMessages(
             upsertSpawn({
               ...(prev ?? {
                 id: `spawn:${toolCallId}`,
-                label: `Sub-agent ${spawnMapRef.current.size + 1}`,
+                label: "Sub-agent",
                 task: "",
                 toolCallId,
               }),
@@ -1254,7 +1254,7 @@ export function useChatMessages(
               upsertSpawn({
                 ...(prev ?? {
                   id: `spawn:${toolCallId}`,
-                  label: `Sub-agent ${spawnMapRef.current.size + 1}`,
+                  label: "Sub-agent",
                   task: "",
                   toolCallId,
                 }),
@@ -1316,7 +1316,7 @@ export function useChatMessages(
                 (args?.agentId as string) ??
                 (taskStr.length > 0
                   ? taskStr.slice(0, 60) + (taskStr.length > 60 ? "..." : "")
-                  : `Sub-agent ${spawnMapRef.current.size + 1}`)
+                  : "Sub-agent")
               upsertSpawn({
                 id: `spawn:${toolCallId}`,
                 label,
@@ -1423,7 +1423,7 @@ export function useChatMessages(
                 (args.agentId as string) ??
                 (taskStr.length > 0
                   ? taskStr.slice(0, 60) + (taskStr.length > 60 ? "..." : "")
-                  : `Sub-agent ${spawnMapRef.current.size + 1}`)
+                  : "Sub-agent")
               upsertSpawn({
                 id: `spawn:${toolCallId}`,
                 label,
