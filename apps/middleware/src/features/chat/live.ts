@@ -265,7 +265,7 @@ export class ChatLiveIngest {
     const normalized = normalizeHistoryMessages(sessionKey, enrichInboundMediaMessages([message]), Date.now(), payloadSeq ?? this.context.messages.nextMessageSeq(sessionKey));
     const projectedMessage = normalized[0];
     if (!projectedMessage) return;
-    const confirmedDuplicate = !optimisticId ? this.findRecentConfirmedUserEcho(sessionKey, projectedMessage) : null;
+    const confirmedDuplicate = !optimisticId ? this.findConfirmedUserEcho(sessionKey, projectedMessage) : null;
     if (confirmedDuplicate) {
       this.log.info("message.duplicate-confirmed-user.skip", {
         sessionKey,
@@ -449,7 +449,30 @@ export class ChatLiveIngest {
    * re-persists each previous user turn as a new row one seq down.
    */
   isConfirmedUserDuplicate(sessionKey: string, message: { role: string | null; data: OpenClawMessage; openclawSeq: number }) {
-    return this.findRecentConfirmedUserEcho(sessionKey, message) !== null;
+    return this.findConfirmedUserEcho(sessionKey, message) !== null;
+  }
+
+  private findConfirmedUserEcho(sessionKey: string, message: { role: string | null; data: OpenClawMessage; openclawSeq: number; messageId?: string | null; gatewaySeq?: number | null }) {
+    if (message.role !== "user") return null;
+    const persisted = this.context.messages.absorbPersistedUserEchoDuplicate(sessionKey, {
+      sessionKey,
+      openclawSeq: message.openclawSeq,
+      gatewaySeq: message.gatewaySeq ?? null,
+      messageId: message.messageId ?? null,
+      role: message.role,
+      data: message.data,
+      updatedAtMs: Date.now(),
+    });
+    if (persisted) {
+      return {
+        id: persisted.messageId ?? `seq:${persisted.openclawSeq}`,
+        text: normalizeMessageText(textFromMessage(persisted.data)),
+        runId: this.readRunId(persisted.data) ?? undefined,
+        openclawSeq: persisted.openclawSeq,
+        confirmedAtMs: persisted.updatedAtMs,
+      } satisfies RecentConfirmedUserEntry;
+    }
+    return this.findRecentConfirmedUserEcho(sessionKey, message);
   }
 
   private findRecentConfirmedUserEcho(sessionKey: string, message: { role: string | null; data: OpenClawMessage; openclawSeq: number }) {

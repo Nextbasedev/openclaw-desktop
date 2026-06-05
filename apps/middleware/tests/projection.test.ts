@@ -17,7 +17,7 @@ function testDbPath(name: string) {
 describe("SQLite projection", () => {
   test("migration creates schema version", () => {
     const db = openDatabase({ databasePath: testDbPath("schema") });
-    expect(readSchemaVersion(db)).toBe(2);
+    expect(readSchemaVersion(db)).toBe(3);
     db.close();
   });
 

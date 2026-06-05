@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import { fromJson, toJson } from "../../db/json.js";
 import { isInternalSubagentCompletionMessage, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import type { OpenClawMessage, ProjectedMessage, ProjectionEvent } from "./types.js";
@@ -26,6 +27,59 @@ function runIdentityOf(data: unknown): string | null {
   const openclaw = message.__openclaw && typeof message.__openclaw === "object" ? message.__openclaw as Record<string, unknown> : {};
   const runId = openclaw.runId ?? message.runId ?? message.gatewayRunId;
   return typeof runId === "string" && runId.trim() ? runId.trim() : null;
+}
+
+function stringField(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function openclawMeta(data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return {};
+  const meta = (data as OpenClawMessage).__openclaw;
+  return meta && typeof meta === "object" && !Array.isArray(meta) ? meta as Record<string, unknown> : {};
+}
+
+function textFingerprint(role: string | null, data: unknown): string | null {
+  if (role !== "user") return null;
+  const text = textOf(data);
+  if (!text) return null;
+  return `user-text:${createHash("sha256").update(text).digest("hex").slice(0, 32)}`;
+}
+
+function turnIdentityFor(message: { messageId?: string | null; role: string | null; data: OpenClawMessage }) {
+  const meta = openclawMeta(message.data);
+  const clientMessageId = stringField(meta.clientMessageId, message.data.clientMessageId, isOptimisticData(message.data) && message.role === "user" ? message.messageId : null);
+  const idempotencyKey = stringField(meta.idempotencyKey, message.data.idempotencyKey);
+  const runId = runIdentityOf(message.data);
+  const stable = clientMessageId ? `client:${clientMessageId}` : idempotencyKey ? `idem:${idempotencyKey}` : runId && message.role === "user" ? `run:${runId}` : null;
+  return {
+    clientMessageId,
+    idempotencyKey,
+    runId,
+    logicalTurnKey: stable,
+    textFingerprint: textFingerprint(message.role, message.data),
+  };
+}
+
+function mergeGatewayEcho(existingData: OpenClawMessage, incoming: ProjectedMessage): OpenClawMessage {
+  const existingMeta = openclawMeta(existingData);
+  const incomingMeta = openclawMeta(incoming.data);
+  const gatewaySeq = incoming.gatewaySeq ?? incoming.openclawSeq;
+  return {
+    ...existingData,
+    isOptimistic: false,
+    __clientOptimistic: false,
+    __openclaw: {
+      ...existingMeta,
+      ...incomingMeta,
+      ...(incoming.messageId ? { gatewayId: incoming.messageId } : {}),
+      gatewaySeq,
+      ...(incoming.segmentId !== undefined ? { segmentId: incoming.segmentId } : {}),
+    },
+  } as OpenClawMessage;
 }
 
 function isStrippedReplayCandidate(message: ProjectedMessage) {
@@ -243,8 +297,8 @@ export class MessageRepository {
   upsertMessages(messages: ProjectedMessage[], opts: { segmentId?: string | null; sessionId?: string | null; baseSeq?: number } = {}) {
     if (messages.length === 0) return { upserted: 0, lastSeq: 0, changedMessages: [] as ProjectedMessage[] };
     const insert = this.db.prepare(`
-      INSERT INTO v2_messages(session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms)
-      VALUES (@sessionKey, @segmentId, @sessionId, @gatewaySeq, @openclawSeq, @messageId, @role, @dataJson, @updatedAtMs)
+      INSERT INTO v2_messages(session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms, client_message_id, idempotency_key, run_id, logical_turn_key, text_fingerprint)
+      VALUES (@sessionKey, @segmentId, @sessionId, @gatewaySeq, @openclawSeq, @messageId, @role, @dataJson, @updatedAtMs, @clientMessageId, @idempotencyKey, @runId, @logicalTurnKey, @textFingerprint)
       ON CONFLICT(session_key, openclaw_seq) DO UPDATE SET
         segment_id = COALESCE(excluded.segment_id, v2_messages.segment_id),
         session_id = COALESCE(excluded.session_id, v2_messages.session_id),
@@ -252,6 +306,11 @@ export class MessageRepository {
         message_id = excluded.message_id,
         role = excluded.role,
         data_json = excluded.data_json,
+        client_message_id = COALESCE(excluded.client_message_id, v2_messages.client_message_id),
+        idempotency_key = COALESCE(excluded.idempotency_key, v2_messages.idempotency_key),
+        run_id = COALESCE(excluded.run_id, v2_messages.run_id),
+        logical_turn_key = COALESCE(excluded.logical_turn_key, v2_messages.logical_turn_key),
+        text_fingerprint = COALESCE(excluded.text_fingerprint, v2_messages.text_fingerprint),
         updated_at_ms = excluded.updated_at_ms
     `);
     const existingAtSeq = this.db.prepare(`
@@ -291,6 +350,45 @@ export class MessageRepository {
       ORDER BY openclaw_seq ASC
       LIMIT 1000
     `);
+    const existingUserByStableIdentity = this.db.prepare(`
+      SELECT openclaw_seq, message_id, role, data_json
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND role = 'user'
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+        AND (
+          (@clientMessageId IS NOT NULL AND client_message_id = @clientMessageId)
+          OR (@idempotencyKey IS NOT NULL AND idempotency_key = @idempotencyKey)
+          OR (@runId IS NOT NULL AND run_id = @runId)
+          OR (@logicalTurnKey IS NOT NULL AND logical_turn_key = @logicalTurnKey)
+        )
+      ORDER BY openclaw_seq DESC
+      LIMIT 1
+    `);
+    const existingUserByStrippedText = this.db.prepare(`
+      SELECT openclaw_seq, message_id, role, data_json, gateway_seq
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND role = 'user'
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+        AND text_fingerprint = @textFingerprint
+        AND (idempotency_key IS NOT NULL OR run_id IS NOT NULL)
+        AND openclaw_seq <= @openclawSeq
+      ORDER BY openclaw_seq DESC
+      LIMIT 1
+    `);
+    const absorbUserEcho = this.db.prepare(`
+      UPDATE v2_messages
+      SET gateway_seq = COALESCE(@gatewaySeq, gateway_seq),
+          data_json = @dataJson,
+          updated_at_ms = max(updated_at_ms, @updatedAtMs),
+          client_message_id = COALESCE(@clientMessageId, client_message_id),
+          idempotency_key = COALESCE(@idempotencyKey, idempotency_key),
+          run_id = COALESCE(@runId, run_id),
+          logical_turn_key = COALESCE(@logicalTurnKey, logical_turn_key),
+          text_fingerprint = COALESCE(@textFingerprint, text_fingerprint)
+      WHERE session_key = @sessionKey AND openclaw_seq = @openclawSeq
+    `);
     const maxSeq = this.db.prepare(`
       SELECT max(openclaw_seq) AS maxSeq
       FROM v2_messages
@@ -322,6 +420,29 @@ export class MessageRepository {
         let openclawSeq = resolvedSegmentId ? baseSeq + gatewaySeq : message.openclawSeq;
         const segmentId = message.segmentId ?? resolvedSegmentId;
         const sessionId = message.sessionId ?? resolvedSessionId;
+        const identity = turnIdentityFor(message);
+        const stableIdentityMatch = message.role === "user" && (identity.clientMessageId || identity.idempotencyKey || identity.runId || identity.logicalTurnKey)
+          ? existingUserByStableIdentity.get({ sessionKey: message.sessionKey, segmentId, ...identity }) as { openclaw_seq: number; message_id: string | null; role: string | null; data_json: string } | undefined
+          : undefined;
+        const strippedTextMatch = message.role === "user" && !identity.clientMessageId && !identity.idempotencyKey && !identity.runId && identity.textFingerprint
+          ? existingUserByStrippedText.get({ sessionKey: message.sessionKey, segmentId, textFingerprint: identity.textFingerprint, openclawSeq }) as { openclaw_seq: number; message_id: string | null; role: string | null; data_json: string; gateway_seq: number | null } | undefined
+          : undefined;
+        const userEchoMatch = stableIdentityMatch ?? strippedTextMatch;
+        if (userEchoMatch?.openclaw_seq) {
+          const existingData = fromJson(userEchoMatch.data_json) as OpenClawMessage;
+          const mergedData = mergeGatewayEcho(existingData, { ...message, segmentId, sessionId, gatewaySeq });
+          const mergedIdentity = turnIdentityFor({ ...message, data: mergedData });
+          absorbUserEcho.run({
+            sessionKey: message.sessionKey,
+            openclawSeq: userEchoMatch.openclaw_seq,
+            gatewaySeq,
+            dataJson: toJson(mergedData),
+            updatedAtMs: message.updatedAtMs,
+            ...mergedIdentity,
+          });
+          lastSeq = Math.max(lastSeq, userEchoMatch.openclaw_seq);
+          continue;
+        }
         const idMatch = message.messageId
           ? (existingById.get({ sessionKey: message.sessionKey, messageId: message.messageId, segmentId }) as { openclaw_seq: number } | undefined)
             ?? (existingByGatewayId.get({ sessionKey: message.sessionKey, messageId: message.messageId, segmentId }) as { openclaw_seq: number } | undefined)
@@ -398,6 +519,7 @@ export class MessageRepository {
         const changed = !existing || existing.message_id !== message.messageId || existing.role !== message.role || existing.data_json !== dataJson;
         const storedMessage = openclawSeq === message.openclawSeq && !segmentId ? message : { ...message, segmentId, sessionId, gatewaySeq, openclawSeq };
         if (changed) {
+          const storedIdentity = turnIdentityFor(storedMessage);
           insert.run({
             sessionKey: message.sessionKey,
             segmentId,
@@ -408,6 +530,7 @@ export class MessageRepository {
             role: message.role,
             dataJson,
             updatedAtMs: message.updatedAtMs,
+            ...storedIdentity,
           });
           changedMessages.push(storedMessage);
         }
@@ -581,9 +704,10 @@ export class MessageRepository {
 
   insertOptimisticMessage(message: ProjectedMessage) {
     const activeSegment = this.getActiveSegment(message.sessionKey);
+    const identity = turnIdentityFor(message);
     this.db.prepare(`
-      INSERT INTO v2_messages(session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms)
-      VALUES (@sessionKey, @segmentId, @sessionId, @gatewaySeq, @openclawSeq, @messageId, @role, @dataJson, @updatedAtMs)
+      INSERT INTO v2_messages(session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms, client_message_id, idempotency_key, run_id, logical_turn_key, text_fingerprint)
+      VALUES (@sessionKey, @segmentId, @sessionId, @gatewaySeq, @openclawSeq, @messageId, @role, @dataJson, @updatedAtMs, @clientMessageId, @idempotencyKey, @runId, @logicalTurnKey, @textFingerprint)
       ON CONFLICT(session_key, openclaw_seq) DO UPDATE SET
         segment_id = COALESCE(excluded.segment_id, v2_messages.segment_id),
         session_id = COALESCE(excluded.session_id, v2_messages.session_id),
@@ -591,6 +715,11 @@ export class MessageRepository {
         message_id = excluded.message_id,
         role = excluded.role,
         data_json = excluded.data_json,
+        client_message_id = COALESCE(excluded.client_message_id, v2_messages.client_message_id),
+        idempotency_key = COALESCE(excluded.idempotency_key, v2_messages.idempotency_key),
+        run_id = COALESCE(excluded.run_id, v2_messages.run_id),
+        logical_turn_key = COALESCE(excluded.logical_turn_key, v2_messages.logical_turn_key),
+        text_fingerprint = COALESCE(excluded.text_fingerprint, v2_messages.text_fingerprint),
         updated_at_ms = excluded.updated_at_ms
     `).run({
       sessionKey: message.sessionKey,
@@ -602,7 +731,86 @@ export class MessageRepository {
       role: message.role,
       dataJson: toJson(message.data),
       updatedAtMs: message.updatedAtMs,
+      ...identity,
     });
+  }
+
+  findPersistedUserEchoDuplicate(sessionKey: string, message: ProjectedMessage): ProjectedMessage | null {
+    if (message.role !== "user") return null;
+    const identity = turnIdentityFor(message);
+    const activeSegment = this.getActiveSegment(sessionKey);
+    const segmentId = message.segmentId ?? activeSegment?.segmentId ?? null;
+    const gatewaySeq = message.gatewaySeq ?? message.openclawSeq;
+    const projectedSeq = segmentId && activeSegment?.segmentId === segmentId ? activeSegment.baseSeq + gatewaySeq : message.openclawSeq;
+    const row = this.db.prepare(`
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND role = 'user'
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+        AND (
+          (@clientMessageId IS NOT NULL AND client_message_id = @clientMessageId)
+          OR (@idempotencyKey IS NOT NULL AND idempotency_key = @idempotencyKey)
+          OR (@runId IS NOT NULL AND run_id = @runId)
+          OR (@logicalTurnKey IS NOT NULL AND logical_turn_key = @logicalTurnKey)
+          OR (@clientMessageId IS NULL AND @idempotencyKey IS NULL AND @runId IS NULL AND @textFingerprint IS NOT NULL
+            AND text_fingerprint = @textFingerprint
+            AND (idempotency_key IS NOT NULL OR run_id IS NOT NULL)
+            AND openclaw_seq <= @projectedSeq)
+        )
+      ORDER BY openclaw_seq DESC
+      LIMIT 1
+    `).get({ sessionKey, segmentId, projectedSeq, ...identity }) as {
+      session_key: string;
+      segment_id: string | null;
+      session_id: string | null;
+      gateway_seq: number | null;
+      openclaw_seq: number;
+      message_id: string | null;
+      role: string | null;
+      data_json: string;
+      updated_at_ms: number;
+    } | undefined;
+    if (!row) return null;
+    return {
+      sessionKey: row.session_key,
+      segmentId: row.segment_id,
+      sessionId: row.session_id,
+      gatewaySeq: row.gateway_seq ?? undefined,
+      openclawSeq: row.openclaw_seq,
+      messageId: row.message_id,
+      role: row.role,
+      data: fromJson(row.data_json) as OpenClawMessage,
+      updatedAtMs: row.updated_at_ms,
+    };
+  }
+
+  absorbPersistedUserEchoDuplicate(sessionKey: string, message: ProjectedMessage): ProjectedMessage | null {
+    const existing = this.findPersistedUserEchoDuplicate(sessionKey, message);
+    if (!existing) return null;
+    const gatewaySeq = message.gatewaySeq ?? message.openclawSeq;
+    const mergedData = mergeGatewayEcho(existing.data, { ...message, segmentId: existing.segmentId, sessionId: existing.sessionId, gatewaySeq });
+    const identity = turnIdentityFor({ ...message, data: mergedData });
+    this.db.prepare(`
+      UPDATE v2_messages
+      SET gateway_seq = COALESCE(@gatewaySeq, gateway_seq),
+          data_json = @dataJson,
+          updated_at_ms = max(updated_at_ms, @updatedAtMs),
+          client_message_id = COALESCE(@clientMessageId, client_message_id),
+          idempotency_key = COALESCE(@idempotencyKey, idempotency_key),
+          run_id = COALESCE(@runId, run_id),
+          logical_turn_key = COALESCE(@logicalTurnKey, logical_turn_key),
+          text_fingerprint = COALESCE(@textFingerprint, text_fingerprint)
+      WHERE session_key = @sessionKey AND openclaw_seq = @openclawSeq
+    `).run({
+      sessionKey,
+      openclawSeq: existing.openclawSeq,
+      gatewaySeq,
+      dataJson: toJson(mergedData),
+      updatedAtMs: message.updatedAtMs,
+      ...identity,
+    });
+    return { ...existing, gatewaySeq, data: mergedData, updatedAtMs: Math.max(existing.updatedAtMs, message.updatedAtMs) };
   }
 
   confirmOptimisticUser(sessionKey: string, optimisticId: string, gatewayMessage: ProjectedMessage) {
@@ -648,6 +856,11 @@ export class MessageRepository {
           gateway_seq = COALESCE(@gatewaySeq, gateway_seq),
           role = @role,
           data_json = @dataJson,
+          client_message_id = COALESCE(@clientMessageId, client_message_id),
+          idempotency_key = COALESCE(@idempotencyKey, idempotency_key),
+          run_id = COALESCE(@runId, run_id),
+          logical_turn_key = COALESCE(@logicalTurnKey, logical_turn_key),
+          text_fingerprint = COALESCE(@textFingerprint, text_fingerprint),
           updated_at_ms = @updatedAtMs
       WHERE session_key = @sessionKey AND message_id = @optimisticId
     `);
@@ -659,6 +872,8 @@ export class MessageRepository {
     const existingOpenClaw = existingData.__openclaw ?? {};
     const gatewayOpenClaw = gatewayMessage.data.__openclaw ?? {};
     const preservedRunId = gatewayOpenClaw.runId ?? existingOpenClaw.runId;
+    const preservedClientMessageId = gatewayOpenClaw.clientMessageId ?? existingOpenClaw.clientMessageId ?? existingData.clientMessageId;
+    const preservedIdempotencyKey = gatewayOpenClaw.idempotencyKey ?? existingOpenClaw.idempotencyKey ?? existingData.idempotencyKey;
     const data = {
       ...gatewayMessage.data,
       ...(preserveOptimisticDisplay && typeof existingData.text === "string" ? { text: existingData.text } : {}),
@@ -669,6 +884,8 @@ export class MessageRepository {
       __openclaw: {
         ...gatewayOpenClaw,
         ...(typeof preservedRunId === "string" && preservedRunId.trim() ? { runId: preservedRunId.trim() } : {}),
+        ...(typeof preservedClientMessageId === "string" && preservedClientMessageId.trim() ? { clientMessageId: preservedClientMessageId.trim() } : {}),
+        ...(typeof preservedIdempotencyKey === "string" && preservedIdempotencyKey.trim() ? { idempotencyKey: preservedIdempotencyKey.trim() } : {}),
         id: optimisticId,
         gatewayId: gatewayMessage.messageId,
         gatewaySeq,
@@ -685,6 +902,7 @@ export class MessageRepository {
       data,
       updatedAtMs: gatewayMessage.updatedAtMs,
     };
+    const confirmedIdentity = turnIdentityFor(confirmed);
     const tx = this.db.transaction(() => {
       if (gatewayMessage.messageId && gatewayMessage.messageId !== optimisticId) {
         deleteGatewayDuplicate.run({ sessionKey, gatewayMessageId: gatewayMessage.messageId, segmentId });
@@ -702,6 +920,7 @@ export class MessageRepository {
         role: confirmed.role,
         dataJson: toJson(confirmed.data),
         updatedAtMs: confirmed.updatedAtMs,
+        ...confirmedIdentity,
       });
     });
     tx();

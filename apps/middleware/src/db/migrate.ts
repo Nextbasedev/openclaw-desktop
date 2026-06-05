@@ -1,8 +1,11 @@
 import type Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import { createLogger } from "../lib/logger.js";
 import { CHAT_PROJECTION_VERSION, CHAT_PROJECTION_VERSION_META_KEY, chatProjectionResyncRequiredMetaKey } from "./chat-projection-version.js";
+import { normalizeMessageText, textFromMessage } from "../features/chat/message-normalizer.js";
+import type { OpenClawMessage } from "../features/chat/types.js";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const log = createLogger("db");
 
 const schema = `
@@ -25,7 +28,7 @@ CREATE TABLE IF NOT EXISTS v2_chat_segments (
 );
 CREATE INDEX IF NOT EXISTS idx_v2_chat_segments_session_key ON v2_chat_segments(session_key, segment_index);
 CREATE INDEX IF NOT EXISTS idx_v2_chat_segments_active ON v2_chat_segments(session_key, is_active) WHERE is_active = 1;
-CREATE TABLE IF NOT EXISTS v2_messages (session_key TEXT NOT NULL, openclaw_seq INTEGER NOT NULL, message_id TEXT, role TEXT, data_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL, PRIMARY KEY (session_key, openclaw_seq));
+CREATE TABLE IF NOT EXISTS v2_messages (session_key TEXT NOT NULL, openclaw_seq INTEGER NOT NULL, message_id TEXT, role TEXT, data_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL, client_message_id TEXT, idempotency_key TEXT, run_id TEXT, logical_turn_key TEXT, text_fingerprint TEXT, PRIMARY KEY (session_key, openclaw_seq));
 CREATE INDEX IF NOT EXISTS idx_v2_messages_session_seq ON v2_messages(session_key, openclaw_seq);
 CREATE INDEX IF NOT EXISTS idx_v2_messages_session_message_id ON v2_messages(session_key, message_id) WHERE message_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS v2_archive_imports (
@@ -85,6 +88,110 @@ function addColumnIfMissing(db: Database.Database, table: string, column: string
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
 }
 
+function safeJson(value: string): OpenClawMessage | null {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as OpenClawMessage : null;
+  } catch {
+    return null;
+  }
+}
+
+function stringField(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function openclawMeta(data: OpenClawMessage | null): Record<string, unknown> {
+  const meta = data?.__openclaw;
+  return meta && typeof meta === "object" && !Array.isArray(meta) ? meta as Record<string, unknown> : {};
+}
+
+function textFingerprint(role: string | null, data: OpenClawMessage | null): string | null {
+  if (role !== "user" || !data) return null;
+  const text = normalizeMessageText(textFromMessage(data));
+  if (!text) return null;
+  return `user-text:${createHash("sha256").update(text).digest("hex").slice(0, 32)}`;
+}
+
+function identityFromRow(row: { message_id: string | null; role: string | null; data_json: string }) {
+  const data = safeJson(row.data_json);
+  const meta = openclawMeta(data);
+  const clientMessageId = stringField(meta.clientMessageId, data?.clientMessageId, data?.__clientOptimistic && row.role === "user" ? row.message_id : null);
+  const idempotencyKey = stringField(meta.idempotencyKey, data?.idempotencyKey);
+  const runId = stringField(meta.runId, data?.runId, data?.gatewayRunId);
+  const logicalTurnKey = clientMessageId ? `client:${clientMessageId}` : idempotencyKey ? `idem:${idempotencyKey}` : runId && row.role === "user" ? `run:${runId}` : null;
+  return { clientMessageId, idempotencyKey, runId, logicalTurnKey, textFingerprint: textFingerprint(row.role, data) };
+}
+
+function backfillMessageTurnIdentity(db: Database.Database) {
+  const rows = db.prepare(`
+    SELECT session_key, openclaw_seq, message_id, role, data_json
+    FROM v2_messages
+    WHERE client_message_id IS NULL OR idempotency_key IS NULL OR run_id IS NULL OR logical_turn_key IS NULL OR text_fingerprint IS NULL
+  `).all() as Array<{ session_key: string; openclaw_seq: number; message_id: string | null; role: string | null; data_json: string }>;
+  if (rows.length === 0) return;
+  const update = db.prepare(`
+    UPDATE v2_messages
+    SET client_message_id = COALESCE(client_message_id, @clientMessageId),
+        idempotency_key = COALESCE(idempotency_key, @idempotencyKey),
+        run_id = COALESCE(run_id, @runId),
+        logical_turn_key = COALESCE(logical_turn_key, @logicalTurnKey),
+        text_fingerprint = COALESCE(text_fingerprint, @textFingerprint)
+    WHERE session_key = @sessionKey AND openclaw_seq = @openclawSeq
+  `);
+  const tx = db.transaction(() => {
+    for (const row of rows) update.run({ sessionKey: row.session_key, openclawSeq: row.openclaw_seq, ...identityFromRow(row) });
+  });
+  tx();
+}
+
+function cleanupDuplicateUserEchoes(db: Database.Database) {
+  const duplicates = db.prepare(`
+    SELECT stable.session_key AS session_key, stable.openclaw_seq AS stable_seq, dup.openclaw_seq AS duplicate_seq, dup.gateway_seq AS duplicate_gateway_seq, dup.message_id AS duplicate_message_id, stable.data_json AS stable_data_json
+    FROM v2_messages stable
+    JOIN v2_messages dup
+      ON dup.session_key = stable.session_key
+     AND dup.segment_id IS stable.segment_id
+     AND dup.role = 'user'
+     AND dup.text_fingerprint = stable.text_fingerprint
+     AND dup.openclaw_seq > stable.openclaw_seq
+     AND dup.openclaw_seq <= stable.openclaw_seq + 4
+    WHERE stable.role = 'user'
+      AND stable.text_fingerprint IS NOT NULL
+      AND (stable.client_message_id IS NOT NULL OR stable.idempotency_key IS NOT NULL OR stable.run_id IS NOT NULL OR stable.logical_turn_key IS NOT NULL)
+      AND dup.client_message_id IS NULL
+      AND dup.idempotency_key IS NULL
+      AND dup.run_id IS NULL
+      AND dup.logical_turn_key IS NULL
+  `).all() as Array<{ session_key: string; stable_seq: number; duplicate_seq: number; duplicate_gateway_seq: number | null; duplicate_message_id: string | null; stable_data_json: string }>;
+  if (duplicates.length === 0) return;
+  const updateStable = db.prepare(`UPDATE v2_messages SET gateway_seq = COALESCE(gateway_seq, @gatewaySeq), data_json = @dataJson WHERE session_key = @sessionKey AND openclaw_seq = @stableSeq`);
+  const deleteDup = db.prepare(`DELETE FROM v2_messages WHERE session_key = @sessionKey AND openclaw_seq = @duplicateSeq`);
+  const tx = db.transaction(() => {
+    for (const row of duplicates) {
+      const data = safeJson(row.stable_data_json) ?? {};
+      const meta = openclawMeta(data);
+      const merged = {
+        ...data,
+        isOptimistic: false,
+        __clientOptimistic: false,
+        __openclaw: {
+          ...meta,
+          ...(row.duplicate_message_id ? { gatewayId: row.duplicate_message_id } : {}),
+          ...(row.duplicate_gateway_seq !== null ? { gatewaySeq: row.duplicate_gateway_seq } : {}),
+        },
+      };
+      updateStable.run({ sessionKey: row.session_key, stableSeq: row.stable_seq, gatewaySeq: row.duplicate_gateway_seq, dataJson: JSON.stringify(merged) });
+      deleteDup.run({ sessionKey: row.session_key, duplicateSeq: row.duplicate_seq });
+    }
+  });
+  tx();
+  log.info("messages.user-echo-cleanup", { duplicateRowsCollapsed: duplicates.length });
+}
+
 function backfillLegacyMessageSegments(db: Database.Database) {
   const sessions = db.prepare(`
     SELECT session_key, min(openclaw_seq) AS min_seq, max(openclaw_seq) AS max_seq
@@ -138,13 +245,25 @@ export function migrateDatabase(db: Database.Database) {
   addColumnIfMissing(db, "v2_messages", "segment_id", "segment_id TEXT");
   addColumnIfMissing(db, "v2_messages", "session_id", "session_id TEXT");
   addColumnIfMissing(db, "v2_messages", "gateway_seq", "gateway_seq INTEGER");
+  addColumnIfMissing(db, "v2_messages", "client_message_id", "client_message_id TEXT");
+  addColumnIfMissing(db, "v2_messages", "idempotency_key", "idempotency_key TEXT");
+  addColumnIfMissing(db, "v2_messages", "run_id", "run_id TEXT");
+  addColumnIfMissing(db, "v2_messages", "logical_turn_key", "logical_turn_key TEXT");
+  addColumnIfMissing(db, "v2_messages", "text_fingerprint", "text_fingerprint TEXT");
   addColumnIfMissing(db, "v2_tool_calls", "segment_id", "segment_id TEXT");
   addColumnIfMissing(db, "v2_tool_calls", "session_id", "session_id TEXT");
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_v2_messages_segment_seq ON v2_messages(segment_id, gateway_seq) WHERE segment_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_v2_messages_session_id ON v2_messages(session_id) WHERE session_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_v2_messages_client_message_id ON v2_messages(session_key, client_message_id) WHERE client_message_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_v2_messages_idempotency_key ON v2_messages(session_key, idempotency_key) WHERE idempotency_key IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_v2_messages_user_run_id ON v2_messages(session_key, run_id) WHERE run_id IS NOT NULL AND role = 'user';
+    CREATE INDEX IF NOT EXISTS idx_v2_messages_logical_turn_key ON v2_messages(session_key, logical_turn_key) WHERE logical_turn_key IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_v2_messages_text_fingerprint ON v2_messages(session_key, text_fingerprint) WHERE text_fingerprint IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_v2_tool_calls_segment_id ON v2_tool_calls(segment_id) WHERE segment_id IS NOT NULL;
   `);
+  backfillMessageTurnIdentity(db);
+  cleanupDuplicateUserEchoes(db);
   backfillLegacyMessageSegments(db);
   db.prepare(`INSERT INTO v2_meta(key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(String(SCHEMA_VERSION));
 
