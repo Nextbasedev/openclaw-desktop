@@ -115,21 +115,23 @@ export function ConfigTab() {
   }
 
   return (
-    <div className="flex flex-col gap-5 pb-8">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-[18px] font-semibold tracking-tight text-foreground">Config</h2>
-          <p className="mt-1 text-[13px] text-muted-foreground/70">
-            Important workspace files for identity, rules, memory, and local setup.
-          </p>
+    <div className="flex min-h-full w-full bg-transparent">
+      <aside className="flex w-[270px] shrink-0 animate-in slide-in-from-left-8 fade-in-0 flex-col border-r border-black/[0.055] bg-black/[0.018] duration-300 dark:border-white/[0.055] dark:bg-white/[0.018]">
+        <div className="border-b border-black/[0.04] px-5 py-6 dark:border-white/[0.045]">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-[18px] font-semibold tracking-tight text-foreground">Config</h2>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground/70">
+                Workspace identity, rules, memory, and setup files.
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full bg-black/[0.045] px-2.5 py-1 text-[10px] font-medium text-muted-foreground dark:bg-white/[0.045]">
+              {CONFIG_FILES.length}
+            </span>
+          </div>
         </div>
-        <span className="hidden rounded-full bg-black/[0.045] dark:bg-white/[0.045] px-3 py-1.5 text-[11px] font-medium text-muted-foreground sm:inline-flex">
-          {CONFIG_FILES.length} files
-        </span>
-      </div>
 
-      <div className="grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <div className="space-y-1.5 rounded-2xl bg-black/[0.025] dark:bg-white/[0.025] p-1.5">
+        <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
           {CONFIG_FILES.map((file) => {
             const active = selected.path === file.path
             return (
@@ -138,13 +140,13 @@ export function ConfigTab() {
                 type="button"
                 onClick={() => loadFile(file)}
                 className={cn(
-                  "flex w-full cursor-pointer items-start gap-3 rounded-xl px-3.5 py-3 text-left transition-colors",
-                  active ? "bg-black/[0.055] dark:bg-white/[0.075] text-foreground" : "text-muted-foreground hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.045]",
+                  "flex w-full cursor-pointer items-start gap-3 rounded-xl px-3.5 py-3 text-left transition-all duration-200",
+                  active ? "bg-black/[0.06] text-foreground shadow-sm dark:bg-white/[0.08]" : "text-muted-foreground hover:translate-x-0.5 hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.045]",
                 )}
               >
                 <span className={cn(
                   "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors",
-                  active ? "bg-black/[0.06] dark:bg-white/[0.07] text-foreground" : "bg-black/[0.035] dark:bg-white/[0.035] text-muted-foreground/70",
+                  active ? "bg-black/[0.065] text-foreground dark:bg-white/[0.08]" : "bg-black/[0.035] text-muted-foreground/70 dark:bg-white/[0.035]",
                 )}>
                   <LuFileText size={13} />
                 </span>
@@ -157,6 +159,31 @@ export function ConfigTab() {
           })}
         </div>
 
+        <div className="border-t border-black/[0.04] p-3 dark:border-white/[0.045]">
+          <div className="rounded-xl bg-red-500/[0.055] p-3 ring-1 ring-red-500/10">
+            <div className="flex items-start gap-2.5">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-red-400">
+                <LuTrash2 size={15} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-medium text-foreground">Delete all chats</p>
+                <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground/75">Desktop/imported chats and cached projections.</p>
+                {deleteResult && <p className={`mt-1.5 text-[10px] leading-snug ${deleteResult.startsWith("Failed") ? "text-red-400" : "text-green-400"}`}>{deleteResult}</p>}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleDeleteAllChats}
+              disabled={deleting}
+              className="mt-3 w-full cursor-pointer rounded-lg bg-red-500/10 px-3 py-1.5 text-[11px] font-semibold text-red-400 transition-colors hover:bg-red-500/20 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deleting ? "Deleting…" : "Delete all"}
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <main className="min-w-0 flex-1 px-8 py-7">
         <section className="min-w-0 overflow-hidden rounded-2xl bg-black/[0.025] dark:bg-white/[0.025]">
           <div className="flex items-center justify-between gap-3 bg-black/[0.02] dark:bg-white/[0.02] px-4 py-3.5">
             <div className="min-w-0">
@@ -230,28 +257,7 @@ export function ConfigTab() {
             </pre>
           )}
         </section>
-      </div>
-
-      <div className="mt-2 rounded-2xl bg-red-500/[0.06] p-5">
-        <div className="flex items-center gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
-            <LuTrash2 size={16} />
-          </span>
-          <div className="flex-1">
-            <p className="text-[13px] font-medium text-foreground">Delete All Chats</p>
-            <p className="text-[11px] text-muted-foreground">Removes all desktop and imported chats, messages, and cached projections. Cannot be undone.</p>
-            {deleteResult && <p className={`mt-1 text-[11px] ${deleteResult.startsWith("Failed") ? "text-red-400" : "text-green-400"}`}>{deleteResult}</p>}
-          </div>
-          <button
-            type="button"
-            onClick={handleDeleteAllChats}
-            disabled={deleting}
-            className="cursor-pointer rounded-lg bg-red-500/10 px-3 py-1.5 text-[12px] font-medium text-red-400 transition-colors hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
-          >
-            {deleting ? "Deleting..." : "Delete All"}
-          </button>
-        </div>
-      </div>
+      </main>
     </div>
   )
 }
