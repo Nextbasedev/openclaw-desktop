@@ -160,6 +160,49 @@ export type ChatMessagesPageV2 = {
     updatedAtMs: number
   }>
   messageCount: number
+  knownVisibleTotal?: number
+  oldestLoadedSeq?: number | null
+  hasOlder?: boolean
+}
+
+export type ChatSessionHeadV2 = {
+  ok: boolean
+  sessionKey: string
+  headCursor: number
+  knownVisibleTotal: number
+  oldestVisibleSeq: number | null
+}
+
+export async function fetchChatSessionHeadV2(sessionKey: string): Promise<ChatSessionHeadV2> {
+  const params = new URLSearchParams({ sessionKey })
+  return fetchJson<ChatSessionHeadV2>(`/api/chat/session-head?${params.toString()}`, {
+    schedulerPriority: "active-chat",
+    schedulerSessionKey: sessionKey,
+    schedulerLabel: `session-head:${sessionKey}`,
+  })
+}
+
+export async function replayScopedPatchesV2(input: {
+  sessionKey: string
+  afterCursor: number
+  onFrame: (frame: StreamFrame) => void
+}) {
+  let cursor = Math.max(0, input.afterCursor)
+  for (let i = 0; i < 25; i++) {
+    const params = new URLSearchParams({
+      afterCursor: String(cursor),
+      limit: "1000",
+      sessionKey: input.sessionKey,
+    })
+    const body = await fetchJson<{ patches: PatchFrame["patch"][]; hasMore: boolean; latestCursor: number }>(`/api/patches?${params.toString()}`, {
+      schedulerPriority: "active-chat",
+      schedulerSessionKey: input.sessionKey,
+      schedulerLabel: `patch-replay:${input.sessionKey}`,
+    })
+    for (const patch of body.patches) input.onFrame({ type: "patch", patch })
+    if (!body.hasMore || body.latestCursor <= cursor) break
+    cursor = body.latestCursor
+  }
 }
 
 export async function fetchChatMessagesV2(input: {

@@ -132,7 +132,9 @@ type ChatBootstrapData = {
   fullMessagesIncluded?: boolean
   hasOlder?: boolean
   knownTotalMessages?: number
+  knownVisibleTotal?: number
   oldestLoadedSeq?: number | null
+  headCursor?: number
   tools?: ToolCallProjectionV2[]
   toolCalls?: ToolCallProjectionV2[]
   // Compatibility mirror only. Prefer top-level messages/cursor/runStatus.
@@ -388,7 +390,11 @@ async function fetchChatBootstrap(
     historyCoverage: result.historyCoverage,
     fullMessagesIncluded: result.fullMessagesIncluded,
     tools: result.tools ?? result.toolCalls ?? [],
-    cursor: result.cursor ?? result.projection?.cursor,
+    cursor: result.headCursor ?? result.cursor ?? result.projection?.cursor,
+    headCursor: result.headCursor,
+    hasOlder: result.hasOlder,
+    knownVisibleTotal: result.knownVisibleTotal,
+    oldestLoadedSeq: result.oldestLoadedSeq,
   }))
   return {
     source: freshHistory.source,
@@ -407,6 +413,11 @@ async function fetchChatBootstrap(
     activeRun: freshHistory.activeRun,
     historyCoverage: freshHistory.historyCoverage,
     fullMessagesIncluded: freshHistory.fullMessagesIncluded,
+    hasOlder: freshHistory.hasOlder,
+    knownTotalMessages: freshHistory.knownVisibleTotal,
+    knownVisibleTotal: freshHistory.knownVisibleTotal,
+    oldestLoadedSeq: freshHistory.oldestLoadedSeq,
+    headCursor: freshHistory.headCursor,
     tools: freshHistory.tools,
     toolCalls: freshHistory.tools,
   }
@@ -658,20 +669,6 @@ function projectedPageRowsToRawMessages(
     })
 }
 
-function firstLoadedGatewayIndex(messages: ChatMessage[]) {
-  for (const message of messages) {
-    if (typeof message.gatewayIndex === "number" && Number.isFinite(message.gatewayIndex)) {
-      return Math.floor(message.gatewayIndex)
-    }
-  }
-  return null
-}
-
-function canLoadOlderThanFirstMessage(messages: ChatMessage[]) {
-  const firstSeq = firstLoadedGatewayIndex(messages)
-  return firstSeq !== null && firstSeq > 1
-}
-
 function attachmentLogMeta(attachments: ChatComposerSubmit["attachments"] | undefined) {
   return {
     count: attachments?.length ?? 0,
@@ -909,6 +906,11 @@ export function useChatMessages(
   )
   const [editPreview, setEditPreview] = useState<EditPreviewState | null>(null)
   const spawnMapRef = useRef<Map<string, SpawnedSubagent>>(new Map())
+  const spawnSessionKeyRef = useRef(sessionKey)
+  if (spawnSessionKeyRef.current !== sessionKey) {
+    spawnSessionKeyRef.current = sessionKey
+    spawnMapRef.current.clear()
+  }
   const setPendingTools = useCallback((next: InlineToolCall[]) => {
     setLocalPendingTools(next)
     updateGlobalChatSessionActivity({ sessionKey, pendingTools: next })
@@ -961,6 +963,7 @@ export function useChatMessages(
   }, [isSending])
 
   const upsertSpawn = useCallback((spawn: SpawnedSubagent) => {
+    if (spawnSessionKeyRef.current !== sessionKey) return
     spawnMapRef.current.set(spawn.toolCallId, spawn)
     const deduped = dedupeSpawnedSubagents(Array.from(spawnMapRef.current.values()))
     spawnMapRef.current = new Map(deduped.map((item) => [item.toolCallId, item]))
@@ -1636,12 +1639,7 @@ export function useChatMessages(
         seenIds.current.add(message.messageId)
       }
       setLoading(false)
-      setHasOlderMessages(
-        !hasInitial && (
-          canLoadOlderThanFirstMessage(warmMessages) ||
-          Boolean(cachedBootstrap?.messageCount && cachedBootstrap.messageCount > warmMessages.length)
-        )
-      )
+      setHasOlderMessages(!hasInitial && cachedBootstrap?.hasOlder === true)
       setMessages(warmMessages)
       markHistoryLoaded()
       const warmStatus: StreamStatus = seededMessages
@@ -1668,16 +1666,16 @@ export function useChatMessages(
           : typeof cachedBootstrap?.v2Cursor === "number"
             ? cachedBootstrap.v2Cursor
             : undefined
-      if (seededMessages || (!useCachedGlobal && typeof warmCursor === "number")) {
+      if (seededMessages) {
         seedGlobalChatSession({
           sessionKey,
           messages: warmMessages,
           cursor: typeof warmCursor === "number" ? warmCursor : v2CursorRef.current,
           status: warmStatus,
           statusLabel: warmStatusLabel,
-          pendingTools: seededMessages ? [] : cachedBootstrap?.tools?.map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool)) ?? [],
+          pendingTools: [],
           messageCount: cachedBootstrap?.messageCount ?? warmMessages.length,
-          historyCoverage: seededMessages ? "metadata" : isKnownEmptyBootstrap(cachedBootstrap) || cachedBootstrap?.historyCoverage === "full" ? "full" : "metadata",
+          historyCoverage: "metadata",
           queryClient,
         })
       }
@@ -1819,28 +1817,9 @@ export function useChatMessages(
           : normalizeStatusLabelForStatus(effectiveStatus, cached.entry.statusLabel)
 
         if (typeof cached.entry.cursor === "number") v2CursorRef.current = cached.entry.cursor
-        // Filter stale running tools before seeding global state
-        const seedTools = cached.stale
-          ? (cached.entry.pendingTools ?? []).filter((tool) => tool.status !== "running")
-          : (cached.entry.pendingTools ?? [])
-        if (typeof cached.entry.cursor === "number") {
-          seedGlobalChatSession({
-            sessionKey,
-            messages: cachedMessages,
-            cursor: cached.entry.cursor,
-            status: effectiveStatus,
-            statusLabel: effectiveLabel,
-            pendingTools: seedTools,
-            messageCount: cached.entry.messageCount ?? cachedMessages.length,
-            historyCoverage: cached.entry.historyCoverage === "full" ? "full" : "metadata",
-            queryClient,
-          })
-        }
         setLoading(false)
-        setHasOlderMessages(
-          canLoadOlderThanFirstMessage(cachedMessages) ||
-          Boolean(cached.entry.messageCount && cached.entry.messageCount > cachedMessages.length)
-        )
+        setHasOlderMessages(cached.entry.hasOlder === true)
+        if (typeof cached.entry.oldestLoadedSeq === "number") oldestLoadedSeqRef.current = cached.entry.oldestLoadedSeq
         suppressNextWarmPersistRef.current = true
         setMessages(cachedMessages)
         markHistoryLoaded()
@@ -2134,6 +2113,9 @@ export function useChatMessages(
           } : null,
           pendingTools: inlineTools,
           messageCount: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : (typeof canonicalMessageCount === "number" ? canonicalMessageCount : displayMessages.length),
+          knownVisibleTotal: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : undefined,
+          oldestLoadedSeq: typeof bootstrapOldestSeq === "number" ? bootstrapOldestSeq : null,
+          hasOlder: bootstrapHasOlder === true,
           historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
           fullMessagesIncluded: bootstrapHistoryCoverage !== "windowed",
         }).catch((error) => {
@@ -2142,14 +2124,8 @@ export function useChatMessages(
             error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
           }, "warn")
         })
-        // Use server-side hasOlder when available (accurate), fall back to heuristics
         if (typeof bootstrapOldestSeq === "number") oldestLoadedSeqRef.current = bootstrapOldestSeq
-        setHasOlderMessages(
-          bootstrapHasOlder === true ||
-          canLoadOlderThanFirstMessage(displayMessages) ||
-          Boolean(typeof bootstrapKnownTotal === "number" && bootstrapKnownTotal > displayMessages.length) ||
-          Boolean(typeof canonicalMessageCount === "number" && canonicalMessageCount > displayMessages.length)
-        )
+        setHasOlderMessages(bootstrapHasOlder === true)
         setMessages(displayMessages)
         setLocalPendingTools(inlineTools)
         setLocalSpawnedSubagents(canonicalSpawns)
@@ -3058,7 +3034,7 @@ export function useChatMessages(
     // gatewayIndex to the latest seq, which causes beforeSeq to point to
     // data already loaded → pagination gets stuck.
     const requestGeneration = viewGenerationRef.current
-    const beforeSeq = oldestLoadedSeqRef.current ?? firstLoadedGatewayIndex(messagesRef.current)
+    const beforeSeq = oldestLoadedSeqRef.current
     if (beforeSeq === null || beforeSeq <= 1) {
       setHasOlderMessages(false)
       return
@@ -3143,10 +3119,8 @@ export function useChatMessages(
             : "metadata",
         queryClient,
       })
-      setHasOlderMessages(
-        page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
-        (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
-      )
+      if (typeof page.oldestLoadedSeq === "number") oldestLoadedSeqRef.current = page.oldestLoadedSeq
+      setHasOlderMessages(page.hasOlder === true)
 
     } catch (error) {
       frontendLog("chat", "chat.load-older.fail", {

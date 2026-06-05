@@ -10,7 +10,7 @@ import { extractSubagentSessionKey } from "../subagentSession"
 import { stripTransientChatMessagesState } from "../chatTransientState"
 import { setWarmChatCache, preloadWarmCacheToMemory, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
-import { openPatchStreamV2 } from "./client"
+import { fetchChatSessionHeadV2, openPatchStreamV2, replayScopedPatchesV2 } from "./client"
 import { CHAT_PROJECTION_VERSION, type CachedChatBootstrapV2, type HistoryCoverageV2, type PatchFrame, type PatchPayloadV2, type StreamFrame, type ToolCallProjectionV2 } from "./types"
 
 export type SessionState = {
@@ -55,15 +55,10 @@ function normalizeStatusLabel(status: StreamStatus, label: string | null | undef
 
 const states = new Map<string, SessionState>()
 const listeners = new Map<string, Set<Listener>>()
-function patchCursorStorageKey() {
-  // Scope by middleware URL so different backends/restarts don't collide
-  try {
-    const url = localStorage.getItem("openclaw.middleware.url")?.trim()
-      || localStorage.getItem("openclaw.middleware.v2.url")?.trim()
-    return `openclaw:patchCursor:${url || "default"}`
-  } catch { return "openclaw:patchCursor:default" }
-}
-let globalCursor = 0
+// Transport-only high-water mark used to resume the multiplexed websocket and
+// dedupe transport frames. Recovery decisions must use SessionState.cursor
+// compared to that session's server head, never this cross-session cursor.
+let streamCursor = 0
 let unsubscribeStream: (() => void) | null = null
 let queryClientRef: QueryClient | null = null
 let sweepInterval: ReturnType<typeof setInterval> | null = null
@@ -1000,24 +995,6 @@ function childStatusToSpawnStatus(status: StreamStatus): SpawnedSubagent["status
   return "working"
 }
 
-function syncLinkedSubagentStatus(childSessionKey: string, childStatus: StreamStatus) {
-  const status = childStatusToSpawnStatus(childStatus)
-  for (const [parentKey, parent] of states) {
-    if (parentKey === childSessionKey) continue
-    let changed = false
-    const next = parent.spawnedSubagents.map((spawn) => {
-      if (spawn.sessionKey !== childSessionKey) return spawn
-      if (spawn.status === status) return spawn
-      changed = true
-      return { ...spawn, status }
-    })
-    if (changed) {
-      parent.spawnedSubagents = dedupeSpawnedSubagents(next)
-      notifySync(parentKey)
-    }
-  }
-}
-
 function hasActiveToolOrSubagent(state: SessionState) {
   return (
     state.pendingTools.some((tool) => tool.status === "running") ||
@@ -1597,10 +1574,10 @@ function applyHistoryCoverageFromPatch(state: SessionState, frame: PatchFrame, p
 
 let lastReceivedCursor = 0
 
-function handlePatch(frame: PatchFrame) {
+function handlePatch(frame: PatchFrame, allowUnsubscribed = false) {
   const sessionKey = frame.patch.sessionKey
   if (!sessionKey) {
-    globalCursor = Math.max(globalCursor, frame.patch.cursor)
+    streamCursor = Math.max(streamCursor, frame.patch.cursor)
     lastReceivedCursor = Math.max(lastReceivedCursor, frame.patch.cursor)
     return
   }
@@ -1623,11 +1600,14 @@ function handlePatch(frame: PatchFrame) {
     }
   }
   lastReceivedCursor = Math.max(lastReceivedCursor, frame.patch.cursor)
-  // Don't create new session state for replayed patches below globalCursor.
-  // This prevents cursor-0 replay floods from creating hundreds of empty sessions.
   const existingState = states.get(sessionKey)
-  if (!existingState && frame.patch.cursor < globalCursor && frame.patch.type !== "chat.bootstrap") {
-    globalCursor = Math.max(globalCursor, frame.patch.cursor)
+  if (!allowUnsubscribed && !existingState && !listeners.has(sessionKey)) {
+    streamCursor = Math.max(streamCursor, frame.patch.cursor)
+    frontendLog("stream", "global-chat-session.patch-unsubscribed-skip", {
+      sessionKey,
+      patchCursor: frame.patch.cursor,
+      patchType: frame.patch.type,
+    }, "debug")
     return
   }
   const localStateWasEmpty = !existingState
@@ -1636,7 +1616,7 @@ function handlePatch(frame: PatchFrame) {
     frontendLog("stream", "patch_stream.cursor_relation", {
       sessionKey,
       patchCursor: frame.patch.cursor,
-      globalCursorBeforeApply: globalCursor,
+      streamCursorBeforeApply: streamCursor,
       lastReceivedCursor,
       localStateEmpty: true,
       patchType: frame.patch.type,
@@ -1646,7 +1626,7 @@ function handlePatch(frame: PatchFrame) {
     }, "debug")
   }
   if (frame.patch.cursor <= state.cursor) {
-    globalCursor = Math.max(globalCursor, state.cursor, frame.patch.cursor)
+    streamCursor = Math.max(streamCursor, state.cursor, frame.patch.cursor)
     const appliedStaleTool = applyStaleMatchingToolPatch(state, frame)
     frontendLog("stream", appliedStaleTool ? "global-chat-session.patch-stale-tool-applied" : "global-chat-session.patch-stale-skip", {
       sessionKey,
@@ -1657,7 +1637,7 @@ function handlePatch(frame: PatchFrame) {
     if (appliedStaleTool) notify(sessionKey, frame)
     return
   }
-  globalCursor = Math.max(globalCursor, frame.patch.cursor)
+  streamCursor = Math.max(streamCursor, frame.patch.cursor)
   if (isStaleRunningToolReplay(state, frame)) {
     state.cursor = Math.max(state.cursor, frame.patch.cursor)
     frontendLog("stream", "global-chat-session.stale-running-tool-replay-skip", {
@@ -1760,7 +1740,6 @@ function handlePatch(frame: PatchFrame) {
     patchCursor: frame.patch.cursor,
     ...loadingFactorSummary(state, frame.patch.type),
   }, "debug")
-  syncLinkedSubagentStatus(sessionKey, state.status)
   if (ACTIVE_STATUSES.has(state.status) || state.pendingTools.some((tool) => tool.status === "running")) {
     frontendLog("status", "chat.loading-factors", {
       sessionKey,
@@ -1776,69 +1755,48 @@ function handlePatch(frame: PatchFrame) {
     }, "debug")
     return
   }
-  // When middleware changes canonical history outside the normal message patch
-  // flow (archive import, background sync pruning stale SQLite rows), it
-  // broadcasts a chat.bootstrap metadata patch. Dispatch recovery so the active
-  // hook refetches /api/chat/bootstrap; metadata alone cannot remove visible
-  // stale rows from the UI store.
-  const bootstrapPruned = typeof payload?.pruned === "number" && Number.isFinite(payload.pruned) && payload.pruned > 0
-  const bootstrapNeedsRecovery = frame.patch.type === "chat.bootstrap" && (payload?.backgroundArchiveImport || bootstrapPruned)
-  if (bootstrapNeedsRecovery && typeof window !== "undefined") {
-    const reason = bootstrapPruned ? "bootstrap-pruned" : "archive-import"
-    frontendLog("stream", "global-chat-session.bootstrap-refresh", {
-      sessionKey,
-      patchCursor: frame.patch.cursor,
-      messageCount: payload?.messageCount,
-      recoveryScoped: true,
-      reason,
-      pruned: bootstrapPruned ? payload?.pruned : undefined,
-    })
-    window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
-      detail: {
-        sessionKey,
-        reason,
-        cursor: frame.patch.cursor,
-      },
-    }))
-  }
   notify(sessionKey, frame)
-}
-
-function persistGlobalCursor() {
-  try { localStorage.setItem(patchCursorStorageKey(), String(globalCursor)) } catch { /* noop — storage full or unavailable */ }
-}
-
-function restoreGlobalCursor() {
-  try {
-    const saved = Number(localStorage.getItem(patchCursorStorageKey()) || "0")
-    if (Number.isSafeInteger(saved) && saved > 0) globalCursor = Math.max(globalCursor, saved)
-  } catch { /* noop */ }
 }
 
 function handleFrame(frame: StreamFrame) {
   if (frame.type === "hello") {
-    // Backend epoch-reset detection. The server reports its current highest
-    // projection-event cursor. If our persisted globalCursor is AHEAD of it,
-    // the stored cursor belongs to a dead epoch (the middleware/projection
-    // store was redeployed/rebuilt on the same URL). Left unhandled, every
-    // freshly-bootstrapped session's small cursor looks "behind" the stale
-    // global cursor, firing focused-session-behind-global-cursor recovery on a
-    // loop (the chat flicker). Reset to the server's epoch and re-persist.
-    const serverCursor = frame.latestCursor
-    if (typeof serverCursor === "number" && Number.isSafeInteger(serverCursor) && serverCursor < globalCursor) {
-      frontendLog("stream", "global-chat-engine.cursor-epoch-reset", {
-        staleGlobalCursor: globalCursor,
-        serverLatestCursor: serverCursor,
-        reason: "server-epoch-behind-client",
-      }, "warn")
-      globalCursor = serverCursor
-      persistGlobalCursor()
-    }
     return
   }
   if (frame.type !== "patch") return
   handlePatch(frame)
-  persistGlobalCursor()
+}
+
+async function reconcileFocusedSessionCursor(sessionKey: string) {
+  const state = states.get(sessionKey)
+  const sessionCursor = state?.cursor ?? 0
+  try {
+    const head = await fetchChatSessionHeadV2(sessionKey)
+    if (head.sessionKey !== sessionKey) return
+    if (sessionCursor >= head.headCursor) return
+    frontendLog("stream", "global-chat-engine.session-gap.scoped-replay", {
+      sessionKey,
+      sessionCursor,
+      headCursor: head.headCursor,
+    }, "info")
+    await replayScopedPatchesV2({ sessionKey, afterCursor: sessionCursor, onFrame: handleFrame })
+    const afterReplayCursor = states.get(sessionKey)?.cursor ?? sessionCursor
+    if (afterReplayCursor >= head.headCursor) return
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
+        detail: {
+          sessionKey,
+          reason: "focused-session-behind-session-head",
+          cursor: afterReplayCursor,
+          headCursor: head.headCursor,
+        },
+      }))
+    }
+  } catch (error) {
+    frontendLog("stream", "global-chat-engine.session-head.fail", {
+      sessionKey,
+      error: error instanceof Error ? { kind: error.name, message: error.message } : { kind: "Error", message: String(error) },
+    }, "warn")
+  }
 }
 
 export function ensureGlobalChatEngine(
@@ -1856,51 +1814,18 @@ export function ensureGlobalChatEngine(
     // Preload warm cache from IndexedDB into memory for instant sync reads
     void preloadWarmCacheToMemory().catch(() => {})
   }
-  // Restore cursor from localStorage so page reloads / tab switches
-  // don't replay the entire patch history from cursor 0.
-  restoreGlobalCursor()
-  const restoredCursor = globalCursor
   for (const state of states.values()) {
-    globalCursor = Math.max(globalCursor, state.cursor)
+    streamCursor = Math.max(streamCursor, state.cursor)
   }
+  if (options?.sessionKey) void reconcileFocusedSessionCursor(options.sessionKey)
   if (unsubscribeStream) return
 
-  const replayFromCursor = options?.replayFromCursor
-  if (
-    typeof replayFromCursor === "number" &&
-    Number.isSafeInteger(replayFromCursor) &&
-    replayFromCursor > 0 &&
-    replayFromCursor < globalCursor
-  ) {
-    // The websocket cursor is global across all sessions. Rewinding it for one
-    // focused old chat replays unrelated old tool/subagent patches and can
-    // resurrect stale activity UI. Keep the stream cursor monotonic and recover
-    // the focused session through its scoped bootstrap path instead.
-    frontendLog("stream", "global-chat-engine.replay-cursor.scoped-recovery", {
-      sessionKey: options?.sessionKey ?? null,
-      globalCursor,
-      requestedCursor: replayFromCursor,
-      restoredCursor,
-      reason: options?.reason ?? "session-safe-replay",
-    }, "info")
-    if (typeof window !== "undefined" && options?.sessionKey) {
-      window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
-        detail: {
-          sessionKey: options.sessionKey,
-          reason: "focused-session-behind-global-cursor",
-          cursor: replayFromCursor,
-          globalCursor,
-        },
-      }))
-    }
-  }
-
   frontendLog("stream", "global-chat-engine.connect.start", {
-    afterCursor: globalCursor,
+    afterCursor: streamCursor,
     reason: options?.reason ?? null,
     sessionKey: options?.sessionKey ?? null,
   })
-  unsubscribeStream = openPatchStreamV2(globalCursor, handleFrame)
+  unsubscribeStream = openPatchStreamV2(streamCursor, handleFrame)
 }
 
 export function seedGlobalChatSession(params: {
@@ -1961,7 +1886,7 @@ export function seedGlobalChatSession(params: {
     if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
     if (params.spawnedSubagents) state.spawnedSubagents = dedupeSpawnedSubagents(params.spawnedSubagents)
   }
-  globalCursor = Math.max(globalCursor, state.cursor)
+  streamCursor = Math.max(streamCursor, state.cursor)
   cacheBootstrap(params.sessionKey, state)
   frontendLog("session", "global-chat-session.seed", {
     sessionKey: params.sessionKey,
@@ -2051,6 +1976,10 @@ export function getGlobalChatSession(sessionKey: string): SessionState | null {
   return state ? cloneState(state) : null
 }
 
+export function getSessionStateObjectForTests(sessionKey: string): SessionState | undefined {
+  return states.get(sessionKey)
+}
+
 export function getAllGlobalChatSessions(): Array<{ sessionKey: string; state: SessionState }> {
   return Array.from(states.entries()).map(([sessionKey, state]) => ({
     sessionKey,
@@ -2074,21 +2003,25 @@ export function subscribeGlobalChatSession(sessionKey: string, listener: Listene
 }
 
 export function ingestGlobalChatPatchForTests(frame: PatchFrame) {
-  handlePatch(frame)
+  handlePatch(frame, true)
 }
 
 export function ingestGlobalChatFrameForTests(frame: StreamFrame) {
   handleFrame(frame)
 }
 
+export function getStreamCursorForTests() {
+  return streamCursor
+}
+
 export function getGlobalCursorForTests() {
-  return globalCursor
+  return streamCursor
 }
 
 export function clearGlobalChatEngineForTests() {
   states.clear()
   listeners.clear()
-  globalCursor = 0
+  streamCursor = 0
   queryClientRef = null
   if (unsubscribeStream) {
     unsubscribeStream()
