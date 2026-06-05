@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import type { RefObject } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -11,6 +12,7 @@ import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
 import { dedupeSpawnedSubagents } from "@/lib/chat-engine-v2/store"
 import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
 import { logChatScrollDebug } from "./chatScrollDebug"
+import { isSubagentToolName } from "@/lib/toolStepLabel"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
@@ -75,6 +77,8 @@ import {
 } from "@/components/ui/tooltip"
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
+const VIRTUAL_MESSAGE_OVERSCAN_PX = 1400
+const VIRTUAL_MESSAGE_ESTIMATED_HEIGHT_PX = 168
 
 type MessageScrollAnchor = {
   id: string
@@ -188,6 +192,81 @@ function settleMessageScrollAnchor(container: HTMLElement | null, anchor: Messag
   timeouts.push(window.setTimeout(restore, 80))
   timeouts.push(window.setTimeout(restore, 180))
   timeouts.push(window.setTimeout(finish, 360))
+}
+
+function useVirtualMessageWindow({
+  messages,
+  scrollContainerRef,
+}: {
+  messages: StableChatMessage[]
+  scrollContainerRef: RefObject<HTMLDivElement | null>
+}) {
+  const measuredHeightsRef = useRef(new Map<string, number>())
+  const [viewport, setViewport] = useState({ scrollTop: 0, height: 0, version: 0 })
+
+  const recomputeViewport = useCallback(() => {
+    const el = scrollContainerRef.current
+    setViewport((prev) => ({
+      scrollTop: el?.scrollTop ?? prev.scrollTop,
+      height: el?.clientHeight ?? prev.height,
+      version: prev.version + 1,
+    }))
+  }, [scrollContainerRef])
+
+  useLayoutEffect(() => {
+    recomputeViewport()
+  }, [messages.length, recomputeViewport])
+
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el || typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(recomputeViewport)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [recomputeViewport, scrollContainerRef])
+
+  const rowMeta = useMemo(() => {
+    void viewport.version
+    let totalHeight = 0
+    return messages.map((message, index) => {
+      const height = measuredHeightsRef.current.get(message.uiId) ?? VIRTUAL_MESSAGE_ESTIMATED_HEIGHT_PX
+      const start = totalHeight
+      totalHeight += height
+      return { message, index, start, height, end: totalHeight }
+    })
+  }, [messages, viewport.version])
+
+  const totalHeight = rowMeta.at(-1)?.end ?? 0
+  const windowTop = Math.max(0, viewport.scrollTop - VIRTUAL_MESSAGE_OVERSCAN_PX)
+  const windowBottom = viewport.scrollTop + Math.max(viewport.height, 1) + VIRTUAL_MESSAGE_OVERSCAN_PX
+  let startIndex = rowMeta.findIndex((row) => row.end >= windowTop)
+  if (startIndex < 0) startIndex = Math.max(0, rowMeta.length - 1)
+  let endIndex = rowMeta.findIndex((row, index) => index >= startIndex && row.start > windowBottom)
+  if (endIndex < 0) endIndex = rowMeta.length
+  startIndex = Math.max(0, startIndex - 3)
+  endIndex = Math.min(rowMeta.length, endIndex + 3)
+  const virtualRows = rowMeta.slice(startIndex, endIndex)
+  const topSpacerHeight = virtualRows[0]?.start ?? 0
+  const bottomSpacerHeight = Math.max(0, totalHeight - (virtualRows.at(-1)?.end ?? 0))
+
+  const measureRow = useCallback((uiId: string, node: HTMLDivElement | null) => {
+    if (!node) return
+    const measure = () => {
+      const nextHeight = node.getBoundingClientRect().height
+      if (!Number.isFinite(nextHeight) || nextHeight <= 0) return
+      const previous = measuredHeightsRef.current.get(uiId)
+      if (previous && Math.abs(previous - nextHeight) < 1) return
+      measuredHeightsRef.current.set(uiId, nextHeight)
+      recomputeViewport()
+    }
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [recomputeViewport])
+
+  return { virtualRows, topSpacerHeight, bottomSpacerHeight, recomputeViewport, measureRow, totalHeight }
 }
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
 
@@ -958,6 +1037,7 @@ export function ChatView({
   const previousScrollTopRef = useRef(0)
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const olderAutoLoadBlockedUntilRef = useRef(0)
+  const virtualMessages = useVirtualMessageWindow({ messages: renderedMessages, scrollContainerRef })
 
   useEffect(() => {
     olderAutoLoadBlockedUntilRef.current = Date.now() + 1500
@@ -1200,6 +1280,7 @@ export function ChatView({
   }, [renderedMessages.length, scrollContainerRef])
 
   const handleScroll = useCallback(() => {
+    virtualMessages.recomputeViewport()
     onScroll()
     const el = scrollContainerRef.current
     if (el) {
@@ -1220,12 +1301,14 @@ export function ChatView({
       previousScrollTopRef.current = el.scrollTop
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef])
+  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef, virtualMessages])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
     bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-  }, [bottomRef])
+    virtualMessages.recomputeViewport()
+    requestAnimationFrame(virtualMessages.recomputeViewport)
+  }, [bottomRef, virtualMessages])
 
   const syncJumpToBottomVisibility = useCallback(() => {
     const el = scrollContainerRef.current
@@ -1283,6 +1366,7 @@ export function ChatView({
         const el = scrollContainerRef.current
         if (!el) return
         el.scrollTop = el.scrollHeight
+        virtualMessages.recomputeViewport()
         setShowJumpToBottom(false)
       }
       requestAnimationFrame(() => {
@@ -1291,7 +1375,7 @@ export function ChatView({
         window.setTimeout(scrollToLatest, 120)
       })
     }
-  }, [renderedMessages.length, loading, dataSource, scrollContainerRef])
+  }, [renderedMessages.length, loading, dataSource, scrollContainerRef, virtualMessages])
 
 
 
@@ -1427,12 +1511,9 @@ export function ChatView({
     assistantMessages.slice(-2).map((m) => m.messageId)
   )
   const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
-    tools.filter(
-      (t) =>
-        t.tool !== "sessions_spawn" &&
-        t.tool !== "subagents" &&
-        t.tool !== "sessions_yield"
-    )
+    tools.filter((t) => !isSubagentToolName(t.tool))
+  const hiddenSubagentToolCount = (tools: import("./types").InlineToolCall[]) =>
+    tools.filter((t) => isSubagentToolName(t.tool)).length
 
   const { grouped: groupedToolCalls, suppressed: suppressedToolCallMessages } =
     useMemo(
@@ -1556,12 +1637,25 @@ export function ChatView({
 
   const scrollToRenderedMessage = useCallback((messageId: string, _seq?: number) => {
     void _seq
-    const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-    const target = rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
-    if (!target) return false
-    target.scrollIntoView({ behavior: "auto", block: "center" })
+    const findTarget = () => {
+      const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
+      return rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
+    }
+    const target = findTarget()
+    if (target) {
+      target.scrollIntoView({ behavior: "auto", block: "center" })
+      return true
+    }
+    const index = renderedMessages.findIndex((message) => message.messageId === messageId || message.uiId === messageId)
+    const el = scrollContainerRef.current
+    if (index < 0 || !el) return false
+    el.scrollTop = Math.max(0, index * VIRTUAL_MESSAGE_ESTIMATED_HEIGHT_PX - el.clientHeight / 2)
+    virtualMessages.recomputeViewport()
+    requestAnimationFrame(() => {
+      findTarget()?.scrollIntoView({ behavior: "auto", block: "center" })
+    })
     return true
-  }, [])
+  }, [renderedMessages, scrollContainerRef, virtualMessages])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -1698,8 +1792,9 @@ export function ChatView({
             const toolSteps = msg.role === "assistant" && filteredToolCalls && filteredToolCalls.length > 0
               ? (
                   <div className="mb-4 max-w-[85%]">
-                    <ToolCallSteps
+                  <ToolCallSteps
                       tools={filteredToolCalls}
+                      hiddenSubagentToolCount={hiddenSubagentToolCount(activeTurnAssistantToolCalls)}
                       defaultOpen={shouldOpenToolStepsByDefault}
                       onSelectTool={onSelectTool}
                       onResolveApproval={resolveExecApproval}
@@ -1753,6 +1848,7 @@ export function ChatView({
             <div className="mt-2 max-w-[85%]">
               <ToolCallSteps
                 tools={filteredPending}
+                hiddenSubagentToolCount={hiddenSubagentToolCount(activeTurnToolCalls)}
                 defaultOpen
                 onSelectTool={onSelectTool}
                 onResolveApproval={resolveExecApproval}
@@ -2028,9 +2124,13 @@ export function ChatView({
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
-          {renderedMessages.map((msg, index) => (
-            <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
+          <div data-chat-virtualized="true" style={{ height: virtualMessages.topSpacerHeight }} />
+          {virtualMessages.virtualRows.map(({ message: msg, index }) => (
+            <div key={msg.uiId} ref={(node) => virtualMessages.measureRow(msg.uiId, node)}>
+              {renderMessageRow(index, msg)}
+            </div>
           ))}
+          <div style={{ height: virtualMessages.bottomSpacerHeight }} />
           <div className="mx-auto max-w-[44rem] px-4 pt-0 pb-8">
             <AnimatePresence initial={false}>
               {editPreview && (

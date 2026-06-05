@@ -47,6 +47,28 @@ describe("middleware client", () => {
     const { getMiddlewareUrl } = await import("../client")
     expect(getMiddlewareUrl()).toBe("https://remote.example.com")
   })
+
+  it("fetches batched tool detail with encoded ids", async () => {
+    const data = new Map<string, string>()
+    vi.stubGlobal("window", { location: { hostname: "localhost" }, console, addEventListener: vi.fn(), dispatchEvent: vi.fn() })
+    vi.stubGlobal("localStorage", { getItem: vi.fn((key: string) => data.get(key) ?? null) })
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
+      ok: true,
+      sessionKey: "s1",
+      tools: [{ toolCallId: "a", name: "exec", argsMeta: { command: "pwd" }, resultMeta: "ok" }],
+    }), { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { fetchChatToolDetailV2 } = await import("../client")
+    const response = await fetchChatToolDetailV2({ sessionKey: "s1", ids: ["a", "b"] })
+
+    expect(response.tools[0]).toEqual(expect.objectContaining({ toolCallId: "a", name: "exec" }))
+    expect(fetchMock).toHaveBeenCalled()
+    const url = String(fetchMock.mock.calls[0]?.[0])
+    expect(url).toContain("/api/chat/tool-detail?")
+    expect(url).toContain("sessionKey=s1")
+    expect(url).toContain("ids=a%2Cb")
+  })
   it("continues delivering live patches after backlog replay finishes", async () => {
     const data = new Map<string, string>()
     vi.stubGlobal("window", { location: { hostname: "localhost" }, console, addEventListener: vi.fn(), dispatchEvent: vi.fn() })

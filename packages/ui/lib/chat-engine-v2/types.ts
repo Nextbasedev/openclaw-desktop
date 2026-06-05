@@ -26,6 +26,9 @@ export type ToolCallProjectionV2 = {
   status?: "running" | "success" | "error" | string
   argsMeta?: unknown
   resultMeta?: unknown
+  detailTruncated?: boolean
+  argsPreview?: string
+  resultPreview?: string
   awaitingResult?: boolean
   resultSource?: string
   startedAtMs?: number
@@ -34,6 +37,17 @@ export type ToolCallProjectionV2 = {
 }
 
 export type MessageProjectionV2 = unknown
+
+export type ToolDetailV2 = {
+  toolCallId: string
+  name?: string
+  status?: "running" | "success" | "error" | string
+  phase?: string
+  argsMeta?: unknown
+  resultMeta?: unknown
+  startedAtMs?: number
+  finishedAtMs?: number | null
+}
 
 export type ChatBootstrapV2 = {
   ok: boolean

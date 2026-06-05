@@ -24,6 +24,9 @@ export type ContentBlock = {
   phase?: string
   startedAtMs?: number
   finishedAtMs?: number | null
+  detailTruncated?: boolean
+  argsPreview?: string
+  resultPreview?: string
   isError?: boolean
 }
 
@@ -45,6 +48,9 @@ export type InlineToolCall = {
   completedAt?: number
   input?: unknown
   resultText?: string
+  detailTruncated?: boolean
+  argsPreview?: string
+  resultPreview?: string
   awaitingResult?: boolean
   approval?: {
     id: string

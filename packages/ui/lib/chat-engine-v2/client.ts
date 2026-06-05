@@ -2,7 +2,7 @@ import { frontendLog, redactText, sanitizeForLog, sanitizeUrlForLog } from "../c
 import { logChatStreamRecoveryDecision } from "../chatTimelineDiagnostics"
 import { getMiddlewareConnection } from "../middleware-client"
 import { registerScheduledRequest, type RequestPriority } from "../requestScheduler"
-import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
+import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame, ToolDetailV2 } from "./types"
 export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
 const DEFAULT_MIDDLEWARE_URL = "http://127.0.0.1:8787"
@@ -178,6 +178,23 @@ export async function fetchChatMessagesV2(input: {
     schedulerPriority: "active-chat",
     schedulerSessionKey: input.sessionKey,
     schedulerLabel: `messages:${input.sessionKey}`,
+  })
+}
+
+export async function fetchChatToolDetailV2(input: {
+  sessionKey: string
+  ids: string[]
+}): Promise<{ ok: boolean; sessionKey: string; tools: ToolDetailV2[] }> {
+  const ids = input.ids.map((id) => id.trim()).filter(Boolean).slice(0, 50)
+  if (ids.length === 0) return { ok: true, sessionKey: input.sessionKey, tools: [] }
+  const params = new URLSearchParams({
+    sessionKey: input.sessionKey,
+    ids: ids.join(","),
+  })
+  return fetchJson<{ ok: boolean; sessionKey: string; tools: ToolDetailV2[] }>(`/api/chat/tool-detail?${params.toString()}`, {
+    schedulerPriority: "active-chat",
+    schedulerSessionKey: input.sessionKey,
+    schedulerLabel: `tool-detail:${input.sessionKey}`,
   })
 }
 

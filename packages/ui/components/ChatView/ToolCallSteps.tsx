@@ -1,13 +1,46 @@
 "use client"
 
-import { useMemo, useState, memo } from "react"
+import { useEffect, useMemo, useState, memo } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight } from "react-icons/vsc"
 import { LuShieldCheck } from "react-icons/lu"
 import { ToolCallDetails, getToolDetailState } from "./ToolCallDetails"
 import type { InlineToolCall } from "./types"
+import { fetchChatToolDetailV2 } from "@/lib/chat-engine-v2/client"
+import type { ToolDetailV2 } from "@/lib/chat-engine-v2/types"
+import { formatToolStepSummary } from "@/lib/toolStepLabel"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
+
+const toolDetailCache = new Map<string, ToolDetailV2>()
+
+function detailCacheKey(sessionKey: string, id: string) {
+  return `${sessionKey}:${id}`
+}
+
+function detailToText(value: unknown) {
+  if (value == null || value === "") return undefined
+  if (typeof value === "string") return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function mergeToolDetail(call: InlineToolCall, detail: ToolDetailV2 | undefined): InlineToolCall {
+  if (!detail) return call
+  return {
+    ...call,
+    tool: detail.name ?? call.tool,
+    status: detail.status === "error" ? "error" : detail.status === "running" ? "running" : detail.status === "success" ? "success" : call.status,
+    input: detail.argsMeta ?? call.input,
+    resultText: detailToText(detail.resultMeta) ?? call.resultText,
+    startedAt: detail.startedAtMs ?? call.startedAt,
+    completedAt: detail.finishedAtMs ?? call.completedAt,
+    detailTruncated: false,
+  }
+}
 
 function ToolIcon({ status }: { status: InlineToolCall["status"] }) {
   return (
@@ -143,6 +176,8 @@ function ToolRow({
   onOpenChange,
   onSelect,
   onInteract,
+  onHydrate,
+  hydrating,
   onResolveApproval,
   sessionKey,
 }: {
@@ -151,6 +186,8 @@ function ToolRow({
   onOpenChange: (id: string, open: boolean) => void
   onSelect?: (id: string) => void
   onInteract?: () => void
+  onHydrate?: () => Promise<void>
+  hydrating?: boolean
   onResolveApproval?: (
     approvalId: string,
     decision: ApprovalDecision
@@ -158,6 +195,7 @@ function ToolRow({
   sessionKey?: string
 }) {
   const { inputText, outputText, fullOutputText, hasDetails } = getToolDetailState(call)
+  const canExpand = hasDetails || call.detailTruncated
   const subject = toolSubject(call, inputText)
   const metrics = toolMetrics(fullOutputText ?? outputText, call)
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
@@ -182,7 +220,9 @@ function ToolRow({
         onClick={(e) => {
           e.stopPropagation()
           onInteract?.()
-          if (hasDetails) {
+          if (call.detailTruncated) {
+            void onHydrate?.().then(() => onOpenChange(call.id, true))
+          } else if (hasDetails) {
             onOpenChange(call.id, !open)
           } else {
             onSelect?.(call.id)
@@ -219,14 +259,14 @@ function ToolRow({
             if (!onSelect) return
             e.stopPropagation()
             onInteract?.()
-            onSelect(call.id)
+            void onHydrate?.().finally(() => onSelect(call.id))
           }}
           onKeyDown={(e) => {
             if (!onSelect || (e.key !== "Enter" && e.key !== " ")) return
             e.preventDefault()
             e.stopPropagation()
             onInteract?.()
-            onSelect(call.id)
+            void onHydrate?.().finally(() => onSelect(call.id))
           }}
           className={cn(
             "flex size-5 shrink-0 items-center justify-center rounded transition-colors",
@@ -235,9 +275,15 @@ function ToolRow({
               : "text-foreground/20"
           )}
         >
-          {hasDetails && open ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
+          {canExpand && open ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
         </span>
       </button>
+
+      {call.detailTruncated && (open || hydrating) && (
+        <div className="px-2.5 pt-0.5 pb-2 text-[10px] text-muted-foreground/55">
+          {hydrating ? "Loading tool detail…" : "Open to load tool detail."}
+        </div>
+      )}
 
       {hasDetails && (
         <div
@@ -319,21 +365,74 @@ export const ToolCallSteps = memo(function ToolCallSteps({
   onInteract,
   onResolveApproval,
   sessionKey,
+  hiddenSubagentToolCount = 0,
 }: {
   tools: InlineToolCall[]
   defaultOpen?: boolean
   onSelectTool?: (id: string) => void
   onInteract?: () => void
   sessionKey?: string
+  hiddenSubagentToolCount?: number
   onResolveApproval?: (
     approvalId: string,
     decision: ApprovalDecision
   ) => Promise<void> | void
 }) {
-  const orderedTools = useMemo(() => sortToolsByCallOrder(tools), [tools])
+  const [hydratedDetails, setHydratedDetails] = useState<Record<string, ToolDetailV2>>({})
+  const [hydratingIds, setHydratingIds] = useState<Set<string>>(() => new Set())
+  const orderedTools = useMemo(
+    () => sortToolsByCallOrder(tools.map((tool) => mergeToolDetail(tool, hydratedDetails[tool.id]))),
+    [hydratedDetails, tools]
+  )
   const total = orderedTools.length
   const [openToolId, setOpenToolId] = useState<string | null>(null)
   const [stepsOpen, setStepsOpen] = useState(defaultOpen)
+
+  async function hydrateTools(ids: string[]) {
+    if (!sessionKey) return
+    const uniqueIds = Array.from(new Set(ids.filter(Boolean)))
+    const missing = uniqueIds.filter((id) => !hydratedDetails[id] && !toolDetailCache.has(detailCacheKey(sessionKey, id)))
+    const cached = uniqueIds
+      .map((id) => [id, toolDetailCache.get(detailCacheKey(sessionKey, id))] as const)
+      .filter((entry): entry is readonly [string, ToolDetailV2] => Boolean(entry[1]))
+    if (cached.length > 0) {
+      setHydratedDetails((prev) => ({ ...prev, ...Object.fromEntries(cached) }))
+    }
+    if (missing.length === 0) return
+    setHydratingIds((prev) => new Set([...prev, ...missing]))
+    try {
+      for (let i = 0; i < missing.length; i += 50) {
+        const chunk = missing.slice(i, i + 50)
+        const response = await fetchChatToolDetailV2({ sessionKey, ids: chunk })
+        const next: Record<string, ToolDetailV2> = {}
+        for (const detail of response.tools ?? []) {
+          if (!detail.toolCallId) continue
+          toolDetailCache.set(detailCacheKey(sessionKey, detail.toolCallId), detail)
+          next[detail.toolCallId] = detail
+        }
+        if (Object.keys(next).length > 0) {
+          setHydratedDetails((prev) => ({ ...prev, ...next }))
+        }
+      }
+    } finally {
+      setHydratingIds((prev) => {
+        const next = new Set(prev)
+        for (const id of missing) next.delete(id)
+        return next
+      })
+    }
+  }
+
+  function hydrateGroupIfNeeded() {
+    const truncated = orderedTools.filter((tool) => tool.detailTruncated).map((tool) => tool.id)
+    return hydrateTools(truncated)
+  }
+
+  useEffect(() => {
+    if (!stepsOpen) return
+    void hydrateGroupIfNeeded()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepsOpen, sessionKey, orderedTools.map((tool) => `${tool.id}:${tool.detailTruncated ? "1" : "0"}`).join("|")])
 
   function handleToolOpenChange(id: string, nextOpen: boolean) {
     onInteract?.()
@@ -348,7 +447,11 @@ export const ToolCallSteps = memo(function ToolCallSteps({
         type="button"
         onClick={() => {
           onInteract?.()
-          setStepsOpen((open) => !open)
+          setStepsOpen((open) => {
+            const next = !open
+            if (next) void hydrateGroupIfNeeded()
+            return next
+          })
         }}
         className="mb-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded py-1 text-left text-muted-foreground/45 transition-colors hover:text-muted-foreground/75"
         aria-expanded={stepsOpen}
@@ -356,7 +459,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
         {stepsOpen ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
         <span className="text-[11px] font-medium">Steps</span>
         <span className="font-mono text-[10px] tabular-nums">
-          {total} tool{total !== 1 ? "s" : ""}
+          · {formatToolStepSummary(total, hiddenSubagentToolCount)}
         </span>
       </button>
       {stepsOpen && (
@@ -369,6 +472,8 @@ export const ToolCallSteps = memo(function ToolCallSteps({
               onOpenChange={handleToolOpenChange}
               onSelect={onSelectTool}
               onInteract={onInteract}
+              onHydrate={hydrateGroupIfNeeded}
+              hydrating={hydratingIds.has(call.id)}
               onResolveApproval={onResolveApproval}
               sessionKey={sessionKey}
             />
