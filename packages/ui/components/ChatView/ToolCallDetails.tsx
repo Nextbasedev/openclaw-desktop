@@ -53,6 +53,55 @@ function formatDetailFull(value: unknown) {
   }
 }
 
+function JsonSyntax({ text }: { text: string }) {
+  const parts = text.split(/("(?:\\.|[^"\\])*"\s*:|"(?:\\.|[^"\\])*"|\btrue\b|\bfalse\b|\bnull\b|-?\b\d+(?:\.\d+)?\b)/g)
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (!part) return null
+        const className = part.match(/^"(?:\\.|[^"\\])*"\s*:/)
+          ? "text-[#7DD3FC]"
+          : part.match(/^"/)
+            ? "text-[#9BCFAD]"
+            : part.match(/^(true|false|null)$/)
+              ? "text-[#C084FC]"
+              : part.match(/^-?\d/)
+                ? "text-[#FBBF24]"
+                : "text-[#5E6A78]"
+        return <span key={index} className={className}>{part}</span>
+      })}
+    </>
+  )
+}
+
+function ShellSyntax({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(\s+)/).map((part, index) => {
+        if (!part) return null
+        const className = part.startsWith(">")
+          ? "text-[#63E6BE]"
+          : part.startsWith("/") || part.startsWith("~")
+            ? "text-[#39546D]"
+            : part.match(/^(-{1,2}[\w-]+)/)
+              ? "text-[#A78BFA]"
+              : part.match(/^(pnpm|npm|yarn|node|tsc|vite|next|wxt|git|grep|rg|python3?)$/)
+                ? "text-[#7DD3FC]"
+                : part.match(/^\d+(?:\.\d+)?$/)
+                  ? "text-[#FBBF24]"
+                  : "text-[#6B7A8D]"
+        return <span key={index} className={className}>{part}</span>
+      })}
+    </>
+  )
+}
+
+function DetailContent({ text, tone }: { text: string; tone?: "error" | "input" | "neutral" | "success" }) {
+  if (tone === "error") return <>{text}</>
+  if (tone === "success") return <ShellSyntax text={text} />
+  return <JsonSyntax text={text} />
+}
+
 function DetailBlock({
   label,
   tone,
@@ -94,12 +143,10 @@ function DetailBlock({
         className={cn(
           "overflow-auto bg-[#0B0F16]/70 px-5 py-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap",
           expanded ? "max-h-[80vh]" : "max-h-48",
-          isInput && "text-[#A0AABB]",
-          isOutput && "text-[#A0AABB]",
           tone === "error" && "text-red-700 dark:text-[#FF4D4D]/80"
         )}
       >
-        {children}
+        <DetailContent text={children} tone={tone} />
       </pre>
     </div>
   )
