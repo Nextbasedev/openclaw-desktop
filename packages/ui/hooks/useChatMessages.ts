@@ -1615,6 +1615,21 @@ export function useChatMessages(
     const knownEmptyState = !warmMessages && !seededMessages && (
       (useCachedGlobal && cachedGlobalKnownEmpty) || isKnownEmptyBootstrap(cachedBootstrap)
     )
+    // New-chat first send remounts this effect a few times in quick succession
+    // (initialMessages flips present -> absent as the view generation bumps).
+    // On the remount where initialMessages is gone, we used to take the fresh
+    // bootstrap path and fetch /api/chat/bootstrap for the brand-new session.
+    // That fetch races /api/chat/send and the projection still returns empty,
+    // which briefly applies an empty timeline over the live optimistic message
+    // ("message shows then suddenly hides"). When the live session is already
+    // mid-run and holds messages, the patch stream is authoritative, so treat
+    // it exactly like the initial-optimistic path: skip the fetch, subscribe.
+    const liveActiveWarmSession = Boolean(
+      !hasInitial &&
+      cachedGlobal &&
+      cachedGlobal.messages.length > 0 &&
+      isActiveRunStatus(cachedGlobal.status)
+    )
 
     setLoadError(null)
     setErrorMessage(null)
@@ -1900,11 +1915,13 @@ export function useChatMessages(
     async function init() {
       const bootstrapStartedAtMs = Date.now()
       frontendLog("chat", "chat.bootstrap.start", { sessionKey, hasWarmMessages: Boolean(warmMessages), elapsedSinceMountMs: bootstrapStartedAtMs - mountStartedAtMs, windowId: windowIdRef.current, viewGeneration })
-      if (hasInitial) {
+      if (hasInitial || liveActiveWarmSession) {
         // New-chat quick send already has the optimistic user message and will
         // receive authoritative updates via the patch stream. Fetching an empty
         // bootstrap for that brand-new session competes with /api/chat/send and
         // can delay the actual send behind old heavy-chat requests.
+        // liveActiveWarmSession extends the same protection to effect remounts
+        // where initialMessages is gone but the session is still mid-run.
         bootstrapSettled = true
         if (loadingTimeout) {
           clearTimeout(loadingTimeout)
@@ -1914,6 +1931,8 @@ export function useChatMessages(
         frontendLog("chat", "chat.bootstrap.skip-initial-optimistic", {
           sessionKey,
           initialMessageCount: initialMessages?.length ?? 0,
+          reason: hasInitial ? "initial-optimistic" : "live-active-warm-session",
+          liveActiveWarmSession,
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
           windowId: windowIdRef.current,
           viewGeneration,
