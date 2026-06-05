@@ -117,18 +117,17 @@ export function ConfigTab() {
 
   return (
     <div className="flex h-full min-h-0 w-full bg-transparent">
-      <aside className="sticky top-0 flex h-full w-[250px] shrink-0 animate-in slide-in-from-left-8 fade-in-0 flex-col bg-gradient-to-b from-black/[0.018] via-black/[0.006] to-transparent duration-300 dark:from-white/[0.018] dark:via-white/[0.006]">
-        <div className="px-5 pb-4 pt-6">
+      <aside className="sticky top-0 flex h-full w-[230px] shrink-0 animate-in slide-in-from-left-8 fade-in-0 flex-col bg-black/[0.01] duration-300 dark:bg-white/[0.01]">
+        <div className="border-b border-black/[0.025] px-5 py-6 dark:border-white/[0.03]">
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/45">Workspace</p>
-            <h2 className="mt-2 text-[18px] font-semibold tracking-tight text-foreground">Config</h2>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground/58">
-              Identity, rules, memory, and setup files.
+            <h2 className="text-[18px] font-semibold tracking-tight text-foreground">Config</h2>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground/60">
+              Workspace identity, rules, memory, and setup files.
             </p>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 pb-4">
+        <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
           {CONFIG_FILES.map((file) => {
             const active = selected.path === file.path
             return (
@@ -137,14 +136,13 @@ export function ConfigTab() {
                 type="button"
                 onClick={() => loadFile(file)}
                 className={cn(
-                  "group relative flex w-full cursor-pointer items-start gap-3 rounded-2xl px-3.5 py-3.5 text-left transition-all duration-200",
-                  active ? "bg-black/[0.055] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:bg-white/[0.065]" : "text-muted-foreground/76 hover:translate-x-0.5 hover:bg-black/[0.025] hover:text-foreground dark:hover:bg-white/[0.03]",
+                  "flex w-full cursor-pointer items-start gap-3 rounded-xl px-3.5 py-3 text-left transition-all duration-200",
+                  active ? "bg-black/[0.045] text-foreground dark:bg-white/[0.055]" : "text-muted-foreground/78 hover:translate-x-0.5 hover:bg-black/[0.025] hover:text-foreground dark:hover:bg-white/[0.03]",
                 )}
               >
-                {active && <span className="absolute left-0 top-3 h-8 w-0.5 rounded-full bg-violet-400/70" />}
                 <span className={cn(
-                  "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl transition-colors",
-                  active ? "bg-violet-500/12 text-violet-300" : "bg-black/[0.02] text-muted-foreground/55 group-hover:bg-black/[0.03] dark:bg-white/[0.025] dark:group-hover:bg-white/[0.035]",
+                  "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+                  active ? "bg-black/[0.045] text-foreground dark:bg-white/[0.055]" : "bg-black/[0.02] text-muted-foreground/60 dark:bg-white/[0.025]",
                 )}>
                   <LuFileText size={13} />
                 </span>
@@ -159,17 +157,17 @@ export function ConfigTab() {
 
       </aside>
 
-      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_20%_0%,rgba(139,92,246,0.055),transparent_30%),radial-gradient(circle_at_90%_15%,rgba(59,130,246,0.04),transparent_24%)] px-7 py-6">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col px-7 py-6">
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-2 pb-5 pr-12 backdrop-blur-sm">
+          <div className="flex items-center justify-between gap-3 px-2 pb-4 pr-12">
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
-                <h3 className="truncate text-[15px] font-semibold tracking-tight text-foreground">{selected.label}</h3>
-                <span className="rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-300/85">
+                <h3 className="truncate text-[13px] font-semibold text-foreground">{selected.label}</h3>
+                <span className="rounded-full bg-black/[0.045] dark:bg-white/[0.045] px-2 py-0.5 text-[10px] font-medium text-muted-foreground/70">
                   {selected.path}
                 </span>
               </div>
-              <p className="mt-1 truncate text-[11px] text-muted-foreground/62">{selected.description}</p>
+              <p className="mt-1 truncate text-[11px] text-muted-foreground/65">{selected.description}</p>
             </div>
             <div className="flex shrink-0 items-center gap-1 rounded-xl bg-black/[0.028] p-1 dark:bg-white/[0.035]">
               {editing ? (
@@ -224,10 +222,10 @@ export function ConfigTab() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               spellCheck={false}
-              className="min-h-0 w-full flex-1 resize-none overflow-auto rounded-2xl bg-black/[0.025] px-5 py-4 font-mono text-[12px] leading-relaxed text-foreground/85 outline-none ring-1 ring-black/[0.04] placeholder:text-muted-foreground/40 dark:bg-white/[0.025] dark:ring-white/[0.04]"
+              className="min-h-0 w-full flex-1 resize-none overflow-auto bg-transparent px-2 py-1 font-mono text-[12px] leading-relaxed text-foreground/85 outline-none placeholder:text-muted-foreground/40"
             />
           ) : (
-            <div className="min-h-0 flex-1 overflow-auto rounded-2xl bg-black/[0.018] px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] ring-1 ring-black/[0.035] dark:bg-white/[0.018] dark:ring-white/[0.035]">
+            <div className="min-h-0 flex-1 overflow-auto">
               {loading ? (
                 <pre className="px-2 py-1 font-mono text-[12px] leading-relaxed text-foreground/80">Loading…</pre>
               ) : (
