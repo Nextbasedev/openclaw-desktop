@@ -60,20 +60,30 @@ function DetailBlock({
   children,
 }: {
   label: string
-  tone?: "error" | "neutral" | "success"
+  tone?: "error" | "input" | "neutral" | "success"
   expanded?: boolean
   children: string
 }) {
+  const isInput = tone === "input" || tone === "neutral"
+  const isOutput = tone === "success"
+
   return (
     <div>
-      <div className="border-b border-white/2 bg-white/5 px-5 py-2.5">
+      <div
+        className={cn(
+          "border-b px-5 py-2.5",
+          isInput && "border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.06)]",
+          isOutput && "border-[rgba(255,255,255,0.04)] bg-[rgba(255,255,255,0.02)]",
+          tone === "error" && "border-white/4 bg-[rgba(255,255,255,0.02)]"
+        )}
+      >
         <div className="flex items-center gap-2">
           <span
             className={cn(
-              "text-[11px] font-semibold tracking-[0.18em] text-blue-700 uppercase dark:text-[#BFDBFE]",
-              tone === "neutral" && "text-foreground dark:text-white",
-              tone === "error" && "text-red-600 dark:text-[#FF6B6B]",
-              tone === "success" && "text-emerald-700 dark:text-[#00D492]"
+              "text-[11px] font-semibold tracking-[0.18em] uppercase",
+              isInput && "text-[#A0AABB]",
+              isOutput && "text-[#384050]",
+              tone === "error" && "text-red-600 dark:text-[#FF6B6B]"
             )}
           >
             {label}
@@ -82,10 +92,10 @@ function DetailBlock({
       </div>
       <pre
         className={cn(
-          "overflow-auto bg-white/5 px-5 py-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap text-foreground/75",
+          "overflow-auto bg-white/5 px-5 py-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap",
           expanded ? "max-h-[80vh]" : "max-h-48",
-          tone === "error" && "text-red-700 dark:text-[#FF4D4D]/80",
-          tone === "success" && "text-emerald-700 dark:text-[#00D492]/80"
+          (isInput || isOutput) && "text-[#252E3A]",
+          tone === "error" && "text-red-700 dark:text-[#FF4D4D]/80"
         )}
       >
         {children}
@@ -156,7 +166,7 @@ export function ToolCallDetails({
   return (
     <div className="overflow-hidden rounded-b-lg border-x border-b border-white/2 bg-white/5 opacity-100">
       {inputText && (
-        <DetailBlock label="Input" tone="neutral">
+        <DetailBlock label="Input" tone="input">
           {inputText}
         </DetailBlock>
       )}
