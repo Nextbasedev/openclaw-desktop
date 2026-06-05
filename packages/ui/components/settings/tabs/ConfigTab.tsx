@@ -27,7 +27,27 @@ type ReadResponse = { content: string }
 
 function MarkdownPreview({ content }: { content: string }) {
   return (
-    <div className="prose prose-neutral dark:prose-invert max-w-none px-2 py-1 text-[13px] leading-7 prose-headings:font-semibold prose-headings:tracking-tight prose-h1:text-[20px] prose-h1:text-foreground prose-h2:mt-7 prose-h2:border-b prose-h2:border-border/25 prose-h2:pb-2 prose-h2:text-[17px] prose-h2:text-foreground prose-h3:text-[14px] prose-h3:text-foreground prose-p:text-foreground/78 prose-strong:text-foreground prose-code:rounded-md prose-code:bg-black/[0.055] prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[12px] prose-code:text-violet-700 prose-code:before:content-none prose-code:after:content-none dark:prose-code:bg-white/[0.07] dark:prose-code:text-violet-200 prose-pre:border prose-pre:border-border/30 prose-pre:bg-black/[0.04] dark:prose-pre:bg-black/30 prose-blockquote:border-l-violet-400/50 prose-blockquote:text-muted-foreground prose-li:text-foreground/78 prose-hr:border-border/35 prose-table:text-[12px] prose-th:border prose-th:border-border/35 prose-th:bg-black/[0.035] prose-th:px-3 prose-th:py-2 dark:prose-th:bg-white/[0.04] prose-td:border prose-td:border-border/25 prose-td:px-3 prose-td:py-2">
+    <div className={cn(
+      "max-w-none px-2 py-1 text-[13px] leading-7 text-foreground/88",
+      "[&>*:first-child]:mt-0 [&>*+*]:mt-3",
+      "[&_h1]:mb-3 [&_h1]:mt-8 [&_h1]:border-b [&_h1]:border-foreground/10 [&_h1]:pb-3 [&_h1]:text-[24px] [&_h1]:font-semibold [&_h1]:tracking-tight [&_h1]:text-foreground [&_h1]:first:mt-0",
+      "[&_h2]:mb-2.5 [&_h2]:mt-7 [&_h2]:flex [&_h2]:items-center [&_h2]:gap-2 [&_h2]:text-[17px] [&_h2]:font-semibold [&_h2]:tracking-tight [&_h2]:text-foreground before:[&_h2]:h-4 before:[&_h2]:w-1 before:[&_h2]:rounded-full before:[&_h2]:bg-violet-500/65",
+      "[&_h3]:mb-1.5 [&_h3]:mt-5 [&_h3]:text-[14px] [&_h3]:font-semibold [&_h3]:text-foreground",
+      "[&_h4]:mb-1 [&_h4]:mt-4 [&_h4]:text-[12px] [&_h4]:font-semibold [&_h4]:uppercase [&_h4]:tracking-[0.14em] [&_h4]:text-muted-foreground",
+      "[&_p]:my-2 [&_p]:max-w-[82ch] [&_p]:text-foreground/78",
+      "[&_strong]:font-semibold [&_strong]:text-foreground [&_em]:text-foreground/85",
+      "[&_a]:text-blue-400 [&_a]:underline [&_a]:underline-offset-2",
+      "[&_ul]:my-2 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5",
+      "[&_li]:pl-1 [&_li]:text-foreground/78 [&_li::marker]:text-violet-400/80 [&_li_p]:my-0",
+      "[&_blockquote]:my-4 [&_blockquote]:rounded-r-xl [&_blockquote]:border-l-2 [&_blockquote]:border-violet-400/55 [&_blockquote]:bg-violet-500/[0.055] [&_blockquote]:px-4 [&_blockquote]:py-2 [&_blockquote]:text-foreground/70",
+      "[&_code]:rounded-md [&_code]:bg-black/[0.07] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12px] [&_code]:text-rose-700 dark:[&_code]:bg-white/[0.075] dark:[&_code]:text-[#e06c75]",
+      "[&_pre]:my-4 [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-black/10 [&_pre]:bg-black/[0.045] [&_pre]:p-4 dark:[&_pre]:border-white/5 dark:[&_pre]:bg-black/35",
+      "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[12px] [&_pre_code]:leading-6 [&_pre_code]:text-foreground/82",
+      "[&_hr]:my-6 [&_hr]:border-foreground/10",
+      "[&_table]:my-4 [&_table]:w-full [&_table]:overflow-hidden [&_table]:rounded-xl [&_table]:text-[12px]",
+      "[&_th]:border [&_th]:border-foreground/10 [&_th]:bg-black/[0.04] [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold dark:[&_th]:bg-white/[0.045]",
+      "[&_td]:border [&_td]:border-foreground/10 [&_td]:px-3 [&_td]:py-2 [&_td]:text-foreground/78",
+    )}>
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || "_Empty file._"}</ReactMarkdown>
     </div>
   )
