@@ -4,6 +4,7 @@ export const OLDER_HISTORY_FAST_SCROLL_MIN_DELTA_PX = 240
 export const OLDER_HISTORY_FAST_SCROLL_MIN_VELOCITY_PX_PER_MS = 1.1
 export const OLDER_HISTORY_REARM_VIEWPORT_RATIO = 0.75
 export const OLDER_HISTORY_REARM_MIN_PX = 500
+export const OLDER_HISTORY_NEAR_TOP_PX = 96
 
 type OlderHistoryAutoLoadInput = {
   scrollTop: number
@@ -49,10 +50,21 @@ export function shouldAutoLoadOlderHistory({
   previousScrollTimeMs,
 }: OlderHistoryAutoLoadInput) {
   if (!hasUserIntent) return false
-  if (scrollTop >= previousScrollTop) return false
 
   const threshold = olderHistoryLoadThreshold(scrollHeight, clientHeight)
   if (threshold === null) return false
+
+  // Direct scrollbar/page jumps can land at the very top before our previous
+  // scroll position ref has observed the programmatic initial bottom scroll.
+  // Treat a genuine user-driven near-top position as load-worthy even when the
+  // stale previous value would otherwise make the delta look non-upward.
+  if (scrollTop <= OLDER_HISTORY_NEAR_TOP_PX) {
+    if (typeof lastLoadScrollTop !== "number" || !Number.isFinite(lastLoadScrollTop)) return true
+    const rearmDistance = Math.max(OLDER_HISTORY_REARM_MIN_PX, clientHeight * OLDER_HISTORY_REARM_VIEWPORT_RATIO)
+    return lastLoadScrollTop - scrollTop >= rearmDistance
+  }
+
+  if (scrollTop >= previousScrollTop) return false
 
   const fastThreshold = olderHistoryLoadThreshold(scrollHeight, clientHeight, OLDER_HISTORY_FAST_SCROLL_REMAINING_RATIO)
   const fastScrollPreload =

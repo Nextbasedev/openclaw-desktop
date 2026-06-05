@@ -13,9 +13,44 @@ import { formatToolStepSummary } from "@/lib/toolStepLabel"
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
 const toolDetailCache = new Map<string, ToolDetailV2>()
+const inFlightToolDetailRequests = new Map<string, Promise<Record<string, ToolDetailV2>>>()
 
 function detailCacheKey(sessionKey: string, id: string) {
   return `${sessionKey}:${id}`
+}
+
+function detailRequestKey(sessionKey: string, ids: string[]) {
+  return `${sessionKey}:${[...ids].sort().join(",")}`
+}
+
+export function clearToolDetailCachesForTest() {
+  toolDetailCache.clear()
+  inFlightToolDetailRequests.clear()
+}
+
+export async function fetchToolDetailsWithInflightDedupe(sessionKey: string, ids: string[]) {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean))).sort()
+  if (uniqueIds.length === 0) return {}
+  const requestKey = detailRequestKey(sessionKey, uniqueIds)
+  const existing = inFlightToolDetailRequests.get(requestKey)
+  if (existing) return existing
+
+  const request = fetchChatToolDetailV2({ sessionKey, ids: uniqueIds })
+    .then((response) => {
+      const next: Record<string, ToolDetailV2> = {}
+      for (const detail of response.tools ?? []) {
+        if (!detail.toolCallId) continue
+        toolDetailCache.set(detailCacheKey(sessionKey, detail.toolCallId), detail)
+        next[detail.toolCallId] = detail
+      }
+      return next
+    })
+    .finally(() => {
+      inFlightToolDetailRequests.delete(requestKey)
+    })
+
+  inFlightToolDetailRequests.set(requestKey, request)
+  return request
 }
 
 function detailToText(value: unknown) {
@@ -403,13 +438,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
     try {
       for (let i = 0; i < missing.length; i += 50) {
         const chunk = missing.slice(i, i + 50)
-        const response = await fetchChatToolDetailV2({ sessionKey, ids: chunk })
-        const next: Record<string, ToolDetailV2> = {}
-        for (const detail of response.tools ?? []) {
-          if (!detail.toolCallId) continue
-          toolDetailCache.set(detailCacheKey(sessionKey, detail.toolCallId), detail)
-          next[detail.toolCallId] = detail
-        }
+        const next = await fetchToolDetailsWithInflightDedupe(sessionKey, chunk)
         if (Object.keys(next).length > 0) {
           setHydratedDetails((prev) => ({ ...prev, ...next }))
         }

@@ -12,6 +12,7 @@ import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
 import { dedupeSpawnedSubagents } from "@/lib/chat-engine-v2/store"
 import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
 import { logChatScrollDebug } from "./chatScrollDebug"
+import { LoadOlderMessagesButton } from "./LoadOlderMessagesButton"
 import { isSubagentToolName } from "@/lib/toolStepLabel"
 
 import { ThinkingBlock } from "./ThinkingBlock"
@@ -1306,9 +1307,11 @@ export function ChatView({
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
     bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+    const el = scrollContainerRef.current
+    if (el) previousScrollTopRef.current = el.scrollTop
     virtualMessages.recomputeViewport()
     requestAnimationFrame(virtualMessages.recomputeViewport)
-  }, [bottomRef, virtualMessages])
+  }, [bottomRef, scrollContainerRef, virtualMessages])
 
   const syncJumpToBottomVisibility = useCallback(() => {
     const el = scrollContainerRef.current
@@ -1366,6 +1369,7 @@ export function ChatView({
         const el = scrollContainerRef.current
         if (!el) return
         el.scrollTop = el.scrollHeight
+        previousScrollTopRef.current = el.scrollTop
         virtualMessages.recomputeViewport()
         setShowJumpToBottom(false)
       }
@@ -2124,6 +2128,11 @@ export function ChatView({
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
+          <LoadOlderMessagesButton
+            hasOlderMessages={hasOlderMessages}
+            loadingOlderMessages={loadingOlderMessages || loadOlderClickInFlightRef.current}
+            onLoadOlderMessages={loadOlderWithoutJump}
+          />
           <div data-chat-virtualized="true" style={{ height: virtualMessages.topSpacerHeight }} />
           {virtualMessages.virtualRows.map(({ message: msg, index }) => (
             <div key={msg.uiId} ref={(node) => virtualMessages.measureRow(msg.uiId, node)}>
