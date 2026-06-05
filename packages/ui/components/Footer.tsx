@@ -4,7 +4,7 @@ import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { VscSearch, VscTerminal } from "react-icons/vsc"
 import { usePlatform } from "@/hooks/usePlatform"
-import { Icons } from "@/components/icons"
+import { ModelLogo } from "@/components/model/ModelLogo"
 import { ModelSelector } from "@/components/sidebar/ModelSelector"
 import { useModels, isActiveModel } from "@/hooks/useModels"
 
@@ -37,13 +37,13 @@ export function Footer({ className, onOpenSearch, onToggleTerminal }: FooterProp
         type="button"
         onClick={() => setModelDialogOpen(true)}
         className={cn(
-          "flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5",
+          "flex h-5 max-w-[150px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5",
           "text-muted-foreground transition-colors",
           "hover:bg-secondary/60 hover:text-foreground",
         )}
       >
-        <Icons.Model size={12} className="shrink-0 text-amber-400" />
-        <span className="text-[11px]">{modelLabel}</span>
+        <ModelLogo model={activeModel} modelId={currentModel} size="xs" className="size-4 rounded" iconClassName="scale-90" />
+        <span className="truncate text-[11px] leading-none">{modelLabel}</span>
       </button>
 
       <div className="flex items-center gap-3">
