@@ -715,3 +715,17 @@ UI tests under `packages/ui` if frontend hardening is implemented:
 - Confirm the exact Gateway contract for `messageSeq`: in the production duplicate, user and assistant can share `gatewaySeq:2`; the fix should not assume uniqueness unless Gateway guarantees it.
 - Decide whether `logical_turn_key` should be a stored deterministic string (`client:<id>`, `idem:<key>`, `run:<id>`, `stripped:<textHash>:<runWindow>`) or separate nullable columns plus lookup logic. I recommend separate columns plus a generated lookup helper, to avoid encoding migration mistakes into one opaque key.
 - Decide how aggressive one-time cleanup should be for already-polluted rows. Safe default: cleanup only rows with stable optimistic identity plus stripped same-text echo in the same tiny Gateway/run window.
+
+## Bug 4: scroll-up older-message loading is heavy/janky (same payload family as Bug 1)
+
+User report: "the above chat is not loading when I scroll." Investigation findings (file:line evidence):
+
+- The auto-load-on-scroll wiring is correct: `packages/ui/components/ChatView/index.tsx:1202` `handleScroll` -> `shouldAutoLoadOlderHistory` (`chatHistoryAutoLoad.ts`) -> `loadOlderWithoutJump` (index.tsx:1159) -> `loadOlderMessages` (`packages/ui/hooks/useChatMessages.ts:3027`). `hasOlder`/`oldestLoadedSeq`/`knownTotalMessages` plumbing is sound (routes.ts:1613-1622, 1754-1762; useChatMessages.ts:2108-2124).
+- ROOT CAUSE A: the older-page endpoint `/api/chat/messages?beforeSeq=` (routes.ts:1779-1808) maps every row through the SAME `serializeProjectedMessage` (routes.ts:260) -> each older page ships full inline tool-call args/results. On tool-dense sessions every scroll-up fetch is as heavy as the initial bootstrap. The Bug 1 skeleton + lazy-tool-body fix MUST be applied to this endpoint too, not only `/api/chat/bootstrap`.
+- ROOT CAUSE B: ChatView has NO list virtualization (no react-window/Virtuoso/overscan anywhere in `packages/ui/components/ChatView/*.tsx`). Every message node renders at once; on a 160-message session with thousands of tool blocks the DOM is huge, so scrolling stutters and older content does not paint smoothly (looks like "not loading").
+
+Recommended fix (folds into Bug 1 workstream):
+1. Apply the skeleton + lazy-tool-body serialization to the `/api/chat/messages` older-page route (middleware; same redeploy as Bug 1).
+2. Introduce list virtualization in ChatView (frontend; needs Dixit app build) so large sessions scroll smoothly regardless of payload. Evaluate Virtuoso vs react-window; must preserve scroll-anchor restore logic (index.tsx:106-152) and the auto-load trigger.
+
+mw-vs-frontend split: (1) is middleware-only redeploy; (2) is frontend build.
