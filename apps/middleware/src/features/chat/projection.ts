@@ -54,9 +54,18 @@ function isAwaitingToolResultMeta(value: unknown) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value) && (value as Record<string, unknown>).awaitingResult === true);
 }
 
-export function toolCallProjection(tool: ProjectedToolCall) {
+function previewJson(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  try {
+    return JSON.stringify(value).slice(0, 200);
+  } catch {
+    return String(value).slice(0, 200);
+  }
+}
+
+export function toolCallProjection(tool: ProjectedToolCall, options: { includeDetails?: boolean } = {}) {
   const awaitingResult = isAwaitingToolResultMeta(tool.resultMeta);
-  return {
+  const base = {
     toolCallId: tool.toolCallId,
     id: tool.toolCallId,
     sessionKey: tool.sessionKey,
@@ -65,13 +74,23 @@ export function toolCallProjection(tool: ProjectedToolCall) {
     name: tool.name,
     phase: tool.phase,
     status: tool.status,
-    argsMeta: tool.argsMeta,
-    resultMeta: tool.resultMeta,
     ...(awaitingResult ? { awaitingResult: true, resultSource: "gateway_stripped_live_result" } : {}),
     startedAtMs: tool.startedAtMs,
     finishedAtMs: tool.finishedAtMs,
     updatedAtMs: tool.updatedAtMs,
   };
+  if (options.includeDetails) return { ...base, argsMeta: tool.argsMeta, resultMeta: tool.resultMeta };
+  return {
+    ...base,
+    detailTruncated: true,
+    ...(tool.argsMeta !== undefined && tool.argsMeta !== null ? { argsPreview: previewJson(tool.argsMeta) } : {}),
+    ...(tool.resultMeta !== undefined && tool.resultMeta !== null ? { resultPreview: previewJson(tool.resultMeta) } : {}),
+  };
+}
+
+function recentToolCallIds(tools: ProjectedToolCall[], latestRun: ProjectedRun | null): Set<string> {
+  if (!latestRun) return new Set();
+  return new Set(tools.filter((tool) => tool.runId === latestRun.runId).map((tool) => tool.toolCallId));
 }
 
 export function canonicalPatchPayload(params: {
@@ -106,7 +125,7 @@ export function canonicalPatchPayload(params: {
       activeRun: null,
     }),
     ...(params.messageId ? { messageId: params.messageId } : {}),
-    ...(params.tool ? { toolCallId: params.tool.toolCallId, toolCall: toolCallProjection(params.tool) } : {}),
+    ...(params.tool ? { toolCallId: params.tool.toolCallId, toolCall: toolCallProjection(params.tool, { includeDetails: true }) } : {}),
     ...(params.payload ?? {}),
   };
 }
@@ -131,10 +150,12 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
   // historical sessions (no active run) return session-wide tools so historical,
   // run-detached (runId NULL) tool cards — e.g. those projected from archived
   // segments — render instead of being hidden by a stale terminal latestRun scope.
-  const tools = (activeRun
+  const rawTools = (activeRun
     ? context.runs.listToolCalls(params.sessionKey, activeRun.runId)
     : context.runs.listToolCalls(params.sessionKey)
-  ).map(toolCallProjection);
+  );
+  const recentIds = recentToolCallIds(rawTools, latestRun);
+  const tools = rawTools.map((tool) => toolCallProjection(tool, { includeDetails: recentIds.has(tool.toolCallId) }));
   const sessionStatus = legacySessionStatusFromRunStatus(runStatus);
 
   return {

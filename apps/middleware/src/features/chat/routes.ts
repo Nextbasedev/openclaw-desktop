@@ -20,6 +20,7 @@ import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.
 import type { ProjectedRun } from "./repo.runs.js";
 import type { OpenClawMessage, ProjectedMessage } from "./types.js";
 import { AsyncLimiter, fetchChatHistory, type ChatHistoryResponse } from "./history-fetch.js";
+import { registerToolDetailRoute } from "./tool-detail.js";
 
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
@@ -257,12 +258,112 @@ function cleanSerializedMessageData(data: Record<string, unknown>, role: string)
   return next;
 }
 
-function serializeProjectedMessage(message: ProjectedMessage) {
+const TOOL_DETAIL_KEYS = new Set(["args", "input", "argsMeta", "arguments", "parameters", "result", "output", "resultMeta"]);
+type ToolSerializationMeta = {
+  toolCallId: string;
+  name?: string;
+  status?: string;
+  phase?: string;
+  messageId?: string | null;
+  startedAtMs?: number;
+  finishedAtMs?: number | null;
+};
+type ToolSerializationContext = { recentToolCallIds: Set<string>; toolMetadataById: Map<string, ToolSerializationMeta> };
+
+function previewJson(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  try { return JSON.stringify(value).slice(0, 200); }
+  catch { return String(value).slice(0, 200); }
+}
+
+function toolBlockId(block: Record<string, unknown>): string | null {
+  for (const key of ["toolCallId", "tool_call_id", "tool_use_id", "id"]) {
+    const value = block[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return null;
+}
+
+function isToolContentBlock(block: unknown): block is Record<string, unknown> {
+  if (!block || typeof block !== "object" || Array.isArray(block)) return false;
+  const record = block as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type.toLowerCase() : "";
+  const role = typeof record.role === "string" ? record.role.toLowerCase() : "";
+  if (type.includes("tool") || role.includes("tool")) return true;
+  return toolBlockId(record) !== null && ("name" in record || "toolName" in record || "tool_name" in record || "input" in record || "args" in record || "result" in record || "output" in record);
+}
+
+function withToolMetadata(block: Record<string, unknown>, id: string | null, meta: ToolSerializationMeta | undefined) {
+  if (!id && !meta) return block;
+  return {
+    ...block,
+    ...(id ? { toolCallId: id } : {}),
+    ...(block.name === undefined && meta?.name ? { name: meta.name } : {}),
+    ...(block.status === undefined && meta?.status ? { status: meta.status } : {}),
+    ...(block.phase === undefined && meta?.phase ? { phase: meta.phase } : {}),
+    ...(block.messageId === undefined && meta?.messageId ? { messageId: meta.messageId } : {}),
+    ...(block.startedAtMs === undefined && typeof meta?.startedAtMs === "number" ? { startedAtMs: meta.startedAtMs } : {}),
+    ...(block.finishedAtMs === undefined && meta?.finishedAtMs !== undefined ? { finishedAtMs: meta.finishedAtMs } : {}),
+  };
+}
+
+function sanitizeToolContentBlock(block: Record<string, unknown>, context: ToolSerializationContext) {
+  const id = toolBlockId(block);
+  const meta = id ? context.toolMetadataById.get(id) : undefined;
+  if (id && context.recentToolCallIds.has(id)) return withToolMetadata(block, id, meta);
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(block)) {
+    if (TOOL_DETAIL_KEYS.has(key)) continue;
+    if (["content", "text", "message", "value", "data"].includes(key) && ("tool_use_id" in block || String(block.type ?? "").toLowerCase().includes("result"))) {
+      if (next.resultPreview === undefined) next.resultPreview = previewJson(value);
+      continue;
+    }
+    next[key] = value;
+  }
+  Object.assign(next, withToolMetadata({}, id, meta));
+  if (next.name === undefined) next.name = block.name ?? block.toolName ?? block.tool_name ?? "unknown";
+  next.status = next.status ?? block.status;
+  next.phase = next.phase ?? block.phase ?? (String(block.type ?? "").toLowerCase().includes("result") ? "result" : "calling");
+  if (next.messageId === undefined && typeof block.messageId === "string") next.messageId = block.messageId;
+  if (block.input !== undefined || block.args !== undefined || block.argsMeta !== undefined || block.arguments !== undefined || block.parameters !== undefined) {
+    next.argsPreview = previewJson(block.input ?? block.args ?? block.argsMeta ?? block.arguments ?? block.parameters);
+  }
+  if (block.result !== undefined || block.output !== undefined || block.resultMeta !== undefined) {
+    next.resultPreview = previewJson(block.result ?? block.output ?? block.resultMeta);
+  }
+  next.detailTruncated = true;
+  return next;
+}
+
+function stripHistoricalToolBodies(data: Record<string, unknown>, context: ToolSerializationContext) {
+  let next: Record<string, unknown> | null = null;
+  const content = data.content;
+  if (Array.isArray(content)) {
+    const sanitized = content.map((block) => isToolContentBlock(block) ? sanitizeToolContentBlock(block, context) : block);
+    if (sanitized.some((block, index) => block !== content[index])) {
+      next = { ...data, content: sanitized };
+    }
+  }
+  for (const key of ["tools", "toolCalls"] as const) {
+    const value = (next ?? data)[key];
+    if (!Array.isArray(value)) continue;
+    const sanitized = value.map((block) => isToolContentBlock(block) ? sanitizeToolContentBlock(block, context) : block);
+    if (sanitized.some((block, index) => block !== value[index])) {
+      next = { ...(next ?? data), [key]: sanitized };
+    }
+  }
+  return next ?? data;
+}
+
+function serializeProjectedMessage(message: ProjectedMessage, options: Partial<ToolSerializationContext> = {}) {
   const data = message.data && typeof message.data === "object" && !Array.isArray(message.data)
     ? message.data
     : {};
   const role = typeof data.role === "string" ? data.role : message.role ?? "assistant";
-  const cleanedData = cleanSerializedMessageData(data, role);
+  const cleanedData = stripHistoricalToolBodies(cleanSerializedMessageData(data, role), {
+    recentToolCallIds: options.recentToolCallIds ?? new Set(),
+    toolMetadataById: options.toolMetadataById ?? new Map(),
+  });
   const existingOpenClaw: Record<string, unknown> = cleanedData.__openclaw && typeof cleanedData.__openclaw === "object" && !Array.isArray(cleanedData.__openclaw)
     ? cleanedData.__openclaw as Record<string, unknown>
     : {};
@@ -278,6 +379,23 @@ function serializeProjectedMessage(message: ProjectedMessage) {
       segmentId: message.segmentId ?? null,
     },
   } as OpenClawMessage;
+}
+
+function toolSerializationContext(context: AppContext, sessionKey: string): ToolSerializationContext {
+  const latestRun = context.runs.findLatestPendingRun(sessionKey) ?? context.runs.latestRun(sessionKey);
+  const allTools = context.runs.listToolCalls(sessionKey);
+  return {
+    recentToolCallIds: latestRun ? new Set(allTools.filter((tool) => tool.runId === latestRun.runId).map((tool) => tool.toolCallId)) : new Set(),
+    toolMetadataById: new Map(allTools.map((tool) => [tool.toolCallId, {
+      toolCallId: tool.toolCallId,
+      name: tool.name,
+      status: tool.status,
+      phase: tool.phase,
+      messageId: tool.messageId,
+      startedAtMs: tool.startedAtMs,
+      finishedAtMs: tool.finishedAtMs,
+    }])),
+  };
 }
 
 /**
@@ -969,6 +1087,7 @@ function scheduleLocalFirstGatewayReconcile(params: {
 
 export async function registerChatRoutes(app: FastifyInstance, context: AppContext) {
   const log = createLogger("chat-route");
+  registerToolDetailRoute(app, context);
 
   app.get("/api/chat/media/inbound/:id", async (request, reply) => {
     await inboundChatMediaRoute(request, reply, context);
@@ -1571,7 +1690,8 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const canServeLocal = Boolean(localSession && localMessages.length > 0 && shouldServeLocal);
 
     if (canServeLocal) {
-      const serialized = localMessages.map(serializeProjectedMessage);
+      const toolContext = toolSerializationContext(context, parsed.data.sessionKey);
+      const serialized = localMessages.map((message) => serializeProjectedMessage(message, toolContext));
       const sessionData = objectData(localSession!.data);
       const cursor = context.messages.latestSessionCursor(parsed.data.sessionKey);
       log.info("bootstrap.local-first", {
@@ -1730,9 +1850,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
     const projectionLimit = parsed.data.limit ?? BOOTSTRAP_PROJECTION_LIMIT;
     const rawProjected = context.messages.listMessages(sessionKey, { limit: projectionLimit, latest: true });
+    const toolContext = toolSerializationContext(context, sessionKey);
     const projectedMessages: ReturnType<typeof serializeProjectedMessage>[] = [];
     for (let i = 0; i < rawProjected.length; i += 1) {
-      projectedMessages.push(serializeProjectedMessage(rawProjected[i]!));
+      projectedMessages.push(serializeProjectedMessage(rawProjected[i]!, toolContext));
       // Chunk the serialize so a 1000-message window can't block the event loop.
       if (i % BOOTSTRAP_SERIALIZE_YIELD_EVERY === BOOTSTRAP_SERIALIZE_YIELD_EVERY - 1) await yieldToEventLoop();
     }
@@ -1785,6 +1906,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       throw new HttpError(400, "Invalid chat messages query", "INVALID_QUERY", parsed.error.flatten());
     }
     log.info("messages.read.start", { sessionKey: parsed.data.sessionKey, afterSeq: parsed.data.afterSeq ?? 0, beforeSeq: parsed.data.beforeSeq ?? null, limit: parsed.data.limit });
+    const toolContext = toolSerializationContext(context, parsed.data.sessionKey);
     const messages = context.messages.listMessages(parsed.data.sessionKey, {
       afterSeq: parsed.data.afterSeq,
       beforeSeq: parsed.data.beforeSeq,
@@ -1802,7 +1924,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         role: message.role,
         gatewaySeq: message.gatewaySeq,
         segmentId: message.segmentId,
-        data: serializeProjectedMessage(message),
+        data: serializeProjectedMessage(message, toolContext),
         updatedAtMs: message.updatedAtMs,
       })),
       messageCount: messages.length,

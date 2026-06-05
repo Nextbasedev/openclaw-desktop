@@ -1665,7 +1665,8 @@ describe("chat live ingest", () => {
         toolCallId: "tool-1",
         name: "web_fetch",
         status: "success",
-        resultMeta: "# Hoppscotch\nOpen source API development ecosystem.",
+        detailTruncated: true,
+        resultPreview: '"# Hoppscotch\\nOpen source API development ecosystem."',
       })],
     });
     await app.close();
