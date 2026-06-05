@@ -11,18 +11,20 @@ export function useTopicSession(
 ) {
   const [resolving, setResolving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const resolvedRef = useRef<string | null>(null)
+  const inFlightScopeRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!activeTopic || activeSessionKey) {
       setResolving(false)
       setError(null)
+      if (!activeTopic) inFlightScopeRef.current = null
       return
     }
     const scopeKey = `${activeTopic.projectId}:${activeTopic.id}`
-    if (resolvedRef.current === scopeKey) return
+    if (inFlightScopeRef.current === scopeKey) return
 
     let cancelled = false
+    inFlightScopeRef.current = scopeKey
     setResolving(true)
     setError(null)
 
@@ -36,15 +38,12 @@ export function useTopicSession(
 
         const sessions = (result.sessions || []).filter((s) => !s.hidden)
         if (sessions.length > 0) {
-          resolvedRef.current = scopeKey
           onSessionResolved(sessions[0].key, sessions[0].label)
-          return
         }
-
-        resolvedRef.current = null
       } catch (err) {
         if (!cancelled) setError(String(err))
       } finally {
+        if (inFlightScopeRef.current === scopeKey) inFlightScopeRef.current = null
         if (!cancelled) setResolving(false)
       }
     }
@@ -52,10 +51,6 @@ export function useTopicSession(
     resolve()
     return () => { cancelled = true }
   }, [activeTopic, activeSessionKey, onSessionResolved])
-
-  useEffect(() => {
-    if (!activeTopic) resolvedRef.current = null
-  }, [activeTopic])
 
   return { resolving, error }
 }
