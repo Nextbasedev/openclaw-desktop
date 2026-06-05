@@ -75,21 +75,34 @@ function JsonSyntax({ text }: { text: string }) {
 }
 
 function ShellSyntax({ text }: { text: string }) {
+  const parts = text.split(/(\s+|`[^`]*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(?:error|failed|fatal|warning|warn|success|passed|compiled|completed)\b|(?:\.{0,2}\/|~\/|\/)[^\s,;:)]*|--?[\w-]+|\b(?:pnpm|npm|yarn|node|tsc|vite|next|wxt|git|grep|rg|python3?|bun|deno|cargo)\b|-?\b\d+(?:\.\d+)?(?:ms|s|KB|MB|GB|%)?\b)/gi)
+
   return (
     <>
-      {text.split(/(\s+)/).map((part, index) => {
+      {parts.map((part, index) => {
         if (!part) return null
-        const className = part.startsWith(">")
-          ? "text-[#63E6BE]"
-          : part.startsWith("/") || part.startsWith("~")
-            ? "text-[#39546D]"
-            : part.match(/^(-{1,2}[\w-]+)/)
-              ? "text-[#A78BFA]"
-              : part.match(/^(pnpm|npm|yarn|node|tsc|vite|next|wxt|git|grep|rg|python3?)$/)
-                ? "text-[#7DD3FC]"
-                : part.match(/^\d+(?:\.\d+)?$/)
-                  ? "text-[#FBBF24]"
-                  : "text-[#6B7A8D]"
+        const lower = part.toLowerCase()
+        const className = part.match(/^\s+$/)
+          ? "text-[#5E6A78]"
+          : part.startsWith(">") || part.startsWith("$")
+            ? "text-[#63E6BE]"
+            : lower.match(/^(error|failed|fatal)$/)
+              ? "text-[#FF6B6B]"
+              : lower.match(/^(warning|warn)$/)
+                ? "text-[#FBBF24]"
+                : lower.match(/^(success|passed|compiled|completed)$/)
+                  ? "text-[#63E6BE]"
+                  : part.match(/^(?:\.{0,2}\/|~\/|\/)/)
+                    ? "text-[#8AB4F8]"
+                    : part.match(/^--?[\w-]+$/)
+                      ? "text-[#C084FC]"
+                      : part.match(/^(pnpm|npm|yarn|node|tsc|vite|next|wxt|git|grep|rg|python3?|bun|deno|cargo)$/i)
+                        ? "text-[#7DD3FC]"
+                        : part.match(/^[`"']/)
+                          ? "text-[#9BCFAD]"
+                          : part.match(/^-?\d/)
+                            ? "text-[#FBBF24]"
+                            : "text-[#A0AABB]"
         return <span key={index} className={className}>{part}</span>
       })}
     </>
