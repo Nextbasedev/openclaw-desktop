@@ -5,6 +5,7 @@ import {
   ensureGlobalChatEngine,
   getGlobalChatSession,
   getGlobalCursorForTests,
+  getSessionStateObjectForTests,
   ingestGlobalChatFrameForTests,
   ingestGlobalChatPatchForTests,
   seedGlobalChatSession,
@@ -14,6 +15,8 @@ import {
 
 vi.mock("../client", () => ({
   openPatchStreamV2: vi.fn(() => () => undefined),
+  fetchChatSessionHeadV2: vi.fn(async (sessionKey: string) => ({ ok: true, sessionKey, headCursor: 0, knownVisibleTotal: 0, oldestVisibleSeq: null })),
+  replayScopedPatchesV2: vi.fn(async () => undefined),
 }))
 
 const _lsStore = new Map<string, string>()
@@ -42,7 +45,67 @@ function stubLocalStorage(data: Record<string, string> = {}) {
 }
 
 describe("global V2 chat engine store", () => {
-  test("bootstrap prune metadata triggers scoped bootstrap recovery", () => {
+  test("applying patches for session B leaves session A state object unchanged", () => {
+    seedGlobalChatSession({
+      sessionKey: "session-A",
+      cursor: 10,
+      status: "done",
+      messages: [{ messageId: "a-u1", role: "user", text: "A", gatewayIndex: 1 }],
+    })
+    const before = getSessionStateObjectForTests("session-A")
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.message.upsert",
+        sessionKey: "session-B",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "session-B",
+          messageSeq: 1,
+          message: { role: "user", messageId: "b-u1", text: "B", __openclaw: { seq: 1 } },
+        },
+      },
+    })
+
+    expect(getSessionStateObjectForTests("session-A")).toBe(before)
+    expect(getGlobalChatSession("session-A")?.messages).toEqual([{ messageId: "a-u1", role: "user", text: "A", gatewayIndex: 1 }])
+  })
+
+  test("other-session stream advance does not dispatch recovery for focused session", async () => {
+    const target = new EventTarget()
+    const recoveryEvents: unknown[] = []
+    vi.stubGlobal("window", {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      dispatchEvent: target.dispatchEvent.bind(target),
+      setInterval,
+      clearInterval,
+    })
+    window.addEventListener("openclaw:chat-bootstrap-recovery", (event) => recoveryEvents.push((event as CustomEvent).detail))
+    const client = await import("../client")
+    vi.mocked(client.fetchChatSessionHeadV2).mockResolvedValueOnce({ ok: true, sessionKey: "session-A", headCursor: 3420, knownVisibleTotal: 10, oldestVisibleSeq: 1 })
+
+    seedGlobalChatSession({
+      sessionKey: "session-A",
+      cursor: 3420,
+      status: "done",
+      messages: [{ messageId: "a-u1", role: "user", text: "A", gatewayIndex: 1 }],
+    })
+    const beforeGeneration = getGlobalChatSession("session-A")?.lastPatchAtMs
+    ensureGlobalChatEngine(undefined, { sessionKey: "session-A", replayFromCursor: 3420, reason: "focus" })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: { cursor: 4042, type: "chat.message.upsert", sessionKey: "session-B", createdAtMs: Date.now(), payload: { sessionKey: "session-B" } },
+    })
+    await Promise.resolve()
+
+    expect(recoveryEvents).toEqual([])
+    expect(getGlobalChatSession("session-A")?.lastPatchAtMs).toBe(beforeGeneration)
+  })
+
+  test("bootstrap prune metadata no longer triggers routine client recovery", () => {
     const target = new EventTarget()
     const recoveryEvents: Array<{ sessionKey?: string; reason?: string; cursor?: number }> = []
     vi.stubGlobal("window", {
@@ -75,10 +138,10 @@ describe("global V2 chat engine store", () => {
       },
     })
 
-    expect(recoveryEvents).toEqual([{ sessionKey: "s-pruned", reason: "bootstrap-pruned", cursor: 11 }])
+    expect(recoveryEvents).toEqual([])
   })
 
-  test("hello latestCursor below global cursor resets the stale epoch and re-persists", () => {
+  test("hello latestCursor below stream cursor leaves transport cursor untouched", () => {
     // Simulate a stale persisted global cursor (client survived a backend
     // redeploy/projection rebuild on the same URL).
     ingestGlobalChatPatchForTests({
@@ -97,8 +160,8 @@ describe("global V2 chat engine store", () => {
       latestCursor: 5,
     })
 
-    expect(getGlobalCursorForTests()).toBe(5)
-    expect(_lsStore.get("openclaw:patchCursor:default")).toBe("5")
+    expect(getGlobalCursorForTests()).toBe(1000)
+    expect(_lsStore.get("openclaw:patchCursor:default")).toBeUndefined()
   })
 
   test("hello latestCursor at or above global cursor does NOT lower it (normal epoch)", () => {
@@ -132,7 +195,7 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalCursorForTests()).toBe(1000)
   })
 
-  test("focused window stream does not rewind below persisted global cursor", async () => {
+  test("focused window stream uses in-memory stream cursor, not persisted global cursor", async () => {
     stubLocalStorage({ "openclaw:patchCursor:default": "1000" })
     seedGlobalChatSession({
       sessionKey: "focused-session",
@@ -148,7 +211,7 @@ describe("global V2 chat engine store", () => {
     })
 
     const { openPatchStreamV2 } = await import("../client")
-    expect(vi.mocked(openPatchStreamV2)).toHaveBeenCalledWith(1000, expect.any(Function))
+    expect(vi.mocked(openPatchStreamV2)).toHaveBeenCalledWith(900, expect.any(Function))
   })
 
   test("focused replay cursor cannot lower when another session has newer local state", async () => {
@@ -167,7 +230,7 @@ describe("global V2 chat engine store", () => {
     })
 
     const { openPatchStreamV2 } = await import("../client")
-    expect(vi.mocked(openPatchStreamV2)).toHaveBeenCalledWith(1000, expect.any(Function))
+    expect(vi.mocked(openPatchStreamV2)).toHaveBeenCalledWith(980, expect.any(Function))
   })
 
   test("metadata-only bootstrap replay is not authoritative empty history", () => {
@@ -2053,7 +2116,7 @@ describe("global V2 chat engine store", () => {
   })
 
 
-  test("syncs explicitly linked spawned child status even when child key is a normal session shape", () => {
+  test("does not cross-update parent spawned child status from child session shape", () => {
     seedGlobalChatSession({
       sessionKey: "parent-1",
       messages: [],
@@ -2072,11 +2135,11 @@ describe("global V2 chat engine store", () => {
     })
 
     expect(getGlobalChatSession("parent-1")?.spawnedSubagents).toMatchObject([
-      { toolCallId: "spawn-1", sessionKey: "agent:main:dashboard:8a493656-ed53-43ce-8d96-530be8385340", status: "completed" },
+      { toolCallId: "spawn-1", sessionKey: "agent:main:dashboard:8a493656-ed53-43ce-8d96-530be8385340", status: "working" },
     ])
   })
 
-  test("linked spawned subagent completes when child session finishes", () => {
+  test("linked spawned subagent waits for parent-scoped patch when child session finishes", () => {
     seedGlobalChatSession({
       sessionKey: "parent-1",
       messages: [],
@@ -2095,7 +2158,7 @@ describe("global V2 chat engine store", () => {
     })
 
     expect(getGlobalChatSession("parent-1")?.spawnedSubagents).toMatchObject([
-      { toolCallId: "spawn-1", sessionKey: "agent:main:desktop:subagent:child-1", status: "completed" },
+      { toolCallId: "spawn-1", sessionKey: "agent:main:desktop:subagent:child-1", status: "working" },
     ])
   })
 
@@ -2987,7 +3050,7 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
-  test("marks linked subagent idle bootstrap as completed instead of working", () => {
+  test("does not mark linked subagent completed from child idle bootstrap", () => {
     seedGlobalChatSession({
       sessionKey: "parent",
       cursor: 10,
@@ -3014,7 +3077,7 @@ describe("global V2 chat engine store", () => {
     })
 
     expect(getGlobalChatSession("parent")?.spawnedSubagents).toEqual([
-      expect.objectContaining({ toolCallId: "tool-1", status: "completed" }),
+      expect.objectContaining({ toolCallId: "tool-1", status: "working" }),
     ])
   })
 

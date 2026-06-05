@@ -65,6 +65,10 @@ export type ChatBootstrapV2 = {
   tools?: ToolCallProjectionV2[]
   toolCalls?: ToolCallProjectionV2[]
   cursor?: number
+  headCursor?: number
+  knownVisibleTotal?: number
+  oldestLoadedSeq?: number | null
+  hasOlder?: boolean
   projection?: { cursor?: number; lastSeq?: number; liveSubscribed?: boolean; version?: number }
   /** Compatibility only for old consumers. Prefer canonical runStatus/statusLabel. */
   sessionStatus?: string | null
