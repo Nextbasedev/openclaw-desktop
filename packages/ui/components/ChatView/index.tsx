@@ -1001,7 +1001,7 @@ export function ChatView({
   }, [])
 
   // Reset mount timestamp on session change
-  useEffect(() => {
+  useLayoutEffect(() => {
     mountedAtRef.current = Date.now()
     userScrollIntentRef.current = false
     needsInitialScrollRef.current = true
@@ -1319,7 +1319,7 @@ export function ChatView({
         window.setTimeout(scrollToLatest, 120)
       })
     }
-  }, [renderedMessages.length, loading, dataSource, scrollContainerRef])
+  }, [renderedMessages.length, loading, dataSource, scrollContainerRef, sessionKey])
 
 
 
