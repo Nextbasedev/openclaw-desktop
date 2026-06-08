@@ -3,6 +3,7 @@ export type SessionTokenUsage = {
   output: number
   cacheRead: number
   cacheWrite: number
+  totalCacheRead?: number | null
   total: number
   cost?: number | null
   contextLimit?: number | null
@@ -26,6 +27,7 @@ export function normalizeSessionTokenUsage(value: unknown): SessionTokenUsage | 
   const output = numberValue("output")
   const cacheRead = numberValue("cacheRead")
   const cacheWrite = numberValue("cacheWrite")
+  const totalCacheRead = nullableNumberValue("totalCacheRead")
   const total = numberValue("total") || input + output + cacheRead + cacheWrite
   if (total <= 0) return null
 
@@ -34,6 +36,7 @@ export function normalizeSessionTokenUsage(value: unknown): SessionTokenUsage | 
     output,
     cacheRead,
     cacheWrite,
+    totalCacheRead,
     total,
     cost: nullableNumberValue("cost"),
     contextLimit: nullableNumberValue("contextLimit"),

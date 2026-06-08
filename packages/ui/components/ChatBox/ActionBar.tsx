@@ -365,6 +365,9 @@ function ContextUsageBadge({ usage }: { usage?: SessionTokenUsage | null }) {
             <UsageRow label="Output" value={usage.output} />
             {usage.cacheRead > 0 && <UsageRow label="Cache read" value={usage.cacheRead} />}
             {usage.cacheWrite > 0 && <UsageRow label="Cache write" value={usage.cacheWrite} />}
+            {usage.totalCacheRead && usage.totalCacheRead > 0 && (
+              <UsageRow label="Total cache read" value={usage.totalCacheRead} />
+            )}
           </div>
         </div>
       </PopoverContent>

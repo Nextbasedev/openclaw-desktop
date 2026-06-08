@@ -44,6 +44,7 @@ type SessionContextUsage = {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  totalCacheRead: number | null;
   total: number;
   cost: number | null;
   contextLimit: number | null;
@@ -83,9 +84,44 @@ function sessionContextFromGatewaySession(session: Record<string, unknown> | nul
     output,
     cacheRead,
     cacheWrite,
+    totalCacheRead: null,
     total,
     cost: costValue,
     contextLimit,
+  };
+}
+
+function usageFromMessageData(data: unknown): Record<string, unknown> | null {
+  const record = objectRecord(data);
+  if (!record) return null;
+  const responseUsage = objectRecord(record.responseUsage);
+  return objectRecord(responseUsage?.usage) ?? responseUsage ?? objectRecord(record.usage);
+}
+
+function totalCacheReadFromStoredMessages(context: AppContext, sessionKey: string): number {
+  const rows = context.db.prepare(`
+    SELECT data_json
+    FROM v2_messages
+    WHERE session_key = @sessionKey
+      AND role = 'assistant'
+      AND data_json LIKE '%cache%'
+  `).all({ sessionKey }) as Array<{ data_json: string }>;
+
+  return rows.reduce((total, row) => {
+    try {
+      const usage = usageFromMessageData(JSON.parse(row.data_json));
+      return total + usageNumber(usage?.cacheRead ?? usage?.cache_read_tokens);
+    } catch {
+      return total;
+    }
+  }, 0);
+}
+
+function withStoredTotalCacheRead(usage: SessionContextUsage | null, totalCacheRead: number): SessionContextUsage | null {
+  if (!usage) return null;
+  return {
+    ...usage,
+    totalCacheRead: totalCacheRead > 0 ? totalCacheRead : null,
   };
 }
 
@@ -983,7 +1019,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }, 30_000);
     const sessions = Array.isArray(response.sessions) ? response.sessions : [];
     const session = sessions.find((entry) => objectRecord(entry)?.key === sessionKey);
-    const usage = sessionContextFromGatewaySession(objectRecord(session));
+    const usage = withStoredTotalCacheRead(
+      sessionContextFromGatewaySession(objectRecord(session)),
+      totalCacheReadFromStoredMessages(context, sessionKey)
+    );
     return {
       ok: true,
       sessionKey,

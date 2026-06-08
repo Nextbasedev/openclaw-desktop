@@ -6,6 +6,7 @@ import { clearBootstrapCacheForTests } from "../src/features/compat/routes.js";
 import { createApp } from "../src/app.js";
 import type { AppContext } from "../src/app.js";
 import type { MiddlewareConfig } from "../src/config/env.js";
+import { normalizeHistoryMessages } from "../src/features/chat/message-normalizer.js";
 
 function config(name: string): MiddlewareConfig {
   return {
@@ -69,12 +70,39 @@ describe("chat send routes", () => {
         output: 270,
         cacheRead: 138000,
         cacheWrite: 0,
+        totalCacheRead: null,
         total: 139000,
         cost: 0.0123,
         contextLimit: 400000,
       },
     });
     expect(request).toHaveBeenCalledWith("sessions.list", expect.objectContaining({ includeGlobal: true, includeUnknown: true }), 30_000);
+    await app.close();
+  });
+
+  test("adds real total cache read from stored assistant message usage", async () => {
+    const app = await createApp(config("session-context-total-cache-read"));
+    const context = contextOf(app);
+    context.messages.upsertMessages(normalizeHistoryMessages("agent:main:desktop:abc", [
+      { role: "assistant", text: "first", usage: { input: 1, output: 2, cacheRead: 12000, cacheWrite: 0, total: 12003 } },
+      { role: "assistant", text: "second", responseUsage: { usage: { input: 1, output: 2, cache_read_tokens: 3000, total_tokens: 3003 } } },
+    ]));
+    vi.spyOn(context.gateway, "request").mockResolvedValue({
+      sessions: [{ key: "agent:main:desktop:abc", inputTokens: 10, outputTokens: 5, totalTokens: 15, contextTokens: 400000 }],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/chat/session-context?sessionKey=agent%3Amain%3Adesktop%3Aabc",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().usage).toMatchObject({
+      input: 10,
+      output: 5,
+      total: 15,
+      totalCacheRead: 15000,
+    });
     await app.close();
   });
 
