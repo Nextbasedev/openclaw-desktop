@@ -8,7 +8,6 @@ import {
   VscLayoutSidebarLeft,
   VscLayoutSidebarRight,
   VscOutput,
-  VscSplitHorizontal,
   VscTerminal,
 } from "react-icons/vsc"
 import { LuExternalLink } from "react-icons/lu"
@@ -446,6 +445,7 @@ export function Header({
       <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-white pl-2 dark:bg-[#151515]", showWindowControls ? "pr-0" : "pr-3")}>
         {!minimal && (
           <>
+            {/* Split button hidden for now.
             {showSplitButton && (
               <button
                 type="button"
@@ -466,7 +466,7 @@ export function Header({
               >
                 <VscSplitHorizontal className="size-4" />
               </button>
-            )}
+            )} */}
 
             <HeaderActionTooltip
               label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
