@@ -993,29 +993,40 @@ function ConnectedState({
 
 function ConnectStatusSkeleton() {
   return (
-    <div className="rounded-2xl border border-black/[0.08] dark:border-white/10 bg-white/[0.03] p-5 text-center">
-      <div className="mx-auto flex size-11 animate-pulse items-center justify-center rounded-2xl bg-black/[0.06] dark:bg-white/8" />
-      <div className="mt-3 flex flex-col items-center gap-2">
-        <div className="h-4 w-32 animate-pulse rounded-md bg-black/10 dark:bg-white/10" />
-        <div className="h-3 w-72 max-w-full animate-pulse rounded-md bg-black/[0.045] dark:bg-white/6" />
-        <div className="h-3 w-56 max-w-full animate-pulse rounded-md bg-black/[0.035] dark:bg-white/5" />
+    <div className="rounded-2xl bg-emerald-500/[0.055] p-5">
+      <div className="flex items-start gap-4">
+        <div className="flex size-11 shrink-0 animate-pulse items-center justify-center rounded-2xl bg-emerald-500/10" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="h-4 w-32 animate-pulse rounded-md bg-emerald-100/14" />
+            <div className="h-5 w-20 animate-pulse rounded-full bg-emerald-400/10" />
+          </div>
+          <div className="mt-2 space-y-2">
+            <div className="h-3 w-full max-w-[360px] animate-pulse rounded-md bg-emerald-100/10" />
+            <div className="h-3 w-4/5 animate-pulse rounded-md bg-emerald-100/[0.075]" />
+          </div>
+          <div className="mt-4 rounded-xl bg-black/10 px-3 py-2">
+            <div className="h-2.5 w-24 animate-pulse rounded bg-emerald-100/[0.08]" />
+            <div className="mt-2 h-3 w-56 max-w-full animate-pulse rounded-md bg-emerald-50/12" />
+          </div>
+        </div>
       </div>
-      <div className="mx-auto mt-4 h-8 w-28 animate-pulse rounded-md bg-black/[0.06] dark:bg-white/8" />
+      <div className="mt-5 h-9 w-full animate-pulse rounded-md bg-emerald-400/[0.08]" />
     </div>
   )
 }
 
 function ConnectPageSkeleton() {
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col items-center gap-3 text-center">
-        <div className="size-12 animate-pulse rounded-md border border-black/[0.08] dark:border-white/10 bg-black/[0.045] dark:bg-white/6" />
+    <div className="space-y-5">
+      <header className="space-y-3 text-left">
+        <div className="size-12 animate-pulse rounded-2xl bg-black/[0.035] dark:bg-white/[0.045]" />
         <div className="space-y-2">
-          <div className="mx-auto h-6 w-64 animate-pulse rounded-md bg-black/10 dark:bg-white/10" />
-          <div className="mx-auto h-4 w-80 max-w-full animate-pulse rounded-md bg-black/[0.045] dark:bg-white/6" />
-          <div className="mx-auto h-4 w-72 max-w-full animate-pulse rounded-md bg-black/[0.035] dark:bg-white/5" />
+          <div className="h-6 w-56 animate-pulse rounded-md bg-black/10 dark:bg-white/10" />
+          <div className="h-4 w-full max-w-[460px] animate-pulse rounded-md bg-black/[0.045] dark:bg-white/6" />
+          <div className="h-4 w-4/5 animate-pulse rounded-md bg-black/[0.035] dark:bg-white/5" />
         </div>
-      </div>
+      </header>
 
       <ConnectStatusSkeleton />
     </div>
