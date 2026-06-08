@@ -983,6 +983,7 @@ export function ChatView({
   const olderLoadAwaitingRenderRef = useRef(false)
   const lastOlderLoadAtRef = useRef(0)
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
+  const initialScrollSessionKeyRef = useRef(sessionKey)
   const previousScrollTopRef = useRef(0)
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const olderAutoLoadBlockedUntilRef = useRef(0)
@@ -1002,6 +1003,7 @@ export function ChatView({
 
   // Reset mount timestamp on session change
   useLayoutEffect(() => {
+    initialScrollSessionKeyRef.current = sessionKey
     mountedAtRef.current = Date.now()
     userScrollIntentRef.current = false
     needsInitialScrollRef.current = true
@@ -1301,25 +1303,28 @@ export function ChatView({
   useLayoutEffect(() => {
     if (
       needsInitialScrollRef.current &&
+      initialScrollSessionKeyRef.current === sessionKey &&
       renderedMessages.length > 0 &&
       !loading &&
-      dataSource === "fresh" &&
       !userScrollIntentRef.current
     ) {
       needsInitialScrollRef.current = false
       const scrollToLatest = () => {
         const el = scrollContainerRef.current
         if (!el) return
+        bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
         el.scrollTop = el.scrollHeight
+        previousScrollTopRef.current = el.scrollTop
         setShowJumpToBottom(false)
       }
       requestAnimationFrame(() => {
         scrollToLatest()
         requestAnimationFrame(scrollToLatest)
         window.setTimeout(scrollToLatest, 120)
+        window.setTimeout(scrollToLatest, 360)
       })
     }
-  }, [renderedMessages.length, loading, dataSource, scrollContainerRef, sessionKey])
+  }, [renderedMessages.length, loading, scrollContainerRef, sessionKey, bottomRef])
 
 
 
