@@ -38,6 +38,20 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey, s
     previousScrollHeightRef.current = container.scrollHeight
   }, [])
 
+  const pinToBottom = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+    // Streaming content updates can arrive many times per second. Starting a
+    // fresh smooth-scroll animation for every token/resize makes Chrome repaint
+    // already-rendered markdown repeatedly, which looks like the text is
+    // blinking. For automatic pinned follow, snap the scroll anchor instead;
+    // explicit user actions still use scrollToBottom("smooth").
+    container.scrollTo({ top: container.scrollHeight, behavior: "auto" })
+    setIsAtBottom(true)
+    isAtBottomRef.current = true
+    previousScrollHeightRef.current = container.scrollHeight
+  }, [])
+
   const settleAtBottom = useCallback(() => {
     scrollToBottom("auto")
     requestAnimationFrame(() => {
@@ -71,13 +85,13 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey, s
         didInitialBottomRef.current = true
         requestAnimationFrame(settleAtBottom)
       } else if (isAtBottomRef.current) {
-        container.scrollTo({ top: nextScrollHeight, behavior: "smooth" })
+        pinToBottom()
       }
     }
 
     previousFirstMessageKeyRef.current = firstMessageKey
     previousScrollHeightRef.current = container.scrollHeight
-  }, [contentKey, firstMessageKey, sessionKey, settleAtBottom, suppressAutoScroll])
+  }, [contentKey, firstMessageKey, pinToBottom, sessionKey, settleAtBottom, suppressAutoScroll])
 
   useEffect(() => {
     const container = containerRef.current
@@ -91,7 +105,7 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey, s
       frame = requestAnimationFrame(() => {
         frame = null
         if (!isAtBottomRef.current) return
-        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" })
+        pinToBottom()
       })
     })
     observer.observe(content)
@@ -99,7 +113,7 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey, s
       if (frame !== null) cancelAnimationFrame(frame)
       observer.disconnect()
     }
-  }, [contentKey, suppressAutoScroll])
+  }, [contentKey, pinToBottom, suppressAutoScroll])
 
   useEffect(() => {
     const container = containerRef.current

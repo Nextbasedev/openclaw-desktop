@@ -143,10 +143,12 @@ function ThinkingMessage({ statusText }: { statusText?: string | null }) {
 
 function VercelMessage({
   message,
+  isStreaming = false,
   onSelectTool,
   onResolveApproval,
 }: {
   message: StableChatMessage
+  isStreaming?: boolean
   onSelectTool?: (toolCallId: string) => void
   onResolveApproval?: Props["onResolveApproval"]
 }) {
@@ -193,7 +195,11 @@ function VercelMessage({
                   />
                 </div>
               )}
-              {hasText && (
+              {hasText && isStreaming ? (
+                <div className="min-w-0 whitespace-pre-wrap break-words text-[13px] leading-[1.65] text-foreground [overflow-wrap:anywhere]">
+                  {message.text}
+                </div>
+              ) : hasText ? (
                 <div className="min-w-0 text-[13px] leading-[1.65] text-foreground">
                   <MarkdownContent
                     text={message.text}
@@ -202,7 +208,7 @@ function VercelMessage({
                     revealMode="immediate"
                   />
                 </div>
-              )}
+              ) : null}
             </>
           )}
         </div>
@@ -402,6 +408,7 @@ export function OpenClawVercelChat({
             <VercelMessage
               key={message.uiId}
               message={message}
+              isStreaming={isGenerating && message.role === "assistant" && message.uiId === lastMessage?.uiId}
               onSelectTool={onSelectTool}
               onResolveApproval={onResolveApproval}
             />
