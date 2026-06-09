@@ -63,3 +63,7 @@ Make chat rendering monotonic and stable during/after assistant generation by:
 - Do not alter middleware projection semantics unless UI-side monotonic merge is insufficient.
 - Do not delete or commit `screenshots/` or `tmp-chat-stress/` artifacts unless explicitly requested.
 - Do not touch assistant workspace memory/reference files for this code fix.
+
+## Second-pass implementation addendum
+- Patch `MessageBubble.tsx` so actively streaming assistant text renders as stable pre-wrapped plain text instead of buffered `MarkdownContent` reveal; completed/non-active assistant rows still render Markdown.
+- Patch `ToolCallSteps.tsx` so tool cards retain first-seen order during a render lifecycle and remove layout-position animation from rows/container. Status/content may update, but rows should not visually swap on alternating websocket patches.

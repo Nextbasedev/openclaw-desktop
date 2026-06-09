@@ -67,3 +67,8 @@ Fix remaining OpenClaw Desktop chat micro-render bugs on `v5-krish`:
 - Disabling `.streaming-text` animation changes visual feel but should improve stability.
 - Persistent renderer mode for active messages must be scoped per visible message id to avoid leaving all historical messages in plain text forever.
 - Browser dev server can be resource-heavy; static export fallback may be required for verification.
+
+## Second pass: active legacy renderer remaining issues (12:54 UTC)
+- The active UI route observed in browser DOM is the legacy `ChatView/index.tsx` + `MessageBubble` path (`data-chat-message-row=true`), not only `OpenClawVercelChat` (`data-vercel-chat-message-row=true`).
+- Remaining last-line blink/replay cause: `MessageBubble` used `MarkdownContent` with `streaming={animateAssistantText}` and `revealMode="buffered"` for active assistant text. This can lag/reveal the last lines while the user scrolls and can replay when a canonical/final message remounts.
+- Remaining tool switching cause: `ToolCallSteps` sorted by mutable started/completed timestamps and used Framer Motion layout animations. Alternating websocket updates for two running tools can reorder/layout-animate the cards, making them appear to switch back and forth after they already rendered.
