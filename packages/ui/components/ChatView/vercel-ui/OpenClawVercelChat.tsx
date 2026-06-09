@@ -413,17 +413,16 @@ export function OpenClawVercelChat({
         </div>
       </div>
 
-      <button
-        aria-label="Scroll to bottom"
-        className={cn(
-          "absolute bottom-4 left-1/2 z-10 flex h-7 -translate-x-1/2 items-center rounded-full border border-border/50 bg-card/90 px-3.5 shadow-[var(--shadow-float)] backdrop-blur-lg",
-          isAtBottom ? "hidden" : "flex"
-        )}
-        onClick={() => scrollToBottom()}
-        type="button"
-      >
-        <LuArrowDown className="size-3 text-muted-foreground" />
-      </button>
+      {!isAtBottom && (
+        <button
+          aria-label="Scroll to bottom"
+          className="absolute bottom-4 left-1/2 z-10 flex h-7 -translate-x-1/2 items-center rounded-full border border-border/50 bg-card/90 px-3.5 shadow-[var(--shadow-float)] backdrop-blur-lg"
+          onClick={() => scrollToBottom()}
+          type="button"
+        >
+          <LuArrowDown className="size-3 text-muted-foreground" />
+        </button>
+      )}
     </div>
   )
 }

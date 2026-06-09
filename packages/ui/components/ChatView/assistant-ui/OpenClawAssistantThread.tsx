@@ -139,7 +139,7 @@ const ThreadScrollToBottom: FC = () => (
   <ThreadPrimitive.ScrollToBottom asChild>
     <button
       type="button"
-      className="absolute -top-10 self-center rounded-full border border-border/50 bg-background p-2 text-muted-foreground shadow-sm transition hover:text-foreground disabled:invisible"
+      className="absolute -top-10 self-center rounded-full border border-border/50 bg-background p-2 text-muted-foreground shadow-sm transition hover:text-foreground disabled:hidden"
       aria-label="Scroll to bottom"
     >
       <LuChevronDown className="size-4" />
