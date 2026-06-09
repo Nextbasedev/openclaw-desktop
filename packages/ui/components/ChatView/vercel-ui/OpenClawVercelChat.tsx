@@ -236,7 +236,20 @@ export function OpenClawVercelChat({
   const isOlderLoading = loadingOlderMessages || localOlderLoading
   const isOlderLoadingRef = useRef(isOlderLoading)
   const firstMessageKey = stableMessages[0]?.uiId ?? null
-  const contentKey = stableMessages.map((message) => `${message.uiId}:${message.text.length}:${message.toolCalls?.length ?? 0}`).join("|")
+  const contentKey = stableMessages.map((message) => {
+    const toolKey = (message.toolCalls ?? [])
+      .map((tool) => [
+        tool.id,
+        tool.tool,
+        tool.status,
+        tool.duration ?? "",
+        tool.awaitingResult ? "awaiting" : "",
+        tool.resultText?.length ?? 0,
+        tool.approval?.id ?? "",
+      ].join(":"))
+      .join(",")
+    return `${message.uiId}:${message.text.length}:${message.reasoningText?.length ?? 0}:${toolKey}`
+  }).join("|")
   const { containerRef, endRef, isAtBottom, scrollToBottom } = useStableChatScroll({
     sessionKey,
     firstMessageKey,
