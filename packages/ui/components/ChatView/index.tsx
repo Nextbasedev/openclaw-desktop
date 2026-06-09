@@ -2094,39 +2094,36 @@ export function ChatView({
 
       <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         <div className="pointer-events-none absolute -top-12 left-1/2 z-20 -translate-x-1/2">
-          <AnimatePresence>
-            {showJumpToBottom && (
-              <motion.button
-                type="button"
-                aria-label="Scroll to latest message"
-                title="Scroll to latest message"
-                onClick={jumpToLatestMessage}
-                initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                animate={{ opacity: 1, y: [0, 4, 0], scale: 1 }}
-                exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                transition={{
-                  opacity: { duration: 0.16, ease: "easeOut" },
-                  scale: { duration: 0.16, ease: "easeOut" },
-                  y: { duration: 1.8, ease: "easeInOut", repeat: Infinity },
-                }}
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.94 }}
-                className={cn(
-                  "group flex size-9 cursor-pointer items-center justify-center rounded-full pointer-events-auto",
-                  "border border-border/50 bg-background/95 text-foreground/80 shadow-sm backdrop-blur",
-                  "transition-colors hover:bg-muted hover:text-foreground",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
-                )}
+          {showJumpToBottom && (
+            <motion.button
+              type="button"
+              aria-label="Scroll to latest message"
+              title="Scroll to latest message"
+              onClick={jumpToLatestMessage}
+              initial={{ opacity: 0, y: 8, scale: 0.96 }}
+              animate={{ opacity: 1, y: [0, 4, 0], scale: 1 }}
+              transition={{
+                opacity: { duration: 0.16, ease: "easeOut" },
+                scale: { duration: 0.16, ease: "easeOut" },
+                y: { duration: 1.8, ease: "easeInOut", repeat: Infinity },
+              }}
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.94 }}
+              className={cn(
+                "group flex size-9 cursor-pointer items-center justify-center rounded-full pointer-events-auto",
+                "border border-border/50 bg-background/95 text-foreground/80 shadow-sm backdrop-blur",
+                "transition-colors hover:bg-muted hover:text-foreground",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
+              )}
+            >
+              <span
+                aria-hidden="true"
+                className="flex origin-center bg-transparent"
               >
-                <span
-                  aria-hidden="true"
-                  className="flex origin-center bg-transparent"
-                >
-                  <MdKeyboardDoubleArrowDown size={22} />
-                </span>
-              </motion.button>
-            )}
-          </AnimatePresence>
+                <MdKeyboardDoubleArrowDown size={22} />
+              </span>
+            </motion.button>
+          )}
         </div>
         <ChatBox
           onSend={wrappedSend}
