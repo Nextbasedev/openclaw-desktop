@@ -20,6 +20,7 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey, s
   const previousFirstMessageKeyRef = useRef<string | null>(firstMessageKey)
   const previousScrollHeightRef = useRef(0)
   const didInitialBottomRef = useRef(false)
+  const userScrollIntentRef = useRef(false)
 
   const checkIfAtBottom = useCallback(() => {
     const container = containerRef.current
@@ -27,21 +28,22 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey, s
     return container.scrollTop + container.clientHeight >= container.scrollHeight - BOTTOM_THRESHOLD_PX
   }, [])
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = containerRef.current
     if (!container) return
-    container.scrollTop = container.scrollHeight
+    userScrollIntentRef.current = false
+    container.scrollTo({ top: container.scrollHeight, behavior })
     setIsAtBottom(true)
     isAtBottomRef.current = true
     previousScrollHeightRef.current = container.scrollHeight
   }, [])
 
   const settleAtBottom = useCallback(() => {
-    scrollToBottom()
+    scrollToBottom("auto")
     requestAnimationFrame(() => {
-      scrollToBottom()
-      requestAnimationFrame(scrollToBottom)
-      window.setTimeout(scrollToBottom, 120)
+      scrollToBottom("auto")
+      requestAnimationFrame(() => scrollToBottom("auto"))
+      window.setTimeout(() => scrollToBottom("auto"), 120)
     })
   }, [scrollToBottom])
 
@@ -69,7 +71,7 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey, s
         didInitialBottomRef.current = true
         requestAnimationFrame(settleAtBottom)
       } else if (isAtBottomRef.current) {
-        container.scrollTop = nextScrollHeight
+        container.scrollTo({ top: nextScrollHeight, behavior: "smooth" })
       }
     }
 
@@ -79,17 +81,54 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey, s
 
   useEffect(() => {
     const container = containerRef.current
+    const content = container?.firstElementChild
+    if (!container || !content || typeof ResizeObserver === "undefined") return
+
+    let frame: number | null = null
+    const observer = new ResizeObserver(() => {
+      if (suppressAutoScroll || !isAtBottomRef.current) return
+      if (frame !== null) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        frame = null
+        if (!isAtBottomRef.current) return
+        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" })
+      })
+    })
+    observer.observe(content)
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [contentKey, suppressAutoScroll])
+
+  useEffect(() => {
+    const container = containerRef.current
     if (!container) return
 
+    const markUserScrollIntent = () => {
+      userScrollIntentRef.current = true
+    }
     const onScroll = () => {
       const nextAtBottom = checkIfAtBottom()
-      setIsAtBottom(nextAtBottom)
-      isAtBottomRef.current = nextAtBottom
+      if (nextAtBottom) {
+        userScrollIntentRef.current = false
+        setIsAtBottom(true)
+        isAtBottomRef.current = true
+      } else if (userScrollIntentRef.current || !isAtBottomRef.current) {
+        setIsAtBottom(false)
+        isAtBottomRef.current = false
+      }
       previousScrollHeightRef.current = container.scrollHeight
     }
 
+    container.addEventListener("wheel", markUserScrollIntent, { passive: true })
+    container.addEventListener("touchstart", markUserScrollIntent, { passive: true })
+    container.addEventListener("pointerdown", markUserScrollIntent, { passive: true })
     container.addEventListener("scroll", onScroll, { passive: true })
     return () => {
+      container.removeEventListener("wheel", markUserScrollIntent)
+      container.removeEventListener("touchstart", markUserScrollIntent)
+      container.removeEventListener("pointerdown", markUserScrollIntent)
       container.removeEventListener("scroll", onScroll)
     }
   }, [checkIfAtBottom])

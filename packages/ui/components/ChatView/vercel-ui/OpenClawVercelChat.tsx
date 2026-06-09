@@ -366,8 +366,8 @@ export function OpenClawVercelChat({
     if (!latestOptimisticUserKey || previousOptimisticUserKeyRef.current === latestOptimisticUserKey) return
     previousOptimisticUserKeyRef.current = latestOptimisticUserKey
     scrollToBottom()
-    requestAnimationFrame(scrollToBottom)
-    window.setTimeout(scrollToBottom, 80)
+    requestAnimationFrame(() => scrollToBottom())
+    window.setTimeout(() => scrollToBottom(), 80)
   }, [latestOptimisticUserKey, scrollToBottom])
 
   return (
@@ -406,7 +406,7 @@ export function OpenClawVercelChat({
           "absolute bottom-4 left-1/2 z-10 flex h-7 -translate-x-1/2 items-center rounded-full border border-border/50 bg-card/90 px-3.5 shadow-[var(--shadow-float)] backdrop-blur-lg",
           isAtBottom ? "hidden" : "flex"
         )}
-        onClick={scrollToBottom}
+        onClick={() => scrollToBottom()}
         type="button"
       >
         <LuArrowDown className="size-3 text-muted-foreground" />
