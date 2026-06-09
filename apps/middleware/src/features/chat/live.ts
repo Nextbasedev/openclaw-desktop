@@ -13,6 +13,7 @@ import { extractSubagentSessionKey, isSubagentSessionKey } from "./subagent-sess
 const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
 /** Yield every N processed items during a tight, potentially-large loop. */
 const BACKFILL_YIELD_EVERY = 8;
+const TOOL_UNCHANGED_REPLAY_WINDOW_MS = 30_000;
 
 type ChatHistoryResponse = {
   sessionKey?: string;
@@ -608,6 +609,10 @@ export class ChatLiveIngest {
       argsMeta: isObject(data.args) ? data.args : null,
       resultMeta: phase === "error" ? this.safeResultMeta(data.error ?? liveResultValue) : shouldMarkAwaitingResult ? awaitingResultMeta : liveResultIsAwaitingPlaceholder ? existingTool?.resultMeta ?? null : liveResultMeta,
     });
+    if (existingTool && Date.now() - existingTool.updatedAtMs <= TOOL_UNCHANGED_REPLAY_WINDOW_MS && this.toolProjectionUnchanged(existingTool, tool)) {
+      this.log.info("tool.persist.skip_unchanged", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status });
+      return;
+    }
     if ((phase === "start" || phase === "calling" || phase === "update") && tool.status !== "running") {
       this.log.info("tool.replayed-start.skip-terminal", { sessionKey, toolCallId, requestedPhase: phase, existingPhase: tool.phase, status: tool.status });
       return;
@@ -1138,6 +1143,26 @@ export class ChatLiveIngest {
       return result;
     }
     return { type: typeof value };
+  }
+
+  private toolProjectionUnchanged(previous: { runId: string | null; messageId: string | null; name: string; phase: string; status: string; argsMeta: unknown; resultMeta: unknown; finishedAtMs: number | null }, next: { runId: string | null; messageId: string | null; name: string; phase: string; status: string; argsMeta: unknown; resultMeta: unknown; finishedAtMs: number | null }) {
+    return previous.runId === next.runId
+      && previous.messageId === next.messageId
+      && previous.name === next.name
+      && previous.phase === next.phase
+      && previous.status === next.status
+      && previous.finishedAtMs === next.finishedAtMs
+      && this.stableJson(previous.argsMeta) === this.stableJson(next.argsMeta)
+      && this.stableJson(previous.resultMeta) === this.stableJson(next.resultMeta);
+  }
+
+  private stableJson(value: unknown): string {
+    if (value === undefined) return "undefined";
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
   }
 
   private handleSessionsChanged(payload: unknown) {

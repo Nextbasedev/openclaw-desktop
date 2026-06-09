@@ -786,6 +786,45 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("does not broadcast duplicate tool patches when replayed tool state is unchanged", async () => {
+    const app = await createApp(config("dedupe-unchanged-tool-patches"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", gatewayRunId: "gw-run-1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    const event: GatewayEvent = {
+      type: "event",
+      event: "session.tool",
+      payload: {
+        sessionKey: "s1",
+        runId: "gw-run-1",
+        data: {
+          phase: "start",
+          toolCallId: "tool-1",
+          name: "session_status",
+          args: { model: "default" },
+        },
+      },
+    };
+
+    listener(event);
+    listener(event);
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const toolPatches = (replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string } }>)
+      .filter((patch) => patch.type === "chat.tool.started" && patch.payload?.toolCallId === "tool-1");
+
+    expect(toolPatches).toHaveLength(1);
+    await app.close();
+  });
+
   test("broadcasts reasoning deltas from Gateway agent thinking events", async () => {
     const app = await createApp(config("agent-thinking-events"));
     const context = contextOf(app);

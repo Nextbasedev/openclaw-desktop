@@ -255,7 +255,7 @@ export class RunRepository {
         status = excluded.status,
         args_meta_json = COALESCE(excluded.args_meta_json, v2_tool_calls.args_meta_json),
         result_meta_json = COALESCE(excluded.result_meta_json, v2_tool_calls.result_meta_json),
-        finished_at_ms = excluded.finished_at_ms,
+        finished_at_ms = COALESCE(v2_tool_calls.finished_at_ms, excluded.finished_at_ms),
         updated_at_ms = excluded.updated_at_ms
     `).run({
       toolCallId: tool.toolCallId,
