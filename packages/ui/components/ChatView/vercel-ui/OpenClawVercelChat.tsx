@@ -356,6 +356,19 @@ export function OpenClawVercelChat({
   }, [containerRef, hasOlderMessages, isGenerating, loadOlderWithoutJump, localOlderLoading])
   const lastMessage = stableMessages.at(-1)
   const showThinking = isGenerating && lastMessage?.role === "user"
+  const latestOptimisticUserKey =
+    lastMessage?.role === "user" && (lastMessage.isOptimistic || lastMessage.sendStatus === "sending")
+      ? lastMessage.uiId
+      : null
+  const previousOptimisticUserKeyRef = useRef<string | null>(null)
+
+  useLayoutEffect(() => {
+    if (!latestOptimisticUserKey || previousOptimisticUserKeyRef.current === latestOptimisticUserKey) return
+    previousOptimisticUserKeyRef.current = latestOptimisticUserKey
+    scrollToBottom()
+    requestAnimationFrame(scrollToBottom)
+    window.setTimeout(scrollToBottom, 80)
+  }, [latestOptimisticUserKey, scrollToBottom])
 
   return (
     <div className="relative flex-1 bg-background">
