@@ -103,6 +103,7 @@ export type ChatMessage = {
   usage?: ChatTokenUsage | null
   stopReason?: string | null
   isOptimistic?: boolean
+  optimisticMessageId?: string
   sendStatus?: "sending" | "failed"
   sendError?: string | null
   retryPayload?: ChatComposerSubmit

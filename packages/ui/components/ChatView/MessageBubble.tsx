@@ -556,6 +556,7 @@ interface MessageBubbleProps {
   suppressActions?: boolean
   popoverOpen?: boolean
   onPopoverOpenChange?: (open: boolean) => void
+  afterContent?: ReactNode
 }
 
 export const MessageBubble = memo(function MessageBubble({
@@ -1347,40 +1348,55 @@ export const MessageBubble = memo(function MessageBubble({
   )
 }, messageBubbleAreEqual)
 
+function messageRenderSignature(message: ChatMessage) {
+  return JSON.stringify({
+    messageId: message.messageId,
+    role: message.role,
+    text: message.text,
+    reasoningText: message.reasoningText,
+    toolCalls: message.toolCalls?.map((tool) => ({
+      id: tool.id,
+      tool: tool.tool,
+      status: tool.status,
+      duration: tool.duration,
+      input: tool.input,
+      resultText: tool.resultText,
+      awaitingResult: tool.awaitingResult,
+      approval: tool.approval,
+    })),
+    embeds: message.embeds,
+    attachments: message.attachments,
+    voice: message.voice,
+    branches: message.branches,
+    activeBranch: message.activeBranch,
+    replyTo: message.replyTo,
+    sendStatus: message.sendStatus,
+    sendError: message.sendError,
+    isOptimistic: message.isOptimistic,
+    createdAt: message.createdAt,
+    model: message.model,
+    usage: message.usage,
+    stopReason: message.stopReason,
+    animateText: message.animateText,
+  })
+}
+
 function messageBubbleAreEqual(
   prev: MessageBubbleProps,
   next: MessageBubbleProps
 ): boolean {
-  // Fast path: same message reference + same UI state = skip re-render
-  if (prev.message === next.message &&
-      prev.isGenerating === next.isGenerating &&
-      prev.isActivelyStreaming === next.isActivelyStreaming &&
-      prev.animateAssistantText === next.animateAssistantText &&
-      prev.popoverOpen === next.popoverOpen &&
-      prev.isPinned === next.isPinned &&
-      prev.reaction === next.reaction &&
-      prev.suppressActions === next.suppressActions) {
-    return true
-  }
-  // Message content changed
-  if (prev.message.messageId !== next.message.messageId ||
-      prev.message.text !== next.message.text ||
-      prev.message.role !== next.message.role ||
-      (prev.message.branches?.length ?? 0) !== (next.message.branches?.length ?? 0) ||
-      prev.message.activeBranch !== next.message.activeBranch) {
-    return false
-  }
-  // Tool calls changed
-  if ((prev.message.toolCalls?.length ?? 0) !== (next.message.toolCalls?.length ?? 0)) return false
-  // UI state props
-  if (prev.isGenerating !== next.isGenerating) return false
-  if (prev.isActivelyStreaming !== next.isActivelyStreaming) return false
-  if (prev.animateAssistantText !== next.animateAssistantText) return false
-  if (prev.popoverOpen !== next.popoverOpen) return false
-  if (prev.isPinned !== next.isPinned) return false
-  if (prev.reaction !== next.reaction) return false
-  if (prev.suppressActions !== next.suppressActions) return false
-  return true
+  return (
+    messageRenderSignature(prev.message) === messageRenderSignature(next.message) &&
+    prev.isGenerating === next.isGenerating &&
+    prev.isActivelyStreaming === next.isActivelyStreaming &&
+    prev.animateAssistantText === next.animateAssistantText &&
+    prev.popoverOpen === next.popoverOpen &&
+    prev.isPinned === next.isPinned &&
+    prev.reaction === next.reaction &&
+    prev.suppressActions === next.suppressActions &&
+    prev.afterContent === next.afterContent &&
+    (prev.referencedTexts ?? []).join("\u0000") === (next.referencedTexts ?? []).join("\u0000")
+  )
 }
 
 export function TypingDots() {

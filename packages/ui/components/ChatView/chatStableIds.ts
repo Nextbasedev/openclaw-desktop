@@ -21,6 +21,8 @@ function textFingerprint(message: ChatMessage) {
 }
 
 function stableMessageBaseId(message: ChatMessage, fallbackOrdinal: number) {
+  const optimistic = message.optimisticMessageId?.trim()
+  if (message.role === "user" && optimistic) return optimistic
   const explicit = message.messageId?.trim()
   if (explicit) return explicit
   const seq = typeof message.gatewayIndex === "number" && Number.isFinite(message.gatewayIndex)

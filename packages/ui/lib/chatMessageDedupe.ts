@@ -546,6 +546,10 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
         ...fallback,
         ...preferred,
         messageId: preferred.messageId,
+        optimisticMessageId:
+          fallback.optimisticMessageId ??
+          preferred.optimisticMessageId ??
+          (isOptimisticUserCandidate(fallback) ? fallback.messageId : undefined),
         text: preferred.text.trim() ? preferred.text : fallback.text,
         createdAt: fallback.createdAt || preferred.createdAt,
         attachments: mergeAttachments(fallback.attachments, preferred.attachments),

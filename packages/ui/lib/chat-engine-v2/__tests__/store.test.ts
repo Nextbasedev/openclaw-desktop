@@ -1710,6 +1710,125 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")).toMatchObject({ status: "done", statusLabel: null })
   })
 
+  test("premature bare done after partial assistant text does not blink the turn complete", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    seedGlobalChatSession({
+      sessionKey: "s-premature-done",
+      cursor: 0,
+      status: "streaming",
+      statusLabel: "Streaming",
+      messages: [{ messageId: "user-1", role: "user", text: "long real work prompt" }],
+    })
+
+    vi.setSystemTime(2_000)
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s-premature-done",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.assistant.delta",
+          runStatus: "streaming",
+          statusLabel: "Streaming",
+          message: { role: "assistant", text: "partial answer", __openclaw: { id: "assistant-1" } },
+        },
+      },
+    })
+
+    vi.setSystemTime(2_500)
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.status",
+        sessionKey: "s-premature-done",
+        createdAtMs: 2_500,
+        payload: { semanticType: "chat.run.done", runStatus: "done", statusLabel: null },
+      },
+    })
+
+    expect(getGlobalChatSession("s-premature-done")).toMatchObject({ status: "streaming", statusLabel: "Streaming" })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.upsert",
+        sessionKey: "s-premature-done",
+        createdAtMs: 3_000,
+        payload: {
+          semanticType: "chat.assistant.final",
+          runStatus: "done",
+          statusLabel: null,
+          message: { role: "assistant", text: "final answer", __openclaw: { id: "assistant-1" } },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s-premature-done")).toMatchObject({ status: "done", statusLabel: null })
+  })
+
+  test("late same-turn streaming patches after assistant final do not resurrect generating state", () => {
+    seedGlobalChatSession({
+      sessionKey: "s-post-final",
+      cursor: 0,
+      status: "streaming",
+      statusLabel: "Streaming",
+      messages: [{ messageId: "user-1", role: "user", text: "long real work prompt" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s-post-final",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.assistant.final",
+          runStatus: "done",
+          statusLabel: null,
+          message: { role: "assistant", text: "final answer", __openclaw: { id: "assistant-1" } },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s-post-final")).toMatchObject({ status: "done", statusLabel: null })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.status",
+        sessionKey: "s-post-final",
+        createdAtMs: 3_000,
+        payload: { semanticType: "chat.run.streaming", runStatus: "streaming", statusLabel: "Streaming" },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 4,
+        type: "chat.message.upsert",
+        sessionKey: "s-post-final",
+        createdAtMs: 4_000,
+        payload: {
+          semanticType: "chat.assistant.delta",
+          runStatus: "streaming",
+          statusLabel: "Streaming",
+          message: { role: "assistant", text: "final answer with tail", __openclaw: { id: "assistant-1" } },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s-post-final")
+    expect(state).toMatchObject({ status: "done", statusLabel: null })
+    expect(state?.messages.at(-1)).toMatchObject({ role: "assistant", text: "final answer with tail" })
+  })
+
   test("active run and canonical tool patch drive visible running/tool state", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

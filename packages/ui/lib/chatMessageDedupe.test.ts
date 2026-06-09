@@ -65,4 +65,36 @@ describe("dedupeChatMessages", () => {
       ["user", "assistant"],
     )
   })
+
+  it("carries optimistic row identity into the canonical user echo", () => {
+    const messages: ChatMessage[] = [
+      {
+        messageId: "client-1",
+        role: "user",
+        text: "Long stress prompt",
+        createdAt: "2026-06-09T08:00:00.000Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+      },
+      {
+        messageId: "gateway-1",
+        role: "user",
+        text: "Long stress prompt",
+        createdAt: "2026-06-09T08:00:01.000Z",
+        gatewayIndex: 21,
+      },
+      {
+        messageId: "assistant-22",
+        role: "assistant",
+        text: "Canonical answer",
+        gatewayIndex: 22,
+      },
+    ]
+
+    const deduped = dedupeChatMessages(messages)
+
+    assert.equal(deduped.length, 2)
+    assert.deepEqual(deduped.map((message) => message.messageId), ["gateway-1", "assistant-22"])
+    assert.equal(deduped[0]?.optimisticMessageId, "client-1")
+  })
 })
