@@ -1013,12 +1013,6 @@ export const MessageBubble = memo(function MessageBubble({
                     {displayedAssistantErrorText}
                   </p>
                 </div>
-              ) : isActivelyStreaming ? (
-                <div className="prose-chat max-w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere]">
-                  <p className="[overflow-wrap:anywhere] break-words whitespace-pre-wrap">
-                    {message.text}
-                  </p>
-                </div>
               ) : (
                 <MarkdownContent
                   text={message.text}

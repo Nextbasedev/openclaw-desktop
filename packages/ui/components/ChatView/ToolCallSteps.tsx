@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useRef, useState, memo } from "react"
+import { useMemo, useState, memo } from "react"
+import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight } from "react-icons/vsc"
 import { LuShieldCheck } from "react-icons/lu"
@@ -143,12 +144,10 @@ function toolOrderTime(call: InlineToolCall) {
   return Number.POSITIVE_INFINITY
 }
 
-function sortToolsByCallOrder(tools: InlineToolCall[], stableOrder: Map<string, number>) {
+function sortToolsByCallOrder(tools: InlineToolCall[]) {
   return tools
     .map((tool, index) => ({ tool, index }))
     .sort((a, b) => {
-      const stableDelta = (stableOrder.get(a.tool.id) ?? Number.POSITIVE_INFINITY) - (stableOrder.get(b.tool.id) ?? Number.POSITIVE_INFINITY)
-      if (Number.isFinite(stableDelta) && stableDelta !== 0) return stableDelta
       const timeDelta = toolOrderTime(a.tool) - toolOrderTime(b.tool)
       if (Number.isFinite(timeDelta) && timeDelta !== 0) return timeDelta
       return a.index - b.index
@@ -196,7 +195,11 @@ function ToolRow({
   }
 
   return (
-    <div
+    <motion.div
+      layout="position"
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
       className={cn("relative pl-7 transition-colors duration-100", approval && "rounded-lg bg-amber-400/[0.035]")}
     >
       <StatusDot status={call.status} />
@@ -331,7 +334,7 @@ function ToolRow({
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }
 
@@ -353,18 +356,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
     decision: ApprovalDecision
   ) => Promise<void> | void
 }) {
-  const stableOrderRef = useRef(new Map<string, number>())
-  const nextOrderRef = useRef(0)
-  for (const tool of tools) {
-    if (!stableOrderRef.current.has(tool.id)) {
-      stableOrderRef.current.set(tool.id, nextOrderRef.current++)
-    }
-  }
-  const currentIds = new Set(tools.map((tool) => tool.id))
-  for (const id of stableOrderRef.current.keys()) {
-    if (!currentIds.has(id)) stableOrderRef.current.delete(id)
-  }
-  const orderedTools = useMemo(() => sortToolsByCallOrder(tools, stableOrderRef.current), [tools])
+  const orderedTools = useMemo(() => sortToolsByCallOrder(tools), [tools])
   const total = orderedTools.length
   const [openToolId, setOpenToolId] = useState<string | null>(null)
   const [stepsOpen, setStepsOpen] = useState(defaultOpen)
@@ -394,7 +386,8 @@ export const ToolCallSteps = memo(function ToolCallSteps({
         </span>
       </button>
       {stepsOpen && (
-        <div
+        <motion.div
+          layout
           className="relative z-0 space-y-1.5 overflow-visible before:absolute before:bottom-4 before:left-[6.5px] before:top-4 before:w-px before:origin-top before:animate-[toolTimelineGrow_260ms_ease-out] before:bg-[#d4d2cd] before:content-[''] dark:before:bg-[#444444]"
         >
           {orderedTools.map((call) => (
@@ -409,7 +402,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
               sessionKey={sessionKey}
             />
           ))}
-        </div>
+        </motion.div>
       )}
     </div>
   )
