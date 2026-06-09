@@ -73,6 +73,20 @@ describe("ChatTimelineStore", () => {
       expect(store.getSnapshot().messageCount).toBe(50)
     })
 
+    it("does not let bootstrap same-id tool-only rows erase newer live text", () => {
+      store.applyPatchMessage(msg("a-live", "Live answer text", 2), 20)
+      store.flushSync()
+
+      store.applyBootstrap([{ ...msg("a-live", "", 2), toolCalls: [{ id: "tool-1", tool: "exec", status: "success" }] }], 10)
+      store.flushSync()
+
+      expect(store.getSnapshot().messages[0]).toMatchObject({
+        messageId: "a-live",
+        text: "Live answer text",
+        toolCalls: [expect.objectContaining({ id: "tool-1", status: "success" })],
+      })
+    })
+
     it("orders bootstrap history by canonical openclaw seq even when gateway seq is out of order", () => {
       const parsed = parseChatHistory([
         {
@@ -125,6 +139,33 @@ describe("ChatTimelineStore", () => {
       store.applyPatchMessage(msg("m1", "final", 1), 11)
       store.flushSync()
       expect(store.getSnapshot().messages[0].text).toBe("final")
+    })
+
+    it("preserves assistant text when same-id tool-only patch arrives", () => {
+      store.applyBootstrap([{ ...msg("a1", "Final answer text", 2), toolCalls: [{ id: "tool-1", tool: "read", status: "running" }] }], 10)
+      store.flushSync()
+
+      store.applyPatchMessage({
+        ...msg("a1", "", 2),
+        toolCalls: [{ id: "tool-1", tool: "read", status: "success", resultText: "ok" }],
+      }, 11)
+      store.flushSync()
+
+      expect(store.getSnapshot().messages[0]).toMatchObject({
+        messageId: "a1",
+        text: "Final answer text",
+        toolCalls: [expect.objectContaining({ id: "tool-1", status: "success", resultText: "ok" })],
+      })
+    })
+
+    it("merges streaming assistant text instead of downgrading to a shorter same-id update", () => {
+      store.applyBootstrap([msg("a1", "The complete response body", 2)], 10)
+      store.flushSync()
+
+      store.applyPatchMessage(msg("a1", "The complete", 2), 11)
+      store.flushSync()
+
+      expect(store.getSnapshot().messages[0].text).toBe("The complete response body")
     })
 
     it("replaces matching optimistic user when canonical patch has a different id", () => {

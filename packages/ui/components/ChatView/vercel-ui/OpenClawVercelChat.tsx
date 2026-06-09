@@ -14,6 +14,7 @@ import { useStableChatScroll } from "./useStableChatScroll"
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
 const OLDER_HISTORY_RETRIGGER_DELAY_MS = 300
+const COMPLETED_ASSISTANT_PLAIN_SETTLE_MS = 1_200
 
 type VercelScrollAnchor = {
   uiId: string
@@ -380,6 +381,31 @@ export function OpenClawVercelChat({
       ? lastMessage.uiId
       : null
   const previousOptimisticUserKeyRef = useRef<string | null>(null)
+  const previousGeneratingRef = useRef(isGenerating)
+  const [settlingPlainAssistantUiId, setSettlingPlainAssistantUiId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const wasGenerating = previousGeneratingRef.current
+    previousGeneratingRef.current = isGenerating
+
+    if (isGenerating) {
+      setSettlingPlainAssistantUiId(null)
+      return
+    }
+
+    if (!wasGenerating || lastMessage?.role !== "assistant") return
+
+    // Keep the just-completed live assistant row in the same plain-text
+    // renderer for one short settle window. Otherwise the row switches from
+    // plain streaming text to Markdown immediately at terminal status, changing
+    // margins/headings/list layout and causing a visible jump/re-render.
+    const uiId = lastMessage.uiId
+    setSettlingPlainAssistantUiId(uiId)
+    const timeout = window.setTimeout(() => {
+      setSettlingPlainAssistantUiId((current) => current === uiId ? null : current)
+    }, COMPLETED_ASSISTANT_PLAIN_SETTLE_MS)
+    return () => window.clearTimeout(timeout)
+  }, [isGenerating, lastMessage?.role, lastMessage?.uiId])
 
   useLayoutEffect(() => {
     if (!latestOptimisticUserKey || previousOptimisticUserKeyRef.current === latestOptimisticUserKey) return
@@ -408,7 +434,10 @@ export function OpenClawVercelChat({
             <VercelMessage
               key={message.uiId}
               message={message}
-              isStreaming={isGenerating && message.role === "assistant" && message.uiId === lastMessage?.uiId}
+              isStreaming={message.role === "assistant" && (
+                (isGenerating && message.uiId === lastMessage?.uiId) ||
+                message.uiId === settlingPlainAssistantUiId
+              )}
               onSelectTool={onSelectTool}
               onResolveApproval={onResolveApproval}
             />
