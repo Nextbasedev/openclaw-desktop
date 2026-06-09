@@ -34,7 +34,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
-import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MarkdownContent } from "./MarkdownContent"
 import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
@@ -459,7 +458,11 @@ function ResponseMetadata({ message }: { message: ChatMessage }) {
         align="start"
         side="top"
         sideOffset={8}
-        className={cn(GLASS_POPOVER, "w-64 gap-0 overflow-hidden rounded-2xl p-1.5")}
+        className={cn(
+          "w-64 gap-0 overflow-hidden rounded-2xl border-0 p-1.5 ring-0",
+          "bg-[var(--glass-bg)] backdrop-blur-[40px] backdrop-saturate-[180%]",
+          "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+        )}
       >
         <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/55">
           Response details
