@@ -424,13 +424,31 @@ function ResponseMetadata({ message }: { message: ChatMessage }) {
   const hasDetails = Boolean(message.model || total || message.stopReason)
   if (!hasDetails) return null
 
+  const rows = [
+    message.model ? ["Model", message.model] : null,
+    ...(usage
+      ? ([
+          ["Input", usage.input],
+          ["Output", usage.output],
+          ["Cache read", usage.cacheRead],
+          ["Cache write", usage.cacheWrite],
+          ["Total", usage.total],
+        ] satisfies Array<[string, number | null | undefined]>).map(([label, value]) =>
+          typeof value === "number" && value > 0
+            ? [label, value.toLocaleString()]
+            : null
+        )
+      : []),
+    message.stopReason ? ["Stop", message.stopReason] : null,
+  ].filter(Boolean) as Array<[string, string]>
+
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground/45 transition-colors hover:bg-foreground/5 hover:text-muted-foreground"
-          aria-label="Response metadata"
+          className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground/45 transition-colors hover:bg-black/[0.045] hover:text-muted-foreground dark:hover:bg-white/[0.06]"
+          aria-label="Response details"
         >
           {[message.model, total ? `${total} tokens` : null]
             .filter(Boolean)
@@ -440,48 +458,24 @@ function ResponseMetadata({ message }: { message: ChatMessage }) {
       <PopoverContent
         align="start"
         side="top"
-        sideOffset={4}
-        className={cn("w-64 p-3 text-[11px]", GLASS_POPOVER)}
+        sideOffset={8}
+        className={cn(GLASS_POPOVER, "w-64 gap-0 overflow-hidden rounded-2xl p-1.5")}
       >
-        <div className="space-y-2">
-          {message.model && (
-            <div className="flex justify-between gap-3">
-              <span className="text-muted-foreground/60">Model</span>
-              <span className="truncate font-mono text-foreground/80">
-                {message.model}
+        <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/55">
+          Response details
+        </div>
+        <div className="space-y-0.5">
+          {rows.map(([label, value]) => (
+            <div
+              key={label}
+              className="flex items-center justify-between gap-4 rounded-lg px-2 py-1.5 text-[12px] transition-colors hover:bg-black/[0.035] dark:hover:bg-white/[0.045]"
+            >
+              <span className="text-muted-foreground/65">{label}</span>
+              <span className="min-w-0 truncate text-right font-mono text-[11px] font-medium text-foreground/85">
+                {value}
               </span>
             </div>
-          )}
-          {usage && (
-            <div className="space-y-1 border-t border-border/20 pt-2">
-              {(
-                [
-                  ["Input", usage.input],
-                  ["Output", usage.output],
-                  ["Cache read", usage.cacheRead],
-                  ["Cache write", usage.cacheWrite],
-                  ["Total", usage.total],
-                ] satisfies Array<[string, number | null | undefined]>
-              ).map(([label, value]) =>
-                typeof value === "number" && value > 0 ? (
-                  <div key={label} className="flex justify-between gap-3">
-                    <span className="text-muted-foreground/60">{label}</span>
-                    <span className="font-mono text-foreground/80">
-                      {value.toLocaleString()}
-                    </span>
-                  </div>
-                ) : null
-              )}
-            </div>
-          )}
-          {message.stopReason && (
-            <div className="flex justify-between gap-3 border-t border-border/20 pt-2">
-              <span className="text-muted-foreground/60">Stop</span>
-              <span className="font-mono text-foreground/80">
-                {message.stopReason}
-              </span>
-            </div>
-          )}
+          ))}
         </div>
       </PopoverContent>
     </Popover>
