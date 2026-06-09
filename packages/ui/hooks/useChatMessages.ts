@@ -978,22 +978,36 @@ export function useChatMessages(
     isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
   }, [])
 
-  const scrollToBottom = useCallback((_smooth = false) => {
-    void _smooth
-    if (!isAtBottomRef.current) return
+  const setScrollToBottom = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-    isAtBottomRef.current = true
   }, [])
+
+  const scrollToBottom = useCallback((_smooth = false) => {
+    void _smooth
+    if (!isAtBottomRef.current) return
+    setScrollToBottom()
+    isAtBottomRef.current = true
+    if (typeof window !== "undefined") {
+      requestAnimationFrame(() => {
+        if (isAtBottomRef.current) setScrollToBottom()
+      })
+      window.setTimeout(() => {
+        if (isAtBottomRef.current) setScrollToBottom()
+      }, 80)
+    }
+  }, [setScrollToBottom])
 
   const forceScrollToBottom = useCallback((_smooth = false) => {
     void _smooth
     isAtBottomRef.current = true
-    const el = scrollContainerRef.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [])
+    setScrollToBottom()
+    if (typeof window !== "undefined") {
+      requestAnimationFrame(setScrollToBottom)
+      window.setTimeout(setScrollToBottom, 80)
+    }
+  }, [setScrollToBottom])
 
   const reconcileActiveRun = useCallback(async () => {
     if (activeReconcileInFlightRef.current) return
