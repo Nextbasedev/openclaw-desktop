@@ -255,11 +255,13 @@ export default function Page() {
 
   useEffect(() => {
     async function checkToken() {
-      const route = parseRoute(getRoutePath())
-      if (route.kind === "chat" || route.kind === "topic" || route.kind === "inspector") {
-        setHasToken(true)
-        return
-      }
+      try {
+        if (localStorage.getItem("jarvis.gatewayActive") === "false") {
+          setHasToken(false)
+          return
+        }
+      } catch {}
+
       // If we have a saved middleware URL, skip the blocking health check.
       // The sidebar/chat will render from cached data immediately; the actual
       // connection status is verified in the background by the connect flow.
@@ -800,6 +802,11 @@ function AppShell({
     return () => window.clearTimeout(timer)
   }, [activeChat, activeSessionKey, recoverToDraftRoute])
 
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("usage")
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(() =>
+    typeof window !== "undefined" && isSettingsRoute(getRoutePath())
+  )
+
   useEffect(() => {
     function resetMiddlewareScopedUi() {
       routeRequestRef.current += 1
@@ -814,6 +821,7 @@ function AppShell({
       setConnectAutoOpenEnabled(!hasSavedMiddleware)
       setSidebarOpen(hasSavedMiddleware)
       setInspectorOpen(false)
+      setSettingsDialogOpen(false)
       setTerminalActive(false)
       setActiveTab(hasSavedMiddleware ? "chat" : "connect")
       setChatRefreshTrigger((n) => n + 1)
@@ -825,11 +833,6 @@ function AppShell({
     window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
     return () => window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
   }, [clearConversationState])
-
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("usage")
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(() =>
-    typeof window !== "undefined" && isSettingsRoute(getRoutePath())
-  )
 
   useEffect(() => {
     if (activeTab === "settings" && lastSettingsTabRef.current !== "settings") {
