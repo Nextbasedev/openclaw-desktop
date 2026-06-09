@@ -33,7 +33,7 @@ function StatusDot({ status }: { status: InlineToolCall["status"] }) {
       className={cn(
         "absolute left-[3px] top-[14px] z-10 size-2 rounded-full ring-2 ring-[#ffffff] dark:ring-[#1a1a1a]",
         status === "success" && "bg-[#16a34a] dark:bg-[#4ade8a]",
-        status === "running" && "bg-[#16a34a] dark:bg-[#4ade8a] animate-pulse",
+        status === "running" && "bg-[#FDC700] dark:bg-[#FDC700] animate-pulse",
         status === "error" && "bg-red-500 dark:bg-red-400"
       )}
     />
