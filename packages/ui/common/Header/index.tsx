@@ -192,6 +192,7 @@ export function Header({
 
   const hasVisibleTabs = Boolean(editorGroups?.groups.some((g) => g.tabs.length > 0))
   const isSplitTabs = (editorGroups?.groups.length ?? 0) > 1
+  const displayOpenClawVersion = openClawVersion?.replace(/^v/i, "") ?? null
 
   useEffect(() => {
     if (!draggingTabId) return
@@ -289,25 +290,25 @@ export function Header({
       )}
       {/* Left: app identity */}
       <div
-        className="relative z-10 flex shrink-0 items-center gap-3 overflow-hidden px-3"
+        className="relative z-10 flex shrink-0 items-center overflow-hidden px-3"
         style={sidebarReservedWidth > 0 ? { minWidth: sidebarReservedWidth } : undefined}
       >
         {showTrafficLights && <TrafficLights />}
 
-        <span className="text-[13px] font-medium text-foreground">
-          {user.name}
-        </span>
-
-        {openClawVersion && (
-          <span
-            title={
-              nodeVersion ? `Middleware Node ${nodeVersion}` : undefined
-            }
-            className="rounded-[28px] border border-[#0E283D] bg-linear-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner"
-          >
-            v{openClawVersion}
+        <div className={cn("flex min-w-0 items-center gap-2", showTrafficLights && "ml-3")}>
+          <span className="truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+            {user.name}
           </span>
-        )}
+
+          {displayOpenClawVersion && (
+            <span
+              title={nodeVersion ? `OpenClaw ${displayOpenClawVersion} · Middleware Node ${nodeVersion}` : `OpenClaw ${displayOpenClawVersion}`}
+              className="inline-flex h-[18px] shrink-0 items-center rounded-md border border-black/[0.06] bg-black/[0.035] px-1.5 text-[10px] font-medium leading-none text-foreground/62 dark:border-white/[0.08] dark:bg-white/[0.045] dark:text-white/62"
+            >
+              {displayOpenClawVersion}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Middle: tabs — flex-1 matches content area width, paddingRight keeps tabs visible */}

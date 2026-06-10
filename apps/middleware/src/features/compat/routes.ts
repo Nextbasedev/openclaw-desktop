@@ -55,6 +55,30 @@ function emitCronEvent(event: CompatRecord) {
   }
 }
 
+function readPackageVersion(packagePath: string, fallback = "0.1.0") {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+    return String(pkg.version || fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function readOpenClawVersion() {
+  try {
+    const output = execFileSync("openclaw", ["--version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1_500,
+    });
+    const match = output.match(/OpenClaw\s+([^\s]+)/i);
+    if (match?.[1]) return match[1];
+  } catch { /* fall through */ }
+
+  const globalVersion = readPackageVersion("/usr/lib/node_modules/openclaw/package.json", "");
+  return globalVersion || null;
+}
+
 function isoFromMs(value: unknown, fallbackMs = Date.now()) {
   const ms = typeof value === "number" && Number.isFinite(value) ? value : fallbackMs;
   return new Date(ms).toISOString();
@@ -4354,12 +4378,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return { ok: true, removed: before - compatState.pins.length };
       }
       case "middleware_version_info": {
-        let version = "0.1.0";
-        try {
-          const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
-          version = String(pkg.version || version);
-        } catch { /* keep default */ }
-        return { ok: true, version, middleware: version, openclawVersion: version, nodeVersion: process.version, node: process.version, service: "openclaw-middleware" };
+        const version = readPackageVersion(path.join(process.cwd(), "package.json"));
+        const openclawVersion = readOpenClawVersion() ?? version;
+        return { ok: true, version, middleware: version, openclawVersion, nodeVersion: process.version, node: process.version, service: "openclaw-middleware" };
       }
       case "middleware_profiles_list": {
         const gateway = await connectGatewayForStatus(context);
