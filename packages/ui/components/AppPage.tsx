@@ -28,6 +28,7 @@ import { LogsDialog } from "@/components/logs/LogsDialog"
 import { initFrontendCacheRealtimeInvalidation } from "@/lib/cacheRealtime"
 import { frontendLog, initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
+import { shouldForceConnectGate } from "@/lib/connectGate"
 import { openChatInFocusedWindow, openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
 import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
@@ -1318,6 +1319,32 @@ function AppShell({
     window.history.replaceState(null, "", routeUrl("/connect"))
     void activateRoute({ kind: "tab", tab: "connect" })
   }, [activateRoute, connectAutoOpenEnabled])
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      !shouldForceConnectGate({
+        initialConnect: Boolean(initialConnect),
+        activeTab,
+        routePath: getRoutePath(),
+      })
+    ) {
+      return
+    }
+
+    routeRequestRef.current += 1
+    setConnectAutoOpenEnabled(true)
+    setPendingPrompt(null)
+    setComposerError(null)
+    setSettingsDialogOpen(false)
+    setInspectorOpen(false)
+    setTerminalActive(false)
+    clearConversationState()
+    setActiveTab("connect")
+    if (getRoutePath() !== "/connect") {
+      window.history.replaceState(null, "", routeUrl("/connect"))
+    }
+  }, [activeTab, clearConversationState, initialConnect])
 
   useEffect(() => {
     function onResize() {
