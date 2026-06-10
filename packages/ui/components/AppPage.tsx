@@ -29,7 +29,7 @@ import { initFrontendCacheRealtimeInvalidation } from "@/lib/cacheRealtime"
 import { frontendLog, initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
 import { appHasLiveConnection } from "@/lib/connectionGate"
-import { shouldForceConnectGate } from "@/lib/connectGate"
+import { shouldForceConnectGate, shouldLeaveConnectGateOnConnected } from "@/lib/connectGate"
 import { openChatInFocusedWindow, openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
 import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
@@ -818,9 +818,30 @@ function AppShell({
       if (getRoutePath() !== nextRoute) window.history.replaceState(null, "", routeUrl(nextRoute))
       emit("sidebar:refresh")
     }
+
+    function onMiddlewareConnected() {
+      if (!shouldLeaveConnectGateOnConnected({ activeTab, routePath: getRoutePath() })) {
+        return
+      }
+      routeRequestRef.current += 1
+      setConnectAutoOpenEnabled(false)
+      setInspectorOpen(false)
+      setSettingsDialogOpen(false)
+      setTerminalActive(false)
+      setActiveTab("chat")
+      if (getRoutePath() !== "/") {
+        window.history.replaceState(null, "", routeUrl("/"))
+      }
+      emit("sidebar:refresh")
+    }
+
     window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
-    return () => window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
-  }, [clearConversationState])
+    window.addEventListener("openclaw:middleware-connected", onMiddlewareConnected)
+    return () => {
+      window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
+      window.removeEventListener("openclaw:middleware-connected", onMiddlewareConnected)
+    }
+  }, [activeTab, clearConversationState])
 
   useEffect(() => {
     if (activeTab === "settings" && lastSettingsTabRef.current !== "settings") {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { shouldForceConnectGate } from "./connectGate"
+import { shouldForceConnectGate, shouldLeaveConnectGateOnConnected } from "./connectGate"
 
 describe("shouldForceConnectGate", () => {
   test("does not force connect when middleware is available", () => {
@@ -23,6 +23,17 @@ describe("shouldForceConnectGate", () => {
       initialConnect: true,
       activeTab: "connect",
       routePath: "/connect",
+    })).toBe(false)
+  })
+
+  test("leaves connect gate after a successful reconnect", () => {
+    expect(shouldLeaveConnectGateOnConnected({
+      activeTab: "connect",
+      routePath: "/connect",
+    })).toBe(true)
+    expect(shouldLeaveConnectGateOnConnected({
+      activeTab: "chat",
+      routePath: "/",
     })).toBe(false)
   })
 })
