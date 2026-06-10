@@ -12,6 +12,7 @@ import {
   claimMiddlewarePairing,
   detectLocalMiddleware,
   isOpenClawConnected,
+  MIDDLEWARE_CONNECTION_CHANGED_EVENT,
   type MiddlewareHealth,
 } from "@/lib/middleware-client"
 
@@ -68,6 +69,12 @@ function humanConnectionError(err: unknown, targetUrl: string): string {
     return `Could not reach Middleware at ${targetUrl.trim() || "the entered URL"}. Check that this device can access that URL/network, then try again.`
   }
   return message
+}
+
+function notifyShellConnected(url: string) {
+  emit("sidebar:refresh")
+  window.dispatchEvent(new CustomEvent(MIDDLEWARE_CONNECTION_CHANGED_EVENT, { detail: { url } }))
+  window.dispatchEvent(new CustomEvent("openclaw:middleware-connected", { detail: { url } }))
 }
 
 function redirectToDashboard() {
@@ -141,8 +148,7 @@ export default function ConnectPage() {
       setSessionConnected(true)
       setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
       setDetectMessage({ ok: true, text: "Local OpenClaw workspace ready." })
-      emit("sidebar:refresh")
-      window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
+      notifyShellConnected(detected.url)
       redirectToDashboard()
     }
 
@@ -194,8 +200,7 @@ export default function ConnectPage() {
     try {
       await runTest(true)
       setSessionConnected(true)
-      emit("sidebar:refresh")
-      window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
+      notifyShellConnected(url.trim())
       redirectToDashboard()
     } catch (err) {
       setError(humanConnectionError(err, url))
@@ -260,8 +265,7 @@ export default function ConnectPage() {
         setSessionConnected(true)
         setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
         setDetectMessage({ ok: true, text: "Local OpenClaw workspace ready." })
-        emit("sidebar:refresh")
-        window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
+        notifyShellConnected(detected.url)
         redirectToDashboard()
       }}
       onTest={handleTest}
