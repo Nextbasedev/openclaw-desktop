@@ -79,6 +79,11 @@ function notifyShellConnected(url: string) {
 
 function redirectToDashboard() {
   window.setTimeout(() => {
+    if (window.__TAURI_INTERNALS__) {
+      window.location.hash = "#/"
+      window.location.reload()
+      return
+    }
     window.history.replaceState(null, "", routeUrl("/"))
     window.dispatchEvent(new PopStateEvent("popstate"))
   }, 0)
