@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { CHAT_BOOTSTRAP_MESSAGE_LIMIT, CHAT_OLDER_PAGE_LIMIT, dataSourceAfterWarmCacheApplied, mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
+import { CHAT_BOOTSTRAP_MESSAGE_LIMIT, CHAT_OLDER_PAGE_LIMIT, activeSessionMessages, dataSourceAfterWarmCacheApplied, mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 const user = (text = "question"): ChatMessage => ({ messageId: `u-${text}`, role: "user", text })
@@ -118,5 +118,20 @@ describe("chat reconcile active-state guards", () => {
   test("keeps older history page length aligned with bootstrap page length", () => {
     expect(CHAT_OLDER_PAGE_LIMIT).toBe(CHAT_BOOTSTRAP_MESSAGE_LIMIT)
     expect(CHAT_OLDER_PAGE_LIMIT).toBe(160)
+  })
+
+  test("keeps current-session timeline rows visible while older history loads", () => {
+    const current = [user("visible-current-session-message")]
+
+    expect(activeSessionMessages({
+      messages: current,
+      messageSessionKey: "session-a",
+      sessionKey: "session-a",
+    })).toBe(current)
+    expect(activeSessionMessages({
+      messages: current,
+      messageSessionKey: "session-a",
+      sessionKey: "session-b",
+    })).toEqual([])
   })
 })

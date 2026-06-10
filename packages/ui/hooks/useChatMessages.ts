@@ -382,6 +382,14 @@ type ChatDataSource = "fresh" | "warm-cache" | "syncing" | "loading"
 export function dataSourceAfterWarmCacheApplied(): ChatDataSource {
   return "warm-cache"
 }
+
+export function activeSessionMessages<T>(params: {
+  messages: T[]
+  messageSessionKey: string
+  sessionKey: string
+}): T[] {
+  return params.messageSessionKey === params.sessionKey ? params.messages : []
+}
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -898,6 +906,7 @@ export function useChatMessages(
     const store = timelineStoreRef.current
     const unsubscribe = store.subscribe((snapshot) => {
       if (snapshot.messages.length > 0 || snapshot.bootstrapSettled) {
+        setMessageSessionKey(sessionKey)
         setLocalMessages(snapshot.messages)
         schedulePersistentMessages(stripTransientChatMessagesState(snapshot.messages))
       }
@@ -3196,7 +3205,7 @@ export function useChatMessages(
   const messagesBelongToActiveSession = messageSessionKey === sessionKey
 
   return {
-    messages: messagesBelongToActiveSession ? messages : [],
+    messages: activeSessionMessages({ messages, messageSessionKey, sessionKey }),
     status,
     statusLabel,
     wasAborted,
