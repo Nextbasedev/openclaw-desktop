@@ -506,6 +506,7 @@ function AppShell({
 
   const prevTabRef = useRef("chat")
   const lastSettingsTabRef = useRef(activeTab)
+  const connectSuccessTransitionRef = useRef(false)
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const {
     spaces,
@@ -823,6 +824,7 @@ function AppShell({
       if (!shouldLeaveConnectGateOnConnected({ activeTab, routePath: getRoutePath() })) {
         return
       }
+      connectSuccessTransitionRef.current = true
       routeRequestRef.current += 1
       setConnectAutoOpenEnabled(false)
       setInspectorOpen(false)
@@ -1329,8 +1331,13 @@ function AppShell({
   }, [activateRoute, connectAutoOpenEnabled])
 
   useEffect(() => {
+    if (!initialConnect) {
+      connectSuccessTransitionRef.current = false
+      return
+    }
     if (
       typeof window === "undefined" ||
+      connectSuccessTransitionRef.current ||
       !shouldForceConnectGate({
         initialConnect: Boolean(initialConnect),
         activeTab,
