@@ -28,6 +28,7 @@ import { LogsDialog } from "@/components/logs/LogsDialog"
 import { initFrontendCacheRealtimeInvalidation } from "@/lib/cacheRealtime"
 import { frontendLog, initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
+import { appHasLiveConnection } from "@/lib/connectionGate"
 import { shouldForceConnectGate } from "@/lib/connectGate"
 import { openChatInFocusedWindow, openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
@@ -263,23 +264,9 @@ export default function Page() {
         }
       } catch {}
 
-      // If we have a saved middleware URL, skip the blocking health check.
-      // The sidebar/chat will render from cached data immediately; the actual
-      // connection status is verified in the background by the connect flow.
-      try {
-        const savedUrl = localStorage.getItem("openclaw.middleware.url")?.trim()
-        if (savedUrl) {
-          setHasToken(true)
-          // Still verify in background
-          void invoke<{ hasConnection?: boolean }>("middleware_connect_status", { input: {} })
-            .then((s) => { if (!s.hasConnection) setHasToken(false) })
-            .catch(() => {})
-          return
-        }
-      } catch {}
       try {
         const s = await invoke<{ hasConnection?: boolean }>("middleware_connect_status", { input: {} })
-        setHasToken(!!s.hasConnection)
+        setHasToken(appHasLiveConnection(s))
       } catch {
         setHasToken(false)
       }
