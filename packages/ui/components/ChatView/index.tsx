@@ -985,6 +985,7 @@ export function ChatView({
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
   const initialScrollSessionKeyRef = useRef(sessionKey)
   const previousScrollTopRef = useRef(0)
+  const previousScrollTimeRef = useRef(Date.now())
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const olderAutoLoadBlockedUntilRef = useRef(0)
 
@@ -1011,6 +1012,7 @@ export function ChatView({
     lastOlderLoadAtRef.current = 0
     lastOlderLoadScrollTopRef.current = null
     previousScrollTopRef.current = 0
+    previousScrollTimeRef.current = Date.now()
   }, [sessionKey])
 
   const latestRenderedUserIndex = useMemo(() => {
@@ -1223,6 +1225,7 @@ export function ChatView({
       const el = scrollContainerRef.current
       if (el) {
         previousScrollTopRef.current = el.scrollTop
+        previousScrollTimeRef.current = Date.now()
         lastOlderLoadScrollTopRef.current = el.scrollTop
       }
       loadOlderClickInFlightRef.current = false
@@ -1233,9 +1236,10 @@ export function ChatView({
     onScroll()
     const el = scrollContainerRef.current
     if (el) {
+      const now = Date.now()
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
       setShowJumpToBottom(!atBottom)
-      const canAutoLoadOlder = !isGenerating && Date.now() >= olderAutoLoadBlockedUntilRef.current
+      const canAutoLoadOlder = !isGenerating && now >= olderAutoLoadBlockedUntilRef.current
       if (hasOlderMessages && canAutoLoadOlder && shouldAutoLoadOlderHistory({
         scrollTop: el.scrollTop,
         scrollHeight: el.scrollHeight,
@@ -1243,11 +1247,14 @@ export function ChatView({
         previousScrollTop: previousScrollTopRef.current,
         hasUserIntent: userScrollIntentRef.current,
         lastLoadScrollTop: lastOlderLoadScrollTopRef.current,
+        currentTimeMs: now,
+        previousScrollTimeMs: previousScrollTimeRef.current,
       })) {
         logChatScrollDebug({ source: "chat", event: "load-older-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
         void loadOlderWithoutJump()
       }
       previousScrollTopRef.current = el.scrollTop
+      previousScrollTimeRef.current = now
     }
     if (activePopoverId) setActivePopoverId(null)
   }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef])
@@ -1315,6 +1322,7 @@ export function ChatView({
         bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
         el.scrollTop = el.scrollHeight
         previousScrollTopRef.current = el.scrollTop
+        previousScrollTimeRef.current = Date.now()
         setShowJumpToBottom(false)
       }
       requestAnimationFrame(() => {
@@ -1950,8 +1958,16 @@ export function ChatView({
       onWheelCapture={() => {
         userScrollIntentRef.current = true
       }}
+      onPointerDownCapture={() => {
+        userScrollIntentRef.current = true
+      }}
       onTouchMoveCapture={() => {
         userScrollIntentRef.current = true
+      }}
+      onKeyDownCapture={(event) => {
+        if (["ArrowUp", "PageUp", "Home", "Space"].includes(event.key)) {
+          userScrollIntentRef.current = true
+        }
       }}
     >
       {/* Sub-header for chat actions & pins */}

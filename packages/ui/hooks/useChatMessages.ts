@@ -1805,8 +1805,10 @@ export function useChatMessages(
         setLocalMessages((current) => {
           if (current.length > 0) {
             frontendLog("status", "chat.loading-timeout.skip-warm", { sessionKey, timeoutMs: CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS, elapsedSinceMountMs: Date.now() - mountStartedAtMs, messageCount: current.length }, "debug")
-            // Warm cache already applied — just clear loading, don't touch status
+            // Warm cache already applied — just clear loading/syncing, don't touch status.
+            // Fresh bootstrap may still land later and promote this to "fresh".
             setLoading(false)
+            setDataSource("warm-cache")
             return current
           }
           frontendLog("status", "chat.loading-timeout", { sessionKey, timeoutMs: CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS, elapsedSinceMountMs: Date.now() - mountStartedAtMs }, "warn")
@@ -2281,6 +2283,7 @@ export function useChatMessages(
         if (!cancelled && !isSchedulerAbort) {
           setLoadError(String(e))
           setLoading(false)
+          if (messagesRef.current.length > 0) setDataSource("warm-cache")
           ensureEngine("bootstrap-failure-fallback")
         }
       }
