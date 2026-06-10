@@ -29,7 +29,7 @@ import { initFrontendCacheRealtimeInvalidation } from "@/lib/cacheRealtime"
 import { frontendLog, initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
 import { appHasLiveConnection } from "@/lib/connectionGate"
-import { shouldForceConnectGate, shouldLeaveConnectGateOnConnected } from "@/lib/connectGate"
+import { shouldForceConnectGate } from "@/lib/connectGate"
 import { openChatInFocusedWindow, openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
 import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
@@ -506,7 +506,6 @@ function AppShell({
 
   const prevTabRef = useRef("chat")
   const lastSettingsTabRef = useRef(activeTab)
-  const connectSuccessTransitionRef = useRef(false)
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const {
     spaces,
@@ -819,31 +818,9 @@ function AppShell({
       if (getRoutePath() !== nextRoute) window.history.replaceState(null, "", routeUrl(nextRoute))
       emit("sidebar:refresh")
     }
-
-    function onMiddlewareConnected() {
-      if (!shouldLeaveConnectGateOnConnected({ activeTab, routePath: getRoutePath() })) {
-        return
-      }
-      connectSuccessTransitionRef.current = true
-      routeRequestRef.current += 1
-      setConnectAutoOpenEnabled(false)
-      setInspectorOpen(false)
-      setSettingsDialogOpen(false)
-      setTerminalActive(false)
-      setActiveTab("chat")
-      if (getRoutePath() !== "/") {
-        window.history.replaceState(null, "", routeUrl("/"))
-      }
-      emit("sidebar:refresh")
-    }
-
     window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
-    window.addEventListener("openclaw:middleware-connected", onMiddlewareConnected)
-    return () => {
-      window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
-      window.removeEventListener("openclaw:middleware-connected", onMiddlewareConnected)
-    }
-  }, [activeTab, clearConversationState])
+    return () => window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
+  }, [clearConversationState])
 
   useEffect(() => {
     if (activeTab === "settings" && lastSettingsTabRef.current !== "settings") {
@@ -1331,13 +1308,8 @@ function AppShell({
   }, [activateRoute, connectAutoOpenEnabled])
 
   useEffect(() => {
-    if (!initialConnect) {
-      connectSuccessTransitionRef.current = false
-      return
-    }
     if (
       typeof window === "undefined" ||
-      connectSuccessTransitionRef.current ||
       !shouldForceConnectGate({
         initialConnect: Boolean(initialConnect),
         activeTab,

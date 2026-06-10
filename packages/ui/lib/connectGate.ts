@@ -6,10 +6,3 @@ export function shouldForceConnectGate(params: {
   if (!params.initialConnect) return false
   return params.activeTab !== "connect" || params.routePath !== "/connect"
 }
-
-export function shouldLeaveConnectGateOnConnected(params: {
-  activeTab: string
-  routePath: string
-}): boolean {
-  return params.activeTab === "connect" || params.routePath === "/connect"
-}

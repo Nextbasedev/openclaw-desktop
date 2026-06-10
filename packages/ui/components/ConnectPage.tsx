@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { emit } from "@/lib/events"
+import { routeUrl } from "@/lib/app-router"
 import { ConnectPageView } from "@/components/connect/ConnectPageView"
 import {
   clearMiddlewareConnection,
@@ -67,6 +68,13 @@ function humanConnectionError(err: unknown, targetUrl: string): string {
     return `Could not reach Middleware at ${targetUrl.trim() || "the entered URL"}. Check that this device can access that URL/network, then try again.`
   }
   return message
+}
+
+function redirectToDashboard() {
+  window.setTimeout(() => {
+    window.history.replaceState(null, "", routeUrl("/"))
+    window.dispatchEvent(new PopStateEvent("popstate"))
+  }, 0)
 }
 
 export default function ConnectPage() {
@@ -135,6 +143,7 @@ export default function ConnectPage() {
       setDetectMessage({ ok: true, text: "Local OpenClaw workspace ready." })
       emit("sidebar:refresh")
       window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
+      redirectToDashboard()
     }
 
     initializeConnection().finally(() => setLoadingStatus(false))
@@ -187,6 +196,7 @@ export default function ConnectPage() {
       setSessionConnected(true)
       emit("sidebar:refresh")
       window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
+      redirectToDashboard()
     } catch (err) {
       setError(humanConnectionError(err, url))
     } finally {
@@ -252,6 +262,7 @@ export default function ConnectPage() {
         setDetectMessage({ ok: true, text: "Local OpenClaw workspace ready." })
         emit("sidebar:refresh")
         window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
+        redirectToDashboard()
       }}
       onTest={handleTest}
       onSave={handleSave}
