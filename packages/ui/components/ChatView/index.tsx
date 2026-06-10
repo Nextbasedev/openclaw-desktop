@@ -2066,7 +2066,7 @@ export function ChatView({
           {renderedMessages.map((msg, index) => (
             <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
           ))}
-          <div className="mx-auto max-w-[44rem] px-4 pt-0 pb-8">
+          <div className={cn("mx-auto max-w-[44rem] px-4 pt-0", statusText ? "pb-2" : "pb-8")}>
             <AnimatePresence initial={false}>
               {editPreview && (
                 <EditPreviewPanel
@@ -2076,7 +2076,7 @@ export function ChatView({
                 />
               )}
             </AnimatePresence>
-            <div className="mt-2 flex h-[21px] items-center">
+            <div className={cn("flex h-[21px] items-center", statusText ? "mt-1" : "mt-2")}>
               {statusText && (
                 <>
                   <ProcessStatusIcon tool={liveTool?.tool} />
@@ -2087,7 +2087,7 @@ export function ChatView({
                 </>
               )}
             </div>
-            <div ref={bottomRef} className="h-8" />
+            <div ref={bottomRef} className={statusText ? "h-2" : "h-8"} />
           </div>
         </div>
       </div>
