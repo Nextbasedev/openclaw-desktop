@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react"
 
-const MAX_VISIBLE_LAG = 1_800
 const MIN_FRAME_MS = 16
+const MAX_FRAME_MS = 80
+const MAX_CHARS_PER_FRAME = 180
 
 export function charsPerSecondForBacklog(backlog: number): number {
   if (backlog > 2_400) return 2_400
@@ -28,11 +29,9 @@ export function nextRevealLength({
 
   const backlog = targetLength - currentLength
   const rate = charsPerSecondForBacklog(backlog)
-  const frameChars = Math.max(1, Math.floor((rate * elapsedMs) / 1000))
-  const catchUpFloor = backlog > MAX_VISIBLE_LAG
-    ? backlog - MAX_VISIBLE_LAG
-    : 0
-  const step = Math.max(frameChars, catchUpFloor)
+  const boundedElapsedMs = Math.min(Math.max(elapsedMs, MIN_FRAME_MS), MAX_FRAME_MS)
+  const frameChars = Math.max(1, Math.floor((rate * boundedElapsedMs) / 1000))
+  const step = Math.min(frameChars, MAX_CHARS_PER_FRAME)
 
   return Math.min(targetLength, currentLength + step)
 }
