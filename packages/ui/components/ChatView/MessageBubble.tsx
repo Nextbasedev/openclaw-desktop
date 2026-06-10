@@ -261,15 +261,10 @@ function ImageAttachmentCard({
       target="_blank"
       rel="noreferrer"
       download={attachment.url ? undefined : attachment.name}
-      className={cn(
-        "block max-w-full overflow-hidden rounded-xl border transition-colors",
-        isUser
-          ? "border-white/10 bg-black/15 hover:border-white/20"
-          : "border-border/35 bg-foreground/[0.03] hover:border-border/60"
-      )}
+      className="block max-w-full overflow-hidden rounded-xl"
       aria-label={`Open attachment ${attachment.name}`}
     >
-      <div className="relative flex min-h-32 max-h-80 w-full max-w-md items-center justify-center overflow-hidden bg-black/10">
+      <div className="relative flex min-h-32 max-h-80 w-full max-w-md items-center justify-center overflow-hidden rounded-xl bg-black/10">
         {!loaded && !failed && (
           <div
             className={cn(
@@ -307,20 +302,6 @@ function ImageAttachmentCard({
           />
         )}
       </div>
-      <div
-        className={cn(
-          "flex items-center gap-2 border-t px-3 py-2 text-[11px]",
-          isUser
-            ? "border-white/10 text-white/70"
-            : "border-border/25 text-muted-foreground"
-        )}
-      >
-        <LuImage className="size-3.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">
-          {attachment.name}
-        </span>
-        <span className="shrink-0">{attachmentLabel(attachment)}</span>
-      </div>
     </a>
   )
 }
@@ -346,7 +327,8 @@ function MessageAttachments({
         const kind = getChatAttachmentKind(attachment)
         const key = `${attachment.name}-${index}`
 
-        if (kind === "image" && href) {
+        if (kind === "image") {
+          if (!href) return null
           return (
             <ImageAttachmentCard
               key={key}
