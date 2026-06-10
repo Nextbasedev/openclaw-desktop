@@ -290,12 +290,12 @@ export function Header({
       )}
       {/* Left: app identity */}
       <div
-        className="relative z-10 flex shrink-0 items-center overflow-hidden px-3"
+        className="relative z-10 flex shrink-0 items-center gap-3 overflow-hidden px-3"
         style={sidebarReservedWidth > 0 ? { minWidth: sidebarReservedWidth } : undefined}
       >
         {showTrafficLights && <TrafficLights />}
 
-        <div className={cn("flex min-w-0 items-center gap-2", showTrafficLights && "ml-3")}>
+        <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
           <span className="truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground">
             {user.name}
           </span>
@@ -303,8 +303,9 @@ export function Header({
           {displayOpenClawVersion && (
             <span
               title={nodeVersion ? `OpenClaw ${displayOpenClawVersion} · Middleware Node ${nodeVersion}` : `OpenClaw ${displayOpenClawVersion}`}
-              className="inline-flex h-[18px] shrink-0 items-center rounded-md border border-black/[0.06] bg-black/[0.035] px-1.5 text-[10px] font-medium leading-none text-foreground/62 dark:border-white/[0.08] dark:bg-white/[0.045] dark:text-white/62"
+              className="inline-flex h-[17px] shrink-0 items-center gap-1.5 rounded-full border border-foreground/[0.07] bg-foreground/[0.025] px-2 text-[9px] font-medium leading-none tracking-[0.02em] text-muted-foreground/72 dark:border-white/[0.08] dark:bg-white/[0.035] dark:text-white/58"
             >
+              <span className="size-1 rounded-full bg-emerald-400/70" />
               {displayOpenClawVersion}
             </span>
           )}
