@@ -122,6 +122,7 @@ export default function ConnectPage() {
           setStatus(statusFromConnection(true, saved.url, saved.token))
           setSessionConnected(true)
           setConnectResult({ ok: true, url: saved.url, message: "Saved workspace connection verified" })
+          redirectToDashboard()
           return
         } catch (err) {
           setSessionConnected(false)
