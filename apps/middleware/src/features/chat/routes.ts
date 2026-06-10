@@ -1813,11 +1813,50 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       throw new HttpError(400, "Invalid chat messages query", "INVALID_QUERY", parsed.error.flatten());
     }
     log.info("messages.read.start", { sessionKey: parsed.data.sessionKey, afterSeq: parsed.data.afterSeq ?? 0, beforeSeq: parsed.data.beforeSeq ?? null, limit: parsed.data.limit });
-    const messages = context.messages.listMessages(parsed.data.sessionKey, {
+    let messages = context.messages.listMessages(parsed.data.sessionKey, {
       afterSeq: parsed.data.afterSeq,
       beforeSeq: parsed.data.beforeSeq,
       limit: parsed.data.limit,
     });
+    if (messages.length === 0 && typeof parsed.data.beforeSeq === "number" && parsed.data.beforeSeq > 1) {
+      const latestSeq = context.messages.nextMessageSeq(parsed.data.sessionKey) - 1;
+      const requestedLimit = parsed.data.limit ?? 80;
+      const backfillLimit = Math.min(1000, Math.max(requestedLimit, latestSeq - parsed.data.beforeSeq + requestedLimit));
+      try {
+        const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
+          sessionKey: parsed.data.sessionKey,
+          limit: backfillLimit,
+        });
+        const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
+        const rawMessages = history.messages ?? [];
+        const normalized = normalizeHistoryMessages(sessionKey, rawMessages);
+        if (normalized.length > 0) {
+          const existingSession = context.messages.getSession(sessionKey);
+          const segment = context.messages.ensureActiveSegment({
+            sessionKey,
+            sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+            sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
+          });
+          const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+          if (projection.upserted > 0) {
+            const event = context.messages.appendProjectionEvent({
+              sessionKey,
+              eventType: "chat.bootstrap",
+              payload: { sessionKey, messageCount: context.messages.countMessages(sessionKey), lastSeq: context.messages.nextMessageSeq(sessionKey) - 1, historyCoverage: "metadata", fullMessagesIncluded: false, hasOlder: true, olderBackfill: true },
+            });
+            context.patchBus.broadcast({ cursor: event.cursor, type: event.eventType, sessionKey, payload: event.payload, createdAtMs: event.createdAtMs });
+          }
+          messages = context.messages.listMessages(parsed.data.sessionKey, {
+            afterSeq: parsed.data.afterSeq,
+            beforeSeq: parsed.data.beforeSeq,
+            limit: parsed.data.limit,
+          });
+          log.info("messages.gateway-backfill", { sessionKey, beforeSeq: parsed.data.beforeSeq, requestedLimit, backfillLimit, normalized: normalized.length, upserted: projection.upserted, returnedMessageCount: messages.length });
+        }
+      } catch (error) {
+        log.warn("messages.gateway-backfill.fail", { sessionKey: parsed.data.sessionKey, beforeSeq: parsed.data.beforeSeq, error: errorMeta(error) });
+      }
+    }
     log.info("messages.read.end", { sessionKey: parsed.data.sessionKey, messageCount: messages.length });
     return {
       ok: true,
