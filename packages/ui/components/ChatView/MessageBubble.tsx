@@ -35,7 +35,6 @@ import {
 } from "@/components/ui/popover"
 import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
 import { MarkdownContent } from "./MarkdownContent"
-import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
 import { formatAssistantErrorText, isAssistantErrorMessage } from "./utils"
 import { useStreamingText } from "./useStreamingText"
@@ -943,7 +942,12 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         ) : (
           <>
-            {isUser && <RichContentPreview message={message} />}
+            {isUser && (
+              <MessageAttachments
+                attachments={message.attachments}
+                isUser={isUser}
+              />
+            )}
             {(!isUser || message.text.trim() || userSlashCommandName) && (
               <div
                 ref={messageBodyRef}
@@ -1026,13 +1030,10 @@ export const MessageBubble = memo(function MessageBubble({
                 />
               )}
                 {!isUser && (
-                  <>
-                    <MessageAttachments
-                      attachments={message.attachments}
-                      isUser={isUser}
-                    />
-                    <RichContentPreview message={message} />
-                  </>
+                  <MessageAttachments
+                    attachments={message.attachments}
+                    isUser={isUser}
+                  />
                 )}
               </div>
             )}

@@ -187,6 +187,32 @@ describe("ChatTimelineStore", () => {
       expect(snap.messages.some((message) => message.isOptimistic)).toBe(false)
     })
 
+    it("merges optimistic and canonical single-image attachments without duplicates", () => {
+      store.applyOptimistic({
+        ...msg("client-1", "look", 0, "user"),
+        attachments: [{ name: "screenshot.png", mimeType: "image/png", content: "abc123", size: 10 }],
+        isOptimistic: true,
+        sendStatus: "sending",
+      })
+      store.flushSync()
+
+      store.applyPatchMessage({
+        ...msg("client-1", "look", 1, "user"),
+        attachments: [{ name: "media-1", mimeType: "image/png", url: "/api/media/1", size: 10 }],
+      }, 11)
+      store.flushSync()
+
+      expect(store.getSnapshot().messages[0].attachments).toEqual([
+        {
+          name: "screenshot.png",
+          mimeType: "image/png",
+          content: "abc123",
+          url: "/api/media/1",
+          size: 10,
+        },
+      ])
+    })
+
     it("removes message via patch", () => {
       store.applyBootstrap([msg("m1", "hello", 1), msg("m2", "world", 2)], 10)
       store.flushSync()

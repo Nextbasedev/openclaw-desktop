@@ -244,13 +244,63 @@ function messageHasAttachments(message: ChatMessage) {
   return Boolean(message.attachments?.length)
 }
 
+type MessageAttachment = NonNullable<ChatMessage["attachments"]>[number]
+
+function attachmentHasPreview(attachment: MessageAttachment) {
+  return Boolean(attachment.content || attachment.url)
+}
+
+function isImageAttachment(attachment: MessageAttachment) {
+  return attachment.mimeType?.toLowerCase().startsWith("image/") ?? false
+}
+
+function mergeUserAttachments(
+  existing: ChatMessage["attachments"],
+  incoming: ChatMessage["attachments"],
+): ChatMessage["attachments"] {
+  if (!incoming?.length) return existing
+  if (!existing?.length) return incoming
+
+  const unmatchedExisting = [...existing]
+  const merged = incoming.map((attachment) => {
+    const matchIndex = unmatchedExisting.findIndex((candidate) =>
+      (candidate.name === attachment.name && candidate.mimeType === attachment.mimeType) ||
+      (Boolean(candidate.url) && candidate.url === attachment.url) ||
+      (existing.length === 1 && incoming.length === 1 && isImageAttachment(candidate) && isImageAttachment(attachment))
+    )
+    if (matchIndex < 0) return attachment
+
+    const match = unmatchedExisting.splice(matchIndex, 1)[0]
+    const name = match.content && !attachment.content
+      ? match.name
+      : attachment.content && !match.content
+        ? attachment.name
+        : match.name || attachment.name
+    return {
+      ...match,
+      ...attachment,
+      name,
+      content: match.content ?? attachment.content,
+      url: attachment.url ?? match.url,
+      size: attachment.size ?? match.size,
+      mimeType: attachment.mimeType ?? match.mimeType,
+    }
+  })
+
+  return [...merged, ...unmatchedExisting]
+}
+
+function attachmentsNeedPreviewHydration(message: ChatMessage) {
+  return Boolean(message.attachments?.length && message.attachments.some((attachment) => !attachmentHasPreview(attachment)))
+}
+
 function preserveUserAttachmentsFromReplacedMessages(
   state: ApplyPatchState,
   incoming: ChatMessage[],
   idsToReplace: Set<string>,
 ) {
   return incoming.map((message) => {
-    if (message.role !== "user" || messageHasAttachments(message)) return message
+    if (message.role !== "user") return message
     const existing = state.messages.find(
       (candidate) =>
         candidate.role === "user" &&
@@ -258,9 +308,10 @@ function preserveUserAttachmentsFromReplacedMessages(
         (idsToReplace.has(candidate.messageId) ||
           userTextMatchesSent(message.text, candidate.text))
     )
-    return existing?.attachments?.length
-      ? { ...message, attachments: existing.attachments }
-      : message
+    if (!existing?.attachments?.length) return message
+    if (!messageHasAttachments(message)) return { ...message, attachments: existing.attachments }
+    if (!attachmentsNeedPreviewHydration(message)) return message
+    return { ...message, attachments: mergeUserAttachments(existing.attachments, message.attachments) }
   })
 }
 

@@ -65,19 +65,44 @@ function mergeTimelineToolCalls(
   return Array.from(merged.values())
 }
 
+function isImageAttachment(attachment: NonNullable<ChatMessage["attachments"]>[number]) {
+  return attachment.mimeType?.toLowerCase().startsWith("image/") ?? false
+}
+
 function mergeTimelineAttachments(
   existing: ChatMessage["attachments"],
   incoming: ChatMessage["attachments"],
 ): ChatMessage["attachments"] {
-  if (!existing?.length) return incoming
   if (!incoming?.length) return existing
-  const byKey = new Map<string, NonNullable<ChatMessage["attachments"]>[number]>()
-  for (const attachment of [...existing, ...incoming]) {
-    const key = attachment.url || `${attachment.name}:${attachment.mimeType}:${attachment.size ?? ""}`
-    const current = byKey.get(key)
-    byKey.set(key, current ? { ...current, ...attachment } : attachment)
-  }
-  return Array.from(byKey.values())
+  if (!existing?.length) return incoming
+
+  const unmatchedExisting = [...existing]
+  const merged = incoming.map((attachment) => {
+    const matchIndex = unmatchedExisting.findIndex((candidate) =>
+      (candidate.name === attachment.name && candidate.mimeType === attachment.mimeType) ||
+      (Boolean(candidate.url) && candidate.url === attachment.url) ||
+      (existing.length === 1 && incoming.length === 1 && isImageAttachment(candidate) && isImageAttachment(attachment))
+    )
+    if (matchIndex < 0) return attachment
+
+    const match = unmatchedExisting.splice(matchIndex, 1)[0]
+    const name = match.content && !attachment.content
+      ? match.name
+      : attachment.content && !match.content
+        ? attachment.name
+        : match.name || attachment.name
+    return {
+      ...match,
+      ...attachment,
+      name,
+      content: match.content ?? attachment.content,
+      url: attachment.url ?? match.url,
+      size: attachment.size ?? match.size,
+      mimeType: attachment.mimeType ?? match.mimeType,
+    }
+  })
+
+  return [...merged, ...unmatchedExisting]
 }
 
 function mergeTimelineText(existingText: string, incomingText: string, role: ChatMessage["role"]) {

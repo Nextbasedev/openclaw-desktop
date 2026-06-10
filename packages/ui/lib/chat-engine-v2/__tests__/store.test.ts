@@ -42,6 +42,44 @@ function stubLocalStorage(data: Record<string, string> = {}) {
 }
 
 describe("global V2 chat engine store", () => {
+  test("seed merge preserves optimistic image preview when canonical row has metadata only", () => {
+    seedGlobalChatSession({
+      sessionKey: "s-image",
+      cursor: 1,
+      status: "thinking",
+      messages: [
+        {
+          messageId: "client-1",
+          role: "user",
+          text: "look",
+          isOptimistic: true,
+          sendStatus: "sending",
+          attachments: [{ name: "screenshot.png", mimeType: "image/png", content: "abc123", size: 10 }],
+        },
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s-image",
+      cursor: 2,
+      status: "running",
+      messages: [
+        {
+          messageId: "gateway-1",
+          role: "user",
+          text: "look",
+          attachments: [{ name: "media-1", mimeType: "image/png", size: 10 }],
+          __openclaw: { clientMessageId: "client-1", id: "gateway-1" },
+        } as any,
+      ],
+    })
+
+    expect(getGlobalChatSession("s-image")?.messages).toHaveLength(1)
+    expect(getGlobalChatSession("s-image")?.messages[0].attachments).toEqual([
+      { name: "screenshot.png", mimeType: "image/png", content: "abc123", size: 10 },
+    ])
+  })
+
   test("bootstrap prune metadata triggers scoped bootstrap recovery", () => {
     const target = new EventTarget()
     const recoveryEvents: Array<{ sessionKey?: string; reason?: string; cursor?: number }> = []

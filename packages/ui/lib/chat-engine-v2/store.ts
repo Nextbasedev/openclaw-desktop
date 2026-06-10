@@ -1160,6 +1160,48 @@ function preferSeedMessage(existing: ChatMessage, incoming: ChatMessage) {
   return incoming
 }
 
+type MessageAttachment = NonNullable<ChatMessage["attachments"]>[number]
+
+function isImageAttachment(attachment: MessageAttachment) {
+  return attachment.mimeType?.toLowerCase().startsWith("image/") ?? false
+}
+
+function mergeSeedAttachments(
+  existing: ChatMessage["attachments"],
+  incoming: ChatMessage["attachments"],
+): ChatMessage["attachments"] {
+  if (!incoming?.length) return existing
+  if (!existing?.length) return incoming
+
+  const unmatchedExisting = [...existing]
+  const merged = incoming.map((attachment) => {
+    const matchIndex = unmatchedExisting.findIndex((candidate) =>
+      (candidate.name === attachment.name && candidate.mimeType === attachment.mimeType) ||
+      (Boolean(candidate.url) && candidate.url === attachment.url) ||
+      (existing.length === 1 && incoming.length === 1 && isImageAttachment(candidate) && isImageAttachment(attachment))
+    )
+    if (matchIndex < 0) return attachment
+
+    const match = unmatchedExisting.splice(matchIndex, 1)[0]
+    const name = match.content && !attachment.content
+      ? match.name
+      : attachment.content && !match.content
+        ? attachment.name
+        : match.name || attachment.name
+    return {
+      ...match,
+      ...attachment,
+      name,
+      content: match.content ?? attachment.content,
+      url: attachment.url ?? match.url,
+      size: attachment.size ?? match.size,
+      mimeType: attachment.mimeType ?? match.mimeType,
+    }
+  })
+
+  return [...merged, ...unmatchedExisting]
+}
+
 function mergeSeedMessage(existing: ChatMessage, incoming: ChatMessage) {
   const preferred = preferSeedMessage(existing, incoming)
   const fallback = preferred === incoming ? existing : incoming
@@ -1169,7 +1211,7 @@ function mergeSeedMessage(existing: ChatMessage, incoming: ChatMessage) {
     ...preferred,
     text: preferred.text.trim() ? preferred.text : fallback.text,
     createdAt: fallback.createdAt || preferred.createdAt,
-    attachments: preferred.attachments ?? fallback.attachments,
+    attachments: mergeSeedAttachments(fallback.attachments, preferred.attachments),
     replyTo: preferred.replyTo ?? fallback.replyTo,
     toolCalls: preferred.toolCalls ?? fallback.toolCalls,
     embeds: preferred.embeds ?? fallback.embeds,
@@ -1562,6 +1604,13 @@ function visualStateSignature(state: SessionState) {
       id: message.messageId,
       role: message.role,
       text: message.text,
+      attachments: (message.attachments ?? []).map((attachment) => ({
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        hasContent: Boolean(attachment.content),
+        url: attachment.url ?? null,
+      })),
       toolCalls: (message.toolCalls ?? []).map((tool) => ({
         id: tool.id,
         status: tool.status,

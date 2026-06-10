@@ -521,6 +521,56 @@ describe("applyChatPatch", () => {
     })
   })
 
+  test("merges optimistic image preview when confirmed patch has metadata-only attachment", () => {
+    const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.created",
+          messageId: "client-1",
+          message: {
+            role: "user",
+            text: "look",
+            attachments: [{ name: "screenshot.png", mimeType: "image/png", content: "abc123", size: 10 }],
+            isOptimistic: true,
+            __clientOptimistic: true,
+            __openclaw: { id: "client-1" },
+          },
+        },
+        createdAtMs: 1,
+      },
+    })
+
+    const confirmed = applyChatPatch(withOptimistic, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.confirmed",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.confirmed",
+          messageId: "client-1",
+          optimisticId: "client-1",
+          message: {
+            role: "user",
+            text: "look",
+            attachments: [{ name: "media-1", mimeType: "image/png", size: 10 }],
+            __openclaw: { id: "gateway-1", seq: 1 },
+          },
+        },
+        createdAtMs: 2,
+      },
+    })
+
+    expect(confirmed.messages).toHaveLength(1)
+    expect(confirmed.messages[0].attachments).toEqual([
+      { name: "screenshot.png", mimeType: "image/png", content: "abc123", size: 10 },
+    ])
+  })
+
   test("applies semantic confirmed user patch by canonical client id", () => {
     const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",
