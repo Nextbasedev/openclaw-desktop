@@ -83,7 +83,10 @@ try {
     stashedTargets.push({ source: target.source, stash })
   }
 
-  const result = runPnpm(["exec", "next", "build"])
+  // Next 16's default Turbopack build has been unreliable on this host under
+  // process/thread pressure (`EAGAIN` / Rayon pool init failures). The desktop
+  // static export is stable with webpack, so force that path here.
+  const result = runPnpm(["exec", "next", "build", "--webpack"])
 
   if (result.error) throw result.error
   if (result.status !== 0) {
