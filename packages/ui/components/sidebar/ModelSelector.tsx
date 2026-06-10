@@ -14,13 +14,7 @@ type Props = {
 }
 
 export function ModelSelector({ open, onOpenChange }: Props) {
-  const {
-    models,
-    currentModel: current,
-    loading,
-    error,
-    reload,
-  } = useModels()
+  const { models, currentModel: current, loading, error, reload } = useModels()
   const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState("")
   const searchRef = useRef<HTMLInputElement>(null)
@@ -40,8 +34,8 @@ export function ModelSelector({ open, onOpenChange }: Props) {
         input: { modelId },
       })
       await reload()
-    } catch {}
-    finally {
+    } catch {
+    } finally {
       setSaving(false)
       onOpenChange(false)
     }
@@ -49,27 +43,28 @@ export function ModelSelector({ open, onOpenChange }: Props) {
 
   const currentModel = models.find((m) => isActiveModel(current, m))
   const label = currentModel?.name ?? current ?? "Select model"
-  const currentDisplayModel = currentModel ?? (current
-    ? {
-        id: current.includes("/") ? current.split(/\/(.+)/)[1] : current,
-        name: current.includes("/") ? current.split(/\/(.+)/)[1] : current,
-        provider: current.includes("/") ? current.split(/\/(.+)/)[0] : "custom",
-      }
-    : null)
+  const currentDisplayModel =
+    currentModel ??
+    (current
+      ? {
+          id: current.includes("/") ? current.split(/\/(.+)/)[1] : current,
+          name: current.includes("/") ? current.split(/\/(.+)/)[1] : current,
+          provider: current.includes("/")
+            ? current.split(/\/(.+)/)[0]
+            : "custom",
+        }
+      : null)
 
   const unique = models.filter(
     (m, i, arr) =>
-      arr.findIndex(
-        (x) => x.name.toLowerCase() === m.name.toLowerCase(),
-      ) === i,
+      arr.findIndex((x) => x.name.toLowerCase() === m.name.toLowerCase()) === i
   )
 
   const filtered = unique.filter((m) => {
     if (!query.trim()) return true
     const q = query.toLowerCase()
     return (
-      m.name.toLowerCase().includes(q) ||
-      m.provider.toLowerCase().includes(q)
+      m.name.toLowerCase().includes(q) || m.provider.toLowerCase().includes(q)
     )
   })
 
@@ -77,50 +72,50 @@ export function ModelSelector({ open, onOpenChange }: Props) {
     <GlassDialog
       open={open}
       onClose={() => onOpenChange(false)}
-      title="Switch Model"
-      description={`Current: ${label}`}
-      className="w-[min(520px,calc(100vw-32px))]"
+      title="Switch model"
+      className="w-[min(460px,calc(100vw-32px))]"
     >
-      <div className="mb-4 rounded-2xl border border-black/[0.08] bg-black/[0.035] dark:border-white/10 dark:bg-white/[0.045] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-        <div className="flex items-center gap-3">
-          <ModelLogo model={currentDisplayModel} modelId={current} size="md" />
+      <div className="-mx-1 -mt-1 border-b border-black/[0.06] px-1 pb-4 dark:border-white/[0.07]">
+        <div className="flex items-center gap-3 rounded-2xl bg-black/[0.025] px-3 py-2.5 dark:bg-white/[0.035]">
+          <ModelLogo model={currentDisplayModel} modelId={current} size="sm" />
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground/55">
-              Active model
-            </p>
-            <p className="truncate text-[14px] font-semibold text-foreground">
+            <p className="truncate text-[13px] font-medium text-foreground">
               {label}
             </p>
-            {currentDisplayModel && (
-              <p className="truncate text-[11px] text-muted-foreground/55">
-                {currentDisplayModel.provider}
-              </p>
-            )}
+            <p className="truncate text-[11px] text-muted-foreground/60">
+              Current model
+              {currentDisplayModel?.provider
+                ? ` · ${currentDisplayModel.provider}`
+                : ""}
+            </p>
           </div>
+          <span className="rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-medium text-emerald-500 dark:text-emerald-300">
+            Active
+          </span>
         </div>
       </div>
 
-      <div className="mb-3">
-        <div className="relative rounded-xl bg-black/[0.025] transition-colors focus-within:bg-black/[0.045] dark:bg-white/[0.025] dark:focus-within:bg-white/[0.045]">
+      <div className="py-4">
+        <div className="relative rounded-xl border border-black/[0.06] bg-black/[0.03] transition-colors focus-within:border-black/[0.12] focus-within:bg-black/[0.045] dark:border-white/[0.08] dark:bg-white/[0.035] dark:focus-within:border-white/[0.14] dark:focus-within:bg-white/[0.05]">
           <LuSearch
-            size={13}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50"
+            size={14}
+            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground/55"
           />
           <input
             ref={searchRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search models..."
+            placeholder="Search by model or provider"
             className={cn(
-              "h-9 w-full rounded-xl border-0 bg-transparent pl-8 pr-3",
-              "text-[12px] text-foreground outline-none",
-              "placeholder:text-muted-foreground/40",
+              "h-10 w-full rounded-xl border-0 bg-transparent pr-3 pl-9",
+              "text-[13px] text-foreground outline-none",
+              "placeholder:text-muted-foreground/45"
             )}
           />
         </div>
       </div>
 
-      <div className="h-[320px] overflow-y-auto">
+      <div className="max-h-[320px] space-y-1 overflow-y-auto pr-1">
         {loading && models.length === 0 && (
           <p className="px-2.5 py-4 text-center text-[12px] text-muted-foreground">
             Loading models...
@@ -128,9 +123,7 @@ export function ModelSelector({ open, onOpenChange }: Props) {
         )}
         {!loading && error && (
           <div className="flex flex-col items-center gap-2 px-2.5 py-4">
-            <p className="text-center text-[12px] text-red-400">
-              {error}
-            </p>
+            <p className="text-center text-[12px] text-red-400">{error}</p>
             <button
               type="button"
               onClick={reload}
@@ -140,50 +133,50 @@ export function ModelSelector({ open, onOpenChange }: Props) {
             </button>
           </div>
         )}
-        {!loading && !error && filtered.map((model) => {
-          const active = isActiveModel(current, model)
-          return (
-            <button
-              key={`${model.provider}/${model.id}`}
-              type="button"
-              disabled={saving}
-              onClick={() =>
-                handleSelect(`${model.provider}/${model.id}`)
-              }
-              className={cn(
-                "flex w-full cursor-pointer items-center gap-3 rounded-xl border border-transparent px-2.5 py-2.5 text-left",
-                "transition-all disabled:cursor-not-allowed",
-                saving && "opacity-50",
-                active
-                  ? "bg-black/[0.055] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] dark:bg-white/[0.075] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                  : "text-foreground/80 hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.045]",
-              )}
-            >
-              <ModelLogo model={model} size="sm" />
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate text-[13px] font-medium">
-                    {model.name}
+        {!loading &&
+          !error &&
+          filtered.map((model) => {
+            const active = isActiveModel(current, model)
+            return (
+              <button
+                key={`${model.provider}/${model.id}`}
+                type="button"
+                disabled={saving}
+                onClick={() => handleSelect(`${model.provider}/${model.id}`)}
+                className={cn(
+                  "group flex w-full cursor-pointer items-center gap-3 rounded-xl border px-2.5 py-2.5 text-left",
+                  "transition-[background-color,border-color,box-shadow] disabled:cursor-not-allowed",
+                  "focus-visible:ring-1 focus-visible:ring-foreground/20 focus-visible:outline-none",
+                  saving && "opacity-50",
+                  active
+                    ? "border-emerald-400/20 bg-emerald-400/[0.08] text-foreground shadow-[inset_3px_0_0_rgba(52,211,153,0.65)]"
+                    : "border-transparent text-foreground/82 hover:border-black/[0.06] hover:bg-black/[0.035] hover:text-foreground dark:hover:border-white/[0.08] dark:hover:bg-white/[0.045]"
+                )}
+              >
+                <ModelLogo model={model} size="sm" />
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-[13px] font-medium">
+                      {model.name}
+                    </span>
+                    {model.reasoning && (
+                      <span className="shrink-0 rounded-full bg-foreground/[0.06] px-1.5 py-0.5 text-[9px] tracking-[0.08em] text-muted-foreground/70 uppercase">
+                        Reasoning
+                      </span>
+                    )}
+                  </div>
+                  <span className="truncate text-[11px] text-muted-foreground/58">
+                    {model.provider}
                   </span>
                 </div>
-                <div className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground/55">
-                  <span className="truncate">{model.provider}</span>
-                  {model.reasoning && (
-                    <span className="rounded-full border border-black/[0.08] bg-black/[0.035] dark:border-white/10 dark:bg-white/[0.04] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-muted-foreground/65">
-                      reasoning
-                    </span>
-                  )}
-                </div>
-              </div>
-              {active && (
-                <span className="flex shrink-0 items-center gap-1 rounded-full border border-black/[0.08] bg-black/[0.055] dark:border-white/10 dark:bg-white/[0.08] px-2 py-1 text-[10px] font-medium text-foreground">
-                  <LuCheck size={12} />
-                  Active
-                </span>
-              )}
-            </button>
-          )
-        })}
+                {active && (
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-400/15 text-emerald-500 dark:text-emerald-300">
+                    <LuCheck size={13} />
+                  </span>
+                )}
+              </button>
+            )
+          })}
         {!loading && !error && filtered.length === 0 && (
           <p className="px-2.5 py-4 text-center text-[12px] text-muted-foreground">
             No models match &ldquo;{query}&rdquo;
