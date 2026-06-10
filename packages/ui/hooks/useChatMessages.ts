@@ -374,8 +374,14 @@ function parseExecApproval(
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
-const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 160
-const CHAT_OLDER_PAGE_LIMIT = 240
+export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 160
+export const CHAT_OLDER_PAGE_LIMIT = CHAT_BOOTSTRAP_MESSAGE_LIMIT
+
+type ChatDataSource = "fresh" | "warm-cache" | "syncing" | "loading"
+
+export function dataSourceAfterWarmCacheApplied(): ChatDataSource {
+  return "warm-cache"
+}
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -764,7 +770,7 @@ export function useChatMessages(
   const [wasAborted, setWasAborted] = useState(initialWasAborted)
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages && !initialKnownEmpty && !initialGlobalMessages)
-  const [dataSource, setDataSource] = useState<"fresh" | "warm-cache" | "syncing" | "loading">(initialWarmMessages ? "warm-cache" : "loading")
+  const [dataSource, setDataSource] = useState<ChatDataSource>(initialWarmMessages ? "warm-cache" : "loading")
   const [historyLoadVersion, setHistoryLoadVersion] = useState(() =>
     initialWarmMessages?.length || initialKnownEmpty ? 1 : 0
   )
@@ -1880,7 +1886,7 @@ export function useChatMessages(
             setPendingTools(tools)
           }
         }
-        setDataSource("syncing") // warm cache shown, bootstrap still loading
+        setDataSource(dataSourceAfterWarmCacheApplied())
         const dedupedCachedMessages = deduplicateUserMessages(cachedMessages)
         timelineStoreRef.current.applyWarmCache(dedupedCachedMessages, typeof cached.entry.cursor === "number" ? cached.entry.cursor : 0, cached.entry.messageCount)
         const duplicateUsersAfterWarmCache = duplicateUserTextDiagnostics(cachedMessages)

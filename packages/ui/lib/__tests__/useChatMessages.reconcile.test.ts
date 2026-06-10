@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
+import { CHAT_BOOTSTRAP_MESSAGE_LIMIT, CHAT_OLDER_PAGE_LIMIT, dataSourceAfterWarmCacheApplied, mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 const user = (text = "question"): ChatMessage => ({ messageId: `u-${text}`, role: "user", text })
@@ -109,5 +109,14 @@ describe("chat reconcile active-state guards", () => {
       ...base,
       toolCalls: [{ id: "tc-1", tool: "exec", status: "success" as const, resultText: "ok" }],
     })).toBe(true)
+  })
+
+  test("does not expose warm-cache reloads as an indefinite syncing state", () => {
+    expect(dataSourceAfterWarmCacheApplied()).toBe("warm-cache")
+  })
+
+  test("keeps older history page length aligned with bootstrap page length", () => {
+    expect(CHAT_OLDER_PAGE_LIMIT).toBe(CHAT_BOOTSTRAP_MESSAGE_LIMIT)
+    expect(CHAT_OLDER_PAGE_LIMIT).toBe(160)
   })
 })
