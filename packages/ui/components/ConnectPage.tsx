@@ -77,7 +77,12 @@ function notifyShellConnected(url: string) {
   window.dispatchEvent(new CustomEvent("openclaw:middleware-connected", { detail: { url } }))
 }
 
+function shouldRedirectAfterConnectSuccess() {
+  return window.location.hash === "#/connect" || window.location.pathname === "/connect"
+}
+
 function redirectToDashboard() {
+  if (!shouldRedirectAfterConnectSuccess()) return
   window.setTimeout(() => {
     if (window.__TAURI_INTERNALS__) {
       window.location.hash = "#/"
