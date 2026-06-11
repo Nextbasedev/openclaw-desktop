@@ -222,7 +222,7 @@ export function SubagentFullChat({
         )}
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 scroll-smooth overflow-y-auto">
         <div className="mx-auto max-w-3xl px-4 py-8">
           {loading && displayMessages.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-12">

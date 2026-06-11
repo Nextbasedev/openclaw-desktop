@@ -80,6 +80,10 @@ import {
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 
+function preferredSmoothScrollBehavior(): ScrollBehavior {
+  if (typeof window === "undefined") return "auto"
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+}
 
 type MessageScrollAnchor = {
   id: string
@@ -1302,7 +1306,7 @@ export function ChatView({
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
-    bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+    bottomRef.current?.scrollIntoView({ behavior: preferredSmoothScrollBehavior(), block: "end" })
   }, [bottomRef])
 
   const syncJumpToBottomVisibility = useCallback(() => {
@@ -1664,7 +1668,7 @@ export function ChatView({
       }
     }
     if (!target) return false
-    target.scrollIntoView({ behavior: "auto", block: "center" })
+    target.scrollIntoView({ behavior: preferredSmoothScrollBehavior(), block: "center" })
     return true
   }, [loadAroundMessage, renderedMessages, scrollElement, timelineRows, virtualizedTimelineEnabled])
 
@@ -2137,7 +2141,7 @@ export function ChatView({
       <div
         ref={setScrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
+        className="flex-1 scroll-smooth overflow-y-auto overscroll-contain [overflow-anchor:none]"
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />

@@ -3,6 +3,16 @@
 @import "shadcn/tailwind.css";
 @import "@xterm/xterm/css/xterm.css";
 
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
