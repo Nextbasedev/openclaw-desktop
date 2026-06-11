@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest"
-import { CHAT_BOOTSTRAP_MESSAGE_LIMIT, CHAT_OLDER_PAGE_LIMIT, activeSessionMessages, dataSourceAfterWarmCacheApplied, mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
+import { CHAT_BOOTSTRAP_MESSAGE_LIMIT, CHAT_OLDER_PAGE_LIMIT, activeSessionMessages, canonicalMessagesFromRawHistory, dataSourceAfterWarmCacheApplied, mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, mergePaginatedRawHistory, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
+import { dedupeChatMessages } from "../chatMessageDedupe"
+import { parseChatHistory } from "../chatHistoryParser"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 const user = (text = "question"): ChatMessage => ({ messageId: `u-${text}`, role: "user", text })
@@ -11,6 +13,11 @@ const optimisticUser = (text = "question"): ChatMessage => ({
   sendStatus: "sending",
 })
 const assistant = (text = "answer"): ChatMessage => ({ messageId: `a-${text}`, role: "assistant", text })
+const rawText = (seq: number, role: "user" | "assistant", text: string) => ({
+  role,
+  content: [{ type: "text", text }],
+  __openclaw: { id: `${role}-${seq}`, seq },
+})
 
 describe("chat reconcile active-state guards", () => {
   test("preserves tool_running when legacy reconcile reports idle but tools are still running", () => {
@@ -133,5 +140,43 @@ describe("chat reconcile active-state guards", () => {
       messageSessionKey: "session-a",
       sessionKey: "session-b",
     })).toEqual([])
+  })
+
+  test("reparses combined raw history so page boundaries do not split one assistant turn", () => {
+    const sessionKey = "session-boundary"
+    const olderRaw = [
+      rawText(1, "user", "first question"),
+      rawText(2, "assistant", "part one"),
+    ]
+    const bootstrapRaw = [
+      rawText(3, "assistant", "part two"),
+      rawText(4, "user", "second question"),
+      rawText(5, "assistant", "second answer"),
+    ]
+
+    const currentMessages = canonicalMessagesFromRawHistory(sessionKey, bootstrapRaw as never[])
+    const oldSeparateMerge = dedupeChatMessages([
+      ...parseChatHistory(olderRaw as never[]).messages,
+      ...currentMessages,
+    ])
+    const merged = mergePaginatedRawHistory({
+      sessionKey,
+      existingRawMessages: bootstrapRaw as never[],
+      olderPageRows: olderRaw.map((message) => ({
+        openclawSeq: message.__openclaw.seq,
+        gatewaySeq: null,
+        segmentId: null,
+        messageId: message.__openclaw.id,
+        role: message.role,
+        data: message,
+      })),
+      currentMessages,
+    }).messages
+
+    expect(oldSeparateMerge).toHaveLength(5)
+    expect(merged).toHaveLength(4)
+    expect(merged[1]).toMatchObject({ role: "assistant" })
+    expect(merged[1]?.text).toContain("part one")
+    expect(merged[1]?.text).toContain("part two")
   })
 })

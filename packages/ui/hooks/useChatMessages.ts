@@ -645,6 +645,14 @@ function hydrateCachedAttachments(sessionKey: string, messages: ChatMessage[]) {
   })
 }
 
+export function canonicalMessagesFromRawHistory(sessionKey: string, rawMessages: RawMessage[]) {
+  return stripTransientChatMessagesState(
+    dedupeChatMessages(
+      hydrateCachedAttachments(sessionKey, parseChatHistory(rawMessages).messages)
+    )
+  )
+}
+
 function projectedPageRowsToRawMessages(
   rows: Array<{
     openclawSeq: number
@@ -676,6 +684,29 @@ function projectedPageRowsToRawMessages(
         },
       } as RawMessage
     })
+}
+
+export function mergePaginatedRawHistory(params: {
+  sessionKey: string
+  existingRawMessages: RawMessage[]
+  olderPageRows: Array<{
+    openclawSeq: number
+    gatewaySeq?: number | null
+    segmentId?: string | null
+    messageId: string | null
+    role: string | null
+    data: unknown
+  }>
+  currentMessages: ChatMessage[]
+}) {
+  const olderRawMessages = projectedPageRowsToRawMessages(params.olderPageRows)
+  const rawMessages = [...olderRawMessages, ...params.existingRawMessages]
+  const canonicalMessages = canonicalMessagesFromRawHistory(params.sessionKey, rawMessages)
+  return {
+    olderRawMessages,
+    rawMessages,
+    messages: dedupeChatMessages([...canonicalMessages, ...params.currentMessages]),
+  }
 }
 
 function firstLoadedGatewayIndex(messages: ChatMessage[]) {
@@ -791,6 +822,7 @@ export function useChatMessages(
   // independent of parseChatHistory's merged gatewayIndex which can drift
   // forward during assistant message merging and break pagination.
   const oldestLoadedSeqRef = useRef<number | null>(null)
+  const loadedRawHistoryRef = useRef<RawMessage[]>([])
   const loadOlderInFlightRef = useRef(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
@@ -1807,6 +1839,7 @@ export function useChatMessages(
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
     oldestLoadedSeqRef.current = null
+    loadedRawHistoryRef.current = []
     let unsubscribeStream: (() => void) | null = null
     let unsubscribeV2Stream: (() => void) | null = null
     let bootstrapSettled = false
@@ -2109,7 +2142,8 @@ export function useChatMessages(
           .map((m) => m.__openclaw?.seq)
           .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
         if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
-        const canonicalMessages = stripTransientChatMessagesState(dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory(rawBootstrapMessages).messages)))
+        loadedRawHistoryRef.current = rawBootstrapMessages
+        const canonicalMessages = canonicalMessagesFromRawHistory(sessionKey, rawBootstrapMessages)
         const existingGlobalBeforeSeed = getGlobalChatSession(sessionKey)
         const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
         const canonicalSpawns = enrichCanonicalSubagentsFromHistory(
@@ -3153,16 +3187,19 @@ export function useChatMessages(
           ? Math.min(oldestLoadedSeqRef.current, pageOldest)
           : pageOldest
       }
-      const olderMessages = hydrateCachedAttachments(
+      const currentMessages = messagesRef.current
+      const mergedHistory = mergePaginatedRawHistory({
         sessionKey,
-        parseChatHistory(projectedPageRowsToRawMessages(page.messages)).messages
-      )
-      if (olderMessages.length === 0) {
+        existingRawMessages: loadedRawHistoryRef.current,
+        olderPageRows: page.messages,
+        currentMessages,
+      })
+      if (mergedHistory.olderRawMessages.length === 0) {
         setHasOlderMessages(false)
         return
       }
-      const currentMessages = messagesRef.current
-      const merged = dedupeChatMessages([...olderMessages, ...currentMessages])
+      loadedRawHistoryRef.current = mergedHistory.rawMessages
+      const merged = mergedHistory.messages
       setMessages(merged)
       // Keep the global patch-stream session in sync with paginated history.
       // Otherwise the next non-message patch (for example chat.tool.update)
