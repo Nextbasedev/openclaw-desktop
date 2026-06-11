@@ -954,9 +954,21 @@ export function ChatView({
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
+  const visibleWindowMessages = useMemo(() => {
+    const maxWindowRows = 150
+    if (visibleAllMessages.length <= maxWindowRows) return visibleAllMessages
+    const sorted = [...visibleAllMessages].sort((a, b) => {
+      const aSeq = typeof a.gatewayIndex === "number" && Number.isFinite(a.gatewayIndex) ? a.gatewayIndex : Number.MAX_SAFE_INTEGER
+      const bSeq = typeof b.gatewayIndex === "number" && Number.isFinite(b.gatewayIndex) ? b.gatewayIndex : Number.MAX_SAFE_INTEGER
+      return aSeq - bSeq
+    })
+    const kept = hasNewerMessages ? sorted.slice(0, maxWindowRows) : sorted.slice(-maxWindowRows)
+    const keptIds = new Set(kept.map((message) => message.messageId))
+    return visibleAllMessages.filter((message) => keptIds.has(message.messageId))
+  }, [hasNewerMessages, visibleAllMessages])
   const renderedMessages = useMemo(
-    () => buildStableChatRows(visibleAllMessages),
-    [visibleAllMessages, forceRenderKey]
+    () => buildStableChatRows(visibleWindowMessages),
+    [visibleWindowMessages, forceRenderKey]
   )
   const timelineRows = useMemo(
     () => buildChatTimelineRows(renderedMessages),
@@ -978,7 +990,7 @@ export function ChatView({
       bottom: newerCount * averageTimelineRowHeight,
     }
   }, [averageTimelineRowHeight, pageWindow.knownTotalMessages, pageWindow.newestSeq, pageWindow.oldestSeq])
-  const virtualizedTimelineEnabled = renderedMessages.length > 240
+  const virtualizedTimelineEnabled = renderedMessages.length > 60 || virtualHistorySpacers.top > 0 || virtualHistorySpacers.bottom > 0
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const virtualTimeline = useMeasuredVirtualRows({
     rows: timelineRows,
@@ -1021,6 +1033,7 @@ export function ChatView({
   const loadOlderClickInFlightRef = useRef(false)
   const loadNewerClickInFlightRef = useRef(false)
   const olderLoadAwaitingRenderRef = useRef(false)
+  const olderBoundaryLoadRef = useRef(false)
   const lastOlderLoadAtRef = useRef(0)
   const lastNewerLoadAtRef = useRef(0)
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
@@ -1253,6 +1266,7 @@ export function ChatView({
     } catch {
       pendingOlderAnchorRef.current = null
       olderLoadAwaitingRenderRef.current = false
+      olderBoundaryLoadRef.current = false
       loadOlderClickInFlightRef.current = false
     }
   }, [hasOlderMessages, isGenerating, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey])
@@ -1273,8 +1287,23 @@ export function ChatView({
   useLayoutEffect(() => {
     const anchor = pendingOlderAnchorRef.current
     if (!anchor) return
+    const moveToOlderBoundary = olderBoundaryLoadRef.current
+    olderBoundaryLoadRef.current = false
     pendingOlderAnchorRef.current = null
     olderLoadAwaitingRenderRef.current = false
+    if (moveToOlderBoundary) {
+      const el = scrollContainerRef.current
+      if (el) {
+        const nextScrollTop = Math.max(0, virtualHistorySpacers.top)
+        el.scrollTop = nextScrollTop
+        previousScrollTopRef.current = nextScrollTop
+        previousScrollTimeRef.current = Date.now()
+        lastOlderLoadScrollTopRef.current = nextScrollTop
+        logChatScrollDebug({ source: "chat", event: "restore-older-boundary", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
+      }
+      loadOlderClickInFlightRef.current = false
+      return
+    }
     settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
       const el = scrollContainerRef.current
       if (el) {
@@ -1284,7 +1313,7 @@ export function ChatView({
       }
       loadOlderClickInFlightRef.current = false
     })
-  }, [renderedMessages.length, scrollContainerRef])
+  }, [renderedMessages.length, scrollContainerRef, sessionKey, virtualHistorySpacers.top])
 
   const handleScroll = useCallback(() => {
     onScroll()
@@ -1323,6 +1352,7 @@ export function ChatView({
         currentTimeMs: now,
         previousScrollTimeMs: previousScrollTimeRef.current,
       }))) {
+        olderBoundaryLoadRef.current = shouldLoadOlderFromBoundary
         logChatScrollDebug({ source: "chat", event: "load-older-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
         void loadOlderWithoutJump()
       }
@@ -1681,8 +1711,7 @@ export function ChatView({
       if (!virtualizedTimelineEnabled || !scrollElement) return false
       const index = renderedMessages.findIndex((message) => message.messageId === messageId || message.uiId === messageId)
       if (index < 0) return false
-      const estimatedTop = timelineRows.slice(0, index).reduce((sum, row) => sum + row.heightEstimate, 0)
-      scrollElement.scrollTop = Math.max(0, estimatedTop - Math.floor(scrollElement.clientHeight / 2))
+      virtualTimeline.scrollToIndex(index, { align: "center", behavior: "smooth" })
       return true
     }
     let target = findTarget()
@@ -1702,7 +1731,7 @@ export function ChatView({
     if (!target) return false
     target.scrollIntoView({ behavior: "auto", block: "center" })
     return true
-  }, [loadAroundMessage, renderedMessages, scrollElement, timelineRows, virtualizedTimelineEnabled])
+  }, [loadAroundMessage, renderedMessages, scrollElement, virtualTimeline, virtualizedTimelineEnabled])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
