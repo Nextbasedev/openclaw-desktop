@@ -467,6 +467,7 @@ export function ChatView({
     loading,
     hasOlderMessages,
     hasNewerMessages,
+    pageWindow,
     loadingOlderMessages,
     loadingNewerMessages,
     loadOlderMessages,
@@ -961,6 +962,22 @@ export function ChatView({
     () => buildChatTimelineRows(renderedMessages),
     [renderedMessages]
   )
+  const averageTimelineRowHeight = useMemo(() => {
+    if (timelineRows.length === 0) return 108
+    const total = timelineRows.reduce((sum, row) => sum + row.heightEstimate, 0)
+    return Math.max(72, Math.min(180, Math.round(total / timelineRows.length)))
+  }, [timelineRows])
+  const virtualHistorySpacers = useMemo(() => {
+    const oldestSeq = pageWindow.oldestSeq
+    const newestSeq = pageWindow.newestSeq
+    const total = pageWindow.knownTotalMessages
+    const olderCount = typeof oldestSeq === "number" && oldestSeq > 1 ? oldestSeq - 1 : 0
+    const newerCount = typeof total === "number" && typeof newestSeq === "number" && total > newestSeq ? total - newestSeq : 0
+    return {
+      top: olderCount * averageTimelineRowHeight,
+      bottom: newerCount * averageTimelineRowHeight,
+    }
+  }, [averageTimelineRowHeight, pageWindow.knownTotalMessages, pageWindow.newestSeq, pageWindow.oldestSeq])
   const virtualizedTimelineEnabled = renderedMessages.length > 240
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const virtualTimeline = useMeasuredVirtualRows({
@@ -1274,31 +1291,50 @@ export function ChatView({
     const el = scrollContainerRef.current
     if (el) {
       const now = Date.now()
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
+      let scrollTopForLogic = el.scrollTop
+      const renderedTop = virtualHistorySpacers.top
+      const renderedBottomScrollTop = Math.max(0, el.scrollHeight - el.clientHeight - virtualHistorySpacers.bottom)
+      let enteredOlderSpacer = false
+      let enteredNewerSpacer = false
+      if (virtualHistorySpacers.top > 0 && scrollTopForLogic < renderedTop) {
+        enteredOlderSpacer = true
+        scrollTopForLogic = renderedTop
+        el.scrollTop = renderedTop
+      } else if (virtualHistorySpacers.bottom > 0 && scrollTopForLogic > renderedBottomScrollTop) {
+        enteredNewerSpacer = true
+        scrollTopForLogic = renderedBottomScrollTop
+        el.scrollTop = renderedBottomScrollTop
+      }
+      const previousScrollTopForLogic = Math.max(0, previousScrollTopRef.current - virtualHistorySpacers.top)
+      const atBottom = el.scrollHeight - scrollTopForLogic - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
+      const distanceToRenderedTop = scrollTopForLogic - virtualHistorySpacers.top
+      const distanceToRenderedBottom = el.scrollHeight - scrollTopForLogic - el.clientHeight - virtualHistorySpacers.bottom
       setShowJumpToBottom(!atBottom)
       const canAutoLoadOlder = !isGenerating && now >= olderAutoLoadBlockedUntilRef.current
-      if (hasOlderMessages && canAutoLoadOlder && shouldAutoLoadOlderHistory({
-        scrollTop: el.scrollTop,
+      const movingTowardOlder = scrollTopForLogic <= previousScrollTopRef.current
+      const shouldLoadOlderFromBoundary = enteredOlderSpacer && userScrollIntentRef.current
+      if (hasOlderMessages && !loadingOlderMessages && canAutoLoadOlder && movingTowardOlder && (shouldLoadOlderFromBoundary || shouldAutoLoadOlderHistory({
+        scrollTop: Math.max(0, distanceToRenderedTop),
         scrollHeight: el.scrollHeight,
         clientHeight: el.clientHeight,
-        previousScrollTop: previousScrollTopRef.current,
+        previousScrollTop: previousScrollTopForLogic,
         hasUserIntent: userScrollIntentRef.current,
-        lastLoadScrollTop: lastOlderLoadScrollTopRef.current,
+        lastLoadScrollTop: typeof lastOlderLoadScrollTopRef.current === "number" ? Math.max(0, lastOlderLoadScrollTopRef.current - virtualHistorySpacers.top) : null,
         currentTimeMs: now,
         previousScrollTimeMs: previousScrollTimeRef.current,
-      })) {
+      }))) {
         logChatScrollDebug({ source: "chat", event: "load-older-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
         void loadOlderWithoutJump()
       }
-      if (hasNewerMessages && !isGenerating && !loadingNewerMessages && atBottom) {
+      if (hasNewerMessages && !isGenerating && !loadingNewerMessages && (enteredNewerSpacer || distanceToRenderedBottom <= 2400)) {
         logChatScrollDebug({ source: "chat", event: "load-newer-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
         void loadNewerWithoutJump()
       }
-      previousScrollTopRef.current = el.scrollTop
+      previousScrollTopRef.current = scrollTopForLogic
       previousScrollTimeRef.current = now
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, hasNewerMessages, hasOlderMessages, isGenerating, loadNewerWithoutJump, loadOlderWithoutJump, loadingNewerMessages, onScroll, scrollContainerRef])
+  }, [activePopoverId, hasNewerMessages, hasOlderMessages, isGenerating, loadNewerWithoutJump, loadOlderWithoutJump, loadingNewerMessages, loadingOlderMessages, onScroll, scrollContainerRef, virtualHistorySpacers.bottom, virtualHistorySpacers.top])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
@@ -2141,6 +2177,9 @@ export function ChatView({
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
+          {virtualHistorySpacers.top > 0 ? (
+            <div aria-hidden="true" style={{ height: virtualHistorySpacers.top }} />
+          ) : null}
           {virtualizedTimelineEnabled ? (
             <div className="relative w-full" style={{ height: virtualTimeline.totalSize }}>
               {virtualTimeline.virtualItems.map((item) => {
@@ -2161,6 +2200,9 @@ export function ChatView({
           ) : renderedMessages.map((msg, index) => (
             <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
           ))}
+          {virtualHistorySpacers.bottom > 0 ? (
+            <div aria-hidden="true" style={{ height: virtualHistorySpacers.bottom }} />
+          ) : null}
           <div className={cn("mx-auto max-w-[44rem] px-4 pt-0", statusText ? "pb-2" : "pb-8")}>
             <AnimatePresence initial={false}>
               {editPreview && (
