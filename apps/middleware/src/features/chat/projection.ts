@@ -1,5 +1,6 @@
 import type { AppContext } from "../../app.js";
 import { normalizePatchSemanticType } from "./message-semantics.js";
+import type { MessagePage } from "./repo.messages.js";
 import type { ProjectedRun, ProjectedToolCall, RunStatus } from "./repo.runs.js";
 
 export const CHAT_PROJECTION_VERSION = 3;
@@ -171,5 +172,40 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
       cursor: params.cursor,
       liveSubscribed: params.projection.liveSubscribed,
     },
+  };
+}
+
+export function buildChatPageSnapshot(context: AppContext, params: {
+  sessionKey: string;
+  page: MessagePage;
+  cursor: number;
+  cacheFreshness: "live" | "sqlite-fresh" | "sqlite-stale" | "gateway-backfilled";
+  messages: unknown[];
+}) {
+  const activeRun = context.runs.findLatestPendingRun(params.sessionKey);
+  const tools = (activeRun
+    ? context.runs.listToolCalls(params.sessionKey, activeRun.runId)
+    : context.runs.listToolCalls(params.sessionKey)
+  ).map(toolCallProjection);
+  return {
+    ok: true,
+    source: "middleware-projection",
+    projectionVersion: CHAT_PROJECTION_VERSION,
+    sessionKey: params.sessionKey,
+    page: {
+      direction: params.page.direction,
+      messages: params.messages,
+      messageCount: params.page.messages.length,
+      oldestSeq: params.page.oldestSeq,
+      newestSeq: params.page.newestSeq,
+      hasOlder: params.page.hasOlder,
+      hasNewer: params.page.hasNewer,
+      knownTotalMessages: params.page.knownTotalMessages,
+      cursor: params.cursor,
+      cacheFreshness: params.cacheFreshness,
+    },
+    activeRun: activeRunProjection(activeRun),
+    tools,
+    toolCalls: tools,
   };
 }

@@ -27,6 +27,36 @@ export type TimelineSnapshot = {
   source: TimelineSource
   messageCount: number
   bootstrapSettled: boolean
+  windowState: ChatWindowState
+}
+
+export type ChatPageDirection = "latest" | "older" | "newer" | "around"
+
+export type ChatLoadedRange = {
+  oldestSeq: number
+  newestSeq: number
+}
+
+export type ChatWindowState = {
+  oldestSeq: number | null
+  newestSeq: number | null
+  hasOlder: boolean
+  hasNewer: boolean
+  knownTotalMessages: number | null
+  loadedRanges: ChatLoadedRange[]
+  cacheFreshness: string | null
+}
+
+export type ChatPageInput = {
+  direction: ChatPageDirection
+  messages: ChatMessage[]
+  cursor: number
+  oldestSeq: number | null
+  newestSeq: number | null
+  hasOlder: boolean
+  hasNewer: boolean
+  knownTotalMessages?: number | null
+  cacheFreshness?: string | null
 }
 
 type TimelineListener = (snapshot: TimelineSnapshot) => void
@@ -119,6 +149,41 @@ function mergeTimelineText(existingText: string, incomingText: string, role: Cha
   return incomingText
 }
 
+function defaultWindowState(): ChatWindowState {
+  return {
+    oldestSeq: null,
+    newestSeq: null,
+    hasOlder: false,
+    hasNewer: false,
+    knownTotalMessages: null,
+    loadedRanges: [],
+    cacheFreshness: null,
+  }
+}
+
+function messageSeq(message: ChatMessage): number | null {
+  return typeof message.gatewayIndex === "number" && Number.isFinite(message.gatewayIndex)
+    ? message.gatewayIndex
+    : null
+}
+
+function mergeLoadedRange(ranges: ChatLoadedRange[], incoming: ChatLoadedRange | null): ChatLoadedRange[] {
+  if (!incoming) return ranges
+  const sorted = [...ranges, incoming]
+    .filter((range) => range.oldestSeq <= range.newestSeq)
+    .sort((a, b) => a.oldestSeq - b.oldestSeq)
+  const merged: ChatLoadedRange[] = []
+  for (const range of sorted) {
+    const previous = merged[merged.length - 1]
+    if (!previous || range.oldestSeq > previous.newestSeq + 1) {
+      merged.push({ ...range })
+      continue
+    }
+    previous.newestSeq = Math.max(previous.newestSeq, range.newestSeq)
+  }
+  return merged
+}
+
 function mergeTimelineMessages(existing: ChatMessage | undefined, incoming: ChatMessage): ChatMessage {
   if (!existing) return incoming
   if (existing.messageId !== incoming.messageId) return incoming
@@ -150,6 +215,7 @@ export class ChatTimelineStore {
   private source: TimelineSource = "idle"
   private bootstrapSettled = false
   private messageCount = 0
+  private windowState: ChatWindowState = defaultWindowState()
   private listeners = new Set<TimelineListener>()
   private pendingNotify = false
   private notifyRafId: number | null = null
@@ -170,6 +236,7 @@ export class ChatTimelineStore {
     this.mergeMessages(durableMessages)
     this.cursor = Math.max(this.cursor, cursor)
     this.messageCount = messageCount ?? durableMessages.length
+    this.recalculateWindowFromMessages({ knownTotalMessages: this.messageCount })
     if (this.source === "idle") this.source = "warm-cache"
     this.scheduleNotify()
   }
@@ -203,8 +270,52 @@ export class ChatTimelineStore {
     this.messageCount = hasNewerLiveState
       ? Math.max(this.messageCount, messageCount ?? durableMessages.length, this.messageMap.size)
       : (messageCount ?? durableMessages.length)
+    this.recalculateWindowFromMessages({
+      hasNewer: false,
+      knownTotalMessages: this.messageCount,
+    })
     this.source = "bootstrap"
     this.bootstrapSettled = true
+    this.scheduleNotify()
+  }
+
+  /**
+   * Apply an authoritative middleware page window. Pages extend known durable
+   * ranges and merge rows, but never clear rows outside the requested window.
+   * That keeps live/optimistic rows safe while older/newer/around pages stream in.
+   */
+  applyPage(page: ChatPageInput) {
+    const pageCursor = Math.max(0, page.cursor)
+    const durableMessages = stripTransientChatMessagesState(page.messages)
+    this.mergeMessages(durableMessages)
+    this.cursor = Math.max(this.cursor, pageCursor)
+    this.source = "bootstrap"
+    this.bootstrapSettled = true
+    this.messageCount = Math.max(
+      this.messageCount,
+      page.knownTotalMessages ?? durableMessages.length,
+      this.messageMap.size,
+    )
+    this.windowState = {
+      oldestSeq: this.windowState.oldestSeq === null
+        ? page.oldestSeq
+        : page.oldestSeq === null
+          ? this.windowState.oldestSeq
+          : Math.min(this.windowState.oldestSeq, page.oldestSeq),
+      newestSeq: this.windowState.newestSeq === null
+        ? page.newestSeq
+        : page.newestSeq === null
+          ? this.windowState.newestSeq
+          : Math.max(this.windowState.newestSeq, page.newestSeq),
+      hasOlder: page.hasOlder,
+      hasNewer: page.hasNewer,
+      knownTotalMessages: page.knownTotalMessages ?? this.windowState.knownTotalMessages ?? this.messageCount,
+      loadedRanges: mergeLoadedRange(
+        this.windowState.loadedRanges,
+        page.oldestSeq !== null && page.newestSeq !== null ? { oldestSeq: page.oldestSeq, newestSeq: page.newestSeq } : null,
+      ),
+      cacheFreshness: page.cacheFreshness ?? this.windowState.cacheFreshness,
+    }
     this.scheduleNotify()
   }
 
@@ -228,6 +339,7 @@ export class ChatTimelineStore {
     this.messageMap.set(message.messageId, mergeTimelineMessages(this.messageMap.get(message.messageId), message))
     this.cursor = Math.max(this.cursor, cursor)
     this.messageCount = Math.max(this.messageCount, this.messageMap.size)
+    this.recalculateWindowFromMessages()
     this.source = this.bootstrapSettled ? "bootstrap" : this.source
     this.scheduleNotify()
   }
@@ -247,6 +359,7 @@ export class ChatTimelineStore {
   applyOptimistic(message: ChatMessage) {
     this.messageMap.set(message.messageId, { ...message, isOptimistic: true })
     this.messageCount = Math.max(this.messageCount, this.messageMap.size)
+    this.recalculateWindowFromMessages()
     this.scheduleNotify()
   }
 
@@ -270,6 +383,10 @@ export class ChatTimelineStore {
       source: this.source,
       messageCount: this.messageCount,
       bootstrapSettled: this.bootstrapSettled,
+      windowState: {
+        ...this.windowState,
+        loadedRanges: this.windowState.loadedRanges.map((range) => ({ ...range })),
+      },
     }
   }
 
@@ -315,6 +432,28 @@ export class ChatTimelineStore {
           this.messageMap.set(msg.messageId, mergeTimelineMessages(existing, msg))
         }
       }
+    }
+  }
+
+  private recalculateWindowFromMessages(overrides: Partial<ChatWindowState> = {}) {
+    const seqs = Array.from(this.messageMap.values())
+      .map(messageSeq)
+      .filter((seq): seq is number => seq !== null)
+      .sort((a, b) => a - b)
+    const oldestSeq = seqs[0] ?? null
+    const newestSeq = seqs[seqs.length - 1] ?? null
+    this.windowState = {
+      ...this.windowState,
+      oldestSeq,
+      newestSeq,
+      hasOlder: overrides.hasOlder ?? (oldestSeq !== null ? this.windowState.hasOlder : false),
+      hasNewer: overrides.hasNewer ?? this.windowState.hasNewer,
+      knownTotalMessages: overrides.knownTotalMessages ?? this.windowState.knownTotalMessages ?? this.messageCount,
+      loadedRanges: mergeLoadedRange(
+        this.windowState.loadedRanges,
+        oldestSeq !== null && newestSeq !== null ? { oldestSeq, newestSeq } : null,
+      ),
+      cacheFreshness: overrides.cacheFreshness ?? this.windowState.cacheFreshness,
     }
   }
 

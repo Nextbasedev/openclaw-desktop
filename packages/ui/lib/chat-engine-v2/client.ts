@@ -3,7 +3,7 @@ import { logChatStreamRecoveryDecision } from "../chatTimelineDiagnostics"
 import { getMiddlewareConnection } from "../middleware-client"
 import { registerScheduledRequest, type RequestPriority } from "../requestScheduler"
 import type { SessionTokenUsage } from "../sessionContextUsage"
-import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
+import type { ChatBootstrapV2, ChatPageDirectionV2, ChatPageV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
 export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
 const DEFAULT_MIDDLEWARE_URL = "http://127.0.0.1:8787"
@@ -179,6 +179,31 @@ export async function fetchChatMessagesV2(input: {
     schedulerPriority: "active-chat",
     schedulerSessionKey: input.sessionKey,
     schedulerLabel: `messages:${input.sessionKey}`,
+  })
+}
+
+export async function fetchChatPageV2(input: {
+  sessionKey: string
+  direction?: ChatPageDirectionV2
+  beforeSeq?: number
+  afterSeq?: number
+  aroundSeq?: number
+  aroundMessageId?: string
+  limit?: number
+}): Promise<ChatPageV2> {
+  const params = new URLSearchParams({
+    sessionKey: input.sessionKey,
+    limit: String(input.limit ?? 80),
+  })
+  if (input.direction) params.set("direction", input.direction)
+  if (typeof input.beforeSeq === "number") params.set("beforeSeq", String(input.beforeSeq))
+  if (typeof input.afterSeq === "number") params.set("afterSeq", String(input.afterSeq))
+  if (typeof input.aroundSeq === "number") params.set("aroundSeq", String(input.aroundSeq))
+  if (input.aroundMessageId) params.set("aroundMessageId", input.aroundMessageId)
+  return fetchJson<ChatPageV2>(`/api/chat/page?${params.toString()}`, {
+    schedulerPriority: "active-chat",
+    schedulerSessionKey: input.sessionKey,
+    schedulerLabel: `page:${input.sessionKey}`,
   })
 }
 

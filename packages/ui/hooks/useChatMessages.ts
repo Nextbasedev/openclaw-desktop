@@ -60,6 +60,7 @@ import {
   abortChatV2,
   fetchChatBootstrapV2,
   fetchChatMessagesV2,
+  fetchChatPageV2,
   sendChatV2,
   type ActiveRunV2,
   type RunStatusV2,
@@ -2292,6 +2293,20 @@ export function useChatMessages(
         markHistoryLoaded()
         setDataSource("fresh")
         timelineStoreRef.current.applyBootstrap(displayMessages, typeof bootstrapCursor === "number" ? bootstrapCursor : 0, typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : displayMessages.length)
+        timelineStoreRef.current.applyPage({
+          direction: "latest",
+          messages: displayMessages,
+          cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : 0,
+          oldestSeq: typeof bootstrapOldestSeq === "number" ? bootstrapOldestSeq : firstLoadedGatewayIndex(displayMessages),
+          newestSeq: displayMessages.reduce<number | null>((max, message) => {
+            const seq = typeof message.gatewayIndex === "number" && Number.isFinite(message.gatewayIndex) ? message.gatewayIndex : null
+            return seq === null ? max : max === null ? seq : Math.max(max, seq)
+          }, null),
+          hasOlder: (typeof bootstrapOldestSeq === "number" && bootstrapOldestSeq > 1) || Boolean(typeof bootstrapKnownTotal === "number" && bootstrapKnownTotal > displayMessages.length),
+          hasNewer: false,
+          knownTotalMessages: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : displayMessages.length,
+          cacheFreshness: source === "gateway" ? "live" : "sqlite-fresh",
+        })
         const duplicateUsersAfterBootstrap = duplicateUserTextDiagnostics(displayMessages)
         if (duplicateUsersAfterBootstrap.length > 0) {
           frontendLog("chat", "chat.duplicate_user_candidate", {
@@ -3200,8 +3215,9 @@ export function useChatMessages(
     setLoadError(null)
     setLoadingOlderMessages(true)
     try {
-      const page = await fetchChatMessagesV2({
+      const page = await fetchChatPageV2({
         sessionKey,
+        direction: "older",
         beforeSeq,
         limit: CHAT_OLDER_PAGE_LIMIT,
       })
@@ -3217,7 +3233,7 @@ export function useChatMessages(
           cursor: v2CursorRef.current,
           requestGeneration,
           reason: "view-generation-changed",
-          extra: { beforeSeq, returnedMessageCount: page.messages.length },
+          extra: { beforeSeq, returnedMessageCount: page.page.messages.length },
         })
         return
       }
@@ -3233,10 +3249,13 @@ export function useChatMessages(
         requestGeneration,
         willApply: true,
         reason: "older-page-current-generation",
-        extra: { beforeSeq, returnedMessageCount: page.messages.length },
+        extra: { beforeSeq, returnedMessageCount: page.page.messages.length },
       })
       // Track the actual oldest raw seq from the API response
-      const rawSeqs = page.messages.map((m) => m.openclawSeq).filter((v): v is number => typeof v === "number" && Number.isFinite(v))
+      const pageRawMessages = (page.page.messages as RawMessage[]).filter((message) => message && typeof message === "object")
+      const rawSeqs = pageRawMessages
+        .map((message) => message.__openclaw?.seq)
+        .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
       if (rawSeqs.length > 0) {
         const pageOldest = Math.min(...rawSeqs)
         oldestLoadedSeqRef.current = oldestLoadedSeqRef.current !== null
@@ -3244,18 +3263,26 @@ export function useChatMessages(
           : pageOldest
       }
       const currentMessages = messagesRef.current
-      const mergedHistory = mergePaginatedRawHistory({
-        sessionKey,
-        existingRawMessages: loadedRawHistoryRef.current,
-        olderPageRows: page.messages,
-        currentMessages,
-      })
-      if (mergedHistory.olderRawMessages.length === 0) {
+      if (pageRawMessages.length === 0) {
         setHasOlderMessages(false)
         return
       }
-      loadedRawHistoryRef.current = mergedHistory.rawMessages
-      const merged = mergedHistory.messages
+      const rawMessages = [...pageRawMessages, ...loadedRawHistoryRef.current]
+      const canonicalMessages = canonicalMessagesFromRawHistory(sessionKey, rawMessages)
+      const merged = dedupeChatMessages([...canonicalMessages, ...currentMessages])
+      const pageMessages = canonicalMessagesFromRawHistory(sessionKey, pageRawMessages)
+      timelineStoreRef.current.applyPage({
+        direction: page.page.direction,
+        messages: pageMessages,
+        cursor: page.page.cursor,
+        oldestSeq: page.page.oldestSeq,
+        newestSeq: page.page.newestSeq,
+        hasOlder: page.page.hasOlder,
+        hasNewer: page.page.hasNewer,
+        knownTotalMessages: page.page.knownTotalMessages,
+        cacheFreshness: page.page.cacheFreshness,
+      })
+      loadedRawHistoryRef.current = rawMessages
       setMessages(merged)
       // Keep the global patch-stream session in sync with paginated history.
       // Otherwise the next non-message patch (for example chat.tool.update)
@@ -3270,7 +3297,7 @@ export function useChatMessages(
         statusLabel,
         pendingTools: Array.from(pendingToolMapRef.current.values()),
         spawnedSubagents: Array.from(spawnMapRef.current.values()),
-        messageCount: existingGlobal?.messageCount ?? Math.max(merged.length, page.messageCount),
+        messageCount: existingGlobal?.messageCount ?? Math.max(merged.length, page.page.knownTotalMessages ?? page.page.messageCount),
         historyCoverage: oldestLoadedSeqRef.current !== null && oldestLoadedSeqRef.current <= 1
           ? "full"
           : existingGlobal?.historyCoverage === "full"
@@ -3279,7 +3306,7 @@ export function useChatMessages(
         queryClient,
       })
       setHasOlderMessages(
-        page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
+        page.page.hasOlder &&
         (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
       )
 
@@ -3295,6 +3322,61 @@ export function useChatMessages(
     }
   }, [hasOlderMessages, loadingOlderMessages, queryClient, sessionKey, setMessages, statusLabel])
 
+  const loadAroundMessage = useCallback(async (input: { messageId?: string; seq?: number }) => {
+    if (!input.messageId && typeof input.seq !== "number") return false
+    const requestGeneration = viewGenerationRef.current
+    try {
+      const page = await fetchChatPageV2({
+        sessionKey,
+        direction: "around",
+        aroundMessageId: input.messageId,
+        aroundSeq: input.seq,
+        limit: CHAT_OLDER_PAGE_LIMIT,
+      })
+      if (viewGenerationRef.current !== requestGeneration) return false
+      const pageRawMessages = (page.page.messages as RawMessage[]).filter((message) => message && typeof message === "object")
+      if (pageRawMessages.length === 0) return false
+      const existingById = new Set(loadedRawHistoryRef.current.map((message) => stableRawMessageId(message)))
+      const nextRaw = [
+        ...loadedRawHistoryRef.current,
+        ...pageRawMessages.filter((message) => !existingById.has(stableRawMessageId(message))),
+      ].sort((a, b) => (a.__openclaw?.seq ?? 0) - (b.__openclaw?.seq ?? 0))
+      const pageMessages = canonicalMessagesFromRawHistory(sessionKey, pageRawMessages)
+      const merged = dedupeChatMessages([
+        ...canonicalMessagesFromRawHistory(sessionKey, nextRaw),
+        ...messagesRef.current,
+      ])
+      timelineStoreRef.current.applyPage({
+        direction: page.page.direction,
+        messages: pageMessages,
+        cursor: page.page.cursor,
+        oldestSeq: page.page.oldestSeq,
+        newestSeq: page.page.newestSeq,
+        hasOlder: page.page.hasOlder,
+        hasNewer: page.page.hasNewer,
+        knownTotalMessages: page.page.knownTotalMessages,
+        cacheFreshness: page.page.cacheFreshness,
+      })
+      loadedRawHistoryRef.current = nextRaw
+      const minSeq = nextRaw
+        .map((message) => message.__openclaw?.seq)
+        .filter((seq): seq is number => typeof seq === "number" && Number.isFinite(seq))
+        .reduce<number | null>((min, seq) => min === null ? seq : Math.min(min, seq), null)
+      oldestLoadedSeqRef.current = minSeq
+      setMessages(merged)
+      setHasOlderMessages(page.page.hasOlder)
+      return true
+    } catch (error) {
+      frontendLog("chat", "chat.load-around.fail", {
+        sessionKey,
+        messageId: input.messageId,
+        seq: input.seq ?? null,
+        error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+      }, "warn")
+      return false
+    }
+  }, [sessionKey, setMessages])
+
   const messagesBelongToActiveSession = messageSessionKey === sessionKey
 
   return {
@@ -3307,6 +3389,7 @@ export function useChatMessages(
     hasOlderMessages,
     loadingOlderMessages,
     loadOlderMessages,
+    loadAroundMessage,
     loadError,
     errorMessage,
     isSending,

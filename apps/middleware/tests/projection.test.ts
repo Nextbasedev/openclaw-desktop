@@ -127,6 +127,33 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("can read deterministic latest, older, newer, and around message pages with range metadata", () => {
+    const db = openDatabase({ databasePath: testDbPath("message-pages") });
+    const repo = new MessageRepository(db);
+    repo.upsertMessages(normalizeHistoryMessages("s1", Array.from({ length: 12 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      text: `message ${index + 1}`,
+      __openclaw: { id: `m${index + 1}`, seq: index + 1 },
+    }))));
+
+    const latest = repo.listMessagePage("s1", { direction: "latest", limit: 4 });
+    expect(latest.messages.map((row) => row.openclawSeq)).toEqual([9, 10, 11, 12]);
+    expect(latest).toMatchObject({ oldestSeq: 9, newestSeq: 12, hasOlder: true, hasNewer: false, knownTotalMessages: 12 });
+
+    const older = repo.listMessagePage("s1", { direction: "older", beforeSeq: 9, limit: 4 });
+    expect(older.messages.map((row) => row.openclawSeq)).toEqual([5, 6, 7, 8]);
+    expect(older).toMatchObject({ oldestSeq: 5, newestSeq: 8, hasOlder: true, hasNewer: true, knownTotalMessages: 12 });
+
+    const newer = repo.listMessagePage("s1", { direction: "newer", afterSeq: 8, limit: 4 });
+    expect(newer.messages.map((row) => row.openclawSeq)).toEqual([9, 10, 11, 12]);
+    expect(newer).toMatchObject({ oldestSeq: 9, newestSeq: 12, hasOlder: true, hasNewer: false, knownTotalMessages: 12 });
+
+    const around = repo.listMessagePage("s1", { direction: "around", aroundMessageId: "m6", limit: 5 });
+    expect(around.messages.map((row) => row.openclawSeq)).toEqual([4, 5, 6, 7, 8]);
+    expect(around).toMatchObject({ oldestSeq: 4, newestSeq: 8, hasOlder: true, hasNewer: true, knownTotalMessages: 12 });
+    db.close();
+  });
+
   test("session id changes create a new history segment without overwriting old messages", () => {
     const db = openDatabase({ databasePath: testDbPath("segments-reset") });
     const repo = new MessageRepository(db);
