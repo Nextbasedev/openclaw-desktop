@@ -962,6 +962,19 @@ export class MessageRepository {
         const bySeq = new Map<number, ProjectedMessage>();
         for (const message of [...older, ...target, ...newer]) bySeq.set(message.openclawSeq, message);
         messages = Array.from(bySeq.values()).sort((a, b) => a.openclawSeq - b.openclawSeq);
+        if (messages.length < limit && messages.length > 0) {
+          const oldestSeq = messages[0]!.openclawSeq;
+          const newestSeq = messages.at(-1)!.openclawSeq;
+          const missing = limit - messages.length;
+          const prepend = this.listMessages(sessionKey, { beforeSeq: oldestSeq, limit: missing });
+          for (const message of prepend) bySeq.set(message.openclawSeq, message);
+          messages = Array.from(bySeq.values()).sort((a, b) => a.openclawSeq - b.openclawSeq);
+          if (messages.length < limit) {
+            const append = this.listMessages(sessionKey, { afterSeq: newestSeq, limit: limit - messages.length });
+            for (const message of append) bySeq.set(message.openclawSeq, message);
+            messages = Array.from(bySeq.values()).sort((a, b) => a.openclawSeq - b.openclawSeq);
+          }
+        }
       }
     }
 

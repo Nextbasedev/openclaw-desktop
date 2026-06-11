@@ -375,10 +375,11 @@ function parseExecApproval(
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
-export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 160
+export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 50
 export const CHAT_OLDER_PAGE_LIMIT = CHAT_BOOTSTRAP_MESSAGE_LIMIT
 export const CHAT_BOOTSTRAP_MIN_VISIBLE_ROWS = 24
 const CHAT_BOOTSTRAP_MAX_TOP_UP_PAGES = 4
+const CHAT_WINDOW_MAX_RAW_MESSAGES = CHAT_BOOTSTRAP_MESSAGE_LIMIT * 3
 
 type ChatDataSource = "fresh" | "warm-cache" | "syncing" | "loading"
 
@@ -689,6 +690,41 @@ function projectedPageRowsToRawMessages(
     })
 }
 
+function rawMessageSeq(message: RawMessage) {
+  const seq = message.__openclaw?.seq
+  return typeof seq === "number" && Number.isFinite(seq) ? Math.floor(seq) : null
+}
+
+function rawSeqRange(messages: RawMessage[]) {
+  let oldest: number | null = null
+  let newest: number | null = null
+  for (const message of messages) {
+    const seq = rawMessageSeq(message)
+    if (seq === null) continue
+    oldest = oldest === null ? seq : Math.min(oldest, seq)
+    newest = newest === null ? seq : Math.max(newest, seq)
+  }
+  return { oldest, newest }
+}
+
+function trimRawWindow(messages: RawMessage[], side: "oldest" | "newest" | "around") {
+  const sorted = [...messages].sort((a, b) => (rawMessageSeq(a) ?? 0) - (rawMessageSeq(b) ?? 0))
+  if (sorted.length <= CHAT_WINDOW_MAX_RAW_MESSAGES) return sorted
+  if (side === "oldest") return sorted.slice(0, CHAT_WINDOW_MAX_RAW_MESSAGES)
+  if (side === "newest") return sorted.slice(-CHAT_WINDOW_MAX_RAW_MESSAGES)
+  const overflow = sorted.length - CHAT_WINDOW_MAX_RAW_MESSAGES
+  const dropBefore = Math.floor(overflow / 2)
+  return sorted.slice(dropBefore, dropBefore + CHAT_WINDOW_MAX_RAW_MESSAGES)
+}
+
+function transientMessagesToPreserve(messages: ChatMessage[]) {
+  return messages.filter((message) =>
+    message.isOptimistic ||
+    message.sendStatus === "sending" ||
+    (message.role === "assistant" && message.toolCalls?.some((tool) => tool.status === "running"))
+  )
+}
+
 export function mergePaginatedRawHistory(params: {
   sessionKey: string
   existingRawMessages: RawMessage[]
@@ -874,13 +910,17 @@ export function useChatMessages(
     setHistoryLoadVersion((value) => value + 1)
   }, [])
   const [hasOlderMessages, setHasOlderMessages] = useState(false)
+  const [hasNewerMessages, setHasNewerMessages] = useState(false)
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false)
+  const [loadingNewerMessages, setLoadingNewerMessages] = useState(false)
   // Track the actual oldest raw openclawSeq loaded from the middleware,
   // independent of parseChatHistory's merged gatewayIndex which can drift
   // forward during assistant message merging and break pagination.
   const oldestLoadedSeqRef = useRef<number | null>(null)
+  const newestLoadedSeqRef = useRef<number | null>(null)
   const loadedRawHistoryRef = useRef<RawMessage[]>([])
   const loadOlderInFlightRef = useRef(false)
+  const loadNewerInFlightRef = useRef(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
@@ -1861,6 +1901,7 @@ export function useChatMessages(
     } else {
       setLoading(true)
       setHasOlderMessages(false)
+      setHasNewerMessages(false)
       setMessages([])
       setStatus("idle")
     }
@@ -1896,6 +1937,7 @@ export function useChatMessages(
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
     oldestLoadedSeqRef.current = null
+    newestLoadedSeqRef.current = null
     loadedRawHistoryRef.current = []
     let unsubscribeStream: (() => void) | null = null
     let unsubscribeV2Stream: (() => void) | null = null
@@ -1968,6 +2010,7 @@ export function useChatMessages(
           canLoadOlderThanFirstMessage(cachedMessages) ||
           Boolean(cached.entry.messageCount && cached.entry.messageCount > cachedMessages.length)
         )
+        setHasNewerMessages(false)
         suppressNextWarmPersistRef.current = true
         setMessages(cachedMessages)
         markHistoryLoaded()
@@ -2199,6 +2242,7 @@ export function useChatMessages(
           .map((m) => m.__openclaw?.seq)
           .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
         if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
+        if (rawBootstrapSeqs.length > 0) newestLoadedSeqRef.current = Math.max(...rawBootstrapSeqs)
         loadedRawHistoryRef.current = rawBootstrapMessages
         const canonicalMessages = canonicalMessagesFromRawHistory(sessionKey, rawBootstrapMessages)
         const existingGlobalBeforeSeed = getGlobalChatSession(sessionKey)
@@ -2248,10 +2292,7 @@ export function useChatMessages(
           historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
           queryClient,
         })
-        const globalAfterSeed = getGlobalChatSession(sessionKey)
-        const displayMessages = stripTransientChatMessagesState(globalAfterSeed?.messages.length
-          ? globalAfterSeed.messages
-          : seedMessages)
+        const displayMessages = stripTransientChatMessagesState(seedMessages)
         void setWarmChatCache(sessionKey, {
           messages: displayMessages,
           cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
@@ -2280,6 +2321,7 @@ export function useChatMessages(
           Boolean(typeof bootstrapKnownTotal === "number" && bootstrapKnownTotal > displayMessages.length) ||
           Boolean(typeof canonicalMessageCount === "number" && canonicalMessageCount > displayMessages.length)
         )
+        setHasNewerMessages(false)
         const dedupedDisplayMessages = deduplicateUserMessages(displayMessages)
         setMessages(dedupedDisplayMessages)
         setLocalPendingTools(inlineTools)
@@ -3258,18 +3300,25 @@ export function useChatMessages(
         .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
       if (rawSeqs.length > 0) {
         const pageOldest = Math.min(...rawSeqs)
+        const pageNewest = Math.max(...rawSeqs)
         oldestLoadedSeqRef.current = oldestLoadedSeqRef.current !== null
           ? Math.min(oldestLoadedSeqRef.current, pageOldest)
           : pageOldest
+        newestLoadedSeqRef.current = newestLoadedSeqRef.current !== null
+          ? Math.max(newestLoadedSeqRef.current, pageNewest)
+          : pageNewest
       }
       const currentMessages = messagesRef.current
       if (pageRawMessages.length === 0) {
         setHasOlderMessages(false)
         return
       }
-      const rawMessages = [...pageRawMessages, ...loadedRawHistoryRef.current]
+      const rawMessages = trimRawWindow([...pageRawMessages, ...loadedRawHistoryRef.current], "oldest")
+      const range = rawSeqRange(rawMessages)
+      oldestLoadedSeqRef.current = range.oldest
+      newestLoadedSeqRef.current = range.newest
       const canonicalMessages = canonicalMessagesFromRawHistory(sessionKey, rawMessages)
-      const merged = dedupeChatMessages([...canonicalMessages, ...currentMessages])
+      const merged = dedupeChatMessages([...canonicalMessages, ...transientMessagesToPreserve(currentMessages)])
       const pageMessages = canonicalMessagesFromRawHistory(sessionKey, pageRawMessages)
       timelineStoreRef.current.applyPage({
         direction: page.page.direction,
@@ -3309,6 +3358,9 @@ export function useChatMessages(
         page.page.hasOlder &&
         (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
       )
+      setHasNewerMessages(
+        Boolean(page.page.knownTotalMessages && newestLoadedSeqRef.current !== null && newestLoadedSeqRef.current < page.page.knownTotalMessages)
+      )
 
     } catch (error) {
       frontendLog("chat", "chat.load-older.fail", {
@@ -3321,6 +3373,78 @@ export function useChatMessages(
       setLoadingOlderMessages(false)
     }
   }, [hasOlderMessages, loadingOlderMessages, queryClient, sessionKey, setMessages, statusLabel])
+
+  const loadNewerMessages = useCallback(async () => {
+    if (loadNewerInFlightRef.current || loadingNewerMessages || !hasNewerMessages) return
+    const requestGeneration = viewGenerationRef.current
+    const afterSeq = newestLoadedSeqRef.current
+    if (afterSeq === null) {
+      setHasNewerMessages(false)
+      return
+    }
+
+    loadNewerInFlightRef.current = true
+    setLoadError(null)
+    setLoadingNewerMessages(true)
+    try {
+      const page = await fetchChatPageV2({
+        sessionKey,
+        direction: "newer",
+        afterSeq,
+        limit: CHAT_OLDER_PAGE_LIMIT,
+      })
+      if (viewGenerationRef.current !== requestGeneration) return
+      const pageRawMessages = (page.page.messages as RawMessage[]).filter((message) => message && typeof message === "object")
+      if (pageRawMessages.length === 0) {
+        setHasNewerMessages(false)
+        return
+      }
+      const rawMessages = trimRawWindow([...loadedRawHistoryRef.current, ...pageRawMessages], "newest")
+      const range = rawSeqRange(rawMessages)
+      oldestLoadedSeqRef.current = range.oldest
+      newestLoadedSeqRef.current = range.newest
+      const canonicalMessages = canonicalMessagesFromRawHistory(sessionKey, rawMessages)
+      const merged = dedupeChatMessages([...canonicalMessages, ...transientMessagesToPreserve(messagesRef.current)])
+      const pageMessages = canonicalMessagesFromRawHistory(sessionKey, pageRawMessages)
+      timelineStoreRef.current.applyPage({
+        direction: page.page.direction,
+        messages: pageMessages,
+        cursor: page.page.cursor,
+        oldestSeq: page.page.oldestSeq,
+        newestSeq: page.page.newestSeq,
+        hasOlder: page.page.hasOlder,
+        hasNewer: page.page.hasNewer,
+        knownTotalMessages: page.page.knownTotalMessages,
+        cacheFreshness: page.page.cacheFreshness,
+      })
+      loadedRawHistoryRef.current = rawMessages
+      setMessages(merged)
+      const existingGlobal = getGlobalChatSession(sessionKey)
+      seedGlobalChatSession({
+        sessionKey,
+        messages: merged,
+        cursor: v2CursorRef.current,
+        status: statusRef.current,
+        statusLabel,
+        pendingTools: Array.from(pendingToolMapRef.current.values()),
+        spawnedSubagents: Array.from(spawnMapRef.current.values()),
+        messageCount: existingGlobal?.messageCount ?? Math.max(merged.length, page.page.knownTotalMessages ?? page.page.messageCount),
+        historyCoverage: existingGlobal?.historyCoverage === "full" && !page.page.hasOlder && !page.page.hasNewer ? "full" : "metadata",
+        queryClient,
+      })
+      setHasOlderMessages(Boolean(oldestLoadedSeqRef.current && oldestLoadedSeqRef.current > 1))
+      setHasNewerMessages(Boolean(page.page.knownTotalMessages && newestLoadedSeqRef.current !== null && newestLoadedSeqRef.current < page.page.knownTotalMessages))
+    } catch (error) {
+      frontendLog("chat", "chat.load-newer.fail", {
+        sessionKey,
+        afterSeq,
+        error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+      }, "warn")
+    } finally {
+      loadNewerInFlightRef.current = false
+      setLoadingNewerMessages(false)
+    }
+  }, [hasNewerMessages, loadingNewerMessages, queryClient, sessionKey, setMessages, statusLabel])
 
   const loadAroundMessage = useCallback(async (input: { messageId?: string; seq?: number }) => {
     if (!input.messageId && typeof input.seq !== "number") return false
@@ -3336,15 +3460,11 @@ export function useChatMessages(
       if (viewGenerationRef.current !== requestGeneration) return false
       const pageRawMessages = (page.page.messages as RawMessage[]).filter((message) => message && typeof message === "object")
       if (pageRawMessages.length === 0) return false
-      const existingById = new Set(loadedRawHistoryRef.current.map((message) => stableRawMessageId(message)))
-      const nextRaw = [
-        ...loadedRawHistoryRef.current,
-        ...pageRawMessages.filter((message) => !existingById.has(stableRawMessageId(message))),
-      ].sort((a, b) => (a.__openclaw?.seq ?? 0) - (b.__openclaw?.seq ?? 0))
+      const nextRaw = trimRawWindow(pageRawMessages, "around")
       const pageMessages = canonicalMessagesFromRawHistory(sessionKey, pageRawMessages)
       const merged = dedupeChatMessages([
         ...canonicalMessagesFromRawHistory(sessionKey, nextRaw),
-        ...messagesRef.current,
+        ...transientMessagesToPreserve(messagesRef.current),
       ])
       timelineStoreRef.current.applyPage({
         direction: page.page.direction,
@@ -3358,13 +3478,12 @@ export function useChatMessages(
         cacheFreshness: page.page.cacheFreshness,
       })
       loadedRawHistoryRef.current = nextRaw
-      const minSeq = nextRaw
-        .map((message) => message.__openclaw?.seq)
-        .filter((seq): seq is number => typeof seq === "number" && Number.isFinite(seq))
-        .reduce<number | null>((min, seq) => min === null ? seq : Math.min(min, seq), null)
-      oldestLoadedSeqRef.current = minSeq
+      const range = rawSeqRange(nextRaw)
+      oldestLoadedSeqRef.current = range.oldest
+      newestLoadedSeqRef.current = range.newest
       setMessages(merged)
       setHasOlderMessages(page.page.hasOlder)
+      setHasNewerMessages(page.page.hasNewer)
       return true
     } catch (error) {
       frontendLog("chat", "chat.load-around.fail", {
@@ -3387,8 +3506,11 @@ export function useChatMessages(
     loading: loading || !messagesBelongToActiveSession,
     historyLoadVersion,
     hasOlderMessages,
+    hasNewerMessages,
     loadingOlderMessages,
+    loadingNewerMessages,
     loadOlderMessages,
+    loadNewerMessages,
     loadAroundMessage,
     loadError,
     errorMessage,

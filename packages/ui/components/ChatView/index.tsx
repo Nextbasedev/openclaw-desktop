@@ -80,6 +80,7 @@ import {
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 
+
 type MessageScrollAnchor = {
   id: string
   uiId: string
@@ -465,8 +466,11 @@ export function ChatView({
     wasAborted,
     loading,
     hasOlderMessages,
+    hasNewerMessages,
     loadingOlderMessages,
+    loadingNewerMessages,
     loadOlderMessages,
+    loadNewerMessages,
     loadAroundMessage,
     loadError,
     errorMessage,
@@ -998,8 +1002,10 @@ export function ChatView({
   const userScrollIntentRef = useRef(false)
   const needsInitialScrollRef = useRef(true)
   const loadOlderClickInFlightRef = useRef(false)
+  const loadNewerClickInFlightRef = useRef(false)
   const olderLoadAwaitingRenderRef = useRef(false)
   const lastOlderLoadAtRef = useRef(0)
+  const lastNewerLoadAtRef = useRef(0)
   const lastOlderLoadScrollTopRef = useRef<number | null>(null)
   const initialScrollSessionKeyRef = useRef(sessionKey)
   const previousScrollTopRef = useRef(0)
@@ -1234,6 +1240,19 @@ export function ChatView({
     }
   }, [hasOlderMessages, isGenerating, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey])
 
+  const loadNewerWithoutJump = useCallback(async () => {
+    const now = Date.now()
+    if (!hasNewerMessages || loadingNewerMessages || loadNewerClickInFlightRef.current) return
+    if (isGenerating || now - lastNewerLoadAtRef.current < 900) return
+    lastNewerLoadAtRef.current = now
+    loadNewerClickInFlightRef.current = true
+    try {
+      await loadNewerMessages()
+    } finally {
+      loadNewerClickInFlightRef.current = false
+    }
+  }, [hasNewerMessages, isGenerating, loadNewerMessages, loadingNewerMessages])
+
   useLayoutEffect(() => {
     const anchor = pendingOlderAnchorRef.current
     if (!anchor) return
@@ -1271,11 +1290,15 @@ export function ChatView({
         logChatScrollDebug({ source: "chat", event: "load-older-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
         void loadOlderWithoutJump()
       }
+      if (hasNewerMessages && !isGenerating && !loadingNewerMessages && atBottom) {
+        logChatScrollDebug({ source: "chat", event: "load-newer-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
+        void loadNewerWithoutJump()
+      }
       previousScrollTopRef.current = el.scrollTop
       previousScrollTimeRef.current = now
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef])
+  }, [activePopoverId, hasNewerMessages, hasOlderMessages, isGenerating, loadNewerWithoutJump, loadOlderWithoutJump, loadingNewerMessages, onScroll, scrollContainerRef])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
