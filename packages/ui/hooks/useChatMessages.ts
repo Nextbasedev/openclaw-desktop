@@ -376,6 +376,8 @@ const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
 export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 160
 export const CHAT_OLDER_PAGE_LIMIT = CHAT_BOOTSTRAP_MESSAGE_LIMIT
+export const CHAT_BOOTSTRAP_MIN_VISIBLE_ROWS = 24
+const CHAT_BOOTSTRAP_MAX_TOP_UP_PAGES = 4
 
 type ChatDataSource = "fresh" | "warm-cache" | "syncing" | "loading"
 
@@ -707,6 +709,60 @@ export function mergePaginatedRawHistory(params: {
     rawMessages,
     messages: dedupeChatMessages([...canonicalMessages, ...params.currentMessages]),
   }
+}
+
+export async function topUpBootstrapVisibleHistory(params: {
+  sessionKey: string
+  rawMessages: RawMessage[]
+  hasOlder: boolean
+  oldestLoadedSeq: number | null | undefined
+  minVisibleRows?: number
+  maxTopUpPages?: number
+  fetchPage?: typeof fetchChatMessagesV2
+}) {
+  const minVisibleRows = params.minVisibleRows ?? CHAT_BOOTSTRAP_MIN_VISIBLE_ROWS
+  const maxTopUpPages = params.maxTopUpPages ?? CHAT_BOOTSTRAP_MAX_TOP_UP_PAGES
+  const fetchPage = params.fetchPage ?? fetchChatMessagesV2
+  let rawMessages = params.rawMessages
+  let canonicalMessages = canonicalMessagesFromRawHistory(params.sessionKey, rawMessages)
+  let oldestLoadedSeq = typeof params.oldestLoadedSeq === "number"
+    ? params.oldestLoadedSeq
+    : rawMessages
+        .map((message) => message.__openclaw?.seq)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+        .reduce<number | null>((min, value) => min === null ? value : Math.min(min, value), null)
+
+  if (!params.hasOlder) {
+    return { rawMessages, canonicalMessages, oldestLoadedSeq, topUpPagesLoaded: 0 }
+  }
+
+  let topUpPagesLoaded = 0
+  while (
+    canonicalMessages.length < minVisibleRows &&
+    typeof oldestLoadedSeq === "number" &&
+    oldestLoadedSeq > 1 &&
+    topUpPagesLoaded < maxTopUpPages
+  ) {
+    const page = await fetchPage({
+      sessionKey: params.sessionKey,
+      beforeSeq: oldestLoadedSeq,
+      limit: CHAT_OLDER_PAGE_LIMIT,
+    })
+    if (!page.messages.length) break
+    const olderRawMessages = projectedPageRowsToRawMessages(page.messages)
+    if (!olderRawMessages.length) break
+    rawMessages = [...olderRawMessages, ...rawMessages]
+    canonicalMessages = canonicalMessagesFromRawHistory(params.sessionKey, rawMessages)
+    const pageOldestSeq = olderRawMessages
+      .map((message) => message.__openclaw?.seq)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      .reduce<number | null>((min, value) => min === null ? value : Math.min(min, value), null)
+    oldestLoadedSeq = pageOldestSeq ?? oldestLoadedSeq
+    topUpPagesLoaded += 1
+    if (page.messages.length < CHAT_OLDER_PAGE_LIMIT) break
+  }
+
+  return { rawMessages, canonicalMessages, oldestLoadedSeq, topUpPagesLoaded }
 }
 
 function firstLoadedGatewayIndex(messages: ChatMessage[]) {
@@ -2142,8 +2198,19 @@ export function useChatMessages(
           .map((m) => m.__openclaw?.seq)
           .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
         if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
-        loadedRawHistoryRef.current = rawBootstrapMessages
-        const canonicalMessages = canonicalMessagesFromRawHistory(sessionKey, rawBootstrapMessages)
+        const toppedUpBootstrap = await topUpBootstrapVisibleHistory({
+          sessionKey,
+          rawMessages: rawBootstrapMessages,
+          hasOlder: bootstrapHasOlder === true,
+          oldestLoadedSeq: typeof bootstrapOldestSeq === "number"
+            ? bootstrapOldestSeq
+            : (rawBootstrapSeqs.length > 0 ? Math.min(...rawBootstrapSeqs) : null),
+        })
+        loadedRawHistoryRef.current = toppedUpBootstrap.rawMessages
+        if (typeof toppedUpBootstrap.oldestLoadedSeq === "number") {
+          oldestLoadedSeqRef.current = toppedUpBootstrap.oldestLoadedSeq
+        }
+        const canonicalMessages = toppedUpBootstrap.canonicalMessages
         const existingGlobalBeforeSeed = getGlobalChatSession(sessionKey)
         const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
         const canonicalSpawns = enrichCanonicalSubagentsFromHistory(
@@ -2216,9 +2283,9 @@ export function useChatMessages(
           }, "warn")
         })
         // Use server-side hasOlder when available (accurate), fall back to heuristics
-        if (typeof bootstrapOldestSeq === "number") oldestLoadedSeqRef.current = bootstrapOldestSeq
+        if (typeof bootstrapOldestSeq === "number" && oldestLoadedSeqRef.current === null) oldestLoadedSeqRef.current = bootstrapOldestSeq
         setHasOlderMessages(
-          bootstrapHasOlder === true ||
+          (typeof oldestLoadedSeqRef.current === "number" && oldestLoadedSeqRef.current > 1) ||
           canLoadOlderThanFirstMessage(displayMessages) ||
           Boolean(typeof bootstrapKnownTotal === "number" && bootstrapKnownTotal > displayMessages.length) ||
           Boolean(typeof canonicalMessageCount === "number" && canonicalMessageCount > displayMessages.length)

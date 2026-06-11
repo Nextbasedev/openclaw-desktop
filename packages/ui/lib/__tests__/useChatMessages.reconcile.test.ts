@@ -1,5 +1,5 @@
-import { describe, expect, test } from "vitest"
-import { CHAT_BOOTSTRAP_MESSAGE_LIMIT, CHAT_OLDER_PAGE_LIMIT, activeSessionMessages, canonicalMessagesFromRawHistory, dataSourceAfterWarmCacheApplied, mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, mergePaginatedRawHistory, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
+import { describe, expect, test, vi } from "vitest"
+import { CHAT_BOOTSTRAP_MESSAGE_LIMIT, CHAT_OLDER_PAGE_LIMIT, activeSessionMessages, canonicalMessagesFromRawHistory, dataSourceAfterWarmCacheApplied, mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, mergePaginatedRawHistory, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged, topUpBootstrapVisibleHistory } from "../../hooks/useChatMessages"
 import { dedupeChatMessages } from "../chatMessageDedupe"
 import { parseChatHistory } from "../chatHistoryParser"
 import type { ChatMessage } from "@/components/ChatView/types"
@@ -178,5 +178,54 @@ describe("chat reconcile active-state guards", () => {
     expect(merged[1]).toMatchObject({ role: "assistant" })
     expect(merged[1]?.text).toContain("part one")
     expect(merged[1]?.text).toContain("part two")
+  })
+
+  test("tops up bootstrap with older raw pages when visible rows are too low", async () => {
+    const sessionKey = "session-top-up"
+    const initialRaw = [
+      rawText(5, "assistant", "part three"),
+      rawText(6, "assistant", "part four"),
+    ]
+    const olderPageRows = [
+      {
+        openclawSeq: 3,
+        gatewaySeq: null,
+        segmentId: null,
+        messageId: "assistant-3",
+        role: "assistant",
+        data: rawText(3, "assistant", "part one"),
+      },
+      {
+        openclawSeq: 4,
+        gatewaySeq: null,
+        segmentId: null,
+        messageId: "assistant-4",
+        role: "assistant",
+        data: rawText(4, "assistant", "part two"),
+      },
+    ]
+    const fetchPage = vi.fn().mockResolvedValue({
+      ok: true,
+      sessionKey,
+      messages: olderPageRows,
+      messageCount: olderPageRows.length,
+    })
+
+    const result = await topUpBootstrapVisibleHistory({
+      sessionKey,
+      rawMessages: initialRaw as never[],
+      hasOlder: true,
+      oldestLoadedSeq: 5,
+      minVisibleRows: 2,
+      maxTopUpPages: 1,
+      fetchPage,
+    })
+
+    expect(fetchPage).toHaveBeenCalledTimes(1)
+    expect(result.topUpPagesLoaded).toBe(1)
+    expect(result.rawMessages).toHaveLength(4)
+    expect(result.canonicalMessages).toHaveLength(1)
+    expect(result.canonicalMessages[0]?.text).toContain("part one")
+    expect(result.canonicalMessages[0]?.text).toContain("part four")
   })
 })
