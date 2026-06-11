@@ -383,6 +383,12 @@ const CHAT_WINDOW_MAX_RAW_MESSAGES = CHAT_BOOTSTRAP_MESSAGE_LIMIT * 3
 
 type ChatDataSource = "fresh" | "warm-cache" | "syncing" | "loading"
 
+type ChatPageWindowMetrics = {
+  oldestSeq: number | null
+  newestSeq: number | null
+  knownTotalMessages: number | null
+}
+
 export function dataSourceAfterWarmCacheApplied(): ChatDataSource {
   return "warm-cache"
 }
@@ -707,6 +713,14 @@ function rawSeqRange(messages: RawMessage[]) {
   return { oldest, newest }
 }
 
+function pageWindowFromRange(range: { oldest: number | null; newest: number | null }, knownTotalMessages?: number | null): ChatPageWindowMetrics {
+  return {
+    oldestSeq: range.oldest,
+    newestSeq: range.newest,
+    knownTotalMessages: typeof knownTotalMessages === "number" && Number.isFinite(knownTotalMessages) ? Math.max(0, Math.floor(knownTotalMessages)) : null,
+  }
+}
+
 function trimRawWindow(messages: RawMessage[], side: "oldest" | "newest" | "around") {
   const sorted = [...messages].sort((a, b) => (rawMessageSeq(a) ?? 0) - (rawMessageSeq(b) ?? 0))
   if (sorted.length <= CHAT_WINDOW_MAX_RAW_MESSAGES) return sorted
@@ -911,6 +925,7 @@ export function useChatMessages(
   }, [])
   const [hasOlderMessages, setHasOlderMessages] = useState(false)
   const [hasNewerMessages, setHasNewerMessages] = useState(false)
+  const [pageWindow, setPageWindow] = useState<ChatPageWindowMetrics>({ oldestSeq: null, newestSeq: null, knownTotalMessages: null })
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false)
   const [loadingNewerMessages, setLoadingNewerMessages] = useState(false)
   // Track the actual oldest raw openclawSeq loaded from the middleware,
@@ -1902,6 +1917,7 @@ export function useChatMessages(
       setLoading(true)
       setHasOlderMessages(false)
       setHasNewerMessages(false)
+      setPageWindow({ oldestSeq: null, newestSeq: null, knownTotalMessages: null })
       setMessages([])
       setStatus("idle")
     }
@@ -2011,6 +2027,7 @@ export function useChatMessages(
           Boolean(cached.entry.messageCount && cached.entry.messageCount > cachedMessages.length)
         )
         setHasNewerMessages(false)
+        setPageWindow(pageWindowFromRange(rawSeqRange(cachedMessages as unknown as RawMessage[]), cached.entry.messageCount ?? cachedMessages.length))
         suppressNextWarmPersistRef.current = true
         setMessages(cachedMessages)
         markHistoryLoaded()
@@ -2243,6 +2260,7 @@ export function useChatMessages(
           .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
         if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
         if (rawBootstrapSeqs.length > 0) newestLoadedSeqRef.current = Math.max(...rawBootstrapSeqs)
+        setPageWindow(pageWindowFromRange({ oldest: oldestLoadedSeqRef.current, newest: newestLoadedSeqRef.current }, bootstrapKnownTotal ?? canonicalMessageCount ?? rawBootstrapMessages.length))
         loadedRawHistoryRef.current = rawBootstrapMessages
         const canonicalMessages = canonicalMessagesFromRawHistory(sessionKey, rawBootstrapMessages)
         const existingGlobalBeforeSeed = getGlobalChatSession(sessionKey)
@@ -3317,6 +3335,7 @@ export function useChatMessages(
       const range = rawSeqRange(rawMessages)
       oldestLoadedSeqRef.current = range.oldest
       newestLoadedSeqRef.current = range.newest
+      setPageWindow(pageWindowFromRange(range, page.page.knownTotalMessages ?? page.page.messageCount ?? rawMessages.length))
       const canonicalMessages = canonicalMessagesFromRawHistory(sessionKey, rawMessages)
       const merged = dedupeChatMessages([...canonicalMessages, ...transientMessagesToPreserve(currentMessages)])
       const pageMessages = canonicalMessagesFromRawHistory(sessionKey, pageRawMessages)
@@ -3403,6 +3422,7 @@ export function useChatMessages(
       const range = rawSeqRange(rawMessages)
       oldestLoadedSeqRef.current = range.oldest
       newestLoadedSeqRef.current = range.newest
+      setPageWindow(pageWindowFromRange(range, page.page.knownTotalMessages ?? page.page.messageCount ?? rawMessages.length))
       const canonicalMessages = canonicalMessagesFromRawHistory(sessionKey, rawMessages)
       const merged = dedupeChatMessages([...canonicalMessages, ...transientMessagesToPreserve(messagesRef.current)])
       const pageMessages = canonicalMessagesFromRawHistory(sessionKey, pageRawMessages)
@@ -3481,6 +3501,7 @@ export function useChatMessages(
       const range = rawSeqRange(nextRaw)
       oldestLoadedSeqRef.current = range.oldest
       newestLoadedSeqRef.current = range.newest
+      setPageWindow(pageWindowFromRange(range, page.page.knownTotalMessages ?? page.page.messageCount ?? nextRaw.length))
       setMessages(merged)
       setHasOlderMessages(page.page.hasOlder)
       setHasNewerMessages(page.page.hasNewer)
@@ -3507,6 +3528,7 @@ export function useChatMessages(
     historyLoadVersion,
     hasOlderMessages,
     hasNewerMessages,
+    pageWindow,
     loadingOlderMessages,
     loadingNewerMessages,
     loadOlderMessages,
