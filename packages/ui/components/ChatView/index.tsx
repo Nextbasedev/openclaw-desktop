@@ -1618,10 +1618,24 @@ export function ChatView({
       const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
       return rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId) ?? null
     }
+    const scrollToVirtualRow = () => {
+      if (!virtualizedTimelineEnabled || !scrollElement) return false
+      const index = renderedMessages.findIndex((message) => message.messageId === messageId || message.uiId === messageId)
+      if (index < 0) return false
+      const estimatedTop = timelineRows.slice(0, index).reduce((sum, row) => sum + row.heightEstimate, 0)
+      scrollElement.scrollTop = Math.max(0, estimatedTop - Math.floor(scrollElement.clientHeight / 2))
+      return true
+    }
     let target = findTarget()
+    if (!target && scrollToVirtualRow()) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      target = findTarget()
+    }
     if (!target && (typeof seq === "number" || messageId)) {
       const loaded = await loadAroundMessage({ messageId, seq })
       if (loaded) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        if (!findTarget()) scrollToVirtualRow()
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
         target = findTarget()
       }
@@ -1629,7 +1643,7 @@ export function ChatView({
     if (!target) return false
     target.scrollIntoView({ behavior: "auto", block: "center" })
     return true
-  }, [loadAroundMessage])
+  }, [loadAroundMessage, renderedMessages, scrollElement, timelineRows, virtualizedTimelineEnabled])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
