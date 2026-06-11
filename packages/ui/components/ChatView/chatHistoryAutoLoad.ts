@@ -1,5 +1,9 @@
 export const OLDER_HISTORY_LOAD_REMAINING_RATIO = 0.6
 export const OLDER_HISTORY_FAST_SCROLL_REMAINING_RATIO = 0.85
+export const OLDER_HISTORY_LOAD_MIN_PX = 1200
+export const OLDER_HISTORY_LOAD_MAX_PX = 2400
+export const OLDER_HISTORY_FAST_SCROLL_MIN_PX = 1800
+export const OLDER_HISTORY_FAST_SCROLL_MAX_PX = 3600
 export const OLDER_HISTORY_FAST_SCROLL_MIN_DELTA_PX = 240
 export const OLDER_HISTORY_FAST_SCROLL_MIN_VELOCITY_PX_PER_MS = 1.1
 export const OLDER_HISTORY_REARM_VIEWPORT_RATIO = 0.75
@@ -16,10 +20,17 @@ type OlderHistoryAutoLoadInput = {
   previousScrollTimeMs?: number
 }
 
-function olderHistoryLoadThreshold(scrollHeight: number, clientHeight: number, remainingRatio = OLDER_HISTORY_LOAD_REMAINING_RATIO) {
+function olderHistoryLoadThreshold(
+  scrollHeight: number,
+  clientHeight: number,
+  remainingRatio = OLDER_HISTORY_LOAD_REMAINING_RATIO,
+  minPx = OLDER_HISTORY_LOAD_MIN_PX,
+  maxPx = OLDER_HISTORY_LOAD_MAX_PX,
+) {
   const maxScrollTop = scrollHeight - clientHeight
   if (!Number.isFinite(maxScrollTop) || maxScrollTop <= 0) return null
-  return maxScrollTop * remainingRatio
+  const ratioThreshold = maxScrollTop * remainingRatio
+  return Math.min(maxScrollTop, Math.max(minPx, Math.min(maxPx, ratioThreshold)))
 }
 
 function isFastUpwardScroll({
@@ -54,7 +65,13 @@ export function shouldAutoLoadOlderHistory({
   const threshold = olderHistoryLoadThreshold(scrollHeight, clientHeight)
   if (threshold === null) return false
 
-  const fastThreshold = olderHistoryLoadThreshold(scrollHeight, clientHeight, OLDER_HISTORY_FAST_SCROLL_REMAINING_RATIO)
+  const fastThreshold = olderHistoryLoadThreshold(
+    scrollHeight,
+    clientHeight,
+    OLDER_HISTORY_FAST_SCROLL_REMAINING_RATIO,
+    OLDER_HISTORY_FAST_SCROLL_MIN_PX,
+    OLDER_HISTORY_FAST_SCROLL_MAX_PX,
+  )
   const fastScrollPreload =
     fastThreshold !== null &&
     scrollTop <= fastThreshold &&

@@ -2198,19 +2198,8 @@ export function useChatMessages(
           .map((m) => m.__openclaw?.seq)
           .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
         if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
-        const toppedUpBootstrap = await topUpBootstrapVisibleHistory({
-          sessionKey,
-          rawMessages: rawBootstrapMessages,
-          hasOlder: bootstrapHasOlder === true,
-          oldestLoadedSeq: typeof bootstrapOldestSeq === "number"
-            ? bootstrapOldestSeq
-            : (rawBootstrapSeqs.length > 0 ? Math.min(...rawBootstrapSeqs) : null),
-        })
-        loadedRawHistoryRef.current = toppedUpBootstrap.rawMessages
-        if (typeof toppedUpBootstrap.oldestLoadedSeq === "number") {
-          oldestLoadedSeqRef.current = toppedUpBootstrap.oldestLoadedSeq
-        }
-        const canonicalMessages = toppedUpBootstrap.canonicalMessages
+        loadedRawHistoryRef.current = rawBootstrapMessages
+        const canonicalMessages = canonicalMessagesFromRawHistory(sessionKey, rawBootstrapMessages)
         const existingGlobalBeforeSeed = getGlobalChatSession(sessionKey)
         const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
         const canonicalSpawns = enrichCanonicalSubagentsFromHistory(
