@@ -14,7 +14,7 @@ import { cleanMessageDisplayText, messageTextMatchesSent, normalizeHistoryMessag
 import { classifyGatewayMessageSemanticType, extractToolEventsFromMessage, isErrorToolResult, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
-import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
+import { buildChatBootstrapSnapshot, buildChatPageSnapshot, canonicalPatchPayload } from "./projection.js";
 import type { ProjectedRun } from "./repo.runs.js";
 import type { OpenClawMessage, ProjectedMessage } from "./types.js";
 
@@ -26,6 +26,16 @@ const bootstrapQuery = z.object({
 
 const sessionContextQuery = z.object({
   sessionKey: z.string().min(1),
+});
+
+const chatPageQuery = z.object({
+  sessionKey: z.string().min(1),
+  direction: z.enum(["latest", "older", "newer", "around"]).optional(),
+  beforeSeq: z.coerce.number().int().positive().optional(),
+  afterSeq: z.coerce.number().int().min(0).optional(),
+  aroundSeq: z.coerce.number().int().positive().optional(),
+  aroundMessageId: z.string().min(1).optional(),
+  limit: z.coerce.number().int().positive().max(1000).optional(),
 });
 
 
@@ -1867,6 +1877,58 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
     coldBootstrapJobs.set(coldKey, coldJob);
     return coldJob;
+  });
+
+  app.get("/api/chat/page", async (request) => {
+    const parsed = chatPageQuery.safeParse(request.query);
+    if (!parsed.success) {
+      throw new HttpError(400, "Invalid chat page query", "INVALID_QUERY", parsed.error.flatten());
+    }
+    const input = parsed.data;
+    const direction = input.direction ?? (input.aroundSeq || input.aroundMessageId ? "around" : input.beforeSeq ? "older" : typeof input.afterSeq === "number" ? "newer" : "latest");
+    log.info("page.read.start", {
+      sessionKey: input.sessionKey,
+      direction,
+      beforeSeq: input.beforeSeq ?? null,
+      afterSeq: input.afterSeq ?? null,
+      aroundSeq: input.aroundSeq ?? null,
+      hasAroundMessageId: Boolean(input.aroundMessageId),
+      limit: input.limit,
+    });
+    const page = context.messages.listMessagePage(input.sessionKey, {
+      direction,
+      beforeSeq: input.beforeSeq,
+      afterSeq: input.afterSeq,
+      aroundSeq: input.aroundSeq,
+      aroundMessageId: input.aroundMessageId,
+      limit: input.limit,
+    });
+    const cursor = context.messages.latestSessionCursor(input.sessionKey);
+    const session = context.messages.getSession(input.sessionKey);
+    const gatewayConnected = context.gateway.status().connected;
+    const cacheFreshness = gatewayConnected
+      ? "live"
+      : session && (nowMs() - session.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS
+        ? "sqlite-fresh"
+        : "sqlite-stale";
+    log.info("page.read.end", {
+      sessionKey: input.sessionKey,
+      direction: page.direction,
+      messageCount: page.messages.length,
+      oldestSeq: page.oldestSeq,
+      newestSeq: page.newestSeq,
+      hasOlder: page.hasOlder,
+      hasNewer: page.hasNewer,
+      knownTotalMessages: page.knownTotalMessages,
+      cacheFreshness,
+    });
+    return buildChatPageSnapshot(context, {
+      sessionKey: input.sessionKey,
+      page,
+      cursor,
+      cacheFreshness,
+      messages: page.messages.map(serializeProjectedMessage),
+    });
   });
 
   app.get("/api/chat/messages", async (request) => {

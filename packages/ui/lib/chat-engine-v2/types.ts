@@ -56,6 +56,30 @@ export type ChatBootstrapV2 = {
   sessionStatus?: string | null
 }
 
+export type ChatPageDirectionV2 = "latest" | "older" | "newer" | "around"
+
+export type ChatPageV2 = {
+  ok: boolean
+  source?: string
+  projectionVersion?: number
+  sessionKey: string
+  page: {
+    direction: ChatPageDirectionV2
+    messages: MessageProjectionV2[]
+    messageCount: number
+    oldestSeq: number | null
+    newestSeq: number | null
+    hasOlder: boolean
+    hasNewer: boolean
+    knownTotalMessages: number | null
+    cursor: number
+    cacheFreshness?: "live" | "sqlite-fresh" | "sqlite-stale" | "gateway-backfilled" | string
+  }
+  activeRun?: ActiveRunV2 | null
+  tools?: ToolCallProjectionV2[]
+  toolCalls?: ToolCallProjectionV2[]
+}
+
 export type PatchPayloadV2 = {
   projectionVersion?: number
   semanticType?: string

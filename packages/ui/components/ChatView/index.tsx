@@ -11,6 +11,8 @@ import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
 import { dedupeSpawnedSubagents } from "@/lib/chat-engine-v2/store"
 import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
 import { logChatScrollDebug } from "./chatScrollDebug"
+import { buildChatTimelineRows } from "@/lib/chat-engine-v2/rowModel"
+import { useMeasuredVirtualRows } from "./useMeasuredVirtualRows"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
@@ -465,6 +467,7 @@ export function ChatView({
     hasOlderMessages,
     loadingOlderMessages,
     loadOlderMessages,
+    loadAroundMessage,
     loadError,
     errorMessage,
     isSending,
@@ -950,6 +953,21 @@ export function ChatView({
     () => buildStableChatRows(visibleAllMessages),
     [visibleAllMessages, forceRenderKey]
   )
+  const timelineRows = useMemo(
+    () => buildChatTimelineRows(renderedMessages),
+    [renderedMessages]
+  )
+  const virtualizedTimelineEnabled = renderedMessages.length > 240
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
+  const virtualTimeline = useMeasuredVirtualRows({
+    rows: timelineRows,
+    scrollElement,
+    enabled: virtualizedTimelineEnabled,
+  })
+  const setScrollContainerRef = useCallback((ref: HTMLDivElement | null) => {
+    scrollContainerRef.current = ref
+    setScrollElement(ref)
+  }, [scrollContainerRef])
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const contextFetchSeqRef = useRef(0)
   const wasGeneratingRef = useRef(false)
@@ -1595,14 +1613,23 @@ export function ChatView({
     }, "debug")
   }, [renderedMessages.length, sessionKey, spawnedSubagents, subagentRenderScope])
 
-  const scrollToRenderedMessage = useCallback((messageId: string, _seq?: number) => {
-    void _seq
-    const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-    const target = rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
+  const scrollToRenderedMessage = useCallback(async (messageId: string, seq?: number) => {
+    const findTarget = () => {
+      const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
+      return rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId) ?? null
+    }
+    let target = findTarget()
+    if (!target && (typeof seq === "number" || messageId)) {
+      const loaded = await loadAroundMessage({ messageId, seq })
+      if (loaded) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        target = findTarget()
+      }
+    }
     if (!target) return false
     target.scrollIntoView({ behavior: "auto", block: "center" })
     return true
-  }, [])
+  }, [loadAroundMessage])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -2071,15 +2098,30 @@ export function ChatView({
         <>
 
       <div
-        ref={(ref) => {
-          scrollContainerRef.current = ref
-        }}
+        ref={setScrollContainerRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
-          {renderedMessages.map((msg, index) => (
+          {virtualizedTimelineEnabled ? (
+            <div className="relative w-full" style={{ height: virtualTimeline.totalSize }}>
+              {virtualTimeline.virtualItems.map((item) => {
+                const msg = renderedMessages[item.index]
+                if (!msg) return null
+                return (
+                  <div
+                    key={item.row.rowId}
+                    ref={(element) => virtualTimeline.measureElement(item.row.rowId, element)}
+                    className="absolute left-0 top-0 w-full"
+                    style={{ transform: `translateY(${item.start}px)` }}
+                  >
+                    {renderMessageRow(item.index, msg)}
+                  </div>
+                )
+              })}
+            </div>
+          ) : renderedMessages.map((msg, index) => (
             <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
           ))}
           <div className={cn("mx-auto max-w-[44rem] px-4 pt-0", statusText ? "pb-2" : "pb-8")}>
