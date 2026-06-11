@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { clearLocalFirstBootstrapCache } from "../src/features/chat/routes.js";
+import { normalizeHistoryMessages } from "../src/features/chat/message-normalizer.js";
 import { createApp } from "../src/app.js";
 import type { AppContext } from "../src/app.js";
 import type { MiddlewareConfig } from "../src/config/env.js";
@@ -46,9 +47,9 @@ function syntheticHistory(messageCount: number, toolEvery: number) {
   return { sessionId: "sid-1", sessionFile: null, status: "done", messages };
 }
 
-function windowedHistory(_total: number, startSeq: number, _limit?: number) {
-  const messages = Array.from({ length: 154 }, (_, index) => {
-    const seq = startSeq + index;
+function windowedHistory(total: number, startSeq: number, limit?: number) {
+  const allMessages = Array.from({ length: total }, (_, index) => {
+    const seq = index + 1;
     return {
       role: seq % 2 === 0 ? "assistant" : "user",
       content: [{ type: "text", text: `message ${seq}` }],
@@ -56,6 +57,9 @@ function windowedHistory(_total: number, startSeq: number, _limit?: number) {
       timestamp: 1_781_000_000_000 + seq,
     };
   });
+  const messages = typeof limit === "number"
+    ? allMessages.slice(-limit)
+    : allMessages.filter((message) => (message.__openclaw?.seq ?? 0) >= startSeq);
   return {
     sessionId: "sid-windowed",
     sessionFile: null,
@@ -151,10 +155,45 @@ describe("cold bootstrap in-flight dedupe", () => {
     const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s-windowed&limit=160" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.messageCount).toBe(154);
-    expect(body.oldestLoadedSeq).toBe(120);
+    expect(body.messageCount).toBe(160);
+    expect(body.oldestLoadedSeq).toBe(139);
     expect(body.historyCoverage).toBe("windowed");
     expect(body.fullMessagesIncluded).toBe(false);
+    expect(body.hasOlder).toBe(true);
+    await app.close();
+  });
+
+  test("local-first bootstrap backfills to the requested limit when a recent local window is short but older history exists", async () => {
+    const app = await createApp(config("local-first-windowed-bootstrap"));
+    const context = contextOf(app);
+    const sessionKey = "s-windowed-local";
+    const localWindow = windowedHistory(298, 145).messages;
+
+    context.messages.upsertSession({ sessionKey, sessionId: "sid-windowed", data: { sessionKey, status: "done" } });
+    const segment = context.messages.ensureActiveSegment({ sessionKey, sessionId: "sid-windowed", sessionFile: null });
+    context.messages.upsertMessages(normalizeHistoryMessages(sessionKey, localWindow), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+
+    vi.spyOn(context.gateway, "status").mockReturnValue({
+      connected: true,
+      gatewayUrl: "ws://127.0.0.1:18789",
+      connectedAtMs: Date.now(),
+      lastError: null,
+      pendingRequests: 0,
+      listenerCount: 0,
+    });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, payload?: Record<string, unknown>) => {
+      if (method === "chat.history") {
+        return windowedHistory(298, 1, typeof payload?.limit === "number" ? payload.limit : undefined) as unknown as Record<string, unknown>;
+      }
+      return {} as Record<string, unknown>;
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${sessionKey}&limit=160` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.messageCount).toBe(160);
+    expect(body.oldestLoadedSeq).toBe(139);
+    expect(body.historyCoverage).toBe("windowed");
     expect(body.hasOlder).toBe(true);
     await app.close();
   });

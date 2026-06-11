@@ -1579,7 +1579,74 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       (gatewayConnected || (nowMs() - localSession.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS)
     );
     const shouldServeLocal = inMemoryFresh || canServeFromSqlite;
-    const localMessages = localSession && shouldServeLocal ? context.messages.listMessages(parsed.data.sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }) : [];
+    const requestedBootstrapLimit = parsed.data.limit ?? 1000;
+    let localMessages = localSession && shouldServeLocal
+      ? context.messages.listMessages(parsed.data.sessionKey, { limit: requestedBootstrapLimit, latest: true })
+      : [];
+
+    const localOldestSeq = localMessages.length > 0 ? (localMessages[0]?.openclawSeq ?? null) : null;
+    const localWindowIncomplete = Boolean(
+      localSession &&
+      shouldServeLocal &&
+      gatewayConnected &&
+      localMessages.length > 0 &&
+      localMessages.length < requestedBootstrapLimit &&
+      typeof localOldestSeq === "number" &&
+      localOldestSeq > 1
+    );
+
+    if (localWindowIncomplete) {
+      const oldestLoadedSeq = localOldestSeq as number;
+      const latestSeq = context.messages.nextMessageSeq(parsed.data.sessionKey) - 1;
+      const backfillLimit = Math.min(1000, Math.max(requestedBootstrapLimit, latestSeq - oldestLoadedSeq + requestedBootstrapLimit));
+      try {
+        const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
+          sessionKey: parsed.data.sessionKey,
+          limit: backfillLimit,
+        });
+        const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
+        const rawMessages = history.messages ?? [];
+        const normalized = normalizeHistoryMessages(sessionKey, rawMessages);
+        if (normalized.length > 0) {
+          const existingSession = context.messages.getSession(sessionKey);
+          const segment = context.messages.ensureActiveSegment({
+            sessionKey,
+            sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+            sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
+          });
+          const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+          if (projection.upserted > 0) {
+            const event = context.messages.appendProjectionEvent({
+              sessionKey,
+              eventType: "chat.bootstrap",
+              payload: {
+                sessionKey,
+                messageCount: context.messages.countMessages(sessionKey),
+                lastSeq: context.messages.nextMessageSeq(sessionKey) - 1,
+                historyCoverage: "metadata",
+                fullMessagesIncluded: false,
+                hasOlder: true,
+                bootstrapBackfill: true,
+              },
+            });
+            context.patchBus.broadcast({ cursor: event.cursor, type: event.eventType, sessionKey, payload: event.payload, createdAtMs: event.createdAtMs });
+          }
+          localMessages = context.messages.listMessages(parsed.data.sessionKey, { limit: requestedBootstrapLimit, latest: true });
+          log.info("bootstrap.local-first.backfill", {
+            sessionKey,
+            requestedBootstrapLimit,
+            backfillLimit,
+            oldestLoadedSeq,
+            normalized: normalized.length,
+            upserted: projection.upserted,
+            returnedMessageCount: localMessages.length,
+          });
+        }
+      } catch (error) {
+        log.warn("bootstrap.local-first.backfill.fail", { sessionKey: parsed.data.sessionKey, requestedBootstrapLimit, oldestLoadedSeq, error: errorMeta(error) });
+      }
+    }
+
     const canServeLocal = Boolean(localSession && localMessages.length > 0 && shouldServeLocal);
 
     if (canServeLocal) {
