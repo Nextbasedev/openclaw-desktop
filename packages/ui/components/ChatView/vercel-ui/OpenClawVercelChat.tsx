@@ -426,7 +426,7 @@ export function OpenClawVercelChat({
         </div>
       )}
 
-      <div ref={containerRef} className="absolute inset-0 touch-pan-y scroll-smooth overflow-y-auto overscroll-contain bg-background [overflow-anchor:none]">
+      <div ref={containerRef} className="absolute inset-0 touch-pan-y overflow-y-auto overscroll-contain bg-background [overflow-anchor:none]">
         <div className="mx-auto flex min-h-full min-w-0 max-w-4xl flex-col gap-6 px-2 py-6 md:gap-7 md:px-4">
           {isOlderLoading && <OlderHistoryLoadingIndicator />}
 
