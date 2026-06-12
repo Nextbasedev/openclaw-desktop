@@ -1191,7 +1191,11 @@ export function ChatView({
   const loadOlderWithoutJump = useCallback(async () => {
     const now = Date.now()
     if (!hasOlderMessages || loadingOlderMessages || loadOlderClickInFlightRef.current) return
-    if (isGenerating || now < olderAutoLoadBlockedUntilRef.current) return
+    // Phase 3: previously blocked older-load while isGenerating. The
+    // streaming assistant row is now protected from trim via animateText
+    // (messageWindow.isProtected), so older-load + bottom-trim during
+    // streaming cannot disturb the live tail.
+    if (now < olderAutoLoadBlockedUntilRef.current) return
     if (anchorRestoreInFlightRef.current) return
     if (now - lastOlderLoadAtRef.current < 900) return
     lastOlderLoadAtRef.current = now
@@ -1225,7 +1229,7 @@ export function ChatView({
       loadOlderClickInFlightRef.current = false
       anchorRestoreInFlightRef.current = false
     }
-  }, [hasOlderMessages, isGenerating, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey, unloadNewestPage])
+  }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey, unloadNewestPage])
 
   // Phase 1 sliding-window: symmetric newer-side load. Capture an anchor,
   // append the next page, drop a page from the top. Anchor restore in the
@@ -1314,7 +1318,9 @@ export function ChatView({
       const now = Date.now()
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
       setShowJumpToBottom(!atBottom)
-      const canAutoLoadOlder = !isGenerating && now >= olderAutoLoadBlockedUntilRef.current
+      // Phase 3: older-load allowed during streaming — animateText
+      // protection in messageWindow keeps the live tail safe from trim.
+      const canAutoLoadOlder = now >= olderAutoLoadBlockedUntilRef.current
       if (hasOlderMessages && canAutoLoadOlder && shouldAutoLoadOlderHistory({
         scrollTop: el.scrollTop,
         scrollHeight: el.scrollHeight,
