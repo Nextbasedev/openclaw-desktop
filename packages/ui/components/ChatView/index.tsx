@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
-import { useVirtualizer } from "@tanstack/react-virtual"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -78,8 +77,6 @@ import {
 } from "@/components/ui/tooltip"
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
-const CHAT_ROW_ESTIMATE_PX = 180
-const CHAT_VIRTUAL_OVERSCAN = 12
 
 type MessageScrollAnchor = {
   id: string
@@ -991,49 +988,6 @@ export function ChatView({
   const previousScrollTimeRef = useRef(Date.now())
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const olderAutoLoadBlockedUntilRef = useRef(0)
-  const wasNearBottomBeforeRenderRef = useRef(true)
-
-  const messageVirtualizer = useVirtualizer({
-    count: renderedMessages.length,
-    getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => CHAT_ROW_ESTIMATE_PX,
-    overscan: CHAT_VIRTUAL_OVERSCAN,
-    getItemKey: (index) => renderedMessages[index]?.uiId ?? `message-${index}`,
-    // Chat rows contain markdown, code blocks, images, attachments, and tool
-    // output. Their height is intentionally dynamic, so each mounted row is
-    // measured instead of relying on the estimate above.
-    measureElement:
-      typeof window !== "undefined" && !navigator.userAgent.includes("Firefox")
-        ? (element) => element?.getBoundingClientRect().height ?? CHAT_ROW_ESTIMATE_PX
-        : undefined,
-  })
-  const virtualRows = messageVirtualizer.getVirtualItems()
-  const latestRenderedMessageText = renderedMessages.at(-1)?.text ?? ""
-
-  const isNearChatBottom = useCallback(() => {
-    const el = scrollContainerRef.current
-    if (!el) return true
-    return el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
-  }, [scrollContainerRef])
-
-  const scrollToLatestMessageEnd = useCallback((behavior: ScrollBehavior = "auto") => {
-    if (renderedMessages.length === 0) return
-    messageVirtualizer.scrollToIndex(renderedMessages.length - 1, {
-      align: "end",
-      behavior,
-    })
-    // The last row can grow after markdown/code/images/tool output measure. A
-    // follow-up scroll pins to the real scrollHeight without forcing users who
-    // intentionally scrolled away from the bottom.
-    requestAnimationFrame(() => {
-      const el = scrollContainerRef.current
-      if (!el) return
-      el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
-      previousScrollTopRef.current = el.scrollTop
-      previousScrollTimeRef.current = Date.now()
-      setShowJumpToBottom(false)
-    })
-  }, [messageVirtualizer, renderedMessages.length, scrollContainerRef])
 
   useEffect(() => {
     olderAutoLoadBlockedUntilRef.current = Date.now() + 1500
@@ -1284,7 +1238,6 @@ export function ChatView({
     if (el) {
       const now = Date.now()
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
-      wasNearBottomBeforeRenderRef.current = atBottom
       setShowJumpToBottom(!atBottom)
       const canAutoLoadOlder = !isGenerating && now >= olderAutoLoadBlockedUntilRef.current
       if (hasOlderMessages && canAutoLoadOlder && shouldAutoLoadOlderHistory({
@@ -1304,50 +1257,24 @@ export function ChatView({
       previousScrollTimeRef.current = now
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef, sessionKey])
+  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
-    scrollToLatestMessageEnd("smooth")
-  }, [scrollToLatestMessageEnd])
+    bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+  }, [bottomRef])
 
   const syncJumpToBottomVisibility = useCallback(() => {
-    setShowJumpToBottom(!isNearChatBottom())
-  }, [isNearChatBottom])
+    const el = scrollContainerRef.current
+    if (!el) return
+    setShowJumpToBottom(
+      el.scrollHeight - el.scrollTop - el.clientHeight > JUMP_TO_BOTTOM_THRESHOLD_PX
+    )
+  }, [scrollContainerRef])
 
   useEffect(() => {
     syncJumpToBottomVisibility()
   }, [renderedMessages.length, scrollContainerRef, syncJumpToBottomVisibility])
-
-  // Capture whether the user was pinned to the bottom before React applies a
-  // message update. That lets new messages/streaming deltas follow the bottom
-  // only for users who were already reading latest; readers scrolled upward keep
-  // their exact offset and get the Jump to latest affordance instead.
-  useLayoutEffect(() => {
-    return () => {
-      wasNearBottomBeforeRenderRef.current = isNearChatBottom()
-    }
-  })
-
-  useLayoutEffect(() => {
-    if (!wasNearBottomBeforeRenderRef.current) {
-      syncJumpToBottomVisibility()
-      return
-    }
-    // Visible rows are also measured via measureElement/ResizeObserver. During
-    // streaming, the final assistant row may grow on every token; when pinned to
-    // bottom we refresh measurements and keep the bottom edge stable.
-    messageVirtualizer.measure()
-    requestAnimationFrame(() => scrollToLatestMessageEnd("auto"))
-  }, [
-    isGenerating,
-    messageVirtualizer,
-    pendingTools.length,
-    latestRenderedMessageText,
-    renderedMessages.length,
-    scrollToLatestMessageEnd,
-    syncJumpToBottomVisibility,
-  ])
 
   // Hidden/minimized windows can leave the scroll pane visually blank until a
   // scroll event forces layout/paint. Nudge React and the scroll container when
@@ -1389,7 +1316,15 @@ export function ChatView({
       !userScrollIntentRef.current
     ) {
       needsInitialScrollRef.current = false
-      const scrollToLatest = () => scrollToLatestMessageEnd("auto")
+      const scrollToLatest = () => {
+        const el = scrollContainerRef.current
+        if (!el) return
+        bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+        el.scrollTop = el.scrollHeight
+        previousScrollTopRef.current = el.scrollTop
+        previousScrollTimeRef.current = Date.now()
+        setShowJumpToBottom(false)
+      }
       requestAnimationFrame(() => {
         scrollToLatest()
         requestAnimationFrame(scrollToLatest)
@@ -1397,7 +1332,7 @@ export function ChatView({
         window.setTimeout(scrollToLatest, 360)
       })
     }
-  }, [renderedMessages.length, loading, scrollContainerRef, sessionKey, scrollToLatestMessageEnd])
+  }, [renderedMessages.length, loading, scrollContainerRef, sessionKey, bottomRef])
 
 
 
@@ -1662,18 +1597,12 @@ export function ChatView({
 
   const scrollToRenderedMessage = useCallback((messageId: string, _seq?: number) => {
     void _seq
-    const index = renderedMessages.findIndex(
-      (message) => message.messageId === messageId || message.uiId === messageId
-    )
-    if (index < 0) return false
-    messageVirtualizer.scrollToIndex(index, { align: "center", behavior: "auto" })
-    requestAnimationFrame(() => {
-      const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-      const target = rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
-      target?.scrollIntoView({ behavior: "auto", block: "center" })
-    })
+    const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
+    const target = rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
+    if (!target) return false
+    target.scrollIntoView({ behavior: "auto", block: "center" })
     return true
-  }, [messageVirtualizer, renderedMessages])
+  }, [])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -2149,33 +2078,10 @@ export function ChatView({
         className="flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
       >
         <div className="min-h-full">
-          {/*
-            TanStack Virtual owns only the message timeline. The total-height
-            spacer preserves native wheel/touch inertia, while each visible row
-            is absolutely positioned and dynamically measured. Keeping message
-            rows keyed by stable uiId prevents streaming/tool updates from
-            remounting bubbles and losing markdown/code/image measurements.
-          */}
-          <div
-            className="relative w-full"
-            style={{ height: `${messageVirtualizer.getTotalSize() + 32}px` }}
-          >
-            {virtualRows.map((virtualRow) => {
-              const msg = renderedMessages[virtualRow.index]
-              if (!msg) return null
-              return (
-                <div
-                  key={virtualRow.key}
-                  data-index={virtualRow.index}
-                  ref={messageVirtualizer.measureElement}
-                  className="absolute left-0 top-0 w-full"
-                  style={{ transform: `translateY(${virtualRow.start + 32}px)` }}
-                >
-                  {renderMessageRow(virtualRow.index, msg)}
-                </div>
-              )
-            })}
-          </div>
+          <div className="mx-auto max-w-3xl px-4 pt-8" />
+          {renderedMessages.map((msg, index) => (
+            <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
+          ))}
           <div className={cn("mx-auto max-w-[44rem] px-4 pt-0", statusText ? "pb-2" : "pb-8")}>
             <AnimatePresence initial={false}>
               {editPreview && (
