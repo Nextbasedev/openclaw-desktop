@@ -20,7 +20,7 @@ import type { OpenClawMessage, ProjectedMessage } from "./types.js";
 
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
-  limit: z.coerce.number().int().positive().max(1000).optional(),
+  limit: z.coerce.number().int().positive().max(100_000).optional(),
   maxChars: z.coerce.number().int().positive().optional(),
 });
 
@@ -35,7 +35,7 @@ const chatPageQuery = z.object({
   afterSeq: z.coerce.number().int().min(0).optional(),
   aroundSeq: z.coerce.number().int().positive().optional(),
   aroundMessageId: z.string().min(1).optional(),
-  limit: z.coerce.number().int().positive().max(1000).optional(),
+  limit: z.coerce.number().int().positive().max(100_000).optional(),
 });
 
 
@@ -1589,7 +1589,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       (gatewayConnected || (nowMs() - localSession.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS)
     );
     const shouldServeLocal = inMemoryFresh || canServeFromSqlite;
-    const requestedBootstrapLimit = parsed.data.limit ?? 1000;
+    const requestedBootstrapLimit = parsed.data.limit ?? 100_000;
     let localMessages = localSession && shouldServeLocal
       ? context.messages.listMessages(parsed.data.sessionKey, { limit: requestedBootstrapLimit, latest: true })
       : [];
@@ -1608,7 +1608,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     if (localWindowIncomplete) {
       const oldestLoadedSeq = localOldestSeq as number;
       const latestSeq = context.messages.nextMessageSeq(parsed.data.sessionKey) - 1;
-      const backfillLimit = Math.min(1000, Math.max(requestedBootstrapLimit, latestSeq - oldestLoadedSeq + requestedBootstrapLimit));
+      const backfillLimit = Math.min(100_000, Math.max(requestedBootstrapLimit, latestSeq - oldestLoadedSeq + requestedBootstrapLimit));
       try {
         const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
           sessionKey: parsed.data.sessionKey,
@@ -1834,7 +1834,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       }
     }
 
-    const projectionLimit = parsed.data.limit ?? BOOTSTRAP_PROJECTION_LIMIT;
+    const projectionLimit = parsed.data.limit ?? Math.max(BOOTSTRAP_PROJECTION_LIMIT, context.messages.countMessages(sessionKey));
     const rawProjected = context.messages.listMessages(sessionKey, { limit: projectionLimit, latest: true });
     const projectedMessages: ReturnType<typeof serializeProjectedMessage>[] = [];
     for (let i = 0; i < rawProjected.length; i += 1) {
@@ -1849,7 +1849,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.bootstrap",
-      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "metadata", fullMessagesIncluded: false, pruned: bootstrapPruned },
+      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "full", fullMessagesIncluded: true, pruned: bootstrapPruned },
     });
     localFirstBootstrapTimestamps.set(sessionKey, nowMs());
     localFirstSqliteBlocked.delete('*');

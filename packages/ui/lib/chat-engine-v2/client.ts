@@ -137,7 +137,7 @@ async function fetchJson<T>(path: string, init?: RequestInit & { schedulerPriori
   }
 }
 
-export async function fetchChatBootstrapV2(sessionKey: string, limit = 200): Promise<ChatBootstrapV2> {
+export async function fetchChatBootstrapV2(sessionKey: string, limit = 100_000): Promise<ChatBootstrapV2> {
   const params = new URLSearchParams({ sessionKey, limit: String(limit) })
   return fetchJson<ChatBootstrapV2>(`/api/chat/bootstrap?${params.toString()}`, {
     schedulerPriority: "active-chat",

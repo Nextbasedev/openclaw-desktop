@@ -375,11 +375,10 @@ function parseExecApproval(
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
-export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 50
+export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 100_000
 export const CHAT_OLDER_PAGE_LIMIT = CHAT_BOOTSTRAP_MESSAGE_LIMIT
 export const CHAT_BOOTSTRAP_MIN_VISIBLE_ROWS = 24
-const CHAT_BOOTSTRAP_MAX_TOP_UP_PAGES = 4
-const CHAT_WINDOW_MAX_RAW_MESSAGES = CHAT_BOOTSTRAP_MESSAGE_LIMIT * 3
+const CHAT_BOOTSTRAP_MAX_TOP_UP_PAGES = 0
 
 type ChatDataSource = "fresh" | "warm-cache" | "syncing" | "loading"
 
@@ -707,14 +706,8 @@ function rawSeqRange(messages: RawMessage[]) {
   return { oldest, newest }
 }
 
-function trimRawWindow(messages: RawMessage[], side: "oldest" | "newest" | "around") {
-  const sorted = [...messages].sort((a, b) => (rawMessageSeq(a) ?? 0) - (rawMessageSeq(b) ?? 0))
-  if (sorted.length <= CHAT_WINDOW_MAX_RAW_MESSAGES) return sorted
-  if (side === "oldest") return sorted.slice(0, CHAT_WINDOW_MAX_RAW_MESSAGES)
-  if (side === "newest") return sorted.slice(-CHAT_WINDOW_MAX_RAW_MESSAGES)
-  const overflow = sorted.length - CHAT_WINDOW_MAX_RAW_MESSAGES
-  const dropBefore = Math.floor(overflow / 2)
-  return sorted.slice(dropBefore, dropBefore + CHAT_WINDOW_MAX_RAW_MESSAGES)
+function trimRawWindow(messages: RawMessage[], _side: "oldest" | "newest" | "around") {
+  return [...messages].sort((a, b) => (rawMessageSeq(a) ?? 0) - (rawMessageSeq(b) ?? 0))
 }
 
 function transientMessagesToPreserve(messages: ChatMessage[]) {
@@ -727,21 +720,8 @@ function transientMessagesToPreserve(messages: ChatMessage[]) {
   })
 }
 
-function trimCanonicalWindow(messages: ChatMessage[], side: "oldest" | "newest" | "around") {
-  if (messages.length <= CHAT_WINDOW_MAX_RAW_MESSAGES) return messages
-  const indexed = messages
-    .map((message, index) => ({ message, index }))
-    .sort((a, b) => {
-      const aSeq = typeof a.message.gatewayIndex === "number" && Number.isFinite(a.message.gatewayIndex) ? a.message.gatewayIndex : a.index
-      const bSeq = typeof b.message.gatewayIndex === "number" && Number.isFinite(b.message.gatewayIndex) ? b.message.gatewayIndex : b.index
-      return aSeq - bSeq
-    })
-  const kept = side === "oldest"
-    ? indexed.slice(0, CHAT_WINDOW_MAX_RAW_MESSAGES)
-    : side === "newest"
-      ? indexed.slice(-CHAT_WINDOW_MAX_RAW_MESSAGES)
-      : indexed.slice(Math.floor((indexed.length - CHAT_WINDOW_MAX_RAW_MESSAGES) / 2), Math.floor((indexed.length - CHAT_WINDOW_MAX_RAW_MESSAGES) / 2) + CHAT_WINDOW_MAX_RAW_MESSAGES)
-  return kept.sort((a, b) => a.index - b.index).map((entry) => entry.message)
+function trimCanonicalWindow(messages: ChatMessage[], _side: "oldest" | "newest" | "around") {
+  return messages
 }
 
 export function mergePaginatedRawHistory(params: {

@@ -870,7 +870,7 @@ export class MessageRepository {
   }
 
   listMessages(sessionKey: string, opts: { afterSeq?: number; beforeSeq?: number; limit?: number; latest?: boolean } = {}): ProjectedMessage[] {
-    const limit = Math.max(1, Math.min(1000, opts.limit ?? 200));
+    const limit = Math.max(1, Math.min(100_000, opts.limit ?? 200));
     const beforeSeq = opts.beforeSeq ?? null;
     const rows = this.db.prepare(beforeSeq !== null ? `
       SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
@@ -934,7 +934,7 @@ export class MessageRepository {
     aroundMessageId?: string;
     limit?: number;
   } = {}): MessagePage {
-    const limit = Math.max(1, Math.min(1000, Math.floor(opts.limit ?? 80)));
+    const limit = Math.max(1, Math.min(100_000, Math.floor(opts.limit ?? 80)));
     const direction = opts.direction ?? (typeof opts.beforeSeq === "number" ? "older" : typeof opts.afterSeq === "number" ? "newer" : "latest");
     let messages: ProjectedMessage[];
 
