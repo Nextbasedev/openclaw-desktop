@@ -4128,10 +4128,11 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.get("/api/stream/cron", async (request, reply) => {
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     });
+    reply.raw.flushHeaders?.();
     const write = (event: string, payload: CompatRecord) => {
       reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
     };
