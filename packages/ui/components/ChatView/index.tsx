@@ -953,27 +953,15 @@ export function ChatView({
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
-  const visibleWindowMessages = useMemo(() => {
-    const maxWindowRows = 150
-    if (visibleAllMessages.length <= maxWindowRows) return visibleAllMessages
-    const sorted = [...visibleAllMessages].sort((a, b) => {
-      const aSeq = typeof a.gatewayIndex === "number" && Number.isFinite(a.gatewayIndex) ? a.gatewayIndex : Number.MAX_SAFE_INTEGER
-      const bSeq = typeof b.gatewayIndex === "number" && Number.isFinite(b.gatewayIndex) ? b.gatewayIndex : Number.MAX_SAFE_INTEGER
-      return aSeq - bSeq
-    })
-    const kept = hasNewerMessages ? sorted.slice(0, maxWindowRows) : sorted.slice(-maxWindowRows)
-    const keptIds = new Set(kept.map((message) => message.messageId))
-    return visibleAllMessages.filter((message) => keptIds.has(message.messageId))
-  }, [hasNewerMessages, visibleAllMessages])
   const renderedMessages = useMemo(
-    () => buildStableChatRows(visibleWindowMessages),
-    [visibleWindowMessages, forceRenderKey]
+    () => buildStableChatRows(visibleAllMessages),
+    [visibleAllMessages, forceRenderKey]
   )
   const timelineRows = useMemo(
     () => buildChatTimelineRows(renderedMessages),
     [renderedMessages]
   )
-  const virtualizedTimelineEnabled = renderedMessages.length > 240
+  const virtualizedTimelineEnabled = renderedMessages.length > 0
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const virtualTimeline = useMeasuredVirtualRows({
     rows: timelineRows,
@@ -2161,6 +2149,7 @@ export function ChatView({
                   <div
                     key={item.row.rowId}
                     ref={(element) => virtualTimeline.measureElement(item.row.rowId, element)}
+                    data-index={item.index}
                     className="absolute left-0 top-0 w-full"
                     style={{ transform: `translateY(${item.start}px)` }}
                   >
