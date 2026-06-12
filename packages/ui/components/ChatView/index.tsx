@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -77,120 +78,26 @@ import {
 } from "@/components/ui/tooltip"
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
+const CHAT_VIRTUAL_OVERSCAN = 14
+const CHAT_ROW_ESTIMATE_PX = 152
+const CHAT_FOOTER_ESTIMATE_PX = 72
 
-type MessageScrollAnchor = {
-  id: string
+function isNearScrollBottom(container: HTMLElement | null, threshold = JUMP_TO_BOTTOM_THRESHOLD_PX) {
+  if (!container) return false
+  return container.scrollHeight - container.scrollTop - container.clientHeight <= threshold
+}
+
+function scrollContainerToBottom(container: HTMLElement | null) {
+  if (!container) return
+  container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
+}
+
+type VirtualPrependAnchor = {
   uiId: string
-  messageId: string
-  top: number
-  previousScrollHeight: number
+  offsetFromViewportTop: number
   previousScrollTop: number
 }
 
-function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrollAnchor | null {
-  if (!container) return null
-  const containerRect = container.getBoundingClientRect()
-  const containerTop = containerRect.top
-  const anchorY = containerTop + Math.min(180, Math.max(80, containerRect.height * 0.25))
-  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-  const visibleRow =
-    rows.find((row) => {
-      const rect = row.getBoundingClientRect()
-      return rect.top <= anchorY && rect.bottom >= anchorY
-    }) ?? rows.find((row) => row.getBoundingClientRect().bottom > containerTop + 1)
-  if (!visibleRow) {
-    return {
-      id: "",
-      uiId: "",
-      messageId: "",
-      top: containerTop,
-      previousScrollHeight: container.scrollHeight,
-      previousScrollTop: container.scrollTop,
-    }
-  }
-  return {
-    id: visibleRow.id,
-    uiId: visibleRow.dataset.uiId ?? "",
-    messageId: visibleRow.dataset.messageId ?? "",
-    top: visibleRow.getBoundingClientRect().top,
-    previousScrollHeight: container.scrollHeight,
-    previousScrollTop: container.scrollTop,
-  }
-}
-
-function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null) {
-  if (!container || !anchor) return
-  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-  if (anchor.uiId || anchor.messageId) {
-    const row = rows.find((item) => item.dataset.uiId === anchor.uiId) ??
-      rows.find((item) => item.dataset.messageId === anchor.messageId)
-    if (row) {
-      const deltaPx = row.getBoundingClientRect().top - anchor.top
-      container.scrollTop += deltaPx
-      logChatScrollDebug({
-        source: "chat",
-        event: "restore-anchor-row",
-        anchorId: anchor.uiId || anchor.messageId,
-        anchorTop: anchor.top,
-        deltaPx,
-        scrollTop: container.scrollTop,
-        scrollHeight: container.scrollHeight,
-        clientHeight: container.clientHeight,
-      })
-      return
-    }
-  }
-  if (anchor.id) {
-    const row = document.getElementById(anchor.id)
-    if (row) {
-      const deltaPx = row.getBoundingClientRect().top - anchor.top
-      container.scrollTop += deltaPx
-      logChatScrollDebug({ source: "chat", event: "restore-anchor-dom-id", anchorId: anchor.id, anchorTop: anchor.top, deltaPx, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
-      return
-    }
-  }
-  const delta = container.scrollHeight - anchor.previousScrollHeight
-  container.scrollTop = anchor.previousScrollTop + Math.max(0, delta)
-  logChatScrollDebug({ source: "chat", event: "restore-anchor-height-delta", anchorId: anchor.uiId || anchor.id, deltaPx: delta, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
-}
-
-function settleMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null, done: () => void) {
-  let finished = false
-  let frame: number | null = null
-  let observer: ResizeObserver | null = null
-  const timeouts: number[] = []
-
-  const restore = () => {
-    if (finished) return
-    restoreMessageScrollAnchor(container, anchor)
-  }
-  const scheduleRestore = () => {
-    if (finished || frame !== null) return
-    frame = requestAnimationFrame(() => {
-      frame = null
-      restore()
-    })
-  }
-  const finish = () => {
-    if (finished) return
-    finished = true
-    if (frame !== null) cancelAnimationFrame(frame)
-    for (const timeout of timeouts) window.clearTimeout(timeout)
-    observer?.disconnect()
-    restoreMessageScrollAnchor(container, anchor)
-    done()
-  }
-
-  restore()
-  scheduleRestore()
-  if (container && typeof ResizeObserver !== "undefined") {
-    observer = new ResizeObserver(scheduleRestore)
-    observer.observe(container)
-  }
-  timeouts.push(window.setTimeout(restore, 80))
-  timeouts.push(window.setTimeout(restore, 180))
-  timeouts.push(window.setTimeout(finish, 360))
-}
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
 
 function useAssistantUiChatViewEnabled() {
@@ -617,7 +524,6 @@ export function ChatView({
   const [modelSwitching, setModelSwitching] = useState(false)
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
-  const [forceRenderKey, setForceRenderKey] = useState(0)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -948,7 +854,7 @@ export function ChatView({
   )
   const renderedMessages = useMemo(
     () => buildStableChatRows(visibleAllMessages),
-    [visibleAllMessages, forceRenderKey]
+    [visibleAllMessages]
   )
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const contextFetchSeqRef = useRef(0)
@@ -986,8 +892,24 @@ export function ChatView({
   const initialScrollSessionKeyRef = useRef(sessionKey)
   const previousScrollTopRef = useRef(0)
   const previousScrollTimeRef = useRef(Date.now())
-  const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
+  const pendingVirtualPrependAnchorRef = useRef<VirtualPrependAnchor | null>(null)
   const olderAutoLoadBlockedUntilRef = useRef(0)
+  const keepLatestVisibleRef = useRef(true)
+  const virtualFooterRef = useRef<HTMLDivElement | null>(null)
+  const [virtualFooterHeight, setVirtualFooterHeight] = useState(CHAT_FOOTER_ESTIMATE_PX)
+
+  const rowVirtualizer = useVirtualizer({
+    count: renderedMessages.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => CHAT_ROW_ESTIMATE_PX,
+    getItemKey: (index) => renderedMessages[index]?.uiId ?? `missing:${index}`,
+    overscan: CHAT_VIRTUAL_OVERSCAN,
+    paddingStart: 32,
+  })
+
+  const virtualRows = rowVirtualizer.getVirtualItems()
+  const virtualTotalSize = rowVirtualizer.getTotalSize()
+  const virtualContentHeight = virtualTotalSize + virtualFooterHeight
 
   useEffect(() => {
     olderAutoLoadBlockedUntilRef.current = Date.now() + 1500
@@ -1013,6 +935,8 @@ export function ChatView({
     lastOlderLoadScrollTopRef.current = null
     previousScrollTopRef.current = 0
     previousScrollTimeRef.current = Date.now()
+    pendingVirtualPrependAnchorRef.current = null
+    keepLatestVisibleRef.current = true
   }, [sessionKey])
 
   const latestRenderedUserIndex = useMemo(() => {
@@ -1196,13 +1120,21 @@ export function ChatView({
     lastOlderLoadAtRef.current = now
     loadOlderClickInFlightRef.current = true
     olderLoadAwaitingRenderRef.current = true
-    pendingOlderAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
+    const firstVisible = rowVirtualizer.getVirtualItems()[0]
+    const currentVirtualOffset = rowVirtualizer.scrollOffset ?? scrollContainerRef.current?.scrollTop ?? 0
+    pendingVirtualPrependAnchorRef.current = firstVisible
+      ? {
+          uiId: renderedMessages[firstVisible.index]?.uiId ?? "",
+          offsetFromViewportTop: firstVisible.start - currentVirtualOffset,
+          previousScrollTop: currentVirtualOffset,
+        }
+      : null
     logChatScrollDebug({
       source: "chat",
       event: "load-older-start",
       sessionKey,
-      anchorId: pendingOlderAnchorRef.current?.uiId || pendingOlderAnchorRef.current?.id,
-      anchorTop: pendingOlderAnchorRef.current?.top,
+      anchorId: pendingVirtualPrependAnchorRef.current?.uiId,
+      anchorTop: pendingVirtualPrependAnchorRef.current?.offsetFromViewportTop,
       scrollTop: scrollContainerRef.current?.scrollTop,
       scrollHeight: scrollContainerRef.current?.scrollHeight,
       clientHeight: scrollContainerRef.current?.clientHeight,
@@ -1210,34 +1142,52 @@ export function ChatView({
     try {
       await loadOlderMessages()
     } catch {
-      pendingOlderAnchorRef.current = null
+      pendingVirtualPrependAnchorRef.current = null
       olderLoadAwaitingRenderRef.current = false
       loadOlderClickInFlightRef.current = false
     }
-  }, [hasOlderMessages, isGenerating, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey])
+  }, [hasOlderMessages, isGenerating, loadOlderMessages, loadingOlderMessages, renderedMessages, rowVirtualizer, scrollContainerRef, sessionKey])
 
   useLayoutEffect(() => {
-    const anchor = pendingOlderAnchorRef.current
-    if (!anchor) return
-    pendingOlderAnchorRef.current = null
-    olderLoadAwaitingRenderRef.current = false
-    settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
-      const el = scrollContainerRef.current
-      if (el) {
-        previousScrollTopRef.current = el.scrollTop
-        previousScrollTimeRef.current = Date.now()
-        lastOlderLoadScrollTopRef.current = el.scrollTop
-      }
+    const anchor = pendingVirtualPrependAnchorRef.current
+    if (!anchor || !anchor.uiId) return
+    const nextIndex = renderedMessages.findIndex((message) => message.uiId === anchor.uiId)
+    const el = scrollContainerRef.current
+    if (nextIndex < 0 || !el) return
+
+    rowVirtualizer.scrollToIndex(nextIndex, { align: "start" })
+    requestAnimationFrame(() => {
+      const measured = rowVirtualizer.getVirtualItems().find((item) => item.index === nextIndex)
+      const nextOffset = measured
+        ? measured.start - anchor.offsetFromViewportTop
+        : anchor.previousScrollTop
+      rowVirtualizer.scrollToOffset(Math.max(0, nextOffset), { align: "start" })
+      previousScrollTopRef.current = el.scrollTop
+      previousScrollTimeRef.current = Date.now()
+      lastOlderLoadScrollTopRef.current = el.scrollTop
+      pendingVirtualPrependAnchorRef.current = null
+      olderLoadAwaitingRenderRef.current = false
       loadOlderClickInFlightRef.current = false
+      logChatScrollDebug({
+        source: "chat",
+        event: "restore-virtual-prepend-anchor",
+        sessionKey,
+        anchorId: anchor.uiId,
+        deltaPx: nextOffset - anchor.previousScrollTop,
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+      })
     })
-  }, [renderedMessages.length, scrollContainerRef])
+  }, [renderedMessages, rowVirtualizer, scrollContainerRef, sessionKey])
 
   const handleScroll = useCallback(() => {
     onScroll()
     const el = scrollContainerRef.current
     if (el) {
       const now = Date.now()
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
+      const atBottom = isNearScrollBottom(el)
+      keepLatestVisibleRef.current = atBottom
       setShowJumpToBottom(!atBottom)
       const canAutoLoadOlder = !isGenerating && now >= olderAutoLoadBlockedUntilRef.current
       if (hasOlderMessages && canAutoLoadOlder && shouldAutoLoadOlderHistory({
@@ -1257,12 +1207,15 @@ export function ChatView({
       previousScrollTimeRef.current = now
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef])
+  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef, sessionKey])
 
   const jumpToLatestMessage = useCallback(() => {
+    keepLatestVisibleRef.current = true
     setShowJumpToBottom(false)
-    bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-  }, [bottomRef])
+    scrollContainerToBottom(scrollContainerRef.current)
+    rowVirtualizer.scrollToIndex(Math.max(0, renderedMessages.length - 1), { align: "end" })
+    requestAnimationFrame(() => scrollContainerToBottom(scrollContainerRef.current))
+  }, [renderedMessages.length, rowVirtualizer, scrollContainerRef])
 
   const syncJumpToBottomVisibility = useCallback(() => {
     const el = scrollContainerRef.current
@@ -1284,13 +1237,12 @@ export function ChatView({
     let rafId: number | null = null
     const recoverVisibleRender = () => {
       if (document.visibilityState !== "visible") return
-      setForceRenderKey((prev) => prev + 1)
       if (rafId !== null) cancelAnimationFrame(rafId)
       rafId = requestAnimationFrame(() => {
+        rafId = null
         const el = scrollContainerRef.current
         if (!el) return
-        // Force layout and a no-op scroll write; this mirrors the manual scroll
-        // that currently makes the blank transcript paint again.
+        // Force layout and a no-op scroll write without changing React row identity.
         void el.getBoundingClientRect()
         el.scrollTop = el.scrollTop
         syncJumpToBottomVisibility()
@@ -1319,8 +1271,9 @@ export function ChatView({
       const scrollToLatest = () => {
         const el = scrollContainerRef.current
         if (!el) return
-        bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-        el.scrollTop = el.scrollHeight
+        rowVirtualizer.scrollToIndex(Math.max(0, renderedMessages.length - 1), { align: "end" })
+        scrollContainerToBottom(el)
+        keepLatestVisibleRef.current = true
         previousScrollTopRef.current = el.scrollTop
         previousScrollTimeRef.current = Date.now()
         setShowJumpToBottom(false)
@@ -1332,7 +1285,7 @@ export function ChatView({
         window.setTimeout(scrollToLatest, 360)
       })
     }
-  }, [renderedMessages.length, loading, scrollContainerRef, sessionKey, bottomRef])
+  }, [renderedMessages.length, loading, rowVirtualizer, scrollContainerRef, sessionKey])
 
 
 
@@ -1599,10 +1552,16 @@ export function ChatView({
     void _seq
     const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
     const target = rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
-    if (!target) return false
-    target.scrollIntoView({ behavior: "auto", block: "center" })
+    if (target) {
+      target.scrollIntoView({ behavior: "auto", block: "center" })
+      return true
+    }
+    const index = renderedMessages.findIndex((message) => message.messageId === messageId || message.uiId === messageId)
+    if (index < 0) return false
+    keepLatestVisibleRef.current = false
+    rowVirtualizer.scrollToIndex(index, { align: "center" })
     return true
-  }, [])
+  }, [renderedMessages, rowVirtualizer])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -1846,19 +1805,6 @@ export function ChatView({
   // subagents, and send-time scroll ownership.
   const assistantUiChatViewEnabled = false && experimentalAssistantUiChatViewEnabled
 
-  if (activeSubKey && activeLiveSubagent) {
-    return (
-      <SubagentFullChat
-        sessionKey={activeSubKey}
-        label={activeLiveSubagent.label}
-        status={activeLiveSubagent.status}
-        fallbackPrompt={activeSubagentFallbackPrompt}
-        fallbackText={activeSubagentFallbackText}
-        onBack={closeSubagent}
-      />
-    )
-  }
-
   const liveTool = isGenerating
     ? pendingTools.find(
         (tool) =>
@@ -1902,6 +1848,59 @@ export function ChatView({
                         ? `${statusLabel}...`
                         : "Thinking - waiting for the next event..."
                       : null)
+
+  const latestVirtualLayoutSignature = useMemo(() => {
+    const last = renderedMessages.at(-1)
+    return [
+      sessionKey,
+      renderedMessages.length,
+      last?.uiId ?? "",
+      last?.messageId ?? "",
+      last?.text?.length ?? 0,
+      last?.reasoningText?.length ?? 0,
+      last?.toolCalls?.map((tool) => `${tool.id}:${tool.status}:${tool.resultText?.length ?? 0}`).join("|") ?? "",
+      pendingTools.map((tool) => `${tool.id}:${tool.status}:${tool.resultText?.length ?? 0}`).join("|"),
+      statusText ?? "",
+      editPreview?.status ?? "",
+      virtualFooterHeight,
+    ].join("::")
+  }, [editPreview?.status, pendingTools, renderedMessages, sessionKey, statusText, virtualFooterHeight])
+
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el || olderLoadAwaitingRenderRef.current || pendingVirtualPrependAnchorRef.current) return
+    if (!keepLatestVisibleRef.current && !isNearScrollBottom(el)) return
+    keepLatestVisibleRef.current = true
+    scrollContainerToBottom(el)
+    previousScrollTopRef.current = el.scrollTop
+    previousScrollTimeRef.current = Date.now()
+    setShowJumpToBottom(false)
+  }, [latestVirtualLayoutSignature, scrollContainerRef])
+
+  useEffect(() => {
+    const footer = virtualFooterRef.current
+    if (!footer || typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver((entries) => {
+      const height = Math.ceil(entries[0]?.contentRect.height ?? CHAT_FOOTER_ESTIMATE_PX)
+      setVirtualFooterHeight(Math.max(CHAT_FOOTER_ESTIMATE_PX, height))
+      if (keepLatestVisibleRef.current) requestAnimationFrame(() => scrollContainerToBottom(scrollContainerRef.current))
+    })
+    observer.observe(footer)
+    return () => observer.disconnect()
+  }, [scrollContainerRef])
+
+  if (activeSubKey && activeLiveSubagent) {
+    return (
+      <SubagentFullChat
+        sessionKey={activeSubKey}
+        label={activeLiveSubagent.label}
+        status={activeLiveSubagent.status}
+        fallbackPrompt={activeSubagentFallbackPrompt}
+        fallbackText={activeSubagentFallbackText}
+        onBack={closeSubagent}
+      />
+    )
+  }
 
   if (loading && messages.length === 0) {
     return <ChatLoadingSkeleton />
@@ -2077,33 +2076,54 @@ export function ChatView({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
       >
-        <div className="min-h-full">
+        <div
+          className="relative min-h-full"
+          style={{ height: `${virtualContentHeight}px` }}
+        >
           <div className="mx-auto max-w-3xl px-4 pt-8" />
-          {renderedMessages.map((msg, index) => (
-            <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
-          ))}
-          <div className={cn("mx-auto max-w-[44rem] px-4 pt-0", statusText ? "pb-2" : "pb-8")}>
-            <AnimatePresence initial={false}>
-              {editPreview && (
-                <EditPreviewPanel
-                  key={editPreview.branchSessionKey}
-                  preview={editPreview}
-                  onSelect={selectEditBranch}
-                />
-              )}
-            </AnimatePresence>
-            <div className={cn("flex h-[21px] items-center", statusText ? "mt-1" : "mt-2")}>
-              {statusText && (
-                <>
-                  <ProcessStatusIcon tool={liveTool?.tool} />
-                  <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                    {statusText.replace(/\.{3}$/, "")}
-                    <span className="thinking-ellipsis" aria-hidden="true" />
-                  </span>
-                </>
-              )}
+          {virtualRows.map((virtualRow) => {
+            const msg = renderedMessages[virtualRow.index]
+            if (!msg) return null
+            return (
+              <div
+                key={virtualRow.key}
+                data-index={virtualRow.index}
+                ref={rowVirtualizer.measureElement}
+                className="absolute left-0 top-0 w-full"
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
+              >
+                {renderMessageRow(virtualRow.index, msg)}
+              </div>
+            )
+          })}
+          <div
+            ref={virtualFooterRef}
+            className={cn("absolute left-0 top-0 w-full", statusText ? "pb-2" : "pb-8")}
+            style={{ transform: `translateY(${virtualTotalSize}px)` }}
+          >
+            <div className="mx-auto max-w-[44rem] px-4 pt-0">
+              <AnimatePresence initial={false}>
+                {editPreview && (
+                  <EditPreviewPanel
+                    key={editPreview.branchSessionKey}
+                    preview={editPreview}
+                    onSelect={selectEditBranch}
+                  />
+                )}
+              </AnimatePresence>
+              <div className={cn("flex h-[21px] items-center", statusText ? "mt-1" : "mt-2")}>
+                {statusText && (
+                  <>
+                    <ProcessStatusIcon tool={liveTool?.tool} />
+                    <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+                      {statusText.replace(/\.{3}$/, "")}
+                      <span className="thinking-ellipsis" aria-hidden="true" />
+                    </span>
+                  </>
+                )}
+              </div>
+              <div ref={bottomRef} className={statusText ? "h-2" : "h-8"} />
             </div>
-            <div ref={bottomRef} className={statusText ? "h-2" : "h-8"} />
           </div>
         </div>
       </div>
