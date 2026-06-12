@@ -77,6 +77,17 @@ import {
 } from "@/components/ui/tooltip"
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
+const STICK_TO_BOTTOM_THRESHOLD_PX = 96
+
+function isNearScrollBottom(container: HTMLElement | null, threshold = STICK_TO_BOTTOM_THRESHOLD_PX) {
+  if (!container) return false
+  return container.scrollHeight - container.scrollTop - container.clientHeight <= threshold
+}
+
+function scrollContainerToBottom(container: HTMLElement | null) {
+  if (!container) return
+  container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
+}
 
 type MessageScrollAnchor = {
   id: string
@@ -987,6 +998,8 @@ export function ChatView({
   const previousScrollTimeRef = useRef(Date.now())
   const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const olderAutoLoadBlockedUntilRef = useRef(0)
+  const keepLatestVisibleRef = useRef(true)
+  const transcriptContentRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     olderAutoLoadBlockedUntilRef.current = Date.now() + 1500
@@ -1237,6 +1250,7 @@ export function ChatView({
     if (el) {
       const now = Date.now()
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
+      keepLatestVisibleRef.current = isNearScrollBottom(el)
       setShowJumpToBottom(!atBottom)
       const canAutoLoadOlder = !isGenerating && now >= olderAutoLoadBlockedUntilRef.current
       if (hasOlderMessages && canAutoLoadOlder && shouldAutoLoadOlderHistory({
@@ -1256,12 +1270,14 @@ export function ChatView({
       previousScrollTimeRef.current = now
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef])
+  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef, sessionKey])
 
   const jumpToLatestMessage = useCallback(() => {
+    keepLatestVisibleRef.current = true
     setShowJumpToBottom(false)
+    scrollContainerToBottom(scrollContainerRef.current)
     bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-  }, [bottomRef])
+  }, [bottomRef, scrollContainerRef])
 
   const syncJumpToBottomVisibility = useCallback(() => {
     const el = scrollContainerRef.current
@@ -1274,6 +1290,33 @@ export function ChatView({
   useEffect(() => {
     syncJumpToBottomVisibility()
   }, [renderedMessages.length, scrollContainerRef, syncJumpToBottomVisibility])
+
+
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    const content = transcriptContentRef.current
+    if (!el || !content || typeof ResizeObserver === "undefined") return
+    let rafId: number | null = null
+    const keepBottomIfOwned = () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        if (!keepLatestVisibleRef.current && !isNearScrollBottom(el)) return
+        if (pendingOlderAnchorRef.current || olderLoadAwaitingRenderRef.current) return
+        keepLatestVisibleRef.current = true
+        scrollContainerToBottom(el)
+        previousScrollTopRef.current = el.scrollTop
+        previousScrollTimeRef.current = Date.now()
+        setShowJumpToBottom(false)
+      })
+    }
+    const observer = new ResizeObserver(keepBottomIfOwned)
+    observer.observe(content)
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      observer.disconnect()
+    }
+  }, [scrollContainerRef])
 
   // Hidden/minimized windows can leave the scroll pane visually blank until a
   // scroll event forces layout/paint. Nudge React and the scroll container when
@@ -1333,7 +1376,8 @@ export function ChatView({
         const el = scrollContainerRef.current
         if (!el) return
         bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-        el.scrollTop = el.scrollHeight
+        scrollContainerToBottom(el)
+        keepLatestVisibleRef.current = true
         previousScrollTopRef.current = el.scrollTop
         previousScrollTimeRef.current = Date.now()
         setShowJumpToBottom(false)
@@ -1859,19 +1903,6 @@ export function ChatView({
   // subagents, and send-time scroll ownership.
   const assistantUiChatViewEnabled = false && experimentalAssistantUiChatViewEnabled
 
-  if (activeSubKey && activeLiveSubagent) {
-    return (
-      <SubagentFullChat
-        sessionKey={activeSubKey}
-        label={activeLiveSubagent.label}
-        status={activeLiveSubagent.status}
-        fallbackPrompt={activeSubagentFallbackPrompt}
-        fallbackText={activeSubagentFallbackText}
-        onBack={closeSubagent}
-      />
-    )
-  }
-
   const liveTool = isGenerating
     ? pendingTools.find(
         (tool) =>
@@ -1915,6 +1946,47 @@ export function ChatView({
                         ? `${statusLabel}...`
                         : "Thinking - waiting for the next event..."
                       : null)
+
+  const latestLayoutSignature = useMemo(() => {
+    const last = renderedMessages.at(-1)
+    return [
+      sessionKey,
+      renderedMessages.length,
+      last?.uiId ?? "",
+      last?.messageId ?? "",
+      last?.role ?? "",
+      last?.text?.length ?? 0,
+      last?.reasoningText?.length ?? 0,
+      last?.toolCalls?.map((tool) => `${tool.id}:${tool.status}:${tool.resultText?.length ?? 0}`).join("|") ?? "",
+      pendingTools.map((tool) => `${tool.id}:${tool.status}:${tool.resultText?.length ?? 0}`).join("|"),
+      statusText ?? "",
+      editPreview?.status ?? "",
+    ].join("::")
+  }, [editPreview?.status, pendingTools, renderedMessages, sessionKey, statusText])
+
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el || pendingOlderAnchorRef.current || olderLoadAwaitingRenderRef.current) return
+    if (!keepLatestVisibleRef.current && !isNearScrollBottom(el)) return
+    keepLatestVisibleRef.current = true
+    scrollContainerToBottom(el)
+    previousScrollTopRef.current = el.scrollTop
+    previousScrollTimeRef.current = Date.now()
+    setShowJumpToBottom(false)
+  }, [latestLayoutSignature, scrollContainerRef])
+
+  if (activeSubKey && activeLiveSubagent) {
+    return (
+      <SubagentFullChat
+        sessionKey={activeSubKey}
+        label={activeLiveSubagent.label}
+        status={activeLiveSubagent.status}
+        fallbackPrompt={activeSubagentFallbackPrompt}
+        fallbackText={activeSubagentFallbackText}
+        onBack={closeSubagent}
+      />
+    )
+  }
 
   if (loading && messages.length === 0) {
     return <ChatLoadingSkeleton />
@@ -2090,7 +2162,7 @@ export function ChatView({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
       >
-        <div className="min-h-full">
+        <div ref={transcriptContentRef} className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
           {renderedMessages.map((msg, index) => (
             <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
