@@ -11,6 +11,7 @@ import {
   seedGlobalChatSession,
   subscribeGlobalChatSession,
   sweepStaleGlobalChatSessions,
+  trimSessionMessageWindow,
 } from "../store"
 
 vi.mock("../client", () => ({
@@ -3705,90 +3706,99 @@ describe("global V2 chat engine store", () => {
     expect(state?.messages.some((message) => message.text === "reply1\n\nreply2")).toBe(false)
   })
 
-  describe("evictMessagesOutsideSeqRange", () => {
-    const seedRange = (sessionKey: string, fromSeq: number, toSeq: number) => {
-      const messages = []
-      for (let seq = fromSeq; seq <= toSeq; seq += 1) {
+  describe("trimSessionMessageWindow (Phase 1 fixed-window)", () => {
+    function seedRange(sessionKey: string, count: number, opts: { withOptimisticTail?: number } = {}) {
+      const messages: any[] = []
+      for (let i = 0; i < count; i += 1) {
         messages.push({
-          messageId: `m-${seq}`,
-          role: seq % 2 === 0 ? "user" : "assistant",
-          text: `t-${seq}`,
-          gatewayIndex: seq,
-          __openclaw: { id: `m-${seq}`, seq },
-        } as any)
+          messageId: `m-${i}`,
+          role: i % 2 === 0 ? "user" : "assistant",
+          text: `msg-${i}`,
+          gatewayIndex: i + 1,
+        })
       }
-      seedGlobalChatSession({
-        sessionKey,
-        cursor: toSeq,
-        status: "idle",
-        messages,
-      })
+      const optimisticCount = opts.withOptimisticTail ?? 0
+      for (let i = 0; i < optimisticCount; i += 1) {
+        messages.push({
+          messageId: `opt-${i}`,
+          role: "user",
+          text: `opt-${i}`,
+          isOptimistic: true,
+          sendStatus: "sending",
+        })
+      }
+      seedGlobalChatSession({ sessionKey, cursor: 1, status: "idle", messages })
     }
 
-    test("keeps only messages whose gatewayIndex is in [minSeq, maxSeq]", () => {
-      seedRange("s-evict", 0, 199)
-      const evicted = evictMessagesOutsideSeqRange("s-evict", 60, 119)
-      expect(evicted).toBe(140)
-      const state = getGlobalChatSession("s-evict")
-      expect(state?.messages).toHaveLength(60)
-      expect(state?.messages.every((m) => (m.gatewayIndex ?? -1) >= 60 && (m.gatewayIndex ?? -1) <= 119)).toBe(true)
+    test("drops requested top + bottom counts on plain history", () => {
+      seedRange("trim-1", 10)
+      const removed = trimSessionMessageWindow("trim-1", { dropFromTop: 2, dropFromBottom: 3 })
+      expect(removed).toBe(5)
+      const state = getGlobalChatSession("trim-1")
+      expect(state?.messages.map((m) => m.text)).toEqual(["msg-2", "msg-3", "msg-4", "msg-5", "msg-6"])
     })
 
-    test("preserves messages without gatewayIndex (e.g. optimistic sends)", () => {
-      seedGlobalChatSession({
-        sessionKey: "s-opt",
-        cursor: 5,
-        status: "idle",
-        messages: [
-          { messageId: "opt-1", role: "user", text: "hi", isOptimistic: true, sendStatus: "sending" } as any,
-          { messageId: "g-3", role: "user", text: "q", gatewayIndex: 3, __openclaw: { id: "g-3", seq: 3 } } as any,
-          { messageId: "g-50", role: "user", text: "far", gatewayIndex: 50, __openclaw: { id: "g-50", seq: 50 } } as any,
-        ],
+    test("never drops optimistic tail rows even when bottom drop requested", () => {
+      seedRange("trim-2", 5, { withOptimisticTail: 2 })
+      const removed = trimSessionMessageWindow("trim-2", { dropFromBottom: 3 })
+      expect(removed).toBe(0)
+      const state = getGlobalChatSession("trim-2")
+      expect(state?.messages).toHaveLength(7)
+    })
+
+    test("never drops sendStatus rows from the top when drop range reaches them", () => {
+      // Synthetic mix: 2 normal rows, then a pending row at index 2.
+      const messages: any[] = [
+        { messageId: "a", role: "user", text: "a", gatewayIndex: 1 },
+        { messageId: "b", role: "assistant", text: "b", gatewayIndex: 2 },
+        { messageId: "c", role: "user", text: "c", sendStatus: "pending" },
+        { messageId: "d", role: "user", text: "d", gatewayIndex: 3 },
+      ]
+      seedGlobalChatSession({ sessionKey: "trim-3", cursor: 1, status: "idle", messages })
+      const removed = trimSessionMessageWindow("trim-3", { dropFromTop: 3 })
+      // Stops at index 2 (pending); only drops 2 normal rows from top.
+      expect(removed).toBe(2)
+      const state = getGlobalChatSession("trim-3")
+      expect(state?.messages.map((m) => m.messageId)).toEqual(["c", "d"])
+    })
+
+    test("no-op when both drop counts are zero", () => {
+      seedRange("trim-4", 5)
+      expect(trimSessionMessageWindow("trim-4", {})).toBe(0)
+      expect(trimSessionMessageWindow("trim-4", { dropFromTop: 0, dropFromBottom: 0 })).toBe(0)
+      expect(getGlobalChatSession("trim-4")?.messages).toHaveLength(5)
+    })
+
+    test("clamps drop count when it exceeds available rows", () => {
+      seedRange("trim-5", 3)
+      const removed = trimSessionMessageWindow("trim-5", { dropFromTop: 5, dropFromBottom: 5 })
+      // dropFromTop runs first → drops 3, leaves 0. Bottom can't drop more.
+      expect(removed).toBe(3)
+      expect(getGlobalChatSession("trim-5")?.messages).toEqual([])
+    })
+
+    test("unknown session returns 0", () => {
+      expect(trimSessionMessageWindow("no-such-session", { dropFromTop: 1 })).toBe(0)
+    })
+
+    test("notifies subscribers after a trim", () => {
+      seedRange("trim-6", 10)
+      const seen: number[] = []
+      const unsub = subscribeGlobalChatSession("trim-6", (state) => {
+        seen.push(state.messages.length)
       })
-      const evicted = evictMessagesOutsideSeqRange("s-opt", 0, 10)
-      expect(evicted).toBe(1) // only g-50 is out of range
-      const messages = getGlobalChatSession("s-opt")?.messages ?? []
-      expect(messages.map((m) => m.messageId).sort()).toEqual(["g-3", "opt-1"])
+      // Initial subscribe also delivers current state.
+      const baseline = seen.length
+      trimSessionMessageWindow("trim-6", { dropFromTop: 4 })
+      expect(seen.length).toBeGreaterThan(baseline)
+      expect(seen[seen.length - 1]).toBe(6)
+      unsub()
     })
 
-    test("no-op when no messages fall outside the range", () => {
-      seedRange("s-noop", 100, 110)
-      const evicted = evictMessagesOutsideSeqRange("s-noop", 90, 200)
-      expect(evicted).toBe(0)
-      expect(getGlobalChatSession("s-noop")?.messages).toHaveLength(11)
-    })
-
-    test("returns 0 when session does not exist", () => {
-      expect(evictMessagesOutsideSeqRange("missing", 0, 100)).toBe(0)
-    })
-
-    test("protects optimistic messages even when gatewayIndex would be out of range", () => {
-      seedGlobalChatSession({
-        sessionKey: "s-opt-seq",
-        cursor: 100,
-        status: "idle",
-        messages: [
-          { messageId: "x", role: "user", text: "a", gatewayIndex: 5, isOptimistic: true, __openclaw: { id: "x", seq: 5 } } as any,
-          { messageId: "y", role: "user", text: "b", gatewayIndex: 6, __openclaw: { id: "y", seq: 6 } } as any,
-        ],
-      })
-      const evicted = evictMessagesOutsideSeqRange("s-opt-seq", 100, 200)
-      // y is evicted (seq 6 < 100, not optimistic); x is preserved (optimistic).
-      expect(evicted).toBe(1)
-      const messages = getGlobalChatSession("s-opt-seq")?.messages ?? []
-      expect(messages.map((m) => m.messageId)).toEqual(["x"])
-    })
-
-    test("notifies subscribers after eviction", () => {
-      seedRange("s-notify", 0, 19)
-      const listener = vi.fn()
-      const unsubscribe = subscribeGlobalChatSession("s-notify", listener)
-      listener.mockClear() // ignore the initial snapshot callback
-      evictMessagesOutsideSeqRange("s-notify", 10, 19)
-      expect(listener).toHaveBeenCalled()
-      const lastSnapshot = listener.mock.calls.at(-1)![0]
-      expect(lastSnapshot.messages).toHaveLength(10)
-      unsubscribe()
+    test("negative drop counts are clamped to zero", () => {
+      seedRange("trim-7", 5)
+      expect(trimSessionMessageWindow("trim-7", { dropFromTop: -3, dropFromBottom: -10 })).toBe(0)
+      expect(getGlobalChatSession("trim-7")?.messages).toHaveLength(5)
     })
   })
 })
