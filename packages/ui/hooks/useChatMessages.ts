@@ -64,11 +64,13 @@ import {
   type ActiveRunV2,
   type RunStatusV2,
   type ToolCallProjectionV2,
+  type ChatMessagesPageV2,
 } from "@/lib/chat-engine-v2/client"
 import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, trimSessionMessageWindow, updateGlobalChatSessionActivity, type SessionState } from "@/lib/chat-engine-v2/store"
 import { PAGE_SIZE as WINDOW_PAGE_SIZE, WINDOW_SIZE as WINDOW_TOTAL_SIZE, planDropFromTop, planDropFromBottom, sortMessagesByGatewayIndex } from "@/lib/chat-engine-v2/messageWindow"
+import { createPageCache, getCachedPage, putCachedPage, clearSessionPageCache, type PageCacheState } from "@/lib/chat-engine-v2/pageCache"
 import { getTimelineStore, deleteTimelineStore } from "@/lib/chat-engine-v2/timelineStore"
 import { stripTransientChatMessagesState } from "@/lib/chatTransientState"
 import { isStopSlashCommand } from "@/lib/controlSlashCommands"
@@ -904,6 +906,13 @@ export function useChatMessages(
   const loadNewerInFlightRef = useRef(false)
   const loadedRawHistoryRef = useRef<RawMessage[]>([])
   const loadOlderInFlightRef = useRef(false)
+  // Phase 5 — bounded page cache for rapid-reversal scrolling.
+  // Eliminates duplicate older/newer page fetches when the user
+  // scrolls back and forth across the same boundary within TTL.
+  // Stores the raw API page-message shape (parsed downstream into
+  // RawMessage via the existing merge path).
+  type CachedApiMessage = ChatMessagesPageV2["messages"][number]
+  const pageCacheRef = useRef<PageCacheState<CachedApiMessage>>(createPageCache<CachedApiMessage>())
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
@@ -1921,6 +1930,9 @@ export function useChatMessages(
     oldestLoadedSeqRef.current = null
     newestLoadedSeqRef.current = null
     loadedRawHistoryRef.current = []
+    // Phase 5 — reset page cache on session switch / engine reset so
+    // stale page data from a previous session is never served.
+    clearSessionPageCache(pageCacheRef.current, sessionKey)
     let unsubscribeStream: (() => void) | null = null
     let unsubscribeV2Stream: (() => void) | null = null
     let bootstrapSettled = false
@@ -3225,11 +3237,23 @@ export function useChatMessages(
     setLoadError(null)
     setLoadingOlderMessages(true)
     try {
-      const page = await fetchChatMessagesV2({
-        sessionKey,
-        beforeSeq,
-        limit: CHAT_OLDER_PAGE_LIMIT,
-      })
+      // Phase 5 — page cache lookup. If we already fetched this exact
+      // (sessionKey, direction, beforeSeq) within TTL, serve from cache.
+      const cached = getCachedPage(pageCacheRef.current, sessionKey, "older", beforeSeq)
+      const page = cached
+        ? { ok: true, sessionKey, messages: cached.messages, messageCount: cached.messages.length } as ChatMessagesPageV2
+        : await fetchChatMessagesV2({
+          sessionKey,
+          beforeSeq,
+          limit: CHAT_OLDER_PAGE_LIMIT,
+        })
+      if (!cached) {
+        putCachedPage(pageCacheRef.current, sessionKey, "older", beforeSeq, {
+          messages: page.messages,
+          fetchedAtMs: Date.now(),
+          hasMore: page.messages.length >= CHAT_OLDER_PAGE_LIMIT,
+        })
+      }
       if (viewGenerationRef.current !== requestGeneration) {
         logChatRequestStaleSkip({
           windowId: windowIdRef.current,
@@ -3341,11 +3365,22 @@ export function useChatMessages(
     loadNewerInFlightRef.current = true
     setLoadingNewerMessages(true)
     try {
-      const page = await fetchChatMessagesV2({
-        sessionKey,
-        afterSeq: newestKnown,
-        limit: WINDOW_PAGE_SIZE,
-      })
+      // Phase 5 — page cache lookup for newer-side reversals.
+      const cachedNewer = getCachedPage(pageCacheRef.current, sessionKey, "newer", newestKnown)
+      const page = cachedNewer
+        ? { ok: true, sessionKey, messages: cachedNewer.messages, messageCount: cachedNewer.messages.length } as ChatMessagesPageV2
+        : await fetchChatMessagesV2({
+          sessionKey,
+          afterSeq: newestKnown,
+          limit: WINDOW_PAGE_SIZE,
+        })
+      if (!cachedNewer) {
+        putCachedPage(pageCacheRef.current, sessionKey, "newer", newestKnown, {
+          messages: page.messages,
+          fetchedAtMs: Date.now(),
+          hasMore: page.messages.length >= WINDOW_PAGE_SIZE,
+        })
+      }
       if (viewGenerationRef.current !== requestGeneration) return
       if (page.messages.length === 0) {
         setHasNewerMessages(false)
