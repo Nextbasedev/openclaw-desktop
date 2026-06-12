@@ -374,8 +374,12 @@ function parseExecApproval(
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
-export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 160
-export const CHAT_OLDER_PAGE_LIMIT = CHAT_BOOTSTRAP_MESSAGE_LIMIT
+// Bootstrap fetches at most ~2 chunks of history (the live tail + a small
+// cushion). The chunk pool (useChunkedMessageSource) lazy-loads older
+// chunks on demand as the user scrolls. Older page limit is one chunk so
+// each load-more pull lines up with the pool's CHUNK_SIZE = 60.
+export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 120
+export const CHAT_OLDER_PAGE_LIMIT = 60
 export const CHAT_BOOTSTRAP_MIN_VISIBLE_ROWS = 24
 const CHAT_BOOTSTRAP_MAX_TOP_UP_PAGES = 4
 

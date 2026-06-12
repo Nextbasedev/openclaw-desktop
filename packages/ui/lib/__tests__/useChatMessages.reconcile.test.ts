@@ -122,9 +122,9 @@ describe("chat reconcile active-state guards", () => {
     expect(dataSourceAfterWarmCacheApplied()).toBe("warm-cache")
   })
 
-  test("keeps older history page length aligned with bootstrap page length", () => {
-    expect(CHAT_OLDER_PAGE_LIMIT).toBe(CHAT_BOOTSTRAP_MESSAGE_LIMIT)
-    expect(CHAT_OLDER_PAGE_LIMIT).toBe(160)
+  test("older history page length aligns with the chunk pool CHUNK_SIZE", () => {
+    expect(CHAT_BOOTSTRAP_MESSAGE_LIMIT).toBe(120)
+    expect(CHAT_OLDER_PAGE_LIMIT).toBe(60)
   })
 
   test("keeps current-session timeline rows visible while older history loads", () => {
