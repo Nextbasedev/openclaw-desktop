@@ -78,9 +78,9 @@ import {
 } from "@/components/ui/tooltip"
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
-const CHAT_VIRTUAL_OVERSCAN = 20
+const CHAT_VIRTUAL_OVERSCAN = 14
 const CHAT_ROW_ESTIMATE_PX = 152
-const CHAT_FOOTER_ESTIMATE_PX = 56
+const CHAT_FOOTER_ESTIMATE_PX = 72
 
 function isNearScrollBottom(container: HTMLElement | null, threshold = JUMP_TO_BOTTOM_THRESHOLD_PX) {
   if (!container) return false
@@ -90,20 +90,6 @@ function isNearScrollBottom(container: HTMLElement | null, threshold = JUMP_TO_B
 function scrollContainerToBottom(container: HTMLElement | null) {
   if (!container) return
   container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
-}
-
-function scheduleAnimationFrames(callback: () => void, count = 2) {
-  let frame: number | null = null
-  let remaining = count
-  const tick = () => {
-    callback()
-    remaining -= 1
-    if (remaining > 0) frame = requestAnimationFrame(tick)
-  }
-  frame = requestAnimationFrame(tick)
-  return () => {
-    if (frame !== null) cancelAnimationFrame(frame)
-  }
 }
 
 type VirtualPrependAnchor = {
@@ -1134,10 +1120,8 @@ export function ChatView({
     lastOlderLoadAtRef.current = now
     loadOlderClickInFlightRef.current = true
     olderLoadAwaitingRenderRef.current = true
+    const firstVisible = rowVirtualizer.getVirtualItems()[0]
     const currentVirtualOffset = rowVirtualizer.scrollOffset ?? scrollContainerRef.current?.scrollTop ?? 0
-    const firstVisible = rowVirtualizer
-      .getVirtualItems()
-      .find((item) => item.end >= currentVirtualOffset + 1) ?? rowVirtualizer.getVirtualItems()[0]
     pendingVirtualPrependAnchorRef.current = firstVisible
       ? {
           uiId: renderedMessages[firstVisible.index]?.uiId ?? "",
@@ -1172,9 +1156,7 @@ export function ChatView({
     if (nextIndex < 0 || !el) return
 
     rowVirtualizer.scrollToIndex(nextIndex, { align: "start" })
-    let restoreCount = 0
-    const cancelRestore = scheduleAnimationFrames(() => {
-      restoreCount += 1
+    requestAnimationFrame(() => {
       const measured = rowVirtualizer.getVirtualItems().find((item) => item.index === nextIndex)
       const nextOffset = measured
         ? measured.start - anchor.offsetFromViewportTop
@@ -1183,7 +1165,6 @@ export function ChatView({
       previousScrollTopRef.current = el.scrollTop
       previousScrollTimeRef.current = Date.now()
       lastOlderLoadScrollTopRef.current = el.scrollTop
-      if (restoreCount < 3) return
       pendingVirtualPrependAnchorRef.current = null
       olderLoadAwaitingRenderRef.current = false
       loadOlderClickInFlightRef.current = false
@@ -1197,8 +1178,7 @@ export function ChatView({
         scrollHeight: el.scrollHeight,
         clientHeight: el.clientHeight,
       })
-    }, 3)
-    return cancelRestore
+    })
   }, [renderedMessages, rowVirtualizer, scrollContainerRef, sessionKey])
 
   const handleScroll = useCallback(() => {
