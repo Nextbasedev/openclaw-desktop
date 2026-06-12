@@ -101,20 +101,23 @@ describe("setChunkPinned", () => {
 })
 
 describe("evictBeyondCap", () => {
-  test("keeps active chunk + neighbours, evicts oldest by lastAccessedMs", () => {
+  test("keeps active chunk + neighbours, evicts farthest from active first", () => {
     let pool = createEmptyChunkPool<ReturnType<typeof msg>>()
     // 7 chunks ids 0..6, MAX is 5 so we need to evict 2.
     for (let id = 0; id < 7; id += 1) {
       pool = upsertChunk(pool, id, buildChunkMessages(id, 5), { nowMs: 100 + id })
     }
-    pool = setActiveChunk(pool, 3, 1000) // 3 has freshest ts now
+    pool = setActiveChunk(pool, 3, 1000)
     const { state, evicted } = evictBeyondCap(pool)
     expect(state.chunks.size).toBe(MAX_CHUNKS_IN_MEMORY)
-    // Active + neighbours protected: {2,3,4}. Among {0,1,5,6}, oldest = 0,1.
-    expect(evicted.sort()).toEqual([0, 1])
+    // Active 3 + neighbours {2,4} protected. Among {0,1,5,6} unprotected,
+    // farthest from active=3 are {0,6} (distance 3); both get evicted.
+    expect(evicted.sort()).toEqual([0, 6])
     expect(state.chunks.has(3)).toBe(true)
     expect(state.chunks.has(2)).toBe(true)
     expect(state.chunks.has(4)).toBe(true)
+    expect(state.chunks.has(1)).toBe(true)
+    expect(state.chunks.has(5)).toBe(true)
   })
 
   test("pinned chunks are never evicted even if oldest", () => {
@@ -126,11 +129,10 @@ describe("evictBeyondCap", () => {
     pool = setActiveChunk(pool, 6, 1000)
     const { state, evicted } = evictBeyondCap(pool, { activeNeighbours: 0 })
     // Protected: {6, pinned 0}. Pool has 7, cap 5 → 2 evictions among {1,2,3,4,5}.
+    // Farthest from active=6 among those: {1, 2} (distances 5, 4). Both evicted.
     expect(state.chunks.has(0)).toBe(true)
     expect(state.chunks.has(6)).toBe(true)
-    expect(evicted).toHaveLength(2)
-    expect(evicted).not.toContain(0)
-    expect(evicted).not.toContain(6)
+    expect(evicted.sort()).toEqual([1, 2])
   })
 
   test("no-op when under cap", () => {

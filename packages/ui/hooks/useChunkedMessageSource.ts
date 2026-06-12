@@ -178,6 +178,17 @@ export function useChunkedMessageSource<T extends ChunkSourceMessage>(
 
   const [pool, setPool] = useState<ChunkPoolState<PoolEntry<T>>>(() => createEmptyChunkPool<PoolEntry<T>>())
   const sessionKeyRef = useRef(sessionKey)
+  // Cheap perf guard for the hot-path effect: skip re-indexing when the
+  // canonical messages array reference is the same (most streaming ticks
+  // mutate inside the same array reference returned by useChatMessages).
+  const lastIndexedMessagesRef = useRef<readonly T[] | null>(null)
+  // Tombstone set: chunk ids that the LRU recently evicted. The hot path
+  // refuses to re-accept these via adjacency (otherwise streaming arrivals
+  // for the live tail while the user is reading history cause an
+  // accept/evict thrash loop and visible lag). Explicit user-initiated
+  // refetches (requestOlderChunk, requestNewerChunk, ensureChunkForSeq,
+  // jumpToLatestMessage) clear the tombstone so the chunk can come back.
+  const recentlyEvictedRef = useRef<Set<ChunkId>>(new Set())
   // Per-direction in-flight guard so two near-simultaneous sentinel pings
   // collapse into one fetch.
   const inFlightRef = useRef<{ older: boolean; newer: boolean; ensure: Set<ChunkId> }>({
@@ -193,27 +204,42 @@ export function useChunkedMessageSource<T extends ChunkSourceMessage>(
     if (sessionKeyRef.current === sessionKey) return
     sessionKeyRef.current = sessionKey
     inFlightRef.current = { older: false, newer: false, ensure: new Set() }
+    recentlyEvictedRef.current = new Set()
+    lastIndexedMessagesRef.current = null
     setPool(createEmptyChunkPool<PoolEntry<T>>())
   }, [sessionKey])
 
   // -------------------------------------------------------------------------
-  // Re-index the pool whenever the underlying messages change. We do NOT
-  // create new chunks for chunk-ids that are not already in the pool (or
-  // adjacent to active) — this is what gives us bounded memory. Server
-  // fetches explicitly upsert new chunks via requestOlderChunk /
-  // requestNewerChunk / ensureChunkForSeq.
+  // Re-index the pool whenever the underlying messages change.
   //
-  // The exception: when the pool is empty (cold start, post-session-switch),
-  // we seed it with whatever messages currently exist, grouped by chunk id.
-  // This handles bootstrap: `useChatMessages` initially carries the newest
-  // ~N messages from the patch stream / cache, and we want those visible.
+  // Cold-start path: seed the pool with up to MAX_CHUNKS_IN_MEMORY newest
+  // chunks from the messages we already have (bootstrap / warm cache).
+  //
+  // Hot path: there are two distinct sources of changes to `messages`:
+  //   (a) WS streaming patches into existing rows or new rows in the
+  //       newest chunk — these go straight into an in-pool chunk.
+  //   (b) Older-history pages loaded via `loadOlderMessages` (driven by
+  //       the scroll-up auto-load 60%-remaining trigger in ChatView).
+  //       These bring in chunks adjacent to (or contiguous with) the
+  //       pool's existing range.
+  //
+  // We must accept (a) AND (b) — otherwise older-load fetches loop forever
+  // because the rows we just paid to load get dropped from projection,
+  // scroll height stays the same, the 60% trigger re-fires, etc. Memory is
+  // kept bounded by the eviction effect below, not by refusing to accept
+  // chunks here.
+  //
+  // What we DON'T accept here: chunks with a gap to the existing pool
+  // range. Those signal a far-away WS patch or a recenter-around-message;
+  // the user has to scroll to materialize them explicitly.
   // -------------------------------------------------------------------------
   useEffect(() => {
+    if (lastIndexedMessagesRef.current === messages) return
+    lastIndexedMessagesRef.current = messages
     setPool((current) => {
       const groups = indexMessagesByChunk(messages, current.newestKnownChunkId)
 
-      // Cold start: seed the pool from messages we have, but cap to
-      // MAX_CHUNKS_IN_MEMORY chunks (newest-first).
+      // Cold start: seed the pool with the newest MAX_CHUNKS_IN_MEMORY chunks.
       if (current.chunks.size === 0) {
         const chunkIds = [...groups.keys()].sort((a, b) => b - a)
         if (chunkIds.length === 0) return current
@@ -227,24 +253,44 @@ export function useChunkedMessageSource<T extends ChunkSourceMessage>(
         return next
       }
 
-      // Hot path: update only chunks already present in the pool. Chunks we
-      // evicted will not be revived implicitly by store changes; the user
-      // has to scroll back to trigger an explicit fetch.
+      // Hot path. Existing pool bounds:
+      const existingIds = [...current.chunks.keys()]
+      const poolMinId = Math.min(...existingIds)
+      const poolMaxId = Math.max(...existingIds)
+
       let next = current
       let changed = false
+
+      // 1. Update chunks already in pool with the latest slab from messages.
+      // 2. Accept *adjacent* new chunks (one step older than poolMin, one
+      //    step newer than poolMax). Older-history pagination always grows
+      //    the array by appending to the older side, never with gaps; live
+      //    arrivals always go in the newest chunk which is already in the
+      //    pool while pinned-to-tail.
+      // 3. Skip everything else (far-away patches for evicted chunks).
       for (const [chunkId, slab] of groups.entries()) {
-        if (!next.chunks.has(chunkId)) continue
-        const previous = next.chunks.get(chunkId)!
-        // Cheap identity check: same length and same id list ⇒ skip update.
-        if (
-          previous.messages.length === slab.length &&
-          previous.messages.every((m, i) => m === slab[i])
-        ) {
-          continue
+        const inPool = next.chunks.has(chunkId)
+        const isAdjacentOlder = chunkId === poolMinId - 1
+        const isAdjacentNewer = chunkId === poolMaxId + 1
+        // Tombstoned chunks (recently LRU-evicted) cannot come back via
+        // adjacency. Otherwise streaming live-tail rows trigger an
+        // accept-then-evict loop while the user reads history.
+        const tombstoned = recentlyEvictedRef.current.has(chunkId)
+        const accept = inPool || ((isAdjacentOlder || isAdjacentNewer) && !tombstoned)
+        if (!accept) continue
+        if (inPool) {
+          const previous = next.chunks.get(chunkId)!
+          if (
+            previous.messages.length === slab.length &&
+            previous.messages.every((m, i) => m === slab[i])
+          ) {
+            continue
+          }
         }
         next = upsertChunk(next, chunkId, slab)
         changed = true
       }
+
       // Track the newest chunk id we've ever seen so the pool knows where
       // the tail is even if it's been evicted.
       const newestInMessages = groups.size > 0 ? Math.max(...groups.keys()) : null
@@ -255,9 +301,43 @@ export function useChunkedMessageSource<T extends ChunkSourceMessage>(
         next = { ...next, newestKnownChunkId: newestInMessages }
         changed = true
       }
+      // Symmetric: track the oldest chunk we've ever observed so the bottom-
+      // boundary logic in requestOlderChunk knows when to fall through to
+      // loadOlderMessages.
+      const oldestInMessages = groups.size > 0 ? Math.min(...groups.keys()) : null
+      if (
+        oldestInMessages !== null &&
+        (next.oldestKnownChunkId === null || oldestInMessages < next.oldestKnownChunkId)
+      ) {
+        next = { ...next, oldestKnownChunkId: oldestInMessages }
+        changed = true
+      }
+
+      // If `messages` carries rows for chunks NOT in the pool (e.g.
+      // streaming arrivals into a tombstoned tail), drop them from the
+      // underlying store synchronously so the chat-engine-v2 SessionState
+      // stays bounded. This is what makes Path A's memory promise hold
+      // when the user reads history while the assistant streams.
+      const poolIds = [...next.chunks.keys()]
+      if (poolIds.length > 0) {
+        const poolMin = Math.min(...poolIds)
+        const poolMax = Math.max(...poolIds)
+        let hasStrayChunks = false
+        for (const id of groups.keys()) {
+          if (id < poolMin || id > poolMax) { hasStrayChunks = true; break }
+        }
+        if (hasStrayChunks) {
+          const min = chunkSeqRange(poolMin).minSeq
+          const max = chunkSeqRange(poolMax).maxSeq
+          // Run on next tick to avoid recursing into the same effect.
+          queueMicrotask(() => {
+            evictMessagesOutsideSeqRange(sessionKey, min, max)
+          })
+        }
+      }
       return changed ? next : current
     })
-  }, [messages])
+  }, [messages, sessionKey])
 
   // -------------------------------------------------------------------------
   // Tail pinning: while a generation is active and the user is reading the
@@ -283,6 +363,9 @@ export function useChunkedMessageSource<T extends ChunkSourceMessage>(
     if (pool.chunks.size <= MAX_CHUNKS_IN_MEMORY) return
     const { state: next, evicted } = evictBeyondCap(pool)
     if (evicted.length === 0) return
+    // Record evicted chunks as tombstones so the hot path won't revive them
+    // through adjacency on the next render tick.
+    for (const id of evicted) recentlyEvictedRef.current.add(id)
     setPool(next)
     // Compute the new visible seq range (active ± neighbours that are still
     // present in the pool) and tell the store to drop everything else.
@@ -327,6 +410,9 @@ export function useChunkedMessageSource<T extends ChunkSourceMessage>(
   const fetchChunkBySeqRange = useCallback(
     async (chunkId: ChunkId): Promise<void> => {
       if (pool.chunks.has(chunkId)) return
+      // Explicit refetch — clear any tombstone so the chunk can stay in the
+      // pool after the upsert below, even if the hot-path effect runs first.
+      recentlyEvictedRef.current.delete(chunkId)
       const { minSeq, maxSeq } = chunkSeqRange(chunkId)
       try {
         const page = await fetchChatMessagesV2({
@@ -373,6 +459,9 @@ export function useChunkedMessageSource<T extends ChunkSourceMessage>(
     const targetId = activeId - 1
     if (targetId < 0) return
     if (pool.chunks.has(targetId)) return
+    // Explicit user navigation — clear any tombstone for the target chunk so
+    // it can come back via the hot-path adjacency rule once the rows land.
+    recentlyEvictedRef.current.delete(targetId)
     // If the in-memory chunk above doesn't exist AND we know we're at the
     // oldest loaded boundary, fall through to the existing server-pagination
     // helper that handles the cold-load case. Otherwise pull a single chunk.
@@ -396,6 +485,7 @@ export function useChunkedMessageSource<T extends ChunkSourceMessage>(
     const targetId = activeId + 1
     if (pool.newestKnownChunkId !== null && targetId > pool.newestKnownChunkId) return
     if (pool.chunks.has(targetId)) return
+    recentlyEvictedRef.current.delete(targetId)
     inFlightRef.current.newer = true
     try {
       await fetchChunkBySeqRange(targetId)

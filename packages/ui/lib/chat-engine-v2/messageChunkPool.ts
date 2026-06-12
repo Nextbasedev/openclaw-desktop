@@ -175,8 +175,14 @@ export function setChunkPinned<T extends SequencedMessage>(
 /**
  * Drop chunks beyond the in-memory cap. The active chunk and its
  * `ACTIVE_CHUNK_NEIGHBOURS` immediate neighbours are protected; pinned
- * chunks are also protected. Among the rest, oldest `lastAccessedMs` wins
- * eviction.
+ * chunks are also protected.
+ *
+ * Eviction policy: prefer evicting chunks **farthest from the active**
+ * chunk, breaking ties by older `lastAccessedMs`. This keeps the pool
+ * contiguous around the user's viewport so the store-side eviction range
+ * (`[poolMin, poolMax]`) doesn't end up with holes — critical for Path A
+ * bounded-memory: a non-contiguous pool would leave stranded messages in
+ * the underlying store.
  *
  * Returns the new state and the list of evicted chunk ids so the caller
  * can adjust scroll position by their cached heights.
@@ -207,8 +213,16 @@ export function evictBeyondCap<T extends SequencedMessage>(
   for (const chunk of state.chunks.values()) {
     if (!protectedIds.has(chunk.id)) candidates.push(chunk)
   }
-  // Oldest first.
-  candidates.sort((a, b) => a.lastAccessedMs - b.lastAccessedMs)
+  // Farthest from active first, then oldest by lastAccessedMs.
+  const activeId = state.activeChunkId
+  candidates.sort((a, b) => {
+    if (activeId !== null) {
+      const da = Math.abs(a.id - activeId)
+      const db = Math.abs(b.id - activeId)
+      if (da !== db) return db - da // farthest first
+    }
+    return a.lastAccessedMs - b.lastAccessedMs
+  })
 
   const evicted: ChunkId[] = []
   const next: ChunkPoolState<T> = { ...state, chunks: new Map(state.chunks) }

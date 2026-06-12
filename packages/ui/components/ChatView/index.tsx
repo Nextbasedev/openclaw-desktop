@@ -1253,10 +1253,14 @@ export function ChatView({
               clientHeight: container.clientHeight,
             })
             extendSliceOlder()
-            // Also request the next older chunk from the chunk pool. If it's
-            // already in pool the call is cheap; if not, the pool fetches
-            // from the middleware and merges the slab.
-            void requestOlderChunkPool()
+            // NOTE: do NOT also call requestOlderChunkPool here. The chunk
+            // pool's older-side fetch is driven exclusively by
+            // handleScroll's existing 60%-remaining auto-load path
+            // (loadOlderWithoutJump → loadOlderMessages), which adds the
+            // next adjacent chunk to `messages` and the pool's hot path
+            // picks it up. Triggering both was causing duplicate fetches
+            // and scroll-anchor thrash that snapped the viewport back
+            // down.
             requestAnimationFrame(() => {
               sliceExtendInFlightRef.current = "none"
             })
@@ -1290,7 +1294,7 @@ export function ChatView({
     if (top) observer.observe(top)
     if (bottom) observer.observe(bottom)
     return () => observer.disconnect()
-  }, [extendSliceOlder, extendSliceNewer, requestOlderChunkPool, requestNewerChunkPool, scrollContainerRef, sessionKey, sliceStartIndex, sliceEndIndex])
+  }, [extendSliceOlder, extendSliceNewer, requestNewerChunkPool, scrollContainerRef, sessionKey, sliceStartIndex, sliceEndIndex])
 
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const contextFetchSeqRef = useRef(0)
