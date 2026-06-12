@@ -233,13 +233,26 @@ function MarkdownParagraph({
 }
 
 const mdComponents = {
-  pre({ children }: { children?: React.ReactNode }) { return <>{children}</> },
+  pre({ children }: { children?: React.ReactNode }) {
+    const onlyChild = React.Children.toArray(children)[0]
+    if (React.isValidElement<{ className?: string; children?: React.ReactNode }>(onlyChild)) {
+      const className = onlyChild.props.className ?? ""
+      const text = String(onlyChild.props.children ?? "")
+      const match = /language-(\w+)/.exec(className)
+      if (match?.[1] === "mermaid") return <MermaidBlock code={text} />
+      return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
+    }
+    return <>{children}</>
+  },
   code(props: { className?: string; children?: React.ReactNode }) {
     const { className, children, ...rest } = props
     const text = String(children)
     const match = /language-(\w+)/.exec(className || "")
-    const isBlock = match || text.includes("\n") || /[┌┐└┘│─├┤┬┴┼╔╗╚╝║═╠╣╦╩╬]/.test(text) || (text.length > 60 && /[{[\]()→←↑↓|>]/.test(text))
-    if (isBlock) {
+    // Only language-marked fenced code may become a block here. No-language
+    // fenced code is handled by the `pre` renderer above. Newlines or box
+    // drawing inside inline code must stay inline; otherwise React creates
+    // invalid <p><pre>...</pre></p> markup and Next reports hydration errors.
+    if (match) {
       if (match?.[1] === "mermaid") return <MermaidBlock code={text} />
       return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
     }
