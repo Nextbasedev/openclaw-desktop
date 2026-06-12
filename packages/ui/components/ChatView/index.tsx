@@ -11,6 +11,13 @@ import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
 import { dedupeSpawnedSubagents } from "@/lib/chat-engine-v2/store"
 import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
 import { logChatScrollDebug } from "./chatScrollDebug"
+import {
+  computeOffsets,
+  computeVisibleRange,
+  findRowOffset,
+  offsetBasedScrollRestoration,
+  type RowOffset,
+} from "./viewportWindow"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
@@ -78,11 +85,55 @@ import {
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 
+type RowMeasurerProps = {
+  uiId: string
+  absoluteIndex: number
+  onMeasure: (uiId: string, height: number) => void
+  children: React.ReactNode
+}
+
+/**
+ * Thin wrapper that reports its own measured height to the parent via
+ * ResizeObserver. Used by the viewport-windowed render path so the spacer math
+ * stays accurate as messages grow (streaming text, tool steps expanding, etc).
+ */
+function RowMeasurer({ uiId, absoluteIndex, onMeasure, children }: RowMeasurerProps) {
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    // Initial measurement on mount.
+    onMeasure(uiId, el.getBoundingClientRect().height)
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const next = entry.contentRect.height
+        if (Number.isFinite(next) && next > 0) onMeasure(uiId, next)
+      }
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [uiId, onMeasure])
+
+  return (
+    <div ref={ref} data-row-measurer-ui-id={uiId} data-row-measurer-index={absoluteIndex}>
+      {children}
+    </div>
+  )
+}
+
 type MessageScrollAnchor = {
   id: string
   uiId: string
   messageId: string
   top: number
+  /**
+   * Distance from the top of the scroll container to the anchor row's top at
+   * capture time. Used by the offset-based restoration path when the anchor
+   * row is unmounted by the viewport-window renderer at restore time.
+   */
+  offsetWithinViewport: number
   previousScrollHeight: number
   previousScrollTop: number
 }
@@ -104,21 +155,37 @@ function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrol
       uiId: "",
       messageId: "",
       top: containerTop,
+      offsetWithinViewport: 0,
       previousScrollHeight: container.scrollHeight,
       previousScrollTop: container.scrollTop,
     }
   }
+  const visibleRect = visibleRow.getBoundingClientRect()
   return {
     id: visibleRow.id,
     uiId: visibleRow.dataset.uiId ?? "",
     messageId: visibleRow.dataset.messageId ?? "",
-    top: visibleRow.getBoundingClientRect().top,
+    top: visibleRect.top,
+    offsetWithinViewport: visibleRect.top - containerTop,
     previousScrollHeight: container.scrollHeight,
     previousScrollTop: container.scrollTop,
   }
 }
 
-function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null) {
+type AnchorRestoreOptions = {
+  /**
+   * Optional: returns the row's measured top within the scroll content for a
+   * given uiId, used when the anchor row is unmounted by the viewport-window
+   * renderer. Returning null falls through to height-delta restoration.
+   */
+  resolveAnchorOffset?: (uiId: string) => number | null
+}
+
+function restoreMessageScrollAnchor(
+  container: HTMLElement | null,
+  anchor: MessageScrollAnchor | null,
+  options: AnchorRestoreOptions = {},
+) {
   if (!container || !anchor) return
   const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
   if (anchor.uiId || anchor.messageId) {
@@ -149,12 +216,38 @@ function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: Messa
       return
     }
   }
+  if (options.resolveAnchorOffset && anchor.uiId) {
+    const anchorTop = options.resolveAnchorOffset(anchor.uiId)
+    if (typeof anchorTop === "number" && Number.isFinite(anchorTop)) {
+      const target = offsetBasedScrollRestoration({
+        anchorTop,
+        offsetWithinViewport: anchor.offsetWithinViewport,
+      })
+      container.scrollTop = target
+      logChatScrollDebug({
+        source: "chat",
+        event: "restore-anchor-offset",
+        anchorId: anchor.uiId,
+        anchorTop,
+        deltaPx: target - anchor.previousScrollTop,
+        scrollTop: container.scrollTop,
+        scrollHeight: container.scrollHeight,
+        clientHeight: container.clientHeight,
+      })
+      return
+    }
+  }
   const delta = container.scrollHeight - anchor.previousScrollHeight
   container.scrollTop = anchor.previousScrollTop + Math.max(0, delta)
   logChatScrollDebug({ source: "chat", event: "restore-anchor-height-delta", anchorId: anchor.uiId || anchor.id, deltaPx: delta, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
 }
 
-function settleMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null, done: () => void) {
+function settleMessageScrollAnchor(
+  container: HTMLElement | null,
+  anchor: MessageScrollAnchor | null,
+  done: () => void,
+  options: AnchorRestoreOptions = {},
+) {
   let finished = false
   let frame: number | null = null
   let observer: ResizeObserver | null = null
@@ -162,7 +255,7 @@ function settleMessageScrollAnchor(container: HTMLElement | null, anchor: Messag
 
   const restore = () => {
     if (finished) return
-    restoreMessageScrollAnchor(container, anchor)
+    restoreMessageScrollAnchor(container, anchor, options)
   }
   const scheduleRestore = () => {
     if (finished || frame !== null) return
@@ -177,7 +270,7 @@ function settleMessageScrollAnchor(container: HTMLElement | null, anchor: Messag
     if (frame !== null) cancelAnimationFrame(frame)
     for (const timeout of timeouts) window.clearTimeout(timeout)
     observer?.disconnect()
-    restoreMessageScrollAnchor(container, anchor)
+    restoreMessageScrollAnchor(container, anchor, options)
     done()
   }
 
@@ -950,6 +1043,111 @@ export function ChatView({
     () => buildStableChatRows(visibleAllMessages),
     [visibleAllMessages, forceRenderKey]
   )
+
+  // ---------------------------------------------------------------------------
+  // Viewport-windowed rendering
+  // ---------------------------------------------------------------------------
+  // We render only the message rows whose vertical range intersects the
+  // viewport (with an overscan of ~1 screen on each side). Rows outside that
+  // range are replaced by a top/bottom spacer so the scrollbar position and
+  // height stay identical to a non-virtualized render.
+  //
+  // Live streaming, caching, and pagination are NOT touched: the streaming
+  // assistant row is part of `renderedMessages` and naturally sits inside the
+  // viewport (or is reachable via the existing Jump-to-Bottom button).
+  const rowHeightsRef = useRef<Map<string, number>>(new Map())
+  const [heightsVersion, setHeightsVersion] = useState(0)
+  const heightsBumpScheduledRef = useRef(false)
+  const updateRowHeight = useCallback((uiId: string, height: number) => {
+    if (!Number.isFinite(height) || height <= 0) return
+    const map = rowHeightsRef.current
+    const previous = map.get(uiId)
+    // 1px tolerance avoids re-renders from sub-pixel ResizeObserver jitter.
+    if (typeof previous === "number" && Math.abs(previous - height) < 1) return
+    map.set(uiId, height)
+    if (heightsBumpScheduledRef.current) return
+    heightsBumpScheduledRef.current = true
+    requestAnimationFrame(() => {
+      heightsBumpScheduledRef.current = false
+      setHeightsVersion((v) => v + 1)
+    })
+  }, [])
+
+  // Reset row-height cache on session switch so stale heights from another
+  // chat never leak into the current viewport math.
+  useLayoutEffect(() => {
+    rowHeightsRef.current = new Map()
+    setHeightsVersion(0)
+  }, [sessionKey])
+
+  const rowOffsets = useMemo<RowOffset[]>(() => {
+    void heightsVersion // depend on the bump so cumulative tops refresh
+    return computeOffsets(
+      renderedMessages.map((m) => m.uiId),
+      (id) => rowHeightsRef.current.get(id),
+    ).offsets
+  }, [renderedMessages, heightsVersion])
+
+  const [visibleRange, setVisibleRange] = useState<{
+    firstIndex: number
+    lastIndex: number
+    topSpacerPx: number
+    bottomSpacerPx: number
+  }>(() => ({ firstIndex: 0, lastIndex: -1, topSpacerPx: 0, bottomSpacerPx: 0 }))
+
+  const recomputeRangeFromScroll = useCallback((el: HTMLElement | null, offsets: readonly RowOffset[]) => {
+    if (!el) return
+    const next = computeVisibleRange({
+      scrollTop: el.scrollTop,
+      clientHeight: el.clientHeight,
+      offsets,
+    })
+    setVisibleRange((prev) =>
+      prev.firstIndex === next.firstIndex &&
+      prev.lastIndex === next.lastIndex &&
+      prev.topSpacerPx === next.topSpacerPx &&
+      prev.bottomSpacerPx === next.bottomSpacerPx
+        ? prev
+        : next
+    )
+  }, [])
+
+  const recomputeRangeRafRef = useRef<number | null>(null)
+  const scheduleRecomputeRange = useCallback(() => {
+    if (recomputeRangeRafRef.current !== null) return
+    recomputeRangeRafRef.current = requestAnimationFrame(() => {
+      recomputeRangeRafRef.current = null
+      // Read latest offsets at fire time so we don't capture a stale snapshot.
+      const offsets = computeOffsets(
+        renderedMessages.map((m) => m.uiId),
+        (id) => rowHeightsRef.current.get(id),
+      ).offsets
+      recomputeRangeFromScroll(scrollContainerRef.current, offsets)
+    })
+  }, [recomputeRangeFromScroll, renderedMessages, scrollContainerRef])
+
+  // Recompute whenever the row list, measured heights, or session change.
+  useLayoutEffect(() => {
+    recomputeRangeFromScroll(scrollContainerRef.current, rowOffsets)
+  }, [recomputeRangeFromScroll, rowOffsets, scrollContainerRef])
+
+  useEffect(() => {
+    return () => {
+      if (recomputeRangeRafRef.current !== null) {
+        cancelAnimationFrame(recomputeRangeRafRef.current)
+      }
+    }
+  }, [])
+
+  const resolveAnchorOffsetFromHeights = useCallback((uiId: string) => {
+    const offsets = computeOffsets(
+      renderedMessages.map((m) => m.uiId),
+      (id) => rowHeightsRef.current.get(id),
+    ).offsets
+    const row = findRowOffset(offsets, uiId)
+    return row ? row.top : null
+  }, [renderedMessages])
+
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const contextFetchSeqRef = useRef(0)
   const wasGeneratingRef = useRef(false)
@@ -1221,21 +1419,29 @@ export function ChatView({
     if (!anchor) return
     pendingOlderAnchorRef.current = null
     olderLoadAwaitingRenderRef.current = false
-    settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
-      const el = scrollContainerRef.current
-      if (el) {
-        previousScrollTopRef.current = el.scrollTop
-        previousScrollTimeRef.current = Date.now()
-        lastOlderLoadScrollTopRef.current = el.scrollTop
-      }
-      loadOlderClickInFlightRef.current = false
-    })
-  }, [renderedMessages.length, scrollContainerRef])
+    settleMessageScrollAnchor(
+      scrollContainerRef.current,
+      anchor,
+      () => {
+        const el = scrollContainerRef.current
+        if (el) {
+          previousScrollTopRef.current = el.scrollTop
+          previousScrollTimeRef.current = Date.now()
+          lastOlderLoadScrollTopRef.current = el.scrollTop
+        }
+        loadOlderClickInFlightRef.current = false
+        scheduleRecomputeRange()
+      },
+      { resolveAnchorOffset: resolveAnchorOffsetFromHeights },
+    )
+  }, [renderedMessages.length, resolveAnchorOffsetFromHeights, scheduleRecomputeRange, scrollContainerRef])
 
   const handleScroll = useCallback(() => {
     onScroll()
     const el = scrollContainerRef.current
     if (el) {
+      // Recompute the visible window slice every scroll tick (rAF-throttled).
+      scheduleRecomputeRange()
       const now = Date.now()
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
       setShowJumpToBottom(!atBottom)
@@ -1257,7 +1463,7 @@ export function ChatView({
       previousScrollTimeRef.current = now
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef])
+  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scheduleRecomputeRange, scrollContainerRef, sessionKey])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
@@ -1599,10 +1805,31 @@ export function ChatView({
     void _seq
     const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
     const target = rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
-    if (!target) return false
-    target.scrollIntoView({ behavior: "auto", block: "center" })
+    if (target) {
+      target.scrollIntoView({ behavior: "auto", block: "center" })
+      return true
+    }
+    // Target row is unmounted by the viewport-window renderer. Find its index
+    // in `renderedMessages` and scroll the container to its measured top so the
+    // row mounts on the next frame; the highlight ring is applied by the
+    // caller after this returns.
+    const targetIndex = renderedMessages.findIndex(
+      (msg) => msg.messageId === messageId || msg.uiId === messageId,
+    )
+    if (targetIndex < 0) return false
+    const el = scrollContainerRef.current
+    if (!el) return false
+    const offsets = computeOffsets(
+      renderedMessages.map((m) => m.uiId),
+      (id) => rowHeightsRef.current.get(id),
+    ).offsets
+    const row = offsets[targetIndex]
+    if (!row) return false
+    const blockOffset = Math.max(0, (el.clientHeight - row.height) / 2)
+    el.scrollTop = Math.max(0, row.top - blockOffset)
+    scheduleRecomputeRange()
     return true
-  }, [])
+  }, [renderedMessages, scheduleRecomputeRange, scrollContainerRef])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -2079,9 +2306,41 @@ export function ChatView({
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
-          {renderedMessages.map((msg, index) => (
-            <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
-          ))}
+          {visibleRange.topSpacerPx > 0 && (
+            <div
+              aria-hidden
+              data-chat-virtual-spacer="top"
+              style={{ height: `${visibleRange.topSpacerPx}px` }}
+            />
+          )}
+          {(() => {
+            // visibleRange.lastIndex is -1 when there are no rows yet.
+            if (visibleRange.lastIndex < visibleRange.firstIndex) return null
+            const slice = renderedMessages.slice(
+              visibleRange.firstIndex,
+              visibleRange.lastIndex + 1,
+            )
+            return slice.map((msg, i) => {
+              const absoluteIndex = visibleRange.firstIndex + i
+              return (
+                <RowMeasurer
+                  key={msg.uiId}
+                  uiId={msg.uiId}
+                  absoluteIndex={absoluteIndex}
+                  onMeasure={updateRowHeight}
+                >
+                  {renderMessageRow(absoluteIndex, msg)}
+                </RowMeasurer>
+              )
+            })
+          })()}
+          {visibleRange.bottomSpacerPx > 0 && (
+            <div
+              aria-hidden
+              data-chat-virtual-spacer="bottom"
+              style={{ height: `${visibleRange.bottomSpacerPx}px` }}
+            />
+          )}
           <div className={cn("mx-auto max-w-[44rem] px-4 pt-0", statusText ? "pb-2" : "pb-8")}>
             <AnimatePresence initial={false}>
               {editPreview && (
