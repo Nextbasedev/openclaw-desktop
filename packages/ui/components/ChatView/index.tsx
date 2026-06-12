@@ -617,7 +617,6 @@ export function ChatView({
   const [modelSwitching, setModelSwitching] = useState(false)
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
-  const [forceRenderKey, setForceRenderKey] = useState(0)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -948,7 +947,7 @@ export function ChatView({
   )
   const renderedMessages = useMemo(
     () => buildStableChatRows(visibleAllMessages),
-    [visibleAllMessages, forceRenderKey]
+    [visibleAllMessages]
   )
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const contextFetchSeqRef = useRef(0)
@@ -1282,18 +1281,31 @@ export function ChatView({
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return
     let rafId: number | null = null
+    let cleanupRafId: number | null = null
     const recoverVisibleRender = () => {
       if (document.visibilityState !== "visible") return
-      setForceRenderKey((prev) => prev + 1)
       if (rafId !== null) cancelAnimationFrame(rafId)
+      if (cleanupRafId !== null) cancelAnimationFrame(cleanupRafId)
       rafId = requestAnimationFrame(() => {
+        rafId = null
         const el = scrollContainerRef.current
         if (!el) return
-        // Force layout and a no-op scroll write; this mirrors the manual scroll
-        // that currently makes the blank transcript paint again.
+        // Force layout/paint without changing React row identity. Rebuilding
+        // `renderedMessages` here remounts message bubbles, restarts their
+        // entrance/streaming animations, and makes the transcript visibly blink
+        // on focus/visibility changes.
+        el.style.willChange = "transform"
+        el.style.transform = "translateZ(0)"
         void el.getBoundingClientRect()
         el.scrollTop = el.scrollTop
         syncJumpToBottomVisibility()
+        cleanupRafId = requestAnimationFrame(() => {
+          cleanupRafId = null
+          const latestEl = scrollContainerRef.current
+          if (!latestEl) return
+          latestEl.style.willChange = ""
+          latestEl.style.transform = ""
+        })
       })
     }
     document.addEventListener("visibilitychange", recoverVisibleRender)
@@ -1301,6 +1313,7 @@ export function ChatView({
     window.addEventListener("pageshow", recoverVisibleRender)
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId)
+      if (cleanupRafId !== null) cancelAnimationFrame(cleanupRafId)
       document.removeEventListener("visibilitychange", recoverVisibleRender)
       window.removeEventListener("focus", recoverVisibleRender)
       window.removeEventListener("pageshow", recoverVisibleRender)
