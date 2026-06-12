@@ -16,12 +16,10 @@ const DEFAULT_OVERSCAN = 10
 export function useMeasuredVirtualRows({
   rows,
   scrollElement,
-  enabled,
   overscan = DEFAULT_OVERSCAN,
 }: {
   rows: ChatTimelineRow[]
   scrollElement: HTMLElement | null
-  enabled: boolean
   overscan?: number
 }) {
   const virtualizer = useVirtualizer<HTMLElement, HTMLDivElement>({
@@ -30,7 +28,7 @@ export function useMeasuredVirtualRows({
     getItemKey: (index) => rows[index]?.rowId ?? index,
     estimateSize: (index) => rows[index]?.heightEstimate ?? 120,
     overscan,
-    enabled: enabled && !!scrollElement,
+    enabled: !!scrollElement,
   })
 
   const rowVersionSignature = useMemo(
@@ -39,31 +37,19 @@ export function useMeasuredVirtualRows({
   )
 
   useEffect(() => {
-    if (!enabled) return
+    if (!scrollElement) return
     virtualizer.measure()
-  }, [enabled, rowVersionSignature, virtualizer])
+  }, [rowVersionSignature, scrollElement, virtualizer])
 
   const virtualItems = useMemo((): MeasuredVirtualItem[] => {
-    if (!enabled) {
-      let offset = 0
-      return rows.map((row, index) => {
-        const size = row.heightEstimate
-        const item = { index, row, start: offset, size }
-        offset += size
-        return item
-      })
-    }
-
     return virtualizer.getVirtualItems().flatMap((item) => {
       const row = rows[item.index]
       if (!row) return []
       return [{ index: item.index, row, start: item.start, size: item.size }]
     })
-  }, [enabled, rows, virtualizer])
+  }, [rows, virtualizer])
 
-  const totalSize = enabled
-    ? virtualizer.getTotalSize()
-    : rows.reduce((sum, row) => sum + row.heightEstimate, 0)
+  const totalSize = virtualizer.getTotalSize()
 
   return {
     totalSize,
@@ -72,5 +58,6 @@ export function useMeasuredVirtualRows({
       virtualizer.measureElement(element as HTMLDivElement | null)
     },
     scrollToIndex: virtualizer.scrollToIndex,
+    scrollToOffset: virtualizer.scrollToOffset,
   }
 }
