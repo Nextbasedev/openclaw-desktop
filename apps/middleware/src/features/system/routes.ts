@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
 
 export async function registerSystemRoutes(app: FastifyInstance, context: AppContext) {
-  app.get("/health", async () => {
+  const healthPayload = () => {
     const gateway = context.gateway.status();
     return {
       ok: true,
@@ -22,7 +22,10 @@ export async function registerSystemRoutes(app: FastifyInstance, context: AppCon
       },
       pairing: { enabled: true },
     };
-  });
+  };
+
+  app.get("/", async () => healthPayload());
+  app.get("/health", async () => healthPayload());
 
   app.get("/api/system/info", async () => ({
     ok: true,

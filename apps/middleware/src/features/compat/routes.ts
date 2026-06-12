@@ -236,12 +236,12 @@ function compatJobToGateway(input: CompatRecord, existing?: CompatRecord) {
   const message = String(input.message ?? input.task ?? existing?.message ?? existing?.task ?? "").trim();
   const model = input.model ?? existing?.model;
   const session = String(input.session ?? existing?.session ?? "isolated");
-  const deliveryMode = input.deliveryMode ?? existing?.deliveryMode;
-  const delivery = deliveryMode ? {
+  const deliveryMode = input.deliveryMode ?? existing?.deliveryMode ?? "none";
+  const delivery = {
     mode: deliveryMode,
     channel: input.deliveryChannel ?? existing?.deliveryChannel,
     to: input.deliveryTo ?? existing?.deliveryTo,
-  } : undefined;
+  };
   const payload: CompatRecord = { kind: "agentTurn", message };
   if (model) payload.model = model;
   return {
@@ -4137,6 +4137,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     };
     const client = { write };
     cronSseClients.add(client);
+    reply.raw.write(": cron stream ready\n\n");
     write("cron.ready", { ok: true });
     const unsubscribe = context.gateway.onEvent((gatewayEvent) => {
       if (!gatewayEvent.event.startsWith("cron.")) return;
@@ -4315,13 +4316,16 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const message = String(input.message ?? input.text ?? input.prompt ?? "");
         if (!sessionKey || !message.trim()) return reply.code(400).send({ ok: false, error: { message: "sessionKey and message required" } });
         try {
+          const timeoutMs = Number(input.timeoutMs ?? 130_000);
+          const idempotencyKey = typeof input.idempotencyKey === "string" && input.idempotencyKey.trim()
+            ? input.idempotencyKey.trim()
+            : `compat:${sessionKey}:${crypto.randomUUID()}`;
           const result = await context.gateway.request("chat.send", {
-            ...input,
             sessionKey,
             message,
-            text: undefined,
-            prompt: undefined,
-          }, Number(input.timeoutMs ?? 130_000));
+            idempotencyKey,
+            timeoutMs,
+          }, timeoutMs);
           return { ok: true, result, sessionKey };
         } catch (error) {
           return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Chat send failed" } });
