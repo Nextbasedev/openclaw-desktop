@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
+import { useChatMessageSlice } from "@/hooks/useChatMessageSlice"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
@@ -1045,6 +1046,30 @@ export function ChatView({
   )
 
   // ---------------------------------------------------------------------------
+  // Telegram-style sliced message window
+  // ---------------------------------------------------------------------------
+  // The chat-engine-v2 store keeps every message; this hook keeps a bounded
+  // slice (~60 rows by default) over the canonical `renderedMessages` array
+  // and grows / trims it on scroll triggers + live arrivals. All downstream
+  // memos (subagents, grouped tool calls, latest user index, etc.) still see
+  // the full `renderedMessages` array so cross-row references resolve
+  // correctly.
+  const {
+    slicedMessages,
+    startIndex: sliceStartIndex,
+    endIndex: sliceEndIndex,
+    isAtNewest: sliceIsAtNewest,
+    extendOlder: extendSliceOlder,
+    extendNewer: extendSliceNewer,
+    recenterOnMessage: recenterSliceOnMessage,
+    pinToNewest: pinSliceToNewest,
+  } = useChatMessageSlice<StableChatMessage>({
+    messages: renderedMessages,
+    sessionKey,
+    isGenerating,
+  })
+
+  // ---------------------------------------------------------------------------
   // Viewport-windowed rendering
   // ---------------------------------------------------------------------------
   // We render only the message rows whose vertical range intersects the
@@ -1083,10 +1108,10 @@ export function ChatView({
   const rowOffsets = useMemo<RowOffset[]>(() => {
     void heightsVersion // depend on the bump so cumulative tops refresh
     return computeOffsets(
-      renderedMessages.map((m) => m.uiId),
+      slicedMessages.map((m) => m.uiId),
       (id) => rowHeightsRef.current.get(id),
     ).offsets
-  }, [renderedMessages, heightsVersion])
+  }, [slicedMessages, heightsVersion])
 
   const [visibleRange, setVisibleRange] = useState<{
     firstIndex: number
@@ -1119,12 +1144,12 @@ export function ChatView({
       recomputeRangeRafRef.current = null
       // Read latest offsets at fire time so we don't capture a stale snapshot.
       const offsets = computeOffsets(
-        renderedMessages.map((m) => m.uiId),
+        slicedMessages.map((m) => m.uiId),
         (id) => rowHeightsRef.current.get(id),
       ).offsets
       recomputeRangeFromScroll(scrollContainerRef.current, offsets)
     })
-  }, [recomputeRangeFromScroll, renderedMessages, scrollContainerRef])
+  }, [recomputeRangeFromScroll, slicedMessages, scrollContainerRef])
 
   // Recompute whenever the row list, measured heights, or session change.
   useLayoutEffect(() => {
@@ -1141,12 +1166,82 @@ export function ChatView({
 
   const resolveAnchorOffsetFromHeights = useCallback((uiId: string) => {
     const offsets = computeOffsets(
-      renderedMessages.map((m) => m.uiId),
+      slicedMessages.map((m) => m.uiId),
       (id) => rowHeightsRef.current.get(id),
     ).offsets
     const row = findRowOffset(offsets, uiId)
     return row ? row.top : null
-  }, [renderedMessages])
+  }, [slicedMessages])
+
+  // ---------------------------------------------------------------------------
+  // Slice-extend sentinels (Telegram-style backwards/forwards triggers)
+  // ---------------------------------------------------------------------------
+  // Two invisible 1px divs sit just above and below the current slice. An
+  // IntersectionObserver watches them against the scroll container; when one
+  // enters the viewport (with ~1 viewport rootMargin), we extend the slice
+  // in that direction. A guarded ref prevents thrashing if the user scrolls
+  // past both edges quickly.
+  const topSentinelRef = useRef<HTMLDivElement | null>(null)
+  const bottomSentinelRef = useRef<HTMLDivElement | null>(null)
+  const sliceExtendInFlightRef = useRef<"none" | "older" | "newer">("none")
+  const sliceExtendCooldownRef = useRef(0)
+
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    const top = topSentinelRef.current
+    const bottom = bottomSentinelRef.current
+    if (!container || typeof IntersectionObserver === "undefined") return
+    if (!top && !bottom) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const now = Date.now()
+        if (now < sliceExtendCooldownRef.current) return
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          if (entry.target === top && sliceExtendInFlightRef.current === "none") {
+            sliceExtendInFlightRef.current = "older"
+            sliceExtendCooldownRef.current = now + 120
+            logChatScrollDebug({
+              source: "chat",
+              event: "slice-extend-older",
+              sessionKey,
+              scrollTop: container.scrollTop,
+              scrollHeight: container.scrollHeight,
+              clientHeight: container.clientHeight,
+            })
+            extendSliceOlder()
+            requestAnimationFrame(() => {
+              sliceExtendInFlightRef.current = "none"
+            })
+          } else if (entry.target === bottom && sliceExtendInFlightRef.current === "none") {
+            sliceExtendInFlightRef.current = "newer"
+            sliceExtendCooldownRef.current = now + 120
+            logChatScrollDebug({
+              source: "chat",
+              event: "slice-extend-newer",
+              sessionKey,
+              scrollTop: container.scrollTop,
+              scrollHeight: container.scrollHeight,
+              clientHeight: container.clientHeight,
+            })
+            extendSliceNewer()
+            requestAnimationFrame(() => {
+              sliceExtendInFlightRef.current = "none"
+            })
+          }
+        }
+      },
+      {
+        root: container,
+        // ~1 viewport of preload distance above and below.
+        rootMargin: `${Math.max(400, container.clientHeight)}px 0px ${Math.max(400, container.clientHeight)}px 0px`,
+        threshold: 0,
+      },
+    )
+    if (top) observer.observe(top)
+    if (bottom) observer.observe(bottom)
+    return () => observer.disconnect()
+  }, [extendSliceOlder, extendSliceNewer, scrollContainerRef, sessionKey, sliceStartIndex, sliceEndIndex])
 
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const contextFetchSeqRef = useRef(0)
@@ -1467,8 +1562,14 @@ export function ChatView({
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
-    bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-  }, [bottomRef])
+    // First pin the slice back to the newest tail so the bottom row exists in
+    // the DOM, then scroll to it. This handles the case where the user has
+    // paged far into history and the live tail is not in the current slice.
+    pinSliceToNewest()
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+    })
+  }, [bottomRef, pinSliceToNewest])
 
   const syncJumpToBottomVisibility = useCallback(() => {
     const el = scrollContainerRef.current
@@ -1803,33 +1904,47 @@ export function ChatView({
 
   const scrollToRenderedMessage = useCallback((messageId: string, _seq?: number) => {
     void _seq
+    // Fast path: target row is already mounted in the DOM.
     const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
     const target = rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
     if (target) {
       target.scrollIntoView({ behavior: "auto", block: "center" })
       return true
     }
-    // Target row is unmounted by the viewport-window renderer. Find its index
-    // in `renderedMessages` and scroll the container to its measured top so the
-    // row mounts on the next frame; the highlight ring is applied by the
-    // caller after this returns.
+    // Slow path: target may live outside the current Telegram-style slice.
+    // If so, recenter the slice around it first; the next render will mount
+    // the row and we fall back to the offset-based scroll restoration below.
     const targetIndex = renderedMessages.findIndex(
       (msg) => msg.messageId === messageId || msg.uiId === messageId,
     )
     if (targetIndex < 0) return false
+    if (targetIndex < sliceStartIndex || targetIndex > sliceEndIndex) {
+      recenterSliceOnMessage(messageId)
+      // After the slice recenters, the offsets array used below will be valid
+      // on the *next* paint. Fall back to a scrollIntoView retry on rAF.
+      requestAnimationFrame(() => {
+        const retryRows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
+        const retryTarget = retryRows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
+        if (retryTarget) retryTarget.scrollIntoView({ behavior: "auto", block: "center" })
+      })
+      return true
+    }
+    // Target sits inside the slice but is unmounted by the viewport-window
+    // renderer. Use measured offsets to scroll there.
     const el = scrollContainerRef.current
     if (!el) return false
     const offsets = computeOffsets(
-      renderedMessages.map((m) => m.uiId),
+      slicedMessages.map((m) => m.uiId),
       (id) => rowHeightsRef.current.get(id),
     ).offsets
-    const row = offsets[targetIndex]
+    const sliceRelativeIndex = targetIndex - sliceStartIndex
+    const row = offsets[sliceRelativeIndex]
     if (!row) return false
     const blockOffset = Math.max(0, (el.clientHeight - row.height) / 2)
     el.scrollTop = Math.max(0, row.top - blockOffset)
     scheduleRecomputeRange()
     return true
-  }, [renderedMessages, scheduleRecomputeRange, scrollContainerRef])
+  }, [recenterSliceOnMessage, renderedMessages, scheduleRecomputeRange, scrollContainerRef, sliceEndIndex, sliceStartIndex, slicedMessages])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -2302,10 +2417,22 @@ export function ChatView({
           scrollContainerRef.current = ref
         }}
         onScroll={handleScroll}
+        data-chat-slice-window={`${sliceStartIndex}-${sliceEndIndex}/${renderedMessages.length}`}
+        data-chat-slice-at-newest={sliceIsAtNewest ? "1" : "0"}
         className="flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
+          {/* Top slice-extend sentinel — fires when scrolled near the start of */}
+          {/* the slice while there are older rows available in the full array. */}
+          {sliceStartIndex > 0 && (
+            <div
+              ref={topSentinelRef}
+              aria-hidden
+              data-chat-slice-sentinel="top"
+              style={{ height: "1px" }}
+            />
+          )}
           {visibleRange.topSpacerPx > 0 && (
             <div
               aria-hidden
@@ -2314,14 +2441,19 @@ export function ChatView({
             />
           )}
           {(() => {
-            // visibleRange.lastIndex is -1 when there are no rows yet.
+            // The viewport-window range is computed against `slicedMessages`,
+            // and the slice itself is the Telegram-style 60ish-row chunk over
+            // the canonical `renderedMessages`. Absolute row indices for
+            // downstream logic (latestRenderedUserIndex etc) are recovered by
+            // adding the slice start to the viewport-relative index.
             if (visibleRange.lastIndex < visibleRange.firstIndex) return null
-            const slice = renderedMessages.slice(
+            const slice = slicedMessages.slice(
               visibleRange.firstIndex,
               visibleRange.lastIndex + 1,
             )
             return slice.map((msg, i) => {
-              const absoluteIndex = visibleRange.firstIndex + i
+              const sliceRelativeIndex = visibleRange.firstIndex + i
+              const absoluteIndex = sliceStartIndex + sliceRelativeIndex
               return (
                 <RowMeasurer
                   key={msg.uiId}
@@ -2339,6 +2471,16 @@ export function ChatView({
               aria-hidden
               data-chat-virtual-spacer="bottom"
               style={{ height: `${visibleRange.bottomSpacerPx}px` }}
+            />
+          )}
+          {/* Bottom slice-extend sentinel — fires when scrolled near the end of */}
+          {/* the slice while there are newer rows available in the full array. */}
+          {!sliceIsAtNewest && (
+            <div
+              ref={bottomSentinelRef}
+              aria-hidden
+              data-chat-slice-sentinel="bottom"
+              style={{ height: "1px" }}
             />
           )}
           <div className={cn("mx-auto max-w-[44rem] px-4 pt-0", statusText ? "pb-2" : "pb-8")}>
