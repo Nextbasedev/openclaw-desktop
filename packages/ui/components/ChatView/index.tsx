@@ -465,6 +465,11 @@ export function ChatView({
     hasOlderMessages,
     loadingOlderMessages,
     loadOlderMessages,
+    hasNewerMessages,
+    loadingNewerMessages,
+    loadNewerMessages,
+    unloadOldestPage,
+    unloadNewestPage,
     loadError,
     errorMessage,
     isSending,
@@ -1209,12 +1214,60 @@ export function ChatView({
     })
     try {
       await loadOlderMessages()
+      // Phase 1 sliding-window: after pulling an older page in, drop a
+      // page from the bottom so total loaded count stays ≈ window size.
+      // The store-level trim refuses to touch optimistic / pending rows
+      // so the live tail stays safe.
+      const droppedFromBottom = unloadNewestPage()
+      if (droppedFromBottom > 0) {
+        logChatScrollDebug({ source: "chat", event: "slide-up-unload-bottom", sessionKey, dropped: droppedFromBottom })
+      }
     } catch {
       pendingOlderAnchorRef.current = null
       olderLoadAwaitingRenderRef.current = false
       loadOlderClickInFlightRef.current = false
     }
-  }, [hasOlderMessages, isGenerating, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey])
+  }, [hasOlderMessages, isGenerating, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey, unloadNewestPage])
+
+  // Phase 1 sliding-window: symmetric newer-side load. Capture an anchor,
+  // append the next page, drop a page from the top. Anchor restore in the
+  // useLayoutEffect below keeps the user's visible row in place.
+  const loadNewerClickInFlightRef = useRef(false)
+  const lastNewerLoadAtRef = useRef(0)
+  const lastNewerLoadScrollTopRef = useRef<number | null>(null)
+  const pendingNewerAnchorRef = useRef<ReturnType<typeof captureMessageScrollAnchor> | null>(null)
+  const newerLoadAwaitingRenderRef = useRef(false)
+  const loadNewerWithoutJump = useCallback(async () => {
+    const now = Date.now()
+    if (!hasNewerMessages || loadingNewerMessages || loadNewerClickInFlightRef.current) return
+    if (isGenerating) return
+    if (now - lastNewerLoadAtRef.current < 900) return
+    lastNewerLoadAtRef.current = now
+    loadNewerClickInFlightRef.current = true
+    newerLoadAwaitingRenderRef.current = true
+    pendingNewerAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
+    logChatScrollDebug({
+      source: "chat",
+      event: "load-newer-start",
+      sessionKey,
+      anchorId: pendingNewerAnchorRef.current?.uiId || pendingNewerAnchorRef.current?.id,
+      anchorTop: pendingNewerAnchorRef.current?.top,
+      scrollTop: scrollContainerRef.current?.scrollTop,
+      scrollHeight: scrollContainerRef.current?.scrollHeight,
+      clientHeight: scrollContainerRef.current?.clientHeight,
+    })
+    try {
+      await loadNewerMessages()
+      const droppedFromTop = unloadOldestPage()
+      if (droppedFromTop > 0) {
+        logChatScrollDebug({ source: "chat", event: "slide-down-unload-top", sessionKey, dropped: droppedFromTop })
+      }
+    } catch {
+      pendingNewerAnchorRef.current = null
+      newerLoadAwaitingRenderRef.current = false
+      loadNewerClickInFlightRef.current = false
+    }
+  }, [hasNewerMessages, isGenerating, loadNewerMessages, loadingNewerMessages, scrollContainerRef, sessionKey, unloadOldestPage])
 
   useLayoutEffect(() => {
     const anchor = pendingOlderAnchorRef.current
@@ -1229,6 +1282,25 @@ export function ChatView({
         lastOlderLoadScrollTopRef.current = el.scrollTop
       }
       loadOlderClickInFlightRef.current = false
+    })
+  }, [renderedMessages.length, scrollContainerRef])
+
+  // Phase 1: newer-side anchor restore. Runs whenever the rendered message
+  // count changes — catches both the loadNewer append and the symmetric
+  // unloadOldestPage trim.
+  useLayoutEffect(() => {
+    const anchor = pendingNewerAnchorRef.current
+    if (!anchor) return
+    pendingNewerAnchorRef.current = null
+    newerLoadAwaitingRenderRef.current = false
+    settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
+      const el = scrollContainerRef.current
+      if (el) {
+        previousScrollTopRef.current = el.scrollTop
+        previousScrollTimeRef.current = Date.now()
+        lastNewerLoadScrollTopRef.current = el.scrollTop
+      }
+      loadNewerClickInFlightRef.current = false
     })
   }, [renderedMessages.length, scrollContainerRef])
 
@@ -1253,11 +1325,29 @@ export function ChatView({
         logChatScrollDebug({ source: "chat", event: "load-older-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
         void loadOlderWithoutJump()
       }
+      // Phase 1: newer-side trigger. Mirror of the older-side: load when
+      // the user is scrolling downward AND within ~20% of the bottom AND
+      // we know there are newer messages on the server (i.e. we've
+      // already trimmed at least one page from the bottom).
+      const scrollingDown = el.scrollTop > previousScrollTopRef.current
+      const maxScroll = el.scrollHeight - el.clientHeight
+      const distanceFromBottom = maxScroll - el.scrollTop
+      const bottomThresholdPx = Math.max(500, el.clientHeight * 0.6)
+      if (
+        hasNewerMessages &&
+        !loadingNewerMessages &&
+        !isGenerating &&
+        scrollingDown &&
+        distanceFromBottom <= bottomThresholdPx
+      ) {
+        logChatScrollDebug({ source: "chat", event: "load-newer-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
+        void loadNewerWithoutJump()
+      }
       previousScrollTopRef.current = el.scrollTop
       previousScrollTimeRef.current = now
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef])
+  }, [activePopoverId, hasNewerMessages, hasOlderMessages, isGenerating, loadNewerWithoutJump, loadOlderWithoutJump, loadingNewerMessages, onScroll, scrollContainerRef])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)

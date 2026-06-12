@@ -67,7 +67,8 @@ import {
 } from "@/lib/chat-engine-v2/client"
 import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
-import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity, type SessionState } from "@/lib/chat-engine-v2/store"
+import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, trimSessionMessageWindow, updateGlobalChatSessionActivity, type SessionState } from "@/lib/chat-engine-v2/store"
+import { PAGE_SIZE as WINDOW_PAGE_SIZE, WINDOW_SIZE as WINDOW_TOTAL_SIZE, planDropFromTop, planDropFromBottom } from "@/lib/chat-engine-v2/messageWindow"
 import { getTimelineStore, deleteTimelineStore } from "@/lib/chat-engine-v2/timelineStore"
 import { stripTransientChatMessagesState } from "@/lib/chatTransientState"
 import { isStopSlashCommand } from "@/lib/controlSlashCommands"
@@ -774,6 +775,16 @@ function firstLoadedGatewayIndex(messages: ChatMessage[]) {
   return null
 }
 
+function lastLoadedGatewayIndex(messages: ChatMessage[]) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (typeof message.gatewayIndex === "number" && Number.isFinite(message.gatewayIndex)) {
+      return Math.floor(message.gatewayIndex)
+    }
+  }
+  return null
+}
+
 function canLoadOlderThanFirstMessage(messages: ChatMessage[]) {
   const firstSeq = firstLoadedGatewayIndex(messages)
   return firstSeq !== null && firstSeq > 1
@@ -878,6 +889,14 @@ export function useChatMessages(
   // independent of parseChatHistory's merged gatewayIndex which can drift
   // forward during assistant message merging and break pagination.
   const oldestLoadedSeqRef = useRef<number | null>(null)
+  // Phase 1 fixed-window virtualization: track the newest server seq we
+  // currently have in memory, and whether there are more on the server
+  // past it. Only set when we've actually trimmed the bottom of the
+  // window (otherwise the WS stream owns the tail).
+  const newestLoadedSeqRef = useRef<number | null>(null)
+  const [hasNewerMessages, setHasNewerMessages] = useState(false)
+  const [loadingNewerMessages, setLoadingNewerMessages] = useState(false)
+  const loadNewerInFlightRef = useRef(false)
   const loadedRawHistoryRef = useRef<RawMessage[]>([])
   const loadOlderInFlightRef = useRef(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -1895,6 +1914,7 @@ export function useChatMessages(
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
     oldestLoadedSeqRef.current = null
+    newestLoadedSeqRef.current = null
     loadedRawHistoryRef.current = []
     let unsubscribeStream: (() => void) | null = null
     let unsubscribeV2Stream: (() => void) | null = null
@@ -3295,6 +3315,130 @@ export function useChatMessages(
     }
   }, [hasOlderMessages, loadingOlderMessages, queryClient, sessionKey, setMessages, statusLabel])
 
+  // -------------------------------------------------------------------------
+  // Phase 1 fixed-window virtualization — newer-side pagination + unload.
+  //
+  // loadNewerMessages: fetch one PAGE_SIZE-sized page of messages whose
+  //   openclawSeq > newestLoadedSeqRef. Only meaningful when we've trimmed
+  //   the bottom of the window (otherwise the WS stream owns the tail).
+  //
+  // unloadOldestPage / unloadNewestPage: drop one PAGE_SIZE chunk from the
+  //   top / bottom of the messages array via the store-level trim API.
+  // -------------------------------------------------------------------------
+  const loadNewerMessages = useCallback(async () => {
+    if (loadNewerInFlightRef.current || loadingNewerMessages || !hasNewerMessages) return
+    const newestKnown = newestLoadedSeqRef.current ?? lastLoadedGatewayIndex(messagesRef.current)
+    if (newestKnown === null) {
+      setHasNewerMessages(false)
+      return
+    }
+    const requestGeneration = viewGenerationRef.current
+    loadNewerInFlightRef.current = true
+    setLoadingNewerMessages(true)
+    try {
+      const page = await fetchChatMessagesV2({
+        sessionKey,
+        afterSeq: newestKnown,
+        limit: WINDOW_PAGE_SIZE,
+      })
+      if (viewGenerationRef.current !== requestGeneration) return
+      if (page.messages.length === 0) {
+        setHasNewerMessages(false)
+        return
+      }
+      const rawSeqs = page.messages
+        .map((m) => m.openclawSeq)
+        .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
+      const pageNewest = rawSeqs.length > 0 ? Math.max(...rawSeqs) : null
+      const currentMessages = messagesRef.current
+      // Merge: append page messages after current tail, dedupe by messageId
+      // / __openclaw seq.
+      const seenIds = new Set<string>()
+      const merged: ChatMessage[] = []
+      for (const m of currentMessages) {
+        if (m.messageId) seenIds.add(m.messageId)
+        merged.push(m)
+      }
+      for (const raw of page.messages) {
+        const payload = (raw.data ?? {}) as ChatMessage
+        const id = payload.messageId ?? raw.messageId ?? undefined
+        if (id && seenIds.has(id)) continue
+        const incoming: ChatMessage = {
+          ...payload,
+          messageId: id,
+          gatewayIndex: typeof raw.openclawSeq === "number" ? raw.openclawSeq : payload.gatewayIndex,
+        }
+        if (id) seenIds.add(id)
+        merged.push(incoming)
+      }
+      setMessages(merged)
+      if (pageNewest !== null) newestLoadedSeqRef.current = pageNewest
+      // Keep global session in sync so subsequent WS patches don't drop
+      // the freshly-appended rows.
+      const existingGlobal = getGlobalChatSession(sessionKey)
+      seedGlobalChatSession({
+        sessionKey,
+        messages: merged,
+        cursor: v2CursorRef.current,
+        status: statusRef.current,
+        statusLabel,
+        pendingTools: Array.from(pendingToolMapRef.current.values()),
+        spawnedSubagents: Array.from(spawnMapRef.current.values()),
+        messageCount: existingGlobal?.messageCount ?? Math.max(merged.length, page.messageCount),
+        historyCoverage: existingGlobal?.historyCoverage ?? "metadata",
+        queryClient,
+      })
+      // Decide whether more newer pages remain. If the page filled to PAGE_SIZE
+      // there is probably more; if it came up short, we're caught up.
+      setHasNewerMessages(page.messages.length >= WINDOW_PAGE_SIZE)
+    } catch (error) {
+      frontendLog("chat", "chat.load-newer.fail", {
+        sessionKey,
+        afterSeq: newestKnown,
+        error: error instanceof Error
+          ? { kind: error.name, message: redactText(error.message) }
+          : { kind: "Error", message: redactText(String(error)) },
+      }, "warn")
+    } finally {
+      loadNewerInFlightRef.current = false
+      setLoadingNewerMessages(false)
+    }
+  }, [hasNewerMessages, loadingNewerMessages, queryClient, sessionKey, setMessages, statusLabel])
+
+  // Drop one page-sized chunk from the top of the loaded window. Returns the
+  // number of messages actually dropped (0 if nothing to drop).
+  const unloadOldestPage = useCallback((): number => {
+    const current = messagesRef.current
+    const plan = planDropFromTop(current, { pageSize: WINDOW_PAGE_SIZE, windowSize: WINDOW_TOTAL_SIZE })
+    if (plan.dropCount === 0) return 0
+    const removed = trimSessionMessageWindow(sessionKey, { dropFromTop: plan.dropCount })
+    if (removed > 0) {
+      // After dropping rows from the top, the new oldest seq becomes our
+      // anchor for future loadOlderMessages calls. Recompute from refs.
+      const nextOldest = firstLoadedGatewayIndex(messagesRef.current)
+      if (nextOldest !== null) oldestLoadedSeqRef.current = nextOldest
+      // History above the new top is by definition still on the server.
+      setHasOlderMessages(true)
+    }
+    return removed
+  }, [sessionKey])
+
+  // Drop one page-sized chunk from the bottom of the loaded window. After
+  // this, the WS stream tail will no longer be in memory; future loadNewer
+  // calls walk back forward.
+  const unloadNewestPage = useCallback((): number => {
+    const current = messagesRef.current
+    const plan = planDropFromBottom(current, { pageSize: WINDOW_PAGE_SIZE, windowSize: WINDOW_TOTAL_SIZE })
+    if (plan.dropCount === 0) return 0
+    const removed = trimSessionMessageWindow(sessionKey, { dropFromBottom: plan.dropCount })
+    if (removed > 0) {
+      const nextNewest = lastLoadedGatewayIndex(messagesRef.current)
+      if (nextNewest !== null) newestLoadedSeqRef.current = nextNewest
+      setHasNewerMessages(true)
+    }
+    return removed
+  }, [sessionKey])
+
   const messagesBelongToActiveSession = messageSessionKey === sessionKey
 
   return {
@@ -3307,6 +3451,11 @@ export function useChatMessages(
     hasOlderMessages,
     loadingOlderMessages,
     loadOlderMessages,
+    hasNewerMessages,
+    loadingNewerMessages,
+    loadNewerMessages,
+    unloadOldestPage,
+    unloadNewestPage,
     loadError,
     errorMessage,
     isSending,
