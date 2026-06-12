@@ -4138,7 +4138,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     };
     const client = { write };
     cronSseClients.add(client);
-    reply.raw.write(": cron stream ready\n\n");
+    reply.raw.write(`: cron stream ready ${" ".repeat(2048)}\n\n`);
     write("cron.ready", { ok: true });
     const unsubscribe = context.gateway.onEvent((gatewayEvent) => {
       if (!gatewayEvent.event.startsWith("cron.")) return;
