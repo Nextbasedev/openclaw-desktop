@@ -122,9 +122,13 @@ describe("chat reconcile active-state guards", () => {
     expect(dataSourceAfterWarmCacheApplied()).toBe("warm-cache")
   })
 
-  test("keeps older history page length aligned with bootstrap page length", () => {
-    expect(CHAT_OLDER_PAGE_LIMIT).toBe(CHAT_BOOTSTRAP_MESSAGE_LIMIT)
-    expect(CHAT_OLDER_PAGE_LIMIT).toBe(160)
+  test("older-page fetch size matches sliding-window PAGE_SIZE", () => {
+    // Phase 1 sliding-window invariant: each loadOlder fetches one
+    // PAGE_SIZE-sized page so the post-load unloadNewestPage trim
+    // drops exactly that many rows, keeping the window at WINDOW_SIZE.
+    // Bootstrap can be larger (2 pages) to fill the initial view.
+    expect(CHAT_OLDER_PAGE_LIMIT).toBe(60)
+    expect(CHAT_BOOTSTRAP_MESSAGE_LIMIT).toBe(120)
   })
 
   test("keeps current-session timeline rows visible while older history loads", () => {

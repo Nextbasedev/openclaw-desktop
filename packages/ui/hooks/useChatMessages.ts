@@ -375,8 +375,11 @@ function parseExecApproval(
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
-export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 160
-export const CHAT_OLDER_PAGE_LIMIT = CHAT_BOOTSTRAP_MESSAGE_LIMIT
+export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 120
+// Older-page fetch size MUST match WINDOW_PAGE_SIZE so the post-load
+// trim drops exactly the right amount (sliding window invariant). If
+// they diverge, the window grows or shrinks unpredictably per slide.
+export const CHAT_OLDER_PAGE_LIMIT = 60
 export const CHAT_BOOTSTRAP_MIN_VISIBLE_ROWS = 24
 const CHAT_BOOTSTRAP_MAX_TOP_UP_PAGES = 4
 
