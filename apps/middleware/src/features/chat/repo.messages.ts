@@ -3,18 +3,6 @@ import { fromJson, toJson } from "../../db/json.js";
 import { isInternalSubagentCompletionMessage, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import type { OpenClawMessage, ProjectedMessage, ProjectionEvent } from "./types.js";
 
-export type MessagePageDirection = "latest" | "older" | "newer" | "around";
-
-export type MessagePage = {
-  direction: MessagePageDirection;
-  messages: ProjectedMessage[];
-  oldestSeq: number | null;
-  newestSeq: number | null;
-  hasOlder: boolean;
-  hasNewer: boolean;
-  knownTotalMessages: number;
-};
-
 function textOf(data: unknown): string {
   if (!data || typeof data !== "object" || Array.isArray(data)) return "";
   return normalizeMessageText(textFromMessage(data as OpenClawMessage));
@@ -582,35 +570,6 @@ export class MessageRepository {
     return Number(row?.count ?? 0);
   }
 
-  countMessagesBefore(sessionKey: string, beforeSeq: number): number {
-    const row = this.db.prepare(`
-      SELECT count(*) AS count
-      FROM v2_messages
-      WHERE session_key = @sessionKey AND openclaw_seq < @beforeSeq
-    `).get({ sessionKey, beforeSeq }) as { count?: number } | undefined;
-    return Number(row?.count ?? 0);
-  }
-
-  countMessagesAfter(sessionKey: string, afterSeq: number): number {
-    const row = this.db.prepare(`
-      SELECT count(*) AS count
-      FROM v2_messages
-      WHERE session_key = @sessionKey AND openclaw_seq > @afterSeq
-    `).get({ sessionKey, afterSeq }) as { count?: number } | undefined;
-    return Number(row?.count ?? 0);
-  }
-
-  findMessageSeq(sessionKey: string, messageId: string): number | null {
-    const row = this.db.prepare(`
-      SELECT openclaw_seq
-      FROM v2_messages
-      WHERE session_key = @sessionKey AND message_id = @messageId
-      LIMIT 1
-    `).get({ sessionKey, messageId }) as { openclaw_seq?: number | null } | undefined;
-    const seq = Number(row?.openclaw_seq ?? 0);
-    return Number.isFinite(seq) && seq > 0 ? seq : null;
-  }
-
   nextMessageSeq(sessionKey: string): number {
     const row = this.db.prepare(`
       SELECT max(openclaw_seq) AS maxSeq
@@ -870,7 +829,7 @@ export class MessageRepository {
   }
 
   listMessages(sessionKey: string, opts: { afterSeq?: number; beforeSeq?: number; limit?: number; latest?: boolean } = {}): ProjectedMessage[] {
-    const limit = Math.max(1, Math.min(100_000, opts.limit ?? 200));
+    const limit = Math.max(1, Math.min(1000, opts.limit ?? 200));
     const beforeSeq = opts.beforeSeq ?? null;
     const rows = this.db.prepare(beforeSeq !== null ? `
       SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
@@ -924,72 +883,6 @@ export class MessageRepository {
         updatedAtMs: row.updated_at_ms,
       }))
       .filter((row) => !isInternalSubagentCompletionMessage(row.data));
-  }
-
-  listMessagePage(sessionKey: string, opts: {
-    direction?: MessagePageDirection;
-    beforeSeq?: number;
-    afterSeq?: number;
-    aroundSeq?: number;
-    aroundMessageId?: string;
-    limit?: number;
-  } = {}): MessagePage {
-    const limit = Math.max(1, Math.min(100_000, Math.floor(opts.limit ?? 80)));
-    const direction = opts.direction ?? (typeof opts.beforeSeq === "number" ? "older" : typeof opts.afterSeq === "number" ? "newer" : "latest");
-    let messages: ProjectedMessage[];
-
-    if (direction === "latest") {
-      messages = this.listMessages(sessionKey, { limit, latest: true });
-    } else if (direction === "older") {
-      messages = this.listMessages(sessionKey, { beforeSeq: opts.beforeSeq ?? this.nextMessageSeq(sessionKey), limit });
-    } else if (direction === "newer") {
-      messages = this.listMessages(sessionKey, { afterSeq: opts.afterSeq ?? 0, limit });
-    } else {
-      const targetSeq = typeof opts.aroundSeq === "number" && opts.aroundSeq > 0
-        ? opts.aroundSeq
-        : opts.aroundMessageId
-          ? this.findMessageSeq(sessionKey, opts.aroundMessageId)
-          : null;
-      if (!targetSeq) {
-        messages = [];
-      } else {
-        const olderLimit = Math.floor(limit / 2);
-        const newerLimit = Math.max(0, limit - olderLimit - 1);
-        const older = this.listMessages(sessionKey, { beforeSeq: targetSeq, limit: olderLimit });
-        const target = this.listMessages(sessionKey, { afterSeq: targetSeq - 1, limit: 1 })
-          .filter((message) => message.openclawSeq === targetSeq);
-        const newer = newerLimit > 0 ? this.listMessages(sessionKey, { afterSeq: targetSeq, limit: newerLimit }) : [];
-        const bySeq = new Map<number, ProjectedMessage>();
-        for (const message of [...older, ...target, ...newer]) bySeq.set(message.openclawSeq, message);
-        messages = Array.from(bySeq.values()).sort((a, b) => a.openclawSeq - b.openclawSeq);
-        if (messages.length < limit && messages.length > 0) {
-          const oldestSeq = messages[0]!.openclawSeq;
-          const newestSeq = messages.at(-1)!.openclawSeq;
-          const missing = limit - messages.length;
-          const prepend = this.listMessages(sessionKey, { beforeSeq: oldestSeq, limit: missing });
-          for (const message of prepend) bySeq.set(message.openclawSeq, message);
-          messages = Array.from(bySeq.values()).sort((a, b) => a.openclawSeq - b.openclawSeq);
-          if (messages.length < limit) {
-            const append = this.listMessages(sessionKey, { afterSeq: newestSeq, limit: limit - messages.length });
-            for (const message of append) bySeq.set(message.openclawSeq, message);
-            messages = Array.from(bySeq.values()).sort((a, b) => a.openclawSeq - b.openclawSeq);
-          }
-        }
-      }
-    }
-
-    const oldestSeq = messages[0]?.openclawSeq ?? null;
-    const newestSeq = messages.at(-1)?.openclawSeq ?? null;
-    const knownTotalMessages = this.countMessages(sessionKey);
-    return {
-      direction,
-      messages,
-      oldestSeq,
-      newestSeq,
-      hasOlder: oldestSeq !== null ? this.countMessagesBefore(sessionKey, oldestSeq) > 0 : knownTotalMessages > 0,
-      hasNewer: newestSeq !== null ? this.countMessagesAfter(sessionKey, newestSeq) > 0 : false,
-      knownTotalMessages,
-    };
   }
 
   listRecentSessionKeys(limit = 100): string[] {

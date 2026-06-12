@@ -14,28 +14,18 @@ import { cleanMessageDisplayText, messageTextMatchesSent, normalizeHistoryMessag
 import { classifyGatewayMessageSemanticType, extractToolEventsFromMessage, isErrorToolResult, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
-import { buildChatBootstrapSnapshot, buildChatPageSnapshot, canonicalPatchPayload } from "./projection.js";
+import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
 import type { ProjectedRun } from "./repo.runs.js";
 import type { OpenClawMessage, ProjectedMessage } from "./types.js";
 
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
-  limit: z.coerce.number().int().positive().max(100_000).optional(),
+  limit: z.coerce.number().int().positive().max(1000).optional(),
   maxChars: z.coerce.number().int().positive().optional(),
 });
 
 const sessionContextQuery = z.object({
   sessionKey: z.string().min(1),
-});
-
-const chatPageQuery = z.object({
-  sessionKey: z.string().min(1),
-  direction: z.enum(["latest", "older", "newer", "around"]).optional(),
-  beforeSeq: z.coerce.number().int().positive().optional(),
-  afterSeq: z.coerce.number().int().min(0).optional(),
-  aroundSeq: z.coerce.number().int().positive().optional(),
-  aroundMessageId: z.string().min(1).optional(),
-  limit: z.coerce.number().int().positive().max(100_000).optional(),
 });
 
 
@@ -1589,7 +1579,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       (gatewayConnected || (nowMs() - localSession.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS)
     );
     const shouldServeLocal = inMemoryFresh || canServeFromSqlite;
-    const requestedBootstrapLimit = parsed.data.limit ?? 100_000;
+    const requestedBootstrapLimit = parsed.data.limit ?? 1000;
     let localMessages = localSession && shouldServeLocal
       ? context.messages.listMessages(parsed.data.sessionKey, { limit: requestedBootstrapLimit, latest: true })
       : [];
@@ -1608,7 +1598,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     if (localWindowIncomplete) {
       const oldestLoadedSeq = localOldestSeq as number;
       const latestSeq = context.messages.nextMessageSeq(parsed.data.sessionKey) - 1;
-      const backfillLimit = Math.min(100_000, Math.max(requestedBootstrapLimit, latestSeq - oldestLoadedSeq + requestedBootstrapLimit));
+      const backfillLimit = Math.min(1000, Math.max(requestedBootstrapLimit, latestSeq - oldestLoadedSeq + requestedBootstrapLimit));
       try {
         const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
           sessionKey: parsed.data.sessionKey,
@@ -1834,7 +1824,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       }
     }
 
-    const projectionLimit = parsed.data.limit ?? Math.max(BOOTSTRAP_PROJECTION_LIMIT, context.messages.countMessages(sessionKey));
+    const projectionLimit = parsed.data.limit ?? BOOTSTRAP_PROJECTION_LIMIT;
     const rawProjected = context.messages.listMessages(sessionKey, { limit: projectionLimit, latest: true });
     const projectedMessages: ReturnType<typeof serializeProjectedMessage>[] = [];
     for (let i = 0; i < rawProjected.length; i += 1) {
@@ -1849,7 +1839,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.bootstrap",
-      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "full", fullMessagesIncluded: true, pruned: bootstrapPruned },
+      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "metadata", fullMessagesIncluded: false, pruned: bootstrapPruned },
     });
     localFirstBootstrapTimestamps.set(sessionKey, nowMs());
     localFirstSqliteBlocked.delete('*');
@@ -1877,58 +1867,6 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
     coldBootstrapJobs.set(coldKey, coldJob);
     return coldJob;
-  });
-
-  app.get("/api/chat/page", async (request) => {
-    const parsed = chatPageQuery.safeParse(request.query);
-    if (!parsed.success) {
-      throw new HttpError(400, "Invalid chat page query", "INVALID_QUERY", parsed.error.flatten());
-    }
-    const input = parsed.data;
-    const direction = input.direction ?? (input.aroundSeq || input.aroundMessageId ? "around" : input.beforeSeq ? "older" : typeof input.afterSeq === "number" ? "newer" : "latest");
-    log.info("page.read.start", {
-      sessionKey: input.sessionKey,
-      direction,
-      beforeSeq: input.beforeSeq ?? null,
-      afterSeq: input.afterSeq ?? null,
-      aroundSeq: input.aroundSeq ?? null,
-      hasAroundMessageId: Boolean(input.aroundMessageId),
-      limit: input.limit,
-    });
-    const page = context.messages.listMessagePage(input.sessionKey, {
-      direction,
-      beforeSeq: input.beforeSeq,
-      afterSeq: input.afterSeq,
-      aroundSeq: input.aroundSeq,
-      aroundMessageId: input.aroundMessageId,
-      limit: input.limit,
-    });
-    const cursor = context.messages.latestSessionCursor(input.sessionKey);
-    const session = context.messages.getSession(input.sessionKey);
-    const gatewayConnected = context.gateway.status().connected;
-    const cacheFreshness = gatewayConnected
-      ? "live"
-      : session && (nowMs() - session.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS
-        ? "sqlite-fresh"
-        : "sqlite-stale";
-    log.info("page.read.end", {
-      sessionKey: input.sessionKey,
-      direction: page.direction,
-      messageCount: page.messages.length,
-      oldestSeq: page.oldestSeq,
-      newestSeq: page.newestSeq,
-      hasOlder: page.hasOlder,
-      hasNewer: page.hasNewer,
-      knownTotalMessages: page.knownTotalMessages,
-      cacheFreshness,
-    });
-    return buildChatPageSnapshot(context, {
-      sessionKey: input.sessionKey,
-      page,
-      cursor,
-      cacheFreshness,
-      messages: page.messages.map(serializeProjectedMessage),
-    });
   });
 
   app.get("/api/chat/messages", async (request) => {

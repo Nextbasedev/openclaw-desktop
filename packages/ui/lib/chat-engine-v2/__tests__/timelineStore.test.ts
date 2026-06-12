@@ -123,63 +123,6 @@ describe("ChatTimelineStore", () => {
     })
   })
 
-  describe("page windows", () => {
-    it("applies latest page metadata without requiring a full bootstrap", () => {
-      store.applyPage({
-        direction: "latest",
-        messages: [msg("m9", "nine", 9), msg("m10", "ten", 10)],
-        cursor: 50,
-        oldestSeq: 9,
-        newestSeq: 10,
-        hasOlder: true,
-        hasNewer: false,
-        knownTotalMessages: 10,
-        cacheFreshness: "live",
-      })
-      store.flushSync()
-
-      expect(store.getSnapshot()).toMatchObject({
-        cursor: 50,
-        bootstrapSettled: true,
-        messageCount: 10,
-        windowState: {
-          oldestSeq: 9,
-          newestSeq: 10,
-          hasOlder: true,
-          hasNewer: false,
-          knownTotalMessages: 10,
-          cacheFreshness: "live",
-          loadedRanges: [{ oldestSeq: 9, newestSeq: 10 }],
-        },
-      })
-    })
-
-    it("prepends older pages by range without duplicating anchor-adjacent rows", () => {
-      store.applyPage({ direction: "latest", messages: [msg("m7", "seven", 7), msg("m8", "eight", 8)], cursor: 10, oldestSeq: 7, newestSeq: 8, hasOlder: true, hasNewer: false, knownTotalMessages: 8 })
-      store.applyPage({ direction: "older", messages: [msg("m5", "five", 5), msg("m6", "six", 6)], cursor: 11, oldestSeq: 5, newestSeq: 6, hasOlder: true, hasNewer: true, knownTotalMessages: 8 })
-      store.flushSync()
-
-      const snap = store.getSnapshot()
-      expect(snap.messages.map((message) => message.messageId)).toEqual(["m5", "m6", "m7", "m8"])
-      expect(snap.windowState).toMatchObject({
-        oldestSeq: 5,
-        newestSeq: 8,
-        hasOlder: true,
-        hasNewer: true,
-        loadedRanges: [{ oldestSeq: 5, newestSeq: 8 }],
-      })
-    })
-
-    it("does not let a lower-cursor page delete newer live patch rows", () => {
-      store.applyPatchMessage(msg("live", "live answer", 11), 40)
-      store.applyPage({ direction: "latest", messages: [msg("m9", "nine", 9), msg("m10", "ten", 10)], cursor: 30, oldestSeq: 9, newestSeq: 10, hasOlder: true, hasNewer: false, knownTotalMessages: 11 })
-      store.flushSync()
-
-      expect(store.getSnapshot().messages.map((message) => message.messageId)).toEqual(["m9", "m10", "live"])
-      expect(store.getSnapshot().cursor).toBe(40)
-    })
-  })
-
   describe("patches", () => {
     it("adds new message via patch", () => {
       store.applyBootstrap([msg("m1", "hello", 1)], 10)
