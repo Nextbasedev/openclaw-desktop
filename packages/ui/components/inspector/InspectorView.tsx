@@ -111,9 +111,10 @@ export function InspectorView({
 
   const handleTabChange = useCallback((tab: InspectorTabId) => {
     if (tab === "terminal") setTerminalHasMounted(true)
+    if (tab !== "activity") onClearFocusedToolCall?.()
     onTabChange(tab)
     onTerminalTabChange?.(tab === "terminal")
-  }, [onTabChange, onTerminalTabChange])
+  }, [onClearFocusedToolCall, onTabChange, onTerminalTabChange])
 
   React.useEffect(() => {
     if (activeTab === "terminal") setTerminalHasMounted(true)
