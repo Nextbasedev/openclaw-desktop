@@ -237,26 +237,17 @@ function ToolRow({
           {metrics}
         </span>
         <span
-          role={onSelect ? "button" : undefined}
-          tabIndex={onSelect ? 0 : undefined}
-          aria-label={onSelect ? "Open in Subagents" : undefined}
-          title={onSelect ? "Open in Subagents" : undefined}
+          aria-label={hasDetails ? (open ? "Collapse tool call" : "Expand tool call") : undefined}
+          title={hasDetails ? (open ? "Collapse tool call" : "Expand tool call") : undefined}
           onClick={(e) => {
-            if (!onSelect) return
+            if (!hasDetails) return
             e.stopPropagation()
             onInteract?.()
-            onSelect(call.id)
-          }}
-          onKeyDown={(e) => {
-            if (!onSelect || (e.key !== "Enter" && e.key !== " ")) return
-            e.preventDefault()
-            e.stopPropagation()
-            onInteract?.()
-            onSelect(call.id)
+            onOpenChange(call.id, !open)
           }}
           className={cn(
             "flex size-5 shrink-0 items-center justify-center rounded transition-colors",
-            onSelect
+            hasDetails
               ? "cursor-pointer text-muted-foreground/35 hover:bg-white/5 hover:text-foreground"
               : "text-foreground/20"
           )}
