@@ -137,6 +137,35 @@ export function applyTrim<T extends SequencedMessage>(
 }
 
 /**
+ * Stable sort by `gatewayIndex`. Messages without a numeric gatewayIndex
+ * (optimistic, pending-send) retain their relative input order and float
+ * to the tail.
+ *
+ * Used by load-older / load-newer merge paths so the resulting array
+ * stays monotonic by seq even if a WS patch had previously inserted a
+ * future-seq row past a trimmed tail.
+ */
+export function sortMessagesByGatewayIndex<T extends { gatewayIndex?: number }>(messages: readonly T[]): T[] {
+  const indexed = messages.map((message, originalIndex) => ({ message, originalIndex }))
+  indexed.sort((a, b) => {
+    const av = a.message.gatewayIndex
+    const bv = b.message.gatewayIndex
+    const aHas = typeof av === "number" && Number.isFinite(av)
+    const bHas = typeof bv === "number" && Number.isFinite(bv)
+    if (aHas && bHas) {
+      const ai = Math.floor(av as number)
+      const bi = Math.floor(bv as number)
+      if (ai !== bi) return ai - bi
+      return a.originalIndex - b.originalIndex
+    }
+    if (aHas && !bHas) return -1
+    if (!aHas && bHas) return 1
+    return a.originalIndex - b.originalIndex
+  })
+  return indexed.map((entry) => entry.message)
+}
+
+/**
  * Read scrollTop / scrollHeight / clientHeight and decide which edge
  * (if any) is within `LOAD_THRESHOLD_RATIO` of the user. Returns:
  *   "top"    — load older

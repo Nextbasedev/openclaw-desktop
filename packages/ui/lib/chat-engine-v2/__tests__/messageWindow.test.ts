@@ -9,6 +9,7 @@ import {
   planDropFromBottom,
   applyTrim,
   detectEdgeProximity,
+  sortMessagesByGatewayIndex,
 } from "../messageWindow"
 
 type Msg = { gatewayIndex?: number; isOptimistic?: boolean; sendStatus?: string }
@@ -133,6 +134,56 @@ describe("detectEdgeProximity", () => {
   test("custom threshold ratio respected", () => {
     expect(detectEdgeProximity({ scrollTop: 50, scrollHeight: H, clientHeight: C, thresholdRatio: 0.05 })).toBe("top")
     expect(detectEdgeProximity({ scrollTop: 100, scrollHeight: H, clientHeight: C, thresholdRatio: 0.05 })).toBeNull()
+  })
+})
+
+describe("sortMessagesByGatewayIndex", () => {
+  test("sorts by gatewayIndex ascending", () => {
+    const input = [
+      { gatewayIndex: 5, id: "e" },
+      { gatewayIndex: 1, id: "a" },
+      { gatewayIndex: 3, id: "c" },
+      { gatewayIndex: 2, id: "b" },
+      { gatewayIndex: 4, id: "d" },
+    ]
+    expect(sortMessagesByGatewayIndex(input).map((x) => x.id)).toEqual(["a", "b", "c", "d", "e"])
+  })
+  test("messages without gatewayIndex float to the tail in original order", () => {
+    const input = [
+      { gatewayIndex: 2, id: "b" },
+      { id: "opt-1" },
+      { gatewayIndex: 1, id: "a" },
+      { id: "opt-2" },
+    ]
+    expect(sortMessagesByGatewayIndex(input).map((x) => x.id)).toEqual(["a", "b", "opt-1", "opt-2"])
+  })
+  test("non-finite gatewayIndex treated as missing", () => {
+    const input = [
+      { gatewayIndex: 2, id: "b" },
+      { gatewayIndex: NaN, id: "x" },
+      { gatewayIndex: 1, id: "a" },
+    ]
+    expect(sortMessagesByGatewayIndex(input).map((x) => x.id)).toEqual(["a", "b", "x"])
+  })
+  test("stable on tie", () => {
+    const input = [
+      { gatewayIndex: 1, id: "a1" },
+      { gatewayIndex: 1, id: "a2" },
+      { gatewayIndex: 1, id: "a3" },
+    ]
+    expect(sortMessagesByGatewayIndex(input).map((x) => x.id)).toEqual(["a1", "a2", "a3"])
+  })
+  test("the canonical send-from-history bug case: future-seq row past trimmed tail", () => {
+    // After scrolling up several pages and trimming the tail, store has
+    // seqs 100..200. User sends a message; WS patch arrives and inserts
+    // canonical row at seq 2405 (past the tail). Then loadNewer brings
+    // in seqs 201..260. We want the final order to be 100..200, 201..260, 2405.
+    const trimmed = [10, 11, 12].map((i) => ({ gatewayIndex: i, id: `s-${i}` }))
+    const wsInserted = { gatewayIndex: 2405, id: "ws" }
+    const loadedNewer = [13, 14, 15].map((i) => ({ gatewayIndex: i, id: `n-${i}` }))
+    const merged = [...trimmed, wsInserted, ...loadedNewer]
+    const sorted = sortMessagesByGatewayIndex(merged)
+    expect(sorted.map((x) => x.id)).toEqual(["s-10", "s-11", "s-12", "n-13", "n-14", "n-15", "ws"])
   })
 })
 

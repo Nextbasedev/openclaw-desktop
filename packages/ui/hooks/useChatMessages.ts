@@ -68,7 +68,7 @@ import {
 import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, trimSessionMessageWindow, updateGlobalChatSessionActivity, type SessionState } from "@/lib/chat-engine-v2/store"
-import { PAGE_SIZE as WINDOW_PAGE_SIZE, WINDOW_SIZE as WINDOW_TOTAL_SIZE, planDropFromTop, planDropFromBottom } from "@/lib/chat-engine-v2/messageWindow"
+import { PAGE_SIZE as WINDOW_PAGE_SIZE, WINDOW_SIZE as WINDOW_TOTAL_SIZE, planDropFromTop, planDropFromBottom, sortMessagesByGatewayIndex } from "@/lib/chat-engine-v2/messageWindow"
 import { getTimelineStore, deleteTimelineStore } from "@/lib/chat-engine-v2/timelineStore"
 import { stripTransientChatMessagesState } from "@/lib/chatTransientState"
 import { isStopSlashCommand } from "@/lib/controlSlashCommands"
@@ -784,6 +784,8 @@ function lastLoadedGatewayIndex(messages: ChatMessage[]) {
   }
   return null
 }
+
+
 
 function canLoadOlderThanFirstMessage(messages: ChatMessage[]) {
   const firstSeq = firstLoadedGatewayIndex(messages)
@@ -3351,8 +3353,10 @@ export function useChatMessages(
         .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
       const pageNewest = rawSeqs.length > 0 ? Math.max(...rawSeqs) : null
       const currentMessages = messagesRef.current
-      // Merge: append page messages after current tail, dedupe by messageId
-      // / __openclaw seq.
+      // Merge: append page messages and sort by gatewayIndex so the array
+      // stays monotonic even if a WS patch already inserted a future-seq
+      // row past the current trimmed tail (can happen after a user sends
+      // a message while viewing history).
       const seenIds = new Set<string>()
       const merged: ChatMessage[] = []
       for (const m of currentMessages) {
@@ -3371,20 +3375,23 @@ export function useChatMessages(
         if (id) seenIds.add(id)
         merged.push(incoming)
       }
-      setMessages(merged)
+      // Stable sort by gatewayIndex when present. Rows without a gateway
+      // index (optimistic, pending) keep their relative order at the tail.
+      const sorted = sortMessagesByGatewayIndex(merged)
+      setMessages(sorted)
       if (pageNewest !== null) newestLoadedSeqRef.current = pageNewest
       // Keep global session in sync so subsequent WS patches don't drop
       // the freshly-appended rows.
       const existingGlobal = getGlobalChatSession(sessionKey)
       seedGlobalChatSession({
         sessionKey,
-        messages: merged,
+        messages: sorted,
         cursor: v2CursorRef.current,
         status: statusRef.current,
         statusLabel,
         pendingTools: Array.from(pendingToolMapRef.current.values()),
         spawnedSubagents: Array.from(spawnMapRef.current.values()),
-        messageCount: existingGlobal?.messageCount ?? Math.max(merged.length, page.messageCount),
+        messageCount: existingGlobal?.messageCount ?? Math.max(sorted.length, page.messageCount),
         historyCoverage: existingGlobal?.historyCoverage ?? "metadata",
         queryClient,
       })
@@ -3405,39 +3412,65 @@ export function useChatMessages(
     }
   }, [hasNewerMessages, loadingNewerMessages, queryClient, sessionKey, setMessages, statusLabel])
 
+  // Read the freshest known message list for window planning. Prefers the
+  // global store (updated synchronously by loadOlder/loadNewer via
+  // seedGlobalChatSession) and falls back to the React ref. The ref lags
+  // by one effect tick after setMessages so reading it inside the same
+  // async tick that just called setMessages reports stale length.
+  const readFreshestMessages = useCallback((): ChatMessage[] => {
+    const fromStore = getGlobalChatSession(sessionKey)?.messages
+    if (fromStore && fromStore.length > 0) return fromStore as ChatMessage[]
+    return messagesRef.current
+  }, [sessionKey])
+
   // Drop one page-sized chunk from the top of the loaded window. Returns the
   // number of messages actually dropped (0 if nothing to drop).
   const unloadOldestPage = useCallback((): number => {
-    const current = messagesRef.current
+    const current = readFreshestMessages()
     const plan = planDropFromTop(current, { pageSize: WINDOW_PAGE_SIZE, windowSize: WINDOW_TOTAL_SIZE })
+    frontendLog("chat", "chat.window.unload-oldest.plan", {
+      sessionKey,
+      loaded: current.length,
+      planDropCount: plan.dropCount,
+      windowSize: WINDOW_TOTAL_SIZE,
+    }, "debug")
     if (plan.dropCount === 0) return 0
     const removed = trimSessionMessageWindow(sessionKey, { dropFromTop: plan.dropCount })
     if (removed > 0) {
       // After dropping rows from the top, the new oldest seq becomes our
-      // anchor for future loadOlderMessages calls. Recompute from refs.
-      const nextOldest = firstLoadedGatewayIndex(messagesRef.current)
+      // anchor for future loadOlderMessages calls. Recompute from the
+      // freshly-trimmed store.
+      const post = readFreshestMessages()
+      const nextOldest = firstLoadedGatewayIndex(post)
       if (nextOldest !== null) oldestLoadedSeqRef.current = nextOldest
       // History above the new top is by definition still on the server.
       setHasOlderMessages(true)
     }
     return removed
-  }, [sessionKey])
+  }, [readFreshestMessages, sessionKey])
 
   // Drop one page-sized chunk from the bottom of the loaded window. After
   // this, the WS stream tail will no longer be in memory; future loadNewer
   // calls walk back forward.
   const unloadNewestPage = useCallback((): number => {
-    const current = messagesRef.current
+    const current = readFreshestMessages()
     const plan = planDropFromBottom(current, { pageSize: WINDOW_PAGE_SIZE, windowSize: WINDOW_TOTAL_SIZE })
+    frontendLog("chat", "chat.window.unload-newest.plan", {
+      sessionKey,
+      loaded: current.length,
+      planDropCount: plan.dropCount,
+      windowSize: WINDOW_TOTAL_SIZE,
+    }, "debug")
     if (plan.dropCount === 0) return 0
     const removed = trimSessionMessageWindow(sessionKey, { dropFromBottom: plan.dropCount })
     if (removed > 0) {
-      const nextNewest = lastLoadedGatewayIndex(messagesRef.current)
+      const post = readFreshestMessages()
+      const nextNewest = lastLoadedGatewayIndex(post)
       if (nextNewest !== null) newestLoadedSeqRef.current = nextNewest
       setHasNewerMessages(true)
     }
     return removed
-  }, [sessionKey])
+  }, [readFreshestMessages, sessionKey])
 
   const messagesBelongToActiveSession = messageSessionKey === sessionKey
 
