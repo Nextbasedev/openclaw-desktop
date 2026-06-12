@@ -92,128 +92,13 @@ function scrollContainerToBottom(container: HTMLElement | null) {
   container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
 }
 
-type MessageScrollAnchor = {
-  id: string
-  uiId: string
-  messageId: string
-  top: number
-  previousScrollHeight: number
-  previousScrollTop: number
-}
-
 type VirtualPrependAnchor = {
   uiId: string
   offsetFromViewportTop: number
   previousScrollTop: number
 }
 
-function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrollAnchor | null {
-  if (!container) return null
-  const containerRect = container.getBoundingClientRect()
-  const containerTop = containerRect.top
-  const anchorY = containerTop + Math.min(180, Math.max(80, containerRect.height * 0.25))
-  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-  const visibleRow =
-    rows.find((row) => {
-      const rect = row.getBoundingClientRect()
-      return rect.top <= anchorY && rect.bottom >= anchorY
-    }) ?? rows.find((row) => row.getBoundingClientRect().bottom > containerTop + 1)
-  if (!visibleRow) {
-    return {
-      id: "",
-      uiId: "",
-      messageId: "",
-      top: containerTop,
-      previousScrollHeight: container.scrollHeight,
-      previousScrollTop: container.scrollTop,
-    }
-  }
-  return {
-    id: visibleRow.id,
-    uiId: visibleRow.dataset.uiId ?? "",
-    messageId: visibleRow.dataset.messageId ?? "",
-    top: visibleRow.getBoundingClientRect().top,
-    previousScrollHeight: container.scrollHeight,
-    previousScrollTop: container.scrollTop,
-  }
-}
-
-function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null) {
-  if (!container || !anchor) return
-  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-  if (anchor.uiId || anchor.messageId) {
-    const row = rows.find((item) => item.dataset.uiId === anchor.uiId) ??
-      rows.find((item) => item.dataset.messageId === anchor.messageId)
-    if (row) {
-      const deltaPx = row.getBoundingClientRect().top - anchor.top
-      container.scrollTop += deltaPx
-      logChatScrollDebug({
-        source: "chat",
-        event: "restore-anchor-row",
-        anchorId: anchor.uiId || anchor.messageId,
-        anchorTop: anchor.top,
-        deltaPx,
-        scrollTop: container.scrollTop,
-        scrollHeight: container.scrollHeight,
-        clientHeight: container.clientHeight,
-      })
-      return
-    }
-  }
-  if (anchor.id) {
-    const row = document.getElementById(anchor.id)
-    if (row) {
-      const deltaPx = row.getBoundingClientRect().top - anchor.top
-      container.scrollTop += deltaPx
-      logChatScrollDebug({ source: "chat", event: "restore-anchor-dom-id", anchorId: anchor.id, anchorTop: anchor.top, deltaPx, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
-      return
-    }
-  }
-  const delta = container.scrollHeight - anchor.previousScrollHeight
-  container.scrollTop = anchor.previousScrollTop + Math.max(0, delta)
-  logChatScrollDebug({ source: "chat", event: "restore-anchor-height-delta", anchorId: anchor.uiId || anchor.id, deltaPx: delta, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
-}
-
-function settleMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null, done: () => void) {
-  let finished = false
-  let frame: number | null = null
-  let observer: ResizeObserver | null = null
-  const timeouts: number[] = []
-
-  const restore = () => {
-    if (finished) return
-    restoreMessageScrollAnchor(container, anchor)
-  }
-  const scheduleRestore = () => {
-    if (finished || frame !== null) return
-    frame = requestAnimationFrame(() => {
-      frame = null
-      restore()
-    })
-  }
-  const finish = () => {
-    if (finished) return
-    finished = true
-    if (frame !== null) cancelAnimationFrame(frame)
-    for (const timeout of timeouts) window.clearTimeout(timeout)
-    observer?.disconnect()
-    restoreMessageScrollAnchor(container, anchor)
-    done()
-  }
-
-  restore()
-  scheduleRestore()
-  if (container && typeof ResizeObserver !== "undefined") {
-    observer = new ResizeObserver(scheduleRestore)
-    observer.observe(container)
-  }
-  timeouts.push(window.setTimeout(restore, 80))
-  timeouts.push(window.setTimeout(restore, 180))
-  timeouts.push(window.setTimeout(finish, 360))
-}
-
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
-const VIRTUAL_CHAT_FLAG_STORAGE_KEY = "openclaw.chatview.virtualized"
 
 function useAssistantUiChatViewEnabled() {
   const envEnabled = process.env.NEXT_PUBLIC_OPENCLAW_ASSISTANT_UI_CHATVIEW === "1"
@@ -223,22 +108,6 @@ function useAssistantUiChatViewEnabled() {
       if (envEnabled) return true
       try {
         return window.localStorage.getItem(ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY) === "1"
-      } catch {
-        return false
-      }
-    },
-    () => envEnabled
-  )
-}
-
-function useVirtualChatEnabled() {
-  const envEnabled = process.env.NEXT_PUBLIC_OPENCLAW_VIRTUAL_CHAT === "1"
-  return useSyncExternalStore(
-    () => () => {},
-    () => {
-      if (envEnabled) return true
-      try {
-        return window.localStorage.getItem(VIRTUAL_CHAT_FLAG_STORAGE_KEY) === "1"
       } catch {
         return false
       }
@@ -1023,13 +892,11 @@ export function ChatView({
   const initialScrollSessionKeyRef = useRef(sessionKey)
   const previousScrollTopRef = useRef(0)
   const previousScrollTimeRef = useRef(Date.now())
-  const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
   const pendingVirtualPrependAnchorRef = useRef<VirtualPrependAnchor | null>(null)
   const olderAutoLoadBlockedUntilRef = useRef(0)
   const keepLatestVisibleRef = useRef(true)
   const virtualFooterRef = useRef<HTMLDivElement | null>(null)
   const [virtualFooterHeight, setVirtualFooterHeight] = useState(CHAT_FOOTER_ESTIMATE_PX)
-  const virtualChatEnabled = useVirtualChatEnabled()
 
   const rowVirtualizer = useVirtualizer({
     count: renderedMessages.length,
@@ -1068,7 +935,6 @@ export function ChatView({
     lastOlderLoadScrollTopRef.current = null
     previousScrollTopRef.current = 0
     previousScrollTimeRef.current = Date.now()
-    pendingOlderAnchorRef.current = null
     pendingVirtualPrependAnchorRef.current = null
     keepLatestVisibleRef.current = true
   }, [sessionKey])
@@ -1254,27 +1120,21 @@ export function ChatView({
     lastOlderLoadAtRef.current = now
     loadOlderClickInFlightRef.current = true
     olderLoadAwaitingRenderRef.current = true
-    if (virtualChatEnabled) {
-      const firstVisible = rowVirtualizer.getVirtualItems()[0]
-      const currentVirtualOffset = rowVirtualizer.scrollOffset ?? scrollContainerRef.current?.scrollTop ?? 0
-      pendingVirtualPrependAnchorRef.current = firstVisible
-        ? {
-            uiId: renderedMessages[firstVisible.index]?.uiId ?? "",
-            offsetFromViewportTop: firstVisible.start - currentVirtualOffset,
-            previousScrollTop: currentVirtualOffset,
-          }
-        : null
-      pendingOlderAnchorRef.current = null
-    } else {
-      pendingOlderAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
-      pendingVirtualPrependAnchorRef.current = null
-    }
+    const firstVisible = rowVirtualizer.getVirtualItems()[0]
+    const currentVirtualOffset = rowVirtualizer.scrollOffset ?? scrollContainerRef.current?.scrollTop ?? 0
+    pendingVirtualPrependAnchorRef.current = firstVisible
+      ? {
+          uiId: renderedMessages[firstVisible.index]?.uiId ?? "",
+          offsetFromViewportTop: firstVisible.start - currentVirtualOffset,
+          previousScrollTop: currentVirtualOffset,
+        }
+      : null
     logChatScrollDebug({
       source: "chat",
       event: "load-older-start",
       sessionKey,
-      anchorId: pendingVirtualPrependAnchorRef.current?.uiId || pendingOlderAnchorRef.current?.uiId || pendingOlderAnchorRef.current?.id,
-      anchorTop: pendingVirtualPrependAnchorRef.current?.offsetFromViewportTop ?? pendingOlderAnchorRef.current?.top,
+      anchorId: pendingVirtualPrependAnchorRef.current?.uiId,
+      anchorTop: pendingVirtualPrependAnchorRef.current?.offsetFromViewportTop,
       scrollTop: scrollContainerRef.current?.scrollTop,
       scrollHeight: scrollContainerRef.current?.scrollHeight,
       clientHeight: scrollContainerRef.current?.clientHeight,
@@ -1282,15 +1142,13 @@ export function ChatView({
     try {
       await loadOlderMessages()
     } catch {
-      pendingOlderAnchorRef.current = null
       pendingVirtualPrependAnchorRef.current = null
       olderLoadAwaitingRenderRef.current = false
       loadOlderClickInFlightRef.current = false
     }
-  }, [hasOlderMessages, isGenerating, loadOlderMessages, loadingOlderMessages, renderedMessages, rowVirtualizer, scrollContainerRef, sessionKey, virtualChatEnabled])
+  }, [hasOlderMessages, isGenerating, loadOlderMessages, loadingOlderMessages, renderedMessages, rowVirtualizer, scrollContainerRef, sessionKey])
 
   useLayoutEffect(() => {
-    if (!virtualChatEnabled) return
     const anchor = pendingVirtualPrependAnchorRef.current
     if (!anchor || !anchor.uiId) return
     const nextIndex = renderedMessages.findIndex((message) => message.uiId === anchor.uiId)
@@ -1321,24 +1179,7 @@ export function ChatView({
         clientHeight: el.clientHeight,
       })
     })
-  }, [renderedMessages, rowVirtualizer, scrollContainerRef, sessionKey, virtualChatEnabled])
-
-  useLayoutEffect(() => {
-    if (virtualChatEnabled) return
-    const anchor = pendingOlderAnchorRef.current
-    if (!anchor) return
-    pendingOlderAnchorRef.current = null
-    olderLoadAwaitingRenderRef.current = false
-    settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
-      const el = scrollContainerRef.current
-      if (el) {
-        previousScrollTopRef.current = el.scrollTop
-        previousScrollTimeRef.current = Date.now()
-        lastOlderLoadScrollTopRef.current = el.scrollTop
-      }
-      loadOlderClickInFlightRef.current = false
-    })
-  }, [renderedMessages.length, scrollContainerRef, virtualChatEnabled])
+  }, [renderedMessages, rowVirtualizer, scrollContainerRef, sessionKey])
 
   const handleScroll = useCallback(() => {
     onScroll()
@@ -1371,14 +1212,10 @@ export function ChatView({
   const jumpToLatestMessage = useCallback(() => {
     keepLatestVisibleRef.current = true
     setShowJumpToBottom(false)
-    if (virtualChatEnabled) {
-      scrollContainerToBottom(scrollContainerRef.current)
-      rowVirtualizer.scrollToIndex(Math.max(0, renderedMessages.length - 1), { align: "end" })
-      requestAnimationFrame(() => scrollContainerToBottom(scrollContainerRef.current))
-      return
-    }
-    bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-  }, [bottomRef, renderedMessages.length, rowVirtualizer, scrollContainerRef, virtualChatEnabled])
+    scrollContainerToBottom(scrollContainerRef.current)
+    rowVirtualizer.scrollToIndex(Math.max(0, renderedMessages.length - 1), { align: "end" })
+    requestAnimationFrame(() => scrollContainerToBottom(scrollContainerRef.current))
+  }, [renderedMessages.length, rowVirtualizer, scrollContainerRef])
 
   const syncJumpToBottomVisibility = useCallback(() => {
     const el = scrollContainerRef.current
@@ -1434,13 +1271,8 @@ export function ChatView({
       const scrollToLatest = () => {
         const el = scrollContainerRef.current
         if (!el) return
-        if (virtualChatEnabled) {
-          rowVirtualizer.scrollToIndex(Math.max(0, renderedMessages.length - 1), { align: "end" })
-          scrollContainerToBottom(el)
-        } else {
-          bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-          el.scrollTop = el.scrollHeight
-        }
+        rowVirtualizer.scrollToIndex(Math.max(0, renderedMessages.length - 1), { align: "end" })
+        scrollContainerToBottom(el)
         keepLatestVisibleRef.current = true
         previousScrollTopRef.current = el.scrollTop
         previousScrollTimeRef.current = Date.now()
@@ -1453,7 +1285,7 @@ export function ChatView({
         window.setTimeout(scrollToLatest, 360)
       })
     }
-  }, [bottomRef, renderedMessages.length, loading, rowVirtualizer, scrollContainerRef, sessionKey, virtualChatEnabled])
+  }, [renderedMessages.length, loading, rowVirtualizer, scrollContainerRef, sessionKey])
 
 
 
@@ -2035,7 +1867,6 @@ export function ChatView({
   }, [editPreview?.status, pendingTools, renderedMessages, sessionKey, statusText, virtualFooterHeight])
 
   useLayoutEffect(() => {
-    if (!virtualChatEnabled) return
     const el = scrollContainerRef.current
     if (!el || olderLoadAwaitingRenderRef.current || pendingVirtualPrependAnchorRef.current) return
     if (!keepLatestVisibleRef.current && !isNearScrollBottom(el)) return
@@ -2044,10 +1875,9 @@ export function ChatView({
     previousScrollTopRef.current = el.scrollTop
     previousScrollTimeRef.current = Date.now()
     setShowJumpToBottom(false)
-  }, [latestVirtualLayoutSignature, scrollContainerRef, virtualChatEnabled])
+  }, [latestVirtualLayoutSignature, scrollContainerRef])
 
   useEffect(() => {
-    if (!virtualChatEnabled) return
     const footer = virtualFooterRef.current
     if (!footer || typeof ResizeObserver === "undefined") return
     const observer = new ResizeObserver((entries) => {
@@ -2057,7 +1887,7 @@ export function ChatView({
     })
     observer.observe(footer)
     return () => observer.disconnect()
-  }, [scrollContainerRef, virtualChatEnabled])
+  }, [scrollContainerRef])
 
   if (activeSubKey && activeLiveSubagent) {
     return (
@@ -2246,63 +2076,32 @@ export function ChatView({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
       >
-        {virtualChatEnabled ? (
-          <div
-            className="relative min-h-full"
-            style={{ height: `${virtualContentHeight}px` }}
-          >
-            {virtualRows.map((virtualRow) => {
-              const msg = renderedMessages[virtualRow.index]
-              if (!msg) return null
-              return (
-                <div
-                  key={virtualRow.key}
-                  data-index={virtualRow.index}
-                  ref={rowVirtualizer.measureElement}
-                  className="absolute left-0 top-0 w-full"
-                  style={{ transform: `translateY(${virtualRow.start}px)` }}
-                >
-                  {renderMessageRow(virtualRow.index, msg)}
-                </div>
-              )
-            })}
-            <div
-              ref={virtualFooterRef}
-              className={cn("absolute left-0 top-0 w-full", statusText ? "pb-2" : "pb-8")}
-              style={{ transform: `translateY(${virtualTotalSize}px)` }}
-            >
-              <div className="mx-auto max-w-[44rem] px-4 pt-0">
-                <AnimatePresence initial={false}>
-                  {editPreview && (
-                    <EditPreviewPanel
-                      key={editPreview.branchSessionKey}
-                      preview={editPreview}
-                      onSelect={selectEditBranch}
-                    />
-                  )}
-                </AnimatePresence>
-                <div className={cn("flex h-[21px] items-center", statusText ? "mt-1" : "mt-2")}>
-                  {statusText && (
-                    <>
-                      <ProcessStatusIcon tool={liveTool?.tool} />
-                      <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                        {statusText.replace(/\.{3}$/, "")}
-                        <span className="thinking-ellipsis" aria-hidden="true" />
-                      </span>
-                    </>
-                  )}
-                </div>
-                <div ref={bottomRef} className={statusText ? "h-2" : "h-8"} />
+        <div
+          className="relative min-h-full"
+          style={{ height: `${virtualContentHeight}px` }}
+        >
+          <div className="mx-auto max-w-3xl px-4 pt-8" />
+          {virtualRows.map((virtualRow) => {
+            const msg = renderedMessages[virtualRow.index]
+            if (!msg) return null
+            return (
+              <div
+                key={virtualRow.key}
+                data-index={virtualRow.index}
+                ref={rowVirtualizer.measureElement}
+                className="absolute left-0 top-0 w-full"
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
+              >
+                {renderMessageRow(virtualRow.index, msg)}
               </div>
-            </div>
-          </div>
-        ) : (
-          <div className="min-h-full">
-            <div className="mx-auto max-w-3xl px-4 pt-8" />
-            {renderedMessages.map((msg, index) => (
-              <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
-            ))}
-            <div className={cn("mx-auto max-w-[44rem] px-4 pt-0", statusText ? "pb-2" : "pb-8")}>
+            )
+          })}
+          <div
+            ref={virtualFooterRef}
+            className={cn("absolute left-0 top-0 w-full", statusText ? "pb-2" : "pb-8")}
+            style={{ transform: `translateY(${virtualTotalSize}px)` }}
+          >
+            <div className="mx-auto max-w-[44rem] px-4 pt-0">
               <AnimatePresence initial={false}>
                 {editPreview && (
                   <EditPreviewPanel
@@ -2326,7 +2125,7 @@ export function ChatView({
               <div ref={bottomRef} className={statusText ? "h-2" : "h-8"} />
             </div>
           </div>
-        )}
+        </div>
       </div>
 
       <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
