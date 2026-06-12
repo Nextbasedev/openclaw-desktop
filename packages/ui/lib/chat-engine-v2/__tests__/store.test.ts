@@ -10,6 +10,7 @@ import {
   seedGlobalChatSession,
   subscribeGlobalChatSession,
   sweepStaleGlobalChatSessions,
+  trimSessionMessageWindow,
 } from "../store"
 
 vi.mock("../client", () => ({
@@ -3702,5 +3703,101 @@ describe("global V2 chat engine store", () => {
     ])
     expect(state?.messages.filter((message) => message.role === "assistant")).toHaveLength(2)
     expect(state?.messages.some((message) => message.text === "reply1\n\nreply2")).toBe(false)
+  })
+
+  describe("trimSessionMessageWindow (Phase 1 fixed-window)", () => {
+    function seedRange(sessionKey: string, count: number, opts: { withOptimisticTail?: number } = {}) {
+      const messages: any[] = []
+      for (let i = 0; i < count; i += 1) {
+        messages.push({
+          messageId: `m-${i}`,
+          role: i % 2 === 0 ? "user" : "assistant",
+          text: `msg-${i}`,
+          gatewayIndex: i + 1,
+        })
+      }
+      const optimisticCount = opts.withOptimisticTail ?? 0
+      for (let i = 0; i < optimisticCount; i += 1) {
+        messages.push({
+          messageId: `opt-${i}`,
+          role: "user",
+          text: `opt-${i}`,
+          isOptimistic: true,
+          sendStatus: "sending",
+        })
+      }
+      seedGlobalChatSession({ sessionKey, cursor: 1, status: "idle", messages })
+    }
+
+    test("drops requested top + bottom counts on plain history", () => {
+      seedRange("trim-1", 10)
+      const removed = trimSessionMessageWindow("trim-1", { dropFromTop: 2, dropFromBottom: 3 })
+      expect(removed).toBe(5)
+      const state = getGlobalChatSession("trim-1")
+      expect(state?.messages.map((m) => m.text)).toEqual(["msg-2", "msg-3", "msg-4", "msg-5", "msg-6"])
+    })
+
+    test("never drops optimistic tail rows even when bottom drop requested", () => {
+      seedRange("trim-2", 5, { withOptimisticTail: 2 })
+      const removed = trimSessionMessageWindow("trim-2", { dropFromBottom: 3 })
+      expect(removed).toBe(0)
+      const state = getGlobalChatSession("trim-2")
+      expect(state?.messages).toHaveLength(7)
+    })
+
+    test("never drops sendStatus rows from the top when drop range reaches them", () => {
+      // Synthetic mix: 2 normal rows, then a pending row at index 2.
+      const messages: any[] = [
+        { messageId: "a", role: "user", text: "a", gatewayIndex: 1 },
+        { messageId: "b", role: "assistant", text: "b", gatewayIndex: 2 },
+        { messageId: "c", role: "user", text: "c", sendStatus: "pending" },
+        { messageId: "d", role: "user", text: "d", gatewayIndex: 3 },
+      ]
+      seedGlobalChatSession({ sessionKey: "trim-3", cursor: 1, status: "idle", messages })
+      const removed = trimSessionMessageWindow("trim-3", { dropFromTop: 3 })
+      // Stops at index 2 (pending); only drops 2 normal rows from top.
+      expect(removed).toBe(2)
+      const state = getGlobalChatSession("trim-3")
+      expect(state?.messages.map((m) => m.messageId)).toEqual(["c", "d"])
+    })
+
+    test("no-op when both drop counts are zero", () => {
+      seedRange("trim-4", 5)
+      expect(trimSessionMessageWindow("trim-4", {})).toBe(0)
+      expect(trimSessionMessageWindow("trim-4", { dropFromTop: 0, dropFromBottom: 0 })).toBe(0)
+      expect(getGlobalChatSession("trim-4")?.messages).toHaveLength(5)
+    })
+
+    test("clamps drop count when it exceeds available rows", () => {
+      seedRange("trim-5", 3)
+      const removed = trimSessionMessageWindow("trim-5", { dropFromTop: 5, dropFromBottom: 5 })
+      // dropFromTop runs first → drops 3, leaves 0. Bottom can't drop more.
+      expect(removed).toBe(3)
+      expect(getGlobalChatSession("trim-5")?.messages).toEqual([])
+    })
+
+    test("unknown session returns 0", () => {
+      expect(trimSessionMessageWindow("no-such-session", { dropFromTop: 1 })).toBe(0)
+    })
+
+    test("notifies subscribers after a trim", () => {
+      seedRange("trim-6", 10)
+      const seen: number[] = []
+      const unsub = subscribeGlobalChatSession("trim-6", (state) => {
+        seen.push(state.messages.length)
+      })
+      // Initial subscribe also delivers current state.
+      const baseline = seen.length
+      trimSessionMessageWindow("trim-6", { dropFromTop: 4 })
+      expect(seen.length).toBeGreaterThan(baseline)
+      expect(seen[seen.length - 1]).toBe(6)
+      unsub()
+    })
+
+    test("negative drop counts are clamped to zero", () => {
+      seedRange("trim-7", 5)
+      expect(trimSessionMessageWindow("trim-7", { dropFromTop: -3, dropFromBottom: -10 })).toBe(0)
+      expect(getGlobalChatSession("trim-7")?.messages).toHaveLength(5)
+    })
   })
 })
