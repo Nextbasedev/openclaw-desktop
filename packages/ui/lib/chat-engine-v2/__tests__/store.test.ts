@@ -3,6 +3,7 @@ import { createOpenClawQueryClient, queryKeys } from "../../query"
 import {
   clearGlobalChatEngineForTests,
   ensureGlobalChatEngine,
+  evictMessagesOutsideSeqRange,
   getGlobalChatSession,
   getGlobalCursorForTests,
   ingestGlobalChatFrameForTests,
@@ -3702,5 +3703,92 @@ describe("global V2 chat engine store", () => {
     ])
     expect(state?.messages.filter((message) => message.role === "assistant")).toHaveLength(2)
     expect(state?.messages.some((message) => message.text === "reply1\n\nreply2")).toBe(false)
+  })
+
+  describe("evictMessagesOutsideSeqRange", () => {
+    const seedRange = (sessionKey: string, fromSeq: number, toSeq: number) => {
+      const messages = []
+      for (let seq = fromSeq; seq <= toSeq; seq += 1) {
+        messages.push({
+          messageId: `m-${seq}`,
+          role: seq % 2 === 0 ? "user" : "assistant",
+          text: `t-${seq}`,
+          gatewayIndex: seq,
+          __openclaw: { id: `m-${seq}`, seq },
+        } as any)
+      }
+      seedGlobalChatSession({
+        sessionKey,
+        cursor: toSeq,
+        status: "idle",
+        messages,
+      })
+    }
+
+    test("keeps only messages whose gatewayIndex is in [minSeq, maxSeq]", () => {
+      seedRange("s-evict", 0, 199)
+      const evicted = evictMessagesOutsideSeqRange("s-evict", 60, 119)
+      expect(evicted).toBe(140)
+      const state = getGlobalChatSession("s-evict")
+      expect(state?.messages).toHaveLength(60)
+      expect(state?.messages.every((m) => (m.gatewayIndex ?? -1) >= 60 && (m.gatewayIndex ?? -1) <= 119)).toBe(true)
+    })
+
+    test("preserves messages without gatewayIndex (e.g. optimistic sends)", () => {
+      seedGlobalChatSession({
+        sessionKey: "s-opt",
+        cursor: 5,
+        status: "idle",
+        messages: [
+          { messageId: "opt-1", role: "user", text: "hi", isOptimistic: true, sendStatus: "sending" } as any,
+          { messageId: "g-3", role: "user", text: "q", gatewayIndex: 3, __openclaw: { id: "g-3", seq: 3 } } as any,
+          { messageId: "g-50", role: "user", text: "far", gatewayIndex: 50, __openclaw: { id: "g-50", seq: 50 } } as any,
+        ],
+      })
+      const evicted = evictMessagesOutsideSeqRange("s-opt", 0, 10)
+      expect(evicted).toBe(1) // only g-50 is out of range
+      const messages = getGlobalChatSession("s-opt")?.messages ?? []
+      expect(messages.map((m) => m.messageId).sort()).toEqual(["g-3", "opt-1"])
+    })
+
+    test("no-op when no messages fall outside the range", () => {
+      seedRange("s-noop", 100, 110)
+      const evicted = evictMessagesOutsideSeqRange("s-noop", 90, 200)
+      expect(evicted).toBe(0)
+      expect(getGlobalChatSession("s-noop")?.messages).toHaveLength(11)
+    })
+
+    test("returns 0 when session does not exist", () => {
+      expect(evictMessagesOutsideSeqRange("missing", 0, 100)).toBe(0)
+    })
+
+    test("protects optimistic messages even when gatewayIndex would be out of range", () => {
+      seedGlobalChatSession({
+        sessionKey: "s-opt-seq",
+        cursor: 100,
+        status: "idle",
+        messages: [
+          { messageId: "x", role: "user", text: "a", gatewayIndex: 5, isOptimistic: true, __openclaw: { id: "x", seq: 5 } } as any,
+          { messageId: "y", role: "user", text: "b", gatewayIndex: 6, __openclaw: { id: "y", seq: 6 } } as any,
+        ],
+      })
+      const evicted = evictMessagesOutsideSeqRange("s-opt-seq", 100, 200)
+      // y is evicted (seq 6 < 100, not optimistic); x is preserved (optimistic).
+      expect(evicted).toBe(1)
+      const messages = getGlobalChatSession("s-opt-seq")?.messages ?? []
+      expect(messages.map((m) => m.messageId)).toEqual(["x"])
+    })
+
+    test("notifies subscribers after eviction", () => {
+      seedRange("s-notify", 0, 19)
+      const listener = vi.fn()
+      const unsubscribe = subscribeGlobalChatSession("s-notify", listener)
+      listener.mockClear() // ignore the initial snapshot callback
+      evictMessagesOutsideSeqRange("s-notify", 10, 19)
+      expect(listener).toHaveBeenCalled()
+      const lastSnapshot = listener.mock.calls.at(-1)![0]
+      expect(lastSnapshot.messages).toHaveLength(10)
+      unsubscribe()
+    })
   })
 })
