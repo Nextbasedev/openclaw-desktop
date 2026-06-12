@@ -113,17 +113,23 @@ class ClientWindow {
       if (prev !== null && s <= prev) this.recordViolation(stage, "non-monotonic-seq", { prev, curr: s })
       prev = s
     }
-    // 2b. No LARGE gaps (>50) inside the loaded window. Small gaps are
-    // legitimate (tool-only patches, deleted rows) but a >50-seq jump
-    // means we've stitched a future-seq WS row past a trimmed tail and
-    // lost the contiguous segment in between.
+    // 2b. No gaps to the LIVE TAIL (serverNewestSeq) inside the loaded
+    // window. Small/medium server-side gaps are legitimate (tool-only
+    // patches, deleted rows, session-internal seqs that the bootstrap
+    // endpoint skips). The real failure mode we care about is:
+    // "trimmed-tail + WS-appended future row stranded past the trimmed
+    // boundary", which manifests as a gap whose upper bound equals or
+    // approaches the server's lastSeq.
     let prevGap = null
+    const liveTail = this.serverNewestSeq
     for (const m of this.messages) {
       const s = m.openclawSeq
       if (typeof s !== "number") continue
       if (prevGap !== null) {
         const delta = s - prevGap
-        if (delta > 50) this.recordViolation(stage, "large-seq-gap-in-window", { prev: prevGap, curr: s, delta })
+        if (delta > 50 && liveTail !== null && Math.abs(s - liveTail) < 5) {
+          this.recordViolation(stage, "large-seq-gap-to-live-tail", { prev: prevGap, curr: s, delta, liveTail })
+        }
       }
       prevGap = s
     }

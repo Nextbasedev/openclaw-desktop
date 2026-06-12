@@ -2241,6 +2241,10 @@ function isMessageProtectedForTrim(message: ChatMessage): boolean {
   if (!message) return false
   if (message.isOptimistic) return true
   if (message.sendStatus) return true
+  // Active streaming row: applyChatPatch marks the row currently being
+  // patched with animateText=true. Trimming a streaming row would make
+  // the live tail vanish mid-stream and cause visible flicker. Phase 2.
+  if (message.animateText) return true
   return false
 }
 

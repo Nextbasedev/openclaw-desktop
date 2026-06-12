@@ -31,6 +31,9 @@ export type SequencedMessage = {
   isOptimistic?: boolean
   // Pending-send messages must NEVER be trimmed by the window.
   sendStatus?: string
+  // Active streaming row — trimming would make the live assistant text
+  // vanish mid-stream. Phase 2/3.
+  animateText?: boolean
 }
 
 /**
@@ -87,7 +90,7 @@ export function classifyMessagesForTrim<T extends SequencedMessage>(
 }
 
 function isProtected<T extends SequencedMessage>(message: T): boolean {
-  return Boolean(message.isOptimistic) || Boolean(message.sendStatus)
+  return Boolean(message.isOptimistic) || Boolean(message.sendStatus) || Boolean(message.animateText)
 }
 
 /**

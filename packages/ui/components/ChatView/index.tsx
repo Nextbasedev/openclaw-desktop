@@ -245,47 +245,34 @@ function restoreMessageScrollAnchor(
   logChatScrollDebug({ source: "chat", event: "restore-anchor-height-delta", anchorId: anchor.uiId || anchor.id, deltaPx: delta, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
 }
 
-function settleMessageScrollAnchor(
-  container: HTMLElement | null,
-  anchor: MessageScrollAnchor | null,
-  done: () => void,
-  options: AnchorRestoreOptions = {},
-) {
+/**
+ * Phase 2 anchor settle: one synchronous restore (already inside the
+ * useLayoutEffect — DOM is fully painted) + one rAF restore to catch
+ * post-paint resize (Markdown, code blocks). Then DONE. No repeated
+ * timeouts that fight legitimate user scroll.
+ *
+ * The previous implementation called restore() up to 5 times over 360ms
+ * which produced visible jumping when the user kept scrolling after a
+ * load fired. Two restores is enough — the layout-effect happens AFTER
+ * paint, so the first restore lands on the final geometry except for
+ * downstream lazy-layout work (which one rAF covers).
+ */
+function settleMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null, done: () => void) {
+  if (!container) { done(); return }
   let finished = false
-  let frame: number | null = null
-  let observer: ResizeObserver | null = null
-  const timeouts: number[] = []
-
-  const restore = () => {
-    if (finished) return
-    restoreMessageScrollAnchor(container, anchor, options)
-  }
-  const scheduleRestore = () => {
-    if (finished || frame !== null) return
-    frame = requestAnimationFrame(() => {
-      frame = null
-      restore()
-    })
-  }
   const finish = () => {
     if (finished) return
     finished = true
-    if (frame !== null) cancelAnimationFrame(frame)
-    for (const timeout of timeouts) window.clearTimeout(timeout)
-    observer?.disconnect()
-    restoreMessageScrollAnchor(container, anchor, options)
     done()
   }
-
-  restore()
-  scheduleRestore()
-  if (container && typeof ResizeObserver !== "undefined") {
-    observer = new ResizeObserver(scheduleRestore)
-    observer.observe(container)
-  }
-  timeouts.push(window.setTimeout(restore, 80))
-  timeouts.push(window.setTimeout(restore, 180))
-  timeouts.push(window.setTimeout(finish, 360))
+  restoreMessageScrollAnchor(container, anchor)
+  requestAnimationFrame(() => {
+    if (finished) return
+    restoreMessageScrollAnchor(container, anchor)
+    finish()
+  })
+  // Hard cutoff in case rAF never fires (tab backgrounded etc).
+  window.setTimeout(finish, 250)
 }
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
 
@@ -1539,14 +1526,23 @@ export function ChatView({
     [sessionKey, messageActionState.reactions]
   )
 
+  // Phase 2: while an anchor restore is in flight, gate further auto-loads
+  // so we don't fire load/trim cascades that fight the current settle.
+  const anchorRestoreInFlightRef = useRef(false)
   const loadOlderWithoutJump = useCallback(async () => {
     const now = Date.now()
     if (!hasOlderMessages || loadingOlderMessages || loadOlderClickInFlightRef.current) return
-    if (isGenerating || now < olderAutoLoadBlockedUntilRef.current) return
+    // Phase 3: previously blocked older-load while isGenerating. The
+    // streaming assistant row is now protected from trim via animateText
+    // (messageWindow.isProtected), so older-load + bottom-trim during
+    // streaming cannot disturb the live tail.
+    if (now < olderAutoLoadBlockedUntilRef.current) return
+    if (anchorRestoreInFlightRef.current) return
     if (now - lastOlderLoadAtRef.current < 900) return
     lastOlderLoadAtRef.current = now
     loadOlderClickInFlightRef.current = true
     olderLoadAwaitingRenderRef.current = true
+    anchorRestoreInFlightRef.current = true
     pendingOlderAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
     logChatScrollDebug({
       source: "chat",
@@ -1572,8 +1568,9 @@ export function ChatView({
       pendingOlderAnchorRef.current = null
       olderLoadAwaitingRenderRef.current = false
       loadOlderClickInFlightRef.current = false
+      anchorRestoreInFlightRef.current = false
     }
-  }, [hasOlderMessages, isGenerating, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey, unloadNewestPage])
+  }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey, unloadNewestPage])
 
   // Phase 1 sliding-window: symmetric newer-side load. Capture an anchor,
   // append the next page, drop a page from the top. Anchor restore in the
@@ -1587,10 +1584,12 @@ export function ChatView({
     const now = Date.now()
     if (!hasNewerMessages || loadingNewerMessages || loadNewerClickInFlightRef.current) return
     if (isGenerating) return
+    if (anchorRestoreInFlightRef.current) return
     if (now - lastNewerLoadAtRef.current < 900) return
     lastNewerLoadAtRef.current = now
     loadNewerClickInFlightRef.current = true
     newerLoadAwaitingRenderRef.current = true
+    anchorRestoreInFlightRef.current = true
     pendingNewerAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
     logChatScrollDebug({
       source: "chat",
@@ -1612,6 +1611,7 @@ export function ChatView({
       pendingNewerAnchorRef.current = null
       newerLoadAwaitingRenderRef.current = false
       loadNewerClickInFlightRef.current = false
+      anchorRestoreInFlightRef.current = false
     }
   }, [hasNewerMessages, isGenerating, loadNewerMessages, loadingNewerMessages, scrollContainerRef, sessionKey, unloadOldestPage])
 
@@ -1620,22 +1620,17 @@ export function ChatView({
     if (!anchor) return
     pendingOlderAnchorRef.current = null
     olderLoadAwaitingRenderRef.current = false
-    settleMessageScrollAnchor(
-      scrollContainerRef.current,
-      anchor,
-      () => {
-        const el = scrollContainerRef.current
-        if (el) {
-          previousScrollTopRef.current = el.scrollTop
-          previousScrollTimeRef.current = Date.now()
-          lastOlderLoadScrollTopRef.current = el.scrollTop
-        }
-        loadOlderClickInFlightRef.current = false
-        scheduleRecomputeRange()
-      },
-      { resolveAnchorOffset: resolveAnchorOffsetFromHeights },
-    )
-  }, [renderedMessages.length, resolveAnchorOffsetFromHeights, scheduleRecomputeRange, scrollContainerRef])
+    settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
+      const el = scrollContainerRef.current
+      if (el) {
+        previousScrollTopRef.current = el.scrollTop
+        previousScrollTimeRef.current = Date.now()
+        lastOlderLoadScrollTopRef.current = el.scrollTop
+      }
+      loadOlderClickInFlightRef.current = false
+      anchorRestoreInFlightRef.current = false
+    })
+  }, [renderedMessages.length, scrollContainerRef])
 
   // Phase 1: newer-side anchor restore. Runs whenever the rendered message
   // count changes — catches both the loadNewer append and the symmetric
@@ -1653,6 +1648,7 @@ export function ChatView({
         lastNewerLoadScrollTopRef.current = el.scrollTop
       }
       loadNewerClickInFlightRef.current = false
+      anchorRestoreInFlightRef.current = false
     })
   }, [renderedMessages.length, scrollContainerRef])
 
@@ -1665,7 +1661,9 @@ export function ChatView({
       const now = Date.now()
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
       setShowJumpToBottom(!atBottom)
-      const canAutoLoadOlder = !isGenerating && now >= olderAutoLoadBlockedUntilRef.current
+      // Phase 3: older-load allowed during streaming — animateText
+      // protection in messageWindow keeps the live tail safe from trim.
+      const canAutoLoadOlder = now >= olderAutoLoadBlockedUntilRef.current
       if (hasOlderMessages && canAutoLoadOlder && shouldAutoLoadOlderHistory({
         scrollTop: el.scrollTop,
         scrollHeight: el.scrollHeight,
@@ -1679,20 +1677,30 @@ export function ChatView({
         logChatScrollDebug({ source: "chat", event: "load-older-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
         void loadOlderWithoutJump()
       }
-      // Phase 1: newer-side trigger. Mirror of the older-side: load when
-      // the user is scrolling downward AND within ~20% of the bottom AND
-      // we know there are newer messages on the server (i.e. we've
-      // already trimmed at least one page from the bottom).
+      // Phase 2 newer-side trigger:
+      //   - scrolling downward (current > previous)
+      //   - distanceFromBottom <= 60% clientHeight (with floor 500px)
+      //   - transition into the zone OR rearm distance from last fire
+      //   - not during anchor restore / streaming / no-newer-known
       const scrollingDown = el.scrollTop > previousScrollTopRef.current
       const maxScroll = el.scrollHeight - el.clientHeight
-      const distanceFromBottom = maxScroll - el.scrollTop
+      const distanceFromBottom = Math.max(0, maxScroll - el.scrollTop)
+      const prevDistanceFromBottom = Math.max(0, maxScroll - previousScrollTopRef.current)
       const bottomThresholdPx = Math.max(500, el.clientHeight * 0.6)
+      const crossedIntoNewerZone = prevDistanceFromBottom > bottomThresholdPx && distanceFromBottom <= bottomThresholdPx
+      const newerRearmedByDistance = (() => {
+        if (lastNewerLoadScrollTopRef.current === null) return true
+        const rearmDistance = Math.max(500, el.clientHeight * 0.75)
+        return el.scrollTop - lastNewerLoadScrollTopRef.current >= rearmDistance
+      })()
       if (
         hasNewerMessages &&
         !loadingNewerMessages &&
         !isGenerating &&
+        !anchorRestoreInFlightRef.current &&
         scrollingDown &&
-        distanceFromBottom <= bottomThresholdPx
+        distanceFromBottom <= bottomThresholdPx &&
+        (crossedIntoNewerZone || newerRearmedByDistance)
       ) {
         logChatScrollDebug({ source: "chat", event: "load-newer-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
         void loadNewerWithoutJump()

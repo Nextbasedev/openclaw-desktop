@@ -137,6 +137,44 @@ describe("detectEdgeProximity", () => {
   })
 })
 
+describe("animateText protection (Phase 2)", () => {
+  test("animateText row is treated as protected from tail trim", () => {
+    const msgs = [
+      ...Array.from({ length: 350 }, (_, i) => ({ gatewayIndex: i + 1 })),
+      { gatewayIndex: 351, animateText: true },
+    ]
+    const { dropCount } = planDropFromBottom(msgs)
+    // Even though we're 51 over (351 > 300), the tail row is animating
+    // — trim stops at the row before it, dropping at most 50 of the
+    // requested PAGE_SIZE 60.
+    expect(dropCount).toBeLessThanOrEqual(0) // tail-end animateText blocks the entire bottom drop
+  })
+  test("animateText row is treated as protected from head trim too", () => {
+    const msgs = [
+      { gatewayIndex: 1, animateText: true },
+      ...Array.from({ length: 350 }, (_, i) => ({ gatewayIndex: i + 2 })),
+    ]
+    const { dropCount } = planDropFromTop(msgs)
+    expect(dropCount).toBe(0)
+  })
+  test("applyTrim respects animateText protection at the tail", () => {
+    const msgs = [
+      ...Array.from({ length: 5 }, (_, i) => ({ gatewayIndex: i + 1 })),
+      { gatewayIndex: 6, animateText: true },
+      { gatewayIndex: 7 },
+    ]
+    // Want to drop from tail. Should stop AT the animateText row — the
+    // index after the last protected row is 6 (the animateText row is
+    // at index 5; everything from index 6 onward can be trimmed).
+    const { trimmableTailStart } = classifyMessagesForTrim(msgs)
+    expect(trimmableTailStart).toBe(6)
+    // Verify: planDropFromBottom won't drop the animateText row.
+    // msgs.length=7, target page=60 — trimmable tail len = 7-6 = 1.
+    const trimmed = applyTrim(msgs, { dropFromBottom: 1 })
+    expect(trimmed.map((m) => m.gatewayIndex)).toEqual([1, 2, 3, 4, 5, 6])
+  })
+})
+
 describe("sortMessagesByGatewayIndex", () => {
   test("sorts by gatewayIndex ascending", () => {
     const input = [
