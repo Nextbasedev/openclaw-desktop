@@ -291,11 +291,29 @@ function useChatVirtualWindow(
     return true
   }, [calculateRange, enabled, items, metricsKey, rebuildMetrics, scrollContainerRef])
 
+  const restoreAnchor = useCallback((anchor: MessageScrollAnchor | null) => {
+    const el = scrollContainerRef.current
+    if (!anchor || !el || !enabled) return false
+    const index = items.findIndex(
+      (item) =>
+        (anchor.uiId && item.uiId === anchor.uiId) ||
+        (anchor.messageId && item.messageId === anchor.messageId),
+    )
+    if (index < 0) return false
+    if (metricsRef.current.key !== metricsKey) rebuildMetrics()
+    const containerTop = el.getBoundingClientRect().top
+    const anchorOffsetInViewport = anchor.top - containerTop
+    el.scrollTop = Math.max(0, metricsRef.current.tree.prefix(index) - anchorOffsetInViewport)
+    calculateRange()
+    return true
+  }, [calculateRange, enabled, items, metricsKey, rebuildMetrics, scrollContainerRef])
+
   return {
     enabled,
     range,
     calculateRange,
     scrollToMessage,
+    restoreAnchor,
     updateMeasuredHeight,
   }
 }
@@ -1197,6 +1215,7 @@ export function ChatView({
     () => buildStableChatRows(visibleAllMessages),
     [visibleAllMessages, forceRenderKey]
   )
+  const virtualWindow = useChatVirtualWindow(renderedMessages, scrollContainerRef)
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const contextFetchSeqRef = useRef(0)
   const wasGeneratingRef = useRef(false)
@@ -1468,6 +1487,7 @@ export function ChatView({
     if (!anchor) return
     pendingOlderAnchorRef.current = null
     olderLoadAwaitingRenderRef.current = false
+    virtualWindow.restoreAnchor(anchor)
     settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
       const el = scrollContainerRef.current
       if (el) {
@@ -1475,9 +1495,10 @@ export function ChatView({
         previousScrollTimeRef.current = Date.now()
         lastOlderLoadScrollTopRef.current = el.scrollTop
       }
+      olderAutoLoadBlockedUntilRef.current = Date.now() + 900
       loadOlderClickInFlightRef.current = false
     })
-  }, [renderedMessages.length, scrollContainerRef])
+  }, [renderedMessages.length, scrollContainerRef, virtualWindow])
 
   const handleScroll = useCallback(() => {
     onScroll()
@@ -1841,8 +1862,6 @@ export function ChatView({
       messageCount: renderedMessages.length,
     }, "debug")
   }, [renderedMessages.length, sessionKey, spawnedSubagents, subagentRenderScope])
-
-  const virtualWindow = useChatVirtualWindow(renderedMessages, scrollContainerRef)
 
   const scrollToRenderedMessage = useCallback((messageId: string, _seq?: number) => {
     void _seq
