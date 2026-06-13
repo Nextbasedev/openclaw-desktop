@@ -132,6 +132,7 @@ type VirtualRange = {
   beforeHeight: number
   afterHeight: number
   totalHeight: number
+  offsets: number[]
 }
 
 function estimateChatRowHeight(message: StableChatMessage) {
@@ -153,7 +154,7 @@ function makeVirtualRange(
 ): VirtualRange {
   const count = metrics.heights.length
   if (count === 0) {
-    return { start: 0, end: 0, beforeHeight: 0, afterHeight: 0, totalHeight: 0 }
+    return { start: 0, end: 0, beforeHeight: 0, afterHeight: 0, totalHeight: 0, offsets: [] }
   }
 
   const totalHeight = metrics.tree.total()
@@ -169,6 +170,7 @@ function makeVirtualRange(
     beforeHeight,
     afterHeight: Math.max(0, totalHeight - beforeHeight - visibleHeight),
     totalHeight,
+    offsets: Array.from({ length: end - start }, (_, offset) => metrics.tree.prefix(start + offset)),
   }
 }
 
@@ -190,6 +192,7 @@ function useChatVirtualWindow(
     beforeHeight: 0,
     afterHeight: 0,
     totalHeight: 0,
+    offsets: [],
   }))
   const rangeRef = useRef(range)
 
@@ -216,6 +219,7 @@ function useChatVirtualWindow(
         beforeHeight: 0,
         afterHeight: 0,
         totalHeight: 0,
+        offsets: [],
       }
       rangeRef.current = next
       setRange(next)
@@ -233,7 +237,8 @@ function useChatVirtualWindow(
         prev.start === next.start &&
         prev.end === next.end &&
         Math.abs(prev.beforeHeight - next.beforeHeight) < 0.5 &&
-        Math.abs(prev.afterHeight - next.afterHeight) < 0.5
+        Math.abs(prev.afterHeight - next.afterHeight) < 0.5 &&
+        Math.abs(prev.totalHeight - next.totalHeight) < 0.5
       const resolved = stable ? prev : next
       rangeRef.current = resolved
       return resolved
@@ -2390,24 +2395,32 @@ export function ChatView({
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
           {virtualWindow.enabled ? (
-            <>
-              <div style={{ height: virtualWindow.range.beforeHeight }} aria-hidden="true" />
+            <div
+              className="relative w-full"
+              style={{ height: virtualWindow.range.totalHeight }}
+              aria-label="Virtualized chat timeline"
+            >
               {renderedMessages
                 .slice(virtualWindow.range.start, virtualWindow.range.end)
                 .map((msg, offset) => {
                   const index = virtualWindow.range.start + offset
+                  const top = virtualWindow.range.offsets[offset] ?? 0
                   return (
-                    <MeasuredVirtualChatRow
+                    <div
                       key={msg.uiId}
-                      uiId={msg.uiId}
-                      onHeight={virtualWindow.updateMeasuredHeight}
+                      className="absolute left-0 top-0 w-full"
+                      style={{ transform: `translateY(${top}px)` }}
                     >
-                      {renderMessageRow(index, msg)}
-                    </MeasuredVirtualChatRow>
+                      <MeasuredVirtualChatRow
+                        uiId={msg.uiId}
+                        onHeight={virtualWindow.updateMeasuredHeight}
+                      >
+                        {renderMessageRow(index, msg)}
+                      </MeasuredVirtualChatRow>
+                    </div>
                   )
                 })}
-              <div style={{ height: virtualWindow.range.afterHeight }} aria-hidden="true" />
-            </>
+            </div>
           ) : (
             renderedMessages.map((msg, index) => (
               <MeasuredVirtualChatRow
