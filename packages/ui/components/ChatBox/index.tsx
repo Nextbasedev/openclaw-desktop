@@ -30,7 +30,6 @@ import type { Space } from "@/types/space"
 import { composerReducer, initialComposerState } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
 import {
-  canRunSlashCommandWhileGenerating,
   isStopSlashCommand,
 } from "@/lib/controlSlashCommands"
 
@@ -183,10 +182,6 @@ export function ChatBox({
   })
   const showSendWhileGenerating = Boolean(
     isGenerating && (input.trim().length > 0 || attachments.length > 0)
-  )
-  const canSendWithoutInterruptingGeneration = Boolean(
-    showSendWhileGenerating &&
-    (!input.trim().startsWith("/") || canRunSlashCommandWhileGenerating(input, commands))
   )
   const {
     state: voiceState,
@@ -582,7 +577,10 @@ export function ChatBox({
         attachments.length > 0
           ? attachments.map(stripComposerAttachment)
           : undefined,
-      runWhileGenerating: canSendWithoutInterruptingGeneration,
+      // Non-stop sends during an active response are accepted by middleware and
+      // serialized per session. Keep the composer fast instead of forcing users
+      // to wait or restarting the current answer.
+      runWhileGenerating: Boolean(isGenerating),
       replyTo: replyTo ?? undefined,
       autonomyMode: "manual",
       execPolicy: execPolicyForAutonomyMode("manual"),
@@ -592,15 +590,6 @@ export function ChatBox({
     setHistoryIndex(null)
     draftBeforeHistoryRef.current = ""
     if (textareaRef.current) textareaRef.current.style.height = "auto"
-    if (isGenerating && !payload.runWhileGenerating) {
-      setInput(payload.text)
-      setAttachmentError("Wait for the current response to finish, or send a normal follow-up message.")
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus()
-        autoResize()
-      })
-      return
-    }
     dispatchComposer({ type: "send_start", payload, generating: false })
     try {
       frontendLog("composer", "composer.send.start", {

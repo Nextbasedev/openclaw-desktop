@@ -133,6 +133,13 @@ type ChatBootstrapData = {
   history: { messages: unknown[]; sessionStatus?: string | null }
 }
 
+export type QueuedChatSend = {
+  id: string
+  text: string
+  createdAt: string
+  attachmentCount: number
+}
+
 
 function duplicateUserTextDiagnostics(messages: ChatMessage[]) {
   const seen = new Map<string, { messageId: string; gatewayIndex?: number; createdAt?: string; isOptimistic?: boolean }>()
@@ -882,6 +889,7 @@ export function useChatMessages(
   const loadOlderInFlightRef = useRef(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
+  const [queuedSends, setQueuedSends] = useState<QueuedChatSend[]>([])
   const sendingGuardRef = useRef(false)
   const restartInFlightRef = useRef(false)
   const statusRef = useRef<StreamStatus>(
@@ -1064,6 +1072,21 @@ export function useChatMessages(
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
+
+  useEffect(() => {
+    if (queuedSends.length === 0) return
+    setQueuedSends((current) =>
+      current.filter((queued) => {
+        const index = messages.findIndex((message) => message.messageId === queued.id)
+        if (index < 0) return false
+        const queuedMessage = messages[index]
+        if (queuedMessage?.sendStatus === "failed") return false
+        return !messages.slice(index + 1).some((message) =>
+          message.role === "assistant" && message.text.trim().length > 0
+        )
+      })
+    )
+  }, [messages, queuedSends.length])
 
   useEffect(() => {
     isSendingRef.current = isSending
@@ -2500,9 +2523,8 @@ export function useChatMessages(
       const trimmed = payload.text.trim()
       const hasAttachments = (payload.attachments?.length ?? 0) > 0
       const isStopCommand = isStopSlashCommand(trimmed)
-      const runsAlongsideGeneration = Boolean(
-        isGenerating && payload.runWhileGenerating && !isStopCommand
-      )
+      const isQueuedBehindActiveRun = Boolean(isGenerating && !isStopCommand)
+      const runsAlongsideGeneration = isQueuedBehindActiveRun
       if ((!trimmed && !hasAttachments) || (sendingGuardRef.current && !runsAlongsideGeneration)) return false
       frontendLog("composer", "chat.send.start", {
         sessionKey,
@@ -2521,6 +2543,17 @@ export function useChatMessages(
         setWasAborted(false)
       })
       const optimisticId = retryMessageId ?? randomId()
+      if (isQueuedBehindActiveRun && !retryMessageId) {
+        setQueuedSends((current) => [
+          ...current.filter((item) => item.id !== optimisticId),
+          {
+            id: optimisticId,
+            text: trimmed || (hasAttachments ? "Attachment message" : "Message"),
+            createdAt: new Date().toISOString(),
+            attachmentCount: payload.attachments?.length ?? 0,
+          },
+        ])
+      }
       if (!runsAlongsideGeneration) {
         pendingToolMapRef.current.clear()
         setPendingTools([])
@@ -2626,13 +2659,6 @@ export function useChatMessages(
       })
       forceScrollToBottom(true)
       try {
-        if (isGenerating && !isStopCommand && !payload.runWhileGenerating) {
-          restartInFlightRef.current = true
-          frontendLog("chat", "chat.restart-before-send", { sessionKey, status: statusRef.current })
-          setStatus("restarting")
-          setStatusLabel(null)
-          await abortChatV2({ sessionKey })
-        }
         await sendChatV2({
           sessionKey,
           text: gatewayText,
@@ -2691,6 +2717,7 @@ export function useChatMessages(
           error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
         }, "error")
         setErrorMessage(message)
+        setQueuedSends((current) => current.filter((item) => item.id !== optimisticId))
         setStatus("error")
         restartInFlightRef.current = false
         setMessages((prev) =>
@@ -3311,6 +3338,7 @@ export function useChatMessages(
     errorMessage,
     isSending,
     isGenerating,
+    queuedSends,
     bottomRef,
     scrollContainerRef,
     onScroll,
