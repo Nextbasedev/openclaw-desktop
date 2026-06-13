@@ -173,32 +173,6 @@ function ProcessStatusIcon({ tool }: { tool?: string | null }) {
   )
 }
 
-function QueuedSendsPreview({
-  queuedSends,
-}: {
-  queuedSends: Array<{ id: string; text: string; attachmentCount: number }>
-}) {
-  if (queuedSends.length === 0) return null
-  const latest = queuedSends[queuedSends.length - 1]
-  const extraCount = queuedSends.length - 1
-  return (
-    <div className="mx-auto mb-2 max-w-[44rem] px-4">
-      <div className="flex items-start gap-2 rounded-2xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-sm text-foreground shadow-sm">
-        <LuClock className="mt-0.5 size-4 shrink-0 text-amber-400" />
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-300/90">
-            Queued next{extraCount > 0 ? ` +${extraCount}` : ""}
-          </div>
-          <div className="truncate text-[13px] text-muted-foreground">
-            {latest?.text || "Message"}
-            {latest?.attachmentCount ? ` · ${latest.attachmentCount} attachment${latest.attachmentCount === 1 ? "" : "s"}` : ""}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function AbortedDivider({ inline = false }: { inline?: boolean }) {
   return (
     <div className={cn(inline ? "mt-3 py-1" : "mx-auto max-w-[44rem] px-4 py-2")} aria-label="Run aborted">
@@ -1845,9 +1819,20 @@ export function ChatView({
   const liveToolText = liveTool
     ? `Running ${liveTool.tool}${liveToolInput ? `: ${liveToolInput}` : ""}...`
     : null
+  const latestQueuedSend = queuedSends.at(-1)
+  const latestQueuedText = latestQueuedSend?.text.trim()
+  const latestQueuedPreview = latestQueuedText
+    ? latestQueuedText.length > 72
+      ? `${latestQueuedText.slice(0, 72)}…`
+      : latestQueuedText
+    : "message"
+  const queuedSendText = latestQueuedSend
+    ? `Queued - ${latestQueuedPreview}${queuedSends.length > 1 ? ` (+${queuedSends.length - 1})` : ""}...`
+    : null
 
   const statusText =
     liveToolText ??
+    queuedSendText ??
     (status === "thinking"
       ? "Thinking - waiting for the next event..."
       : status === "queued"
@@ -2077,7 +2062,6 @@ export function ChatView({
           />
 
           <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
-            <QueuedSendsPreview queuedSends={queuedSends} />
             <ChatBox
               onSend={wrappedSend}
               disabled={false}
@@ -2157,7 +2141,6 @@ export function ChatView({
       </div>
 
       <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
-        <QueuedSendsPreview queuedSends={queuedSends} />
         <div className="pointer-events-none absolute -top-12 left-1/2 z-20 -translate-x-1/2">
           {showJumpToBottom && (
             <motion.button
