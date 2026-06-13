@@ -7,8 +7,10 @@ afterEach(async () => {
 })
 
 describe("warmChatCache", () => {
-  it("stores only the latest 60 messages for fast chat loading", async () => {
-    const messages = Array.from({ length: WARM_CHAT_MAX_MESSAGES + 5 }, (_, index) => ({
+  it("stores only the latest WARM_CHAT_MAX_MESSAGES messages for fast chat loading", async () => {
+    const extra = 5
+    const total = WARM_CHAT_MAX_MESSAGES + extra
+    const messages = Array.from({ length: total }, (_, index) => ({
       messageId: `m${index}`,
       role: index % 2 === 0 ? "user" as const : "assistant" as const,
       text: `message ${index}`,
@@ -17,9 +19,11 @@ describe("warmChatCache", () => {
     await setWarmChatCache("s1", { messages })
     const cached = await getWarmChatCache("s1")
 
-    expect(WARM_CHAT_MAX_MESSAGES).toBe(60)
-    expect(cached?.entry.messages).toHaveLength(60)
-    expect(cached?.entry.messages[0]?.messageId).toBe("m5")
-    expect(cached?.entry.messages.at(-1)?.messageId).toBe("m64")
+    // Aligned to CHAT_BOOTSTRAP_MESSAGE_LIMIT so the reload first paint
+    // matches a sidebar session click — no "count shrinks then grows".
+    expect(WARM_CHAT_MAX_MESSAGES).toBe(200)
+    expect(cached?.entry.messages).toHaveLength(WARM_CHAT_MAX_MESSAGES)
+    expect(cached?.entry.messages[0]?.messageId).toBe(`m${extra}`)
+    expect(cached?.entry.messages.at(-1)?.messageId).toBe(`m${total - 1}`)
   })
 })

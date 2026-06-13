@@ -1582,10 +1582,6 @@ export function ChatView({
         scrollHeight: el.scrollHeight,
         clientHeight: el.clientHeight,
         previousScrollTop: previousScrollTopRef.current,
-        hasUserIntent: userScrollIntentRef.current,
-        lastLoadScrollTop: lastOlderLoadScrollTopRef.current,
-        currentTimeMs: now,
-        previousScrollTimeMs: previousScrollTimeRef.current,
       })) {
         logChatScrollDebug({ source: "chat", event: "load-older-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
         void loadOlderWithoutJump()

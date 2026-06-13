@@ -1,52 +1,24 @@
-export const OLDER_HISTORY_LOAD_REMAINING_RATIO = 0.6
-export const OLDER_HISTORY_FAST_SCROLL_REMAINING_RATIO = 0.85
-export const OLDER_HISTORY_LOAD_MIN_PX = 1200
-export const OLDER_HISTORY_LOAD_MAX_PX = 2400
-export const OLDER_HISTORY_FAST_SCROLL_MIN_PX = 1800
-export const OLDER_HISTORY_FAST_SCROLL_MAX_PX = 3600
-export const OLDER_HISTORY_FAST_SCROLL_MIN_DELTA_PX = 240
-export const OLDER_HISTORY_FAST_SCROLL_MIN_VELOCITY_PX_PER_MS = 1.1
-export const OLDER_HISTORY_REARM_VIEWPORT_RATIO = 0.75
-export const OLDER_HISTORY_REARM_MIN_PX = 500
+// Single, dead-simple rule (2026-06-13 simplification per Krish): if the
+// user is scrolling upward and the top of the loaded history is within one
+// viewport above the current scroll position, load the next 100 older
+// messages. Concurrent-load gating + per-call cooldown live in ChatView
+// (loadOlderInFlightRef + lastOlderLoadAtRef 900ms). Everything else —
+// fast-scroll preload, rearm distances, ratio thresholds — is gone because
+// it was firing multiple back-to-back loads on a single user swipe and
+// producing the "loads many messages back" jitter.
+export const OLDER_HISTORY_LOAD_REMAINING_RATIO = 0.6 // kept for back-compat exports
 
 type OlderHistoryAutoLoadInput = {
   scrollTop: number
   scrollHeight: number
   clientHeight: number
   previousScrollTop: number
-  hasUserIntent: boolean
+  // Remaining fields are kept in the type for back-compat with existing
+  // call sites; they are unused by the simplified rule.
+  hasUserIntent?: boolean
   lastLoadScrollTop?: number | null
   currentTimeMs?: number
   previousScrollTimeMs?: number
-}
-
-function olderHistoryLoadThreshold(
-  scrollHeight: number,
-  clientHeight: number,
-  remainingRatio = OLDER_HISTORY_LOAD_REMAINING_RATIO,
-  minPx = OLDER_HISTORY_LOAD_MIN_PX,
-  maxPx = OLDER_HISTORY_LOAD_MAX_PX,
-) {
-  const maxScrollTop = scrollHeight - clientHeight
-  if (!Number.isFinite(maxScrollTop) || maxScrollTop <= 0) return null
-  const ratioThreshold = maxScrollTop * remainingRatio
-  return Math.min(maxScrollTop, Math.max(minPx, Math.min(maxPx, ratioThreshold)))
-}
-
-function isFastUpwardScroll({
-  scrollTop,
-  previousScrollTop,
-  currentTimeMs,
-  previousScrollTimeMs,
-}: Pick<OlderHistoryAutoLoadInput, "scrollTop" | "previousScrollTop" | "currentTimeMs" | "previousScrollTimeMs">) {
-  const upwardDeltaPx = previousScrollTop - scrollTop
-  if (upwardDeltaPx < OLDER_HISTORY_FAST_SCROLL_MIN_DELTA_PX) return false
-  if (typeof currentTimeMs !== "number" || typeof previousScrollTimeMs !== "number") return false
-
-  const elapsedMs = currentTimeMs - previousScrollTimeMs
-  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return false
-
-  return upwardDeltaPx / elapsedMs >= OLDER_HISTORY_FAST_SCROLL_MIN_VELOCITY_PX_PER_MS
 }
 
 export function shouldAutoLoadOlderHistory({
@@ -54,38 +26,12 @@ export function shouldAutoLoadOlderHistory({
   scrollHeight,
   clientHeight,
   previousScrollTop,
-  hasUserIntent,
-  lastLoadScrollTop = null,
-  currentTimeMs,
-  previousScrollTimeMs,
 }: OlderHistoryAutoLoadInput) {
-  if (!hasUserIntent) return false
+  // Scrolling upward only.
   if (scrollTop >= previousScrollTop) return false
-
-  const threshold = olderHistoryLoadThreshold(scrollHeight, clientHeight)
-  if (threshold === null) return false
-
-  const fastThreshold = olderHistoryLoadThreshold(
-    scrollHeight,
-    clientHeight,
-    OLDER_HISTORY_FAST_SCROLL_REMAINING_RATIO,
-    OLDER_HISTORY_FAST_SCROLL_MIN_PX,
-    OLDER_HISTORY_FAST_SCROLL_MAX_PX,
-  )
-  const fastScrollPreload =
-    fastThreshold !== null &&
-    scrollTop <= fastThreshold &&
-    isFastUpwardScroll({ scrollTop, previousScrollTop, currentTimeMs, previousScrollTimeMs })
-  const activeThreshold = fastScrollPreload ? fastThreshold : threshold
-  if (scrollTop > activeThreshold) return false
-
-  const crossedIntoLoadZone = previousScrollTop > activeThreshold && scrollTop <= activeThreshold
-  if (crossedIntoLoadZone) return true
-
-  if (typeof lastLoadScrollTop !== "number" || !Number.isFinite(lastLoadScrollTop)) {
-    return true
-  }
-
-  const rearmDistance = Math.max(OLDER_HISTORY_REARM_MIN_PX, clientHeight * OLDER_HISTORY_REARM_VIEWPORT_RATIO)
-  return lastLoadScrollTop - scrollTop >= rearmDistance
+  // No history visible yet — nothing to do.
+  if (!Number.isFinite(scrollHeight) || !Number.isFinite(clientHeight)) return false
+  if (scrollHeight <= clientHeight) return false
+  // One viewport from the top. That's the whole rule.
+  return scrollTop <= clientHeight
 }
