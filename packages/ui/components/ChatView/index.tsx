@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MutableRefObject, type ReactNode } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -77,6 +77,253 @@ import {
 } from "@/components/ui/tooltip"
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
+const CHAT_VIRTUALIZATION_OVERSCAN_PX = 1400
+const CHAT_VIRTUALIZATION_MIN_ITEMS = 80
+
+class FenwickTree {
+  private readonly tree: number[]
+  readonly size: number
+
+  constructor(values: number[]) {
+    this.size = values.length
+    this.tree = new Array(this.size + 1).fill(0)
+    values.forEach((value, index) => this.add(index, value))
+  }
+
+  add(index: number, delta: number) {
+    for (let i = index + 1; i <= this.size; i += i & -i) {
+      this.tree[i] += delta
+    }
+  }
+
+  prefix(indexExclusive: number) {
+    let sum = 0
+    for (let i = Math.min(indexExclusive, this.size); i > 0; i -= i & -i) {
+      sum += this.tree[i]
+    }
+    return sum
+  }
+
+  total() {
+    return this.prefix(this.size)
+  }
+
+  lowerBound(target: number) {
+    if (this.size === 0 || target <= 0) return 0
+    let index = 0
+    let bit = 1
+    while (bit << 1 <= this.size) bit <<= 1
+    let remaining = target
+    for (; bit > 0; bit >>= 1) {
+      const next = index + bit
+      if (next <= this.size && this.tree[next] < remaining) {
+        index = next
+        remaining -= this.tree[next]
+      }
+    }
+    return Math.min(index, this.size - 1)
+  }
+}
+
+type VirtualRange = {
+  start: number
+  end: number
+  beforeHeight: number
+  afterHeight: number
+  totalHeight: number
+}
+
+function estimateChatRowHeight(message: StableChatMessage) {
+  const textLength = message.text?.length ?? 0
+  const reasoningLength = message.reasoningText?.length ?? 0
+  const attachmentCount = message.attachments?.length ?? 0
+  const toolCount = message.toolCalls?.length ?? 0
+  const base = message.role === "user" ? 84 : 108
+  const textHeight = Math.ceil(Math.min(textLength + reasoningLength, 3600) / 72) * 22
+  const mediaHeight = attachmentCount > 0 ? Math.min(attachmentCount, 3) * 96 : 0
+  const toolHeight = toolCount > 0 ? Math.min(toolCount, 6) * 34 : 0
+  return Math.max(64, Math.min(900, base + textHeight + mediaHeight + toolHeight))
+}
+
+function makeVirtualRange(
+  metrics: { tree: FenwickTree; heights: number[] },
+  scrollTop: number,
+  clientHeight: number,
+): VirtualRange {
+  const count = metrics.heights.length
+  if (count === 0) {
+    return { start: 0, end: 0, beforeHeight: 0, afterHeight: 0, totalHeight: 0 }
+  }
+
+  const totalHeight = metrics.tree.total()
+  const startPx = Math.max(0, scrollTop - CHAT_VIRTUALIZATION_OVERSCAN_PX)
+  const endPx = Math.min(totalHeight, scrollTop + clientHeight + CHAT_VIRTUALIZATION_OVERSCAN_PX)
+  const start = Math.max(0, Math.min(count - 1, metrics.tree.lowerBound(startPx)))
+  const end = Math.max(start + 1, Math.min(count, metrics.tree.lowerBound(endPx) + 2))
+  const beforeHeight = metrics.tree.prefix(start)
+  const visibleHeight = metrics.tree.prefix(end) - beforeHeight
+  return {
+    start,
+    end,
+    beforeHeight,
+    afterHeight: Math.max(0, totalHeight - beforeHeight - visibleHeight),
+    totalHeight,
+  }
+}
+
+function useChatVirtualWindow(
+  items: StableChatMessage[],
+  scrollContainerRef: MutableRefObject<HTMLDivElement | null>,
+) {
+  const heightsByIdRef = useRef(new Map<string, number>())
+  const metricsRef = useRef<{
+    key: string
+    ids: string[]
+    idToIndex: Map<string, number>
+    heights: number[]
+    tree: FenwickTree
+  }>({ key: "", ids: [], idToIndex: new Map(), heights: [], tree: new FenwickTree([]) })
+  const [range, setRange] = useState<VirtualRange>(() => ({
+    start: 0,
+    end: 0,
+    beforeHeight: 0,
+    afterHeight: 0,
+    totalHeight: 0,
+  }))
+
+  const enabled = items.length >= CHAT_VIRTUALIZATION_MIN_ITEMS
+  const metricsKey = `${items.length}:${items[0]?.uiId ?? ""}:${items.at(-1)?.uiId ?? ""}`
+
+  const rebuildMetrics = useCallback(() => {
+    const ids = items.map((item) => item.uiId)
+    const heights = items.map((item) => heightsByIdRef.current.get(item.uiId) ?? estimateChatRowHeight(item))
+    metricsRef.current = {
+      key: metricsKey,
+      ids,
+      idToIndex: new Map(ids.map((id, index) => [id, index])),
+      heights,
+      tree: new FenwickTree(heights),
+    }
+  }, [items, metricsKey])
+
+  const calculateRange = useCallback(() => {
+    if (!enabled) {
+      setRange({
+        start: 0,
+        end: items.length,
+        beforeHeight: 0,
+        afterHeight: 0,
+        totalHeight: 0,
+      })
+      return
+    }
+    if (metricsRef.current.key !== metricsKey) rebuildMetrics()
+    const el = scrollContainerRef.current
+    const next = makeVirtualRange(
+      metricsRef.current,
+      el?.scrollTop ?? 0,
+      el?.clientHeight ?? 900,
+    )
+    setRange((prev) =>
+      prev.start === next.start &&
+      prev.end === next.end &&
+      Math.abs(prev.beforeHeight - next.beforeHeight) < 0.5 &&
+      Math.abs(prev.afterHeight - next.afterHeight) < 0.5
+        ? prev
+        : next
+    )
+  }, [enabled, items.length, metricsKey, rebuildMetrics, scrollContainerRef])
+
+  useLayoutEffect(() => {
+    rebuildMetrics()
+    calculateRange()
+  }, [rebuildMetrics, calculateRange])
+
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el || !enabled) return
+    let raf: number | null = null
+    const onScroll = () => {
+      if (raf !== null) return
+      raf = requestAnimationFrame(() => {
+        raf = null
+        calculateRange()
+      })
+    }
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      if (raf !== null) cancelAnimationFrame(raf)
+      el.removeEventListener("scroll", onScroll)
+    }
+  }, [calculateRange, enabled, scrollContainerRef])
+
+  const updateMeasuredHeight = useCallback((uiId: string, height: number) => {
+    if (!Number.isFinite(height) || height < 0) return
+    const rounded = Math.ceil(height)
+    const metrics = metricsRef.current
+    const index = metrics.idToIndex.get(uiId)
+    if (index === undefined) {
+      heightsByIdRef.current.set(uiId, rounded)
+      return
+    }
+    const previous = metrics.heights[index] ?? 0
+    if (Math.abs(previous - rounded) < 1) return
+    heightsByIdRef.current.set(uiId, rounded)
+    metrics.heights[index] = rounded
+    metrics.tree.add(index, rounded - previous)
+    calculateRange()
+  }, [calculateRange])
+
+  const scrollToMessage = useCallback((messageId: string) => {
+    const index = items.findIndex((item) => item.messageId === messageId || item.uiId === messageId)
+    const el = scrollContainerRef.current
+    if (index < 0 || !el) return false
+    if (enabled) {
+      if (metricsRef.current.key !== metricsKey) rebuildMetrics()
+      el.scrollTop = Math.max(0, metricsRef.current.tree.prefix(index) - 120)
+      calculateRange()
+    }
+    requestAnimationFrame(() => {
+      const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
+      const target = rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
+      target?.scrollIntoView({ behavior: "auto", block: "center" })
+    })
+    return true
+  }, [calculateRange, enabled, items, metricsKey, rebuildMetrics, scrollContainerRef])
+
+  return {
+    enabled,
+    range,
+    calculateRange,
+    scrollToMessage,
+    updateMeasuredHeight,
+  }
+}
+
+function MeasuredVirtualChatRow({
+  uiId,
+  onHeight,
+  children,
+}: {
+  uiId: string
+  onHeight: (uiId: string, height: number) => void
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useLayoutEffect(() => {
+    const node = ref.current
+    if (!node) return
+    const measure = () => onHeight(uiId, node.getBoundingClientRect().height)
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [onHeight, uiId])
+
+  return <div ref={ref}>{children}</div>
+}
 
 type MessageScrollAnchor = {
   id: string
@@ -1595,14 +1842,18 @@ export function ChatView({
     }, "debug")
   }, [renderedMessages.length, sessionKey, spawnedSubagents, subagentRenderScope])
 
+  const virtualWindow = useChatVirtualWindow(renderedMessages, scrollContainerRef)
+
   const scrollToRenderedMessage = useCallback((messageId: string, _seq?: number) => {
     void _seq
     const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
     const target = rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
-    if (!target) return false
-    target.scrollIntoView({ behavior: "auto", block: "center" })
-    return true
-  }, [])
+    if (target) {
+      target.scrollIntoView({ behavior: "auto", block: "center" })
+      return true
+    }
+    return virtualWindow.scrollToMessage(messageId)
+  }, [virtualWindow])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -2079,9 +2330,36 @@ export function ChatView({
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
-          {renderedMessages.map((msg, index) => (
-            <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
-          ))}
+          {virtualWindow.enabled ? (
+            <>
+              <div style={{ height: virtualWindow.range.beforeHeight }} aria-hidden="true" />
+              {renderedMessages
+                .slice(virtualWindow.range.start, virtualWindow.range.end)
+                .map((msg, offset) => {
+                  const index = virtualWindow.range.start + offset
+                  return (
+                    <MeasuredVirtualChatRow
+                      key={msg.uiId}
+                      uiId={msg.uiId}
+                      onHeight={virtualWindow.updateMeasuredHeight}
+                    >
+                      {renderMessageRow(index, msg)}
+                    </MeasuredVirtualChatRow>
+                  )
+                })}
+              <div style={{ height: virtualWindow.range.afterHeight }} aria-hidden="true" />
+            </>
+          ) : (
+            renderedMessages.map((msg, index) => (
+              <MeasuredVirtualChatRow
+                key={msg.uiId}
+                uiId={msg.uiId}
+                onHeight={virtualWindow.updateMeasuredHeight}
+              >
+                {renderMessageRow(index, msg)}
+              </MeasuredVirtualChatRow>
+            ))
+          )}
           <div className={cn("mx-auto max-w-[44rem] px-4 pt-0", statusText ? "pb-2" : "pb-8")}>
             <AnimatePresence initial={false}>
               {editPreview && (
