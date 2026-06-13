@@ -6,7 +6,6 @@ import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
 import { ChatSearch } from "./ChatSearch"
-import { ChatTimeline, type ChatTimelineHandle } from "./ChatTimeline"
 import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
 import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
 import { dedupeSpawnedSubagents } from "@/lib/chat-engine-v2/store"
@@ -619,7 +618,6 @@ export function ChatView({
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
   const [forceRenderKey, setForceRenderKey] = useState(0)
-  const timelineRef = useRef<ChatTimelineHandle | null>(null)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -1599,7 +1597,6 @@ export function ChatView({
 
   const scrollToRenderedMessage = useCallback((messageId: string, _seq?: number) => {
     void _seq
-    if (timelineRef.current?.scrollToMessage(messageId, "center")) return true
     const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
     const target = rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
     if (!target) return false
@@ -2073,13 +2070,18 @@ export function ChatView({
       ) : (
         <>
 
-      <ChatTimeline
-        ref={timelineRef}
-        messages={renderedMessages}
-        scrollContainerRef={scrollContainerRef}
+      <div
+        ref={(ref) => {
+          scrollContainerRef.current = ref
+        }}
         onScroll={handleScroll}
-        renderMessageRow={renderMessageRow}
-        footer={(
+        className="flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
+      >
+        <div className="min-h-full">
+          <div className="mx-auto max-w-3xl px-4 pt-8" />
+          {renderedMessages.map((msg, index) => (
+            <div key={msg.uiId}>{renderMessageRow(index, msg)}</div>
+          ))}
           <div className={cn("mx-auto max-w-[44rem] px-4 pt-0", statusText ? "pb-2" : "pb-8")}>
             <AnimatePresence initial={false}>
               {editPreview && (
@@ -2103,8 +2105,8 @@ export function ChatView({
             </div>
             <div ref={bottomRef} className={statusText ? "h-2" : "h-8"} />
           </div>
-        )}
-      />
+        </div>
+      </div>
 
       <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         <div className="pointer-events-none absolute -top-12 left-1/2 z-20 -translate-x-1/2">
