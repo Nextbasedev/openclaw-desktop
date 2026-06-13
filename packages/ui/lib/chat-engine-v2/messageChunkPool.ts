@@ -205,6 +205,14 @@ export function evictBeyondCap<T extends SequencedMessage>(
       protectedIds.add(state.activeChunkId + d)
     }
   }
+  // Always protect the newest known chunk (and its immediate older neighbour
+  // if present) so the tail stays mounted. Users predictably scroll back to
+  // the tail after browsing history; evicting it causes a blank/jump flash
+  // when the scroll-down sentinel has to refetch what was just there.
+  if (state.newestKnownChunkId !== null) {
+    protectedIds.add(state.newestKnownChunkId)
+    if (neighbours >= 1) protectedIds.add(state.newestKnownChunkId - 1)
+  }
   for (const [id, chunk] of state.chunks.entries()) {
     if (chunk.pinned) protectedIds.add(id)
   }

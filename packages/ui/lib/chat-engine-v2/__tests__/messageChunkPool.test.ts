@@ -101,7 +101,7 @@ describe("setChunkPinned", () => {
 })
 
 describe("evictBeyondCap", () => {
-  test("keeps active chunk + neighbours, evicts farthest from active first", () => {
+  test("keeps active chunk + neighbours + newest chunk, evicts farthest from active first", () => {
     let pool = createEmptyChunkPool<ReturnType<typeof msg>>()
     // 7 chunks ids 0..6, MAX is 5 so we need to evict 2.
     for (let id = 0; id < 7; id += 1) {
@@ -110,14 +110,14 @@ describe("evictBeyondCap", () => {
     pool = setActiveChunk(pool, 3, 1000)
     const { state, evicted } = evictBeyondCap(pool)
     expect(state.chunks.size).toBe(MAX_CHUNKS_IN_MEMORY)
-    // Active 3 + neighbours {2,4} protected. Among {0,1,5,6} unprotected,
-    // farthest from active=3 are {0,6} (distance 3); both get evicted.
-    expect(evicted.sort()).toEqual([0, 6])
-    expect(state.chunks.has(3)).toBe(true)
+    // Protected: active 3, neighbours {2,4}, newest 6, newest-1 {5} -> {2,3,4,5,6}.
+    // Unprotected {0,1}; both get evicted.
+    expect(evicted.sort()).toEqual([0, 1])
     expect(state.chunks.has(2)).toBe(true)
+    expect(state.chunks.has(3)).toBe(true)
     expect(state.chunks.has(4)).toBe(true)
-    expect(state.chunks.has(1)).toBe(true)
     expect(state.chunks.has(5)).toBe(true)
+    expect(state.chunks.has(6)).toBe(true)
   })
 
   test("pinned chunks are never evicted even if oldest", () => {
@@ -145,17 +145,18 @@ describe("evictBeyondCap", () => {
     expect(result.state).toBe(pool)
   })
 
-  test("respects custom neighbours radius", () => {
+  test("respects custom neighbours radius (with newest-chunk protection)", () => {
     let pool = createEmptyChunkPool<ReturnType<typeof msg>>()
     for (let id = 0; id < 7; id += 1) {
       pool = upsertChunk(pool, id, buildChunkMessages(id, 2), { nowMs: 100 + id })
     }
     pool = setActiveChunk(pool, 3, 1000)
-    // radius 2 → protect 1..5; cap 5; size 7; overflow 2 → both unprotected
-    // chunks {0,6} must be evicted, ordered oldest-first by lastAccessedMs.
+    // radius 2 → active-protected {1,2,3,4,5}; newest=6 + newest-1 {5} also
+    // protected → protected set {1..6}. Only {0} unprotected. Cap 5; size 7;
+    // overflow 2 → we can only evict the single unprotected chunk {0}.
     const result = evictBeyondCap(pool, { activeNeighbours: 2 })
-    expect(result.state.chunks.size).toBe(5)
-    expect(result.evicted.sort((a, b) => a - b)).toEqual([0, 6])
+    expect(result.state.chunks.size).toBe(6)
+    expect(result.evicted).toEqual([0])
   })
 })
 

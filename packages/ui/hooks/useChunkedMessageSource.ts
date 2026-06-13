@@ -426,9 +426,14 @@ export function useChunkedMessageSource<T extends ChunkSourceMessage>(
         const rows: PoolEntry<T>[] = []
         for (const m of page.messages) {
           if (typeof m.openclawSeq !== "number") continue
-          const dataObj = (m.data && typeof m.data === "object" && !Array.isArray(m.data)) ? m.data as object : {}
+          const dataObj = (m.data && typeof m.data === "object" && !Array.isArray(m.data)) ? m.data as Record<string, unknown> : {}
+          // Guarantee text is always a string so dedupe / parser helpers
+          // downstream (which call .replace/.trim/.includes) cannot crash on
+          // chunk-fetched rows whose .data payload omitted the text field.
+          const existingText = typeof dataObj.text === "string" ? dataObj.text : ""
           const merged = {
             ...dataObj,
+            text: existingText,
             messageId: m.messageId ?? undefined,
             gatewayIndex: m.openclawSeq,
           } as unknown as T

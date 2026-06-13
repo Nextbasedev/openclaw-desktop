@@ -5,14 +5,16 @@ import { cleanUserMessageText } from "./chatHistoryParser"
 const ATTACHMENT_PLACEHOLDER_RE =
   /(?:^|\n)\s*\[Attached [^:\]]+: [^\]]+\]\s*/g
 
-function normalizedUserText(value: string) {
+function normalizedUserText(value: string | undefined | null) {
+  if (!value || typeof value !== "string") return ""
   return cleanUserMessageText(value)
     .replace(ATTACHMENT_PLACEHOLDER_RE, " ")
     .replace(/\s+/g, " ")
     .trim()
 }
 
-function normalizeUserTextForDedupe(text: string) {
+function normalizeUserTextForDedupe(text: string | undefined | null) {
+  if (!text || typeof text !== "string") return ""
   return text
     .replace(/^\s*\[Attached images?:[^\]]+\]\s*/gim, "")
     .replace(/^\s*\[media attached:[\s\S]*?\]\s*/gim, "")
@@ -73,7 +75,8 @@ function stripNoReplyLines(text: string) {
     .trim()
 }
 
-export function collapseRepeatedAssistantText(value: string) {
+export function collapseRepeatedAssistantText(value: string | undefined | null) {
+  if (!value || typeof value !== "string") return ""
   let text = stripNoReplyLines(value)
   while (text.length > 0 && text.length % 2 === 0) {
     const half = text.length / 2
@@ -326,9 +329,10 @@ function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
 }
 
 function messageSignature(message: ChatMessage) {
+  const rawText = typeof message.text === "string" ? message.text : ""
   const text = message.role === "user"
-    ? normalizedUserText(message.text)
-    : collapseRepeatedAssistantText(message.text).replace(/\s+/g, " ")
+    ? normalizedUserText(rawText)
+    : collapseRepeatedAssistantText(rawText).replace(/\s+/g, " ")
   return `${message.role}:${text}`
 }
 
@@ -470,10 +474,18 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
 }
 
 export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
+  // Normalize message.text to a string at the dedup entry point so every
+  // downstream helper (.trim/.includes/.replace/regex .test) is safe even if
+  // upstream feeds us a message whose text is undefined/null (can happen for
+  // chunk-fetched rows whose .data payload is incomplete, evicted+restreamed
+  // rows, or partial WS patches arriving before the text frame).
+  const normalizedInput = messages.map((m) => (
+    typeof m.text === "string" ? m : { ...m, text: "" }
+  ))
   const result: ChatMessage[] = []
   const seenIds = new Set<string>()
 
-  for (const originalMessage of collapseRepeatedBlocks(messages)) {
+  for (const originalMessage of collapseRepeatedBlocks(normalizedInput)) {
     const message = originalMessage.role === "assistant"
       ? { ...originalMessage, text: collapseRepeatedAssistantText(originalMessage.text) }
       : originalMessage
