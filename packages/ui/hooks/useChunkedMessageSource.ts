@@ -426,11 +426,26 @@ export function useChunkedMessageSource<T extends ChunkSourceMessage>(
         const rows: PoolEntry<T>[] = []
         for (const m of page.messages) {
           if (typeof m.openclawSeq !== "number") continue
+          const dataObj = (m.data && typeof m.data === "object" && !Array.isArray(m.data)) ? m.data as object : {}
           const merged = {
-            ...(m.data as object),
+            ...dataObj,
             messageId: m.messageId ?? undefined,
             gatewayIndex: m.openclawSeq,
           } as unknown as T
+          // Defensive check: warn if message data seems incomplete
+          if (typeof (merged as any).role === "string" && (merged as any).role === "user") {
+            const hasText = typeof (merged as any).text === "string" && (merged as any).text.length > 0
+            const hasContent = Array.isArray((merged as any).content) && (merged as any).content.length > 0
+            if (!hasText && !hasContent) {
+              frontendLog("chat", "chunk-pool.incomplete-message", {
+                sessionKey,
+                chunkId,
+                seq: m.openclawSeq,
+                messageId: m.messageId,
+                hasData: m.data !== null && m.data !== undefined,
+              }, "warn")
+            }
+          }
           rows.push(wrapForPool(merged, m.openclawSeq))
         }
         if (rows.length === 0) return

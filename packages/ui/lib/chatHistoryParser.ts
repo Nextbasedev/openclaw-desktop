@@ -448,6 +448,7 @@ function blockDurationMs(block: ContentBlock): number | null {
 }
 
 export function stripBootstrap(t: string): string {
+  if (!t) return ""
   return t.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
 }
 
@@ -748,9 +749,9 @@ export function isAbortedGatewayArtifact(message: RawHistoryMessage) {
 
 function isSlashCommandMessage(message: RawHistoryMessage | undefined) {
   if (!message || message.role !== "user") return false
-  const text = cleanUserMessageText(
-    message.text || extractText(message.content)
-  )
+  const rawText = message.text || extractText(message.content)
+  if (!rawText) return false
+  const text = cleanUserMessageText(rawText)
   return text.trim().startsWith("/")
 }
 
@@ -760,9 +761,9 @@ export function isTransientSlashCommandHistory(
   if (raw.length === 0) return false
   const visible = raw.filter((message) => {
     if (message.role === "user") {
-      const text = cleanUserMessageText(
-        message.text || extractText(message.content)
-      )
+      const rawText = message.text || extractText(message.content)
+      if (!rawText) return false
+      const text = cleanUserMessageText(rawText)
       return text.length > 0
     }
     return Boolean(
