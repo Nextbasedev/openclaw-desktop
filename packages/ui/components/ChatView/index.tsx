@@ -587,6 +587,49 @@ function cleanSubagentReply(text: string) {
     .trim()
 }
 
+function nonSubagentToolCalls(tools: import("./types").InlineToolCall[]) {
+  return tools.filter(
+    (tool) =>
+      tool.tool !== "sessions_spawn" &&
+      tool.tool !== "subagents" &&
+      tool.tool !== "sessions_yield"
+  )
+}
+
+function stableRowsRenderEqual(previous: StableChatMessage, next: StableChatMessage) {
+  return previous.uiId === next.uiId &&
+    previous.messageId === next.messageId &&
+    previous.role === next.role &&
+    previous.text === next.text &&
+    previous.reasoningText === next.reasoningText &&
+    previous.toolCalls === next.toolCalls &&
+    previous.embeds === next.embeds &&
+    previous.attachments === next.attachments &&
+    previous.branches === next.branches &&
+    previous.sendStatus === next.sendStatus &&
+    previous.sendError === next.sendError &&
+    previous.isOptimistic === next.isOptimistic &&
+    previous.animateText === next.animateText &&
+    previous.usage === next.usage &&
+    previous.stopReason === next.stopReason
+}
+
+function reuseStableChatRows(
+  rows: StableChatMessage[],
+  cache: Map<string, StableChatMessage>,
+) {
+  const nextCache = new Map<string, StableChatMessage>()
+  const stableRows = rows.map((row) => {
+    const cached = cache.get(row.uiId)
+    const stableRow = cached && stableRowsRenderEqual(cached, row) ? cached : row
+    nextCache.set(row.uiId, stableRow)
+    return stableRow
+  })
+  cache.clear()
+  for (const [key, value] of nextCache) cache.set(key, value)
+  return stableRows
+}
+
 function PreviewResponseCard({
   title,
   user,
@@ -1189,12 +1232,13 @@ export function ChatView({
     [handleSend, messages]
   )
 
+  const stableRowCacheRef = useRef(new Map<string, StableChatMessage>())
   const visibleAllMessages = useMemo(
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
   const renderedMessages = useMemo(
-    () => buildStableChatRows(visibleAllMessages),
+    () => reuseStableChatRows(buildStableChatRows(visibleAllMessages), stableRowCacheRef.current),
     [visibleAllMessages, forceRenderKey]
   )
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
@@ -1710,17 +1754,29 @@ export function ChatView({
     return null
   }, [renderedMessages])
 
-  const assistantMessages = messages.filter((m) => m.role === "assistant")
-  const lastTwoAssistantIds = new Set(
-    assistantMessages.slice(-2).map((m) => m.messageId)
-  )
-  const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
-    tools.filter(
-      (t) =>
-        t.tool !== "sessions_spawn" &&
-        t.tool !== "subagents" &&
-        t.tool !== "sessions_yield"
-    )
+  const rowRenderMeta = useMemo(() => {
+    const lastTwoAssistantIds = new Set<string>()
+    const assistantIds: string[] = []
+    const hasLaterAssistantInSameTurnByUiId = new Map<string, boolean>()
+    const historicalAssistantToolIds = new Set<string>()
+    let hasLaterTextAssistantInTurn = false
+
+    for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
+      const message = renderedMessages[index]
+      if (message.role === "user") {
+        hasLaterTextAssistantInTurn = false
+        continue
+      }
+      if (message.role !== "assistant") continue
+      hasLaterAssistantInSameTurnByUiId.set(message.uiId, hasLaterTextAssistantInTurn)
+      if (message.text.trim()) hasLaterTextAssistantInTurn = true
+      assistantIds.push(message.messageId)
+      for (const tool of message.toolCalls ?? []) historicalAssistantToolIds.add(tool.id)
+    }
+
+    for (const id of assistantIds.slice(0, 2)) lastTwoAssistantIds.add(id)
+    return { lastTwoAssistantIds, hasLaterAssistantInSameTurnByUiId, historicalAssistantToolIds }
+  }, [renderedMessages])
 
   const { grouped: groupedToolCalls, suppressed: suppressedToolCallMessages } =
     useMemo(
@@ -1737,7 +1793,8 @@ export function ChatView({
     if (!isGenerating || latestRenderedUserIndex < 0) return []
     const merged = new Map<string, import("./types").InlineToolCall>()
     for (const tool of pendingTools) merged.set(tool.id, tool)
-    for (const message of renderedMessages.slice(latestRenderedUserIndex + 1)) {
+    for (let index = latestRenderedUserIndex + 1; index < renderedMessages.length; index += 1) {
+      const message = renderedMessages[index]
       if (message.role === "user") break
       if (message.role !== "assistant") continue
       for (const tool of message.toolCalls ?? []) {
@@ -1891,30 +1948,20 @@ export function ChatView({
         msg.role === "assistant" &&
         msg.text.trim().length > 0 &&
         (isActivelyStreaming || (isLast && msg.animateText === true))
-      let hasLaterAssistantInSameTurn = false
-      if (msg.role === "assistant") {
-        for (const next of renderedMessages.slice(index + 1)) {
-          if (next.role === "user") break
-          if (next.role === "assistant" && next.text.trim()) {
-            hasLaterAssistantInSameTurn = true
-            break
-          }
-        }
-      }
+      const hasLaterAssistantInSameTurn =
+        msg.role === "assistant" &&
+        Boolean(rowRenderMeta.hasLaterAssistantInSameTurnByUiId.get(msg.uiId))
       const isActiveTurnAssistant =
         msg.role === "assistant" && index > latestRenderedUserIndex
       const suppressAssistantActions =
         msg.role === "assistant" &&
         (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
-      const filteredPending = toolCallsWithoutSpawn(activeTurnToolCalls).filter((t) => {
+      const filteredPending = nonSubagentToolCalls(activeTurnToolCalls).filter((tool) => {
         // During a live turn, keep the active tool stack stable under the user
         // message: completed tools stay in the same stack while the next tool
         // starts, instead of jumping into separate assistant tool blocks.
         if (isGenerating) return true
-        const isInMessageHistory = renderedMessages.some(
-          (m) => m.role === "assistant" && m.toolCalls?.some((tc) => tc.id === t.id)
-        )
-        return !isInMessageHistory
+        return !rowRenderMeta.historicalAssistantToolIds.has(tool.id)
       })
       const messageToolCalls =
         msg.role === "assistant" && suppressedToolCallMessages.has(msg.messageId)
@@ -1936,7 +1983,7 @@ export function ChatView({
         msg.role === "assistant" &&
         (index < latestRenderedUserIndex || !isGenerating || pendingTools.length === 0)
       const filteredToolCalls = applyTerminalToolState(
-        toolCallsWithoutSpawn(activeTurnAssistantToolCalls),
+        nonSubagentToolCalls(activeTurnAssistantToolCalls),
         terminalToolState,
         { finalizeStaleRunning: shouldFinalizeDisplayedTools }
       )
@@ -1978,13 +2025,13 @@ export function ChatView({
           {msg.role === "assistant" && msg.reasoningText && (
             <ThinkingBlock
               text={msg.reasoningText}
-              defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
+              defaultOpen={rowRenderMeta.lastTwoAssistantIds.has(msg.messageId)}
             />
           )}
           {(() => {
             const assistantHasText = msg.role === "assistant" && msg.text.trim().length > 0
             const shouldOpenToolStepsByDefault =
-              lastTwoAssistantIds.has(msg.messageId) &&
+              rowRenderMeta.lastTwoAssistantIds.has(msg.messageId) &&
               !assistantHasText &&
               filteredToolCalls.length <= 3
             const toolSteps = msg.role === "assistant" && filteredToolCalls && filteredToolCalls.length > 0
@@ -2067,7 +2114,7 @@ export function ChatView({
       handleEdit,
       isGenerating,
       lastEditableUserId,
-      lastTwoAssistantIds,
+      rowRenderMeta,
       latestRenderedUserIndex,
       markTextAnimationComplete,
       messageActionState.pinnedIds,
