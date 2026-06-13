@@ -79,7 +79,6 @@ import {
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 const CHAT_VIRTUALIZATION_OVERSCAN_PX = 1400
 const CHAT_VIRTUALIZATION_MIN_ITEMS = 80
-const CHAT_VIRTUALIZATION_LOAD_OLDER_ROWS = 12
 
 class FenwickTree {
   private readonly tree: number[]
@@ -292,17 +291,6 @@ function useChatVirtualWindow(
     return true
   }, [calculateRange, enabled, items, metricsKey, rebuildMetrics, scrollContainerRef])
 
-  const getRangeSnapshot = useCallback(() => {
-    if (!enabled) return range
-    if (metricsRef.current.key !== metricsKey) rebuildMetrics()
-    const el = scrollContainerRef.current
-    return makeVirtualRange(
-      metricsRef.current,
-      el?.scrollTop ?? 0,
-      el?.clientHeight ?? 900,
-    )
-  }, [enabled, metricsKey, range, rebuildMetrics, scrollContainerRef])
-
   const restoreAnchor = useCallback((anchor: MessageScrollAnchor | null) => {
     const el = scrollContainerRef.current
     if (!anchor || !el || !enabled) return false
@@ -324,7 +312,6 @@ function useChatVirtualWindow(
     enabled,
     range,
     calculateRange,
-    getRangeSnapshot,
     scrollToMessage,
     restoreAnchor,
     updateMeasuredHeight,
@@ -1521,8 +1508,7 @@ export function ChatView({
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
       setShowJumpToBottom(!atBottom)
       const canAutoLoadOlder = !isGenerating && now >= olderAutoLoadBlockedUntilRef.current
-      const isScrollingUp = el.scrollTop < previousScrollTopRef.current
-      const shouldLoadByDomThreshold = shouldAutoLoadOlderHistory({
+      if (hasOlderMessages && canAutoLoadOlder && shouldAutoLoadOlderHistory({
         scrollTop: el.scrollTop,
         scrollHeight: el.scrollHeight,
         clientHeight: el.clientHeight,
@@ -1531,33 +1517,15 @@ export function ChatView({
         lastLoadScrollTop: lastOlderLoadScrollTopRef.current,
         currentTimeMs: now,
         previousScrollTimeMs: previousScrollTimeRef.current,
-      })
-      const virtualRange = virtualWindow.getRangeSnapshot()
-      const shouldLoadByVirtualRange =
-        virtualWindow.enabled &&
-        userScrollIntentRef.current &&
-        isScrollingUp &&
-        virtualRange.start <= CHAT_VIRTUALIZATION_LOAD_OLDER_ROWS &&
-        (typeof lastOlderLoadScrollTopRef.current !== "number" ||
-          Math.abs(el.scrollTop - lastOlderLoadScrollTopRef.current) >= Math.max(240, el.clientHeight * 0.25))
-      if (hasOlderMessages && canAutoLoadOlder && (shouldLoadByDomThreshold || shouldLoadByVirtualRange)) {
-        logChatScrollDebug({
-          source: "chat",
-          event: shouldLoadByVirtualRange ? "load-older-trigger-virtual-range" : "load-older-trigger",
-          sessionKey,
-          scrollTop: el.scrollTop,
-          scrollHeight: el.scrollHeight,
-          clientHeight: el.clientHeight,
-          virtualStart: virtualRange.start,
-          virtualEnd: virtualRange.end,
-        })
+      })) {
+        logChatScrollDebug({ source: "chat", event: "load-older-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
         void loadOlderWithoutJump()
       }
       previousScrollTopRef.current = el.scrollTop
       previousScrollTimeRef.current = now
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef, virtualWindow])
+  }, [activePopoverId, hasOlderMessages, isGenerating, loadOlderWithoutJump, onScroll, scrollContainerRef])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
