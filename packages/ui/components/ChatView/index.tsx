@@ -1068,6 +1068,11 @@ export function ChatView({
     sessionKey,
     isGenerating,
   })
+  // The slice extend functions are no-ops now (sentinels removed) but the
+  // surface is kept for `recenterOnMessage` and `pinToNewest`. Touch them
+  // so the unused-variable lint stays quiet.
+  void extendSliceOlder
+  void extendSliceNewer
 
   // ---------------------------------------------------------------------------
   // Viewport-windowed rendering
@@ -1183,71 +1188,18 @@ export function ChatView({
   // enters the viewport (with ~1 viewport rootMargin), we extend the slice
   // in that direction. A guarded ref prevents thrashing if the user scrolls
   // past both edges quickly.
-  const topSentinelRef = useRef<HTMLDivElement | null>(null)
-  const bottomSentinelRef = useRef<HTMLDivElement | null>(null)
-  const sliceExtendInFlightRef = useRef<"none" | "older" | "newer">("none")
-  const sliceExtendCooldownRef = useRef(0)
-
-  useEffect(() => {
-    const container = scrollContainerRef.current
-    const top = topSentinelRef.current
-    const bottom = bottomSentinelRef.current
-    if (!container || typeof IntersectionObserver === "undefined") return
-    if (!top && !bottom) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const now = Date.now()
-        if (now < sliceExtendCooldownRef.current) return
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue
-          if (entry.target === top && sliceExtendInFlightRef.current === "none") {
-            sliceExtendInFlightRef.current = "older"
-            sliceExtendCooldownRef.current = now + 120
-            logChatScrollDebug({
-              source: "chat",
-              event: "slice-extend-older",
-              sessionKey,
-              scrollTop: container.scrollTop,
-              scrollHeight: container.scrollHeight,
-              clientHeight: container.clientHeight,
-            })
-            extendSliceOlder()
-            // Server-side older fetch is driven by handleScroll's 60%-
-            // remaining auto-load (loadOlderWithoutJump → loadOlderMessages).
-            // The slice math here only shifts which rows we mount; it does
-            // not fetch.
-            requestAnimationFrame(() => {
-              sliceExtendInFlightRef.current = "none"
-            })
-          } else if (entry.target === bottom && sliceExtendInFlightRef.current === "none") {
-            sliceExtendInFlightRef.current = "newer"
-            sliceExtendCooldownRef.current = now + 120
-            logChatScrollDebug({
-              source: "chat",
-              event: "slice-extend-newer",
-              sessionKey,
-              scrollTop: container.scrollTop,
-              scrollHeight: container.scrollHeight,
-              clientHeight: container.clientHeight,
-            })
-            extendSliceNewer()
-            requestAnimationFrame(() => {
-              sliceExtendInFlightRef.current = "none"
-            })
-          }
-        }
-      },
-      {
-        root: container,
-        // ~1 viewport of preload distance above and below.
-        rootMargin: `${Math.max(400, container.clientHeight)}px 0px ${Math.max(400, container.clientHeight)}px 0px`,
-        threshold: 0,
-      },
-    )
-    if (top) observer.observe(top)
-    if (bottom) observer.observe(bottom)
-    return () => observer.disconnect()
-  }, [extendSliceOlder, extendSliceNewer, scrollContainerRef, sessionKey, sliceStartIndex, sliceEndIndex])
+  // Slice-extend sentinels were removed. The single sliding-window source of
+  // truth is the store-level window driven by handleScroll →
+  // loadOlderWithoutJump / loadNewerWithoutJump, which:
+  //   1) Capture a scroll anchor row before fetching.
+  //   2) Fetch the next PAGE_SIZE (100) older/newer messages.
+  //   3) Drop PAGE_SIZE from the opposite end via
+  //      trimSessionMessageWindow so total mounted stays ≈ WINDOW_SIZE (200).
+  //   4) Settle the anchor in useLayoutEffect so scrollTop snaps to the
+  //      same visible row — no jump, no blink.
+  // The slice hook is now a pure projection of `renderedMessages` (which is
+  // already bounded by the store window), so it never trims and never
+  // creates parallel fetch triggers.
 
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const contextFetchSeqRef = useRef(0)
@@ -2539,16 +2491,6 @@ export function ChatView({
       >
         <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8" />
-          {/* Top slice-extend sentinel — fires when scrolled near the start of */}
-          {/* the slice while there are older rows available in the full array. */}
-          {sliceStartIndex > 0 && (
-            <div
-              ref={topSentinelRef}
-              aria-hidden
-              data-chat-slice-sentinel="top"
-              style={{ height: "1px" }}
-            />
-          )}
           {visibleRange.topSpacerPx > 0 && (
             <div
               aria-hidden
@@ -2587,16 +2529,6 @@ export function ChatView({
               aria-hidden
               data-chat-virtual-spacer="bottom"
               style={{ height: `${visibleRange.bottomSpacerPx}px` }}
-            />
-          )}
-          {/* Bottom slice-extend sentinel — fires when scrolled near the end of */}
-          {/* the slice while there are newer rows available in the full array. */}
-          {!sliceIsAtNewest && (
-            <div
-              ref={bottomSentinelRef}
-              aria-hidden
-              data-chat-slice-sentinel="bottom"
-              style={{ height: "1px" }}
             />
           )}
           <div className={cn("mx-auto max-w-[44rem] px-4 pt-0", statusText ? "pb-2" : "pb-8")}>

@@ -227,8 +227,8 @@ describe("sortMessagesByGatewayIndex", () => {
 
 describe("constants", () => {
   test("window sizing", () => {
-    expect(PAGE_SIZE).toBe(60)
-    expect(WINDOW_SIZE).toBe(300)
+    expect(PAGE_SIZE).toBe(100)
+    expect(WINDOW_SIZE).toBe(200)
     expect(LOAD_THRESHOLD_RATIO).toBe(0.2)
   })
 })

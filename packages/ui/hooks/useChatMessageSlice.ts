@@ -150,16 +150,46 @@ export function useChatMessageSlice<T extends { uiId?: string; messageId?: strin
     [messages, totalMessages],
   )
 
+  // Defensive projection: clamp the stored window against `messages.length`
+  // at projection time. Without this, a session switch (sessionKey changes
+  // but the slice state's `window` still points at the previous session's
+  // index range) produces a render where window=[800..999] and the new
+  // session only has 50 messages — sliceMessages returns []. Result: blank
+  // screen for one paint, then the totalMessages-effect resets the window
+  // and a second paint shows the rows. Clamping in projection collapses
+  // that two-paint flash into one correct paint.
+  const effectiveWindow = useMemo<SliceWindow>(() => {
+    if (totalMessages <= 0) {
+      return { startIndex: 0, endIndex: -1, isAtNewest: true }
+    }
+    const lastIndex = totalMessages - 1
+    const clampedEnd = Math.min(window.endIndex, lastIndex)
+    const clampedStart = Math.min(Math.max(0, window.startIndex), clampedEnd)
+    if (clampedEnd < 0 || clampedStart > clampedEnd) {
+      // Window does not overlap with the current messages — fall back to
+      // newest-pinned so the user sees the tail of the new session.
+      return initialSliceWindow(totalMessages)
+    }
+    if (clampedStart === window.startIndex && clampedEnd === window.endIndex) {
+      return window
+    }
+    return {
+      startIndex: clampedStart,
+      endIndex: clampedEnd,
+      isAtNewest: clampedEnd === lastIndex,
+    }
+  }, [totalMessages, window])
+
   const slicedMessages = useMemo(
-    () => sliceMessages(messages, window),
-    [messages, window],
+    () => sliceMessages(messages, effectiveWindow),
+    [messages, effectiveWindow],
   )
 
   return {
     slicedMessages,
-    startIndex: window.startIndex,
-    endIndex: window.endIndex,
-    isAtNewest: window.isAtNewest,
+    startIndex: effectiveWindow.startIndex,
+    endIndex: effectiveWindow.endIndex,
+    isAtNewest: effectiveWindow.isAtNewest,
     extendOlder,
     extendNewer,
     recenterOnMessage,

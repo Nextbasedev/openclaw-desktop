@@ -18,9 +18,13 @@
  * load/unload step.
  */
 
-export const PAGE_SIZE = 60
-export const WINDOW_PAGES = 5
-export const WINDOW_SIZE = PAGE_SIZE * WINDOW_PAGES // 300
+// Krish's spec (2026-06-13): open chat with 200 messages mounted; scroll
+// past an edge → fetch next 100, drop 100 from opposite end. Single source
+// of truth lives here at the store-window level; the slice hook above is a
+// pure projection of whatever the store holds.
+export const PAGE_SIZE = 100
+export const WINDOW_PAGES = 2
+export const WINDOW_SIZE = PAGE_SIZE * WINDOW_PAGES // 200
 export const LOAD_THRESHOLD_RATIO = 0.2 // load when 20% from edge
 
 export type SequencedMessage = {

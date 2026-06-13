@@ -223,26 +223,31 @@ export function recenterAround(
 /**
  * Reacts to a new live message arriving from the WebSocket stream. If the
  * caller is currently pinned to the newest end, the window grows to include
- * the new row and trims the head if needed. Otherwise we leave the window
+ * the new row and trims the head by exactly the overflow amount so the
+ * mounted count stays at most maxSliceSize. Otherwise we leave the window
  * alone so the user's read position is preserved.
+ *
+ * Trim is `candidateLength - maxSliceSize`, NOT a fixed batch — trimming
+ * by a fixed batch on each single-message arrival caused a visible blink as
+ * the head jumped backward by 100 rows for one new message.
  */
 export function applyLiveMessageArrival(
   current: SliceWindow,
   totalMessages: number,
-  options: { maxSliceSize?: number; trimBatchSize?: number } = {},
+  options: { maxSliceSize?: number } = {},
 ): SliceWindow {
   if (!current.isAtNewest) return current
   if (totalMessages <= 0) return { startIndex: 0, endIndex: -1, isAtNewest: true }
 
   const maxSliceSize = options.maxSliceSize ?? MAX_SLICE_SIZE
-  const trimBatchSize = options.trimBatchSize ?? TRIM_BATCH_SIZE
   const lastIndex = totalMessages - 1
   let startIndex = current.startIndex
   const endIndex = lastIndex
 
   const candidateLength = endIndex - startIndex + 1
   if (candidateLength > maxSliceSize) {
-    startIndex = Math.min(endIndex, startIndex + trimBatchSize)
+    const overflow = candidateLength - maxSliceSize
+    startIndex = Math.min(endIndex, startIndex + overflow)
   }
   return { startIndex, endIndex, isAtNewest: true }
 }

@@ -153,16 +153,19 @@ describe("recenterAround", () => {
 })
 
 describe("applyLiveMessageArrival", () => {
-  test("trims head immediately to keep mounted count at MAX_SLICE_SIZE", () => {
-    // Window starts already at MAX. Live arrival should slide head forward.
+  test("trims head by exactly the overflow on each live arrival", () => {
+    // Window starts already at MAX. A single live arrival should slide the
+    // head forward by exactly 1 row (overflow), not by TRIM_BATCH_SIZE —
+    // batching the trim caused a visible blink (100 rows vanishing for one
+    // new message). 2026-06-13 fix.
     const totalMessages = 500
     const win = initialSliceWindow(totalMessages)
     expect(win.endIndex - win.startIndex + 1).toBe(MAX_SLICE_SIZE)
     const next = applyLiveMessageArrival(win, totalMessages + 1)
     expect(next.endIndex).toBe(totalMessages)
     expect(next.isAtNewest).toBe(true)
-    expect(next.startIndex).toBe(win.startIndex + TRIM_BATCH_SIZE)
-    expect(next.endIndex - next.startIndex + 1).toBeLessThanOrEqual(MAX_SLICE_SIZE)
+    expect(next.startIndex).toBe(win.startIndex + 1)
+    expect(next.endIndex - next.startIndex + 1).toBe(MAX_SLICE_SIZE)
   })
 
   test("stays bounded as many arrivals stream in", () => {
