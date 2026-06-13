@@ -191,7 +191,6 @@ function useChatVirtualWindow(
     afterHeight: 0,
     totalHeight: 0,
   }))
-  const rangeRef = useRef(range)
 
   const enabled = items.length >= CHAT_VIRTUALIZATION_MIN_ITEMS
   const metricsKey = `${items.length}:${items[0]?.uiId ?? ""}:${items.at(-1)?.uiId ?? ""}`
@@ -210,15 +209,13 @@ function useChatVirtualWindow(
 
   const calculateRange = useCallback(() => {
     if (!enabled) {
-      const next = {
+      setRange({
         start: 0,
         end: items.length,
         beforeHeight: 0,
         afterHeight: 0,
         totalHeight: 0,
-      }
-      rangeRef.current = next
-      setRange(next)
+      })
       return
     }
     if (metricsRef.current.key !== metricsKey) rebuildMetrics()
@@ -228,16 +225,14 @@ function useChatVirtualWindow(
       el?.scrollTop ?? 0,
       el?.clientHeight ?? 900,
     )
-    setRange((prev) => {
-      const stable =
-        prev.start === next.start &&
-        prev.end === next.end &&
-        Math.abs(prev.beforeHeight - next.beforeHeight) < 0.5 &&
-        Math.abs(prev.afterHeight - next.afterHeight) < 0.5
-      const resolved = stable ? prev : next
-      rangeRef.current = resolved
-      return resolved
-    })
+    setRange((prev) =>
+      prev.start === next.start &&
+      prev.end === next.end &&
+      Math.abs(prev.beforeHeight - next.beforeHeight) < 0.5 &&
+      Math.abs(prev.afterHeight - next.afterHeight) < 0.5
+        ? prev
+        : next
+    )
   }, [enabled, items.length, metricsKey, rebuildMetrics, scrollContainerRef])
 
   useLayoutEffect(() => {
@@ -276,14 +271,9 @@ function useChatVirtualWindow(
     if (Math.abs(previous - rounded) < 1) return
     heightsByIdRef.current.set(uiId, rounded)
     metrics.heights[index] = rounded
-    const delta = rounded - previous
-    metrics.tree.add(index, delta)
-    const el = scrollContainerRef.current
-    if (enabled && el && index < rangeRef.current.start) {
-      el.scrollTop = Math.max(0, el.scrollTop + delta)
-    }
+    metrics.tree.add(index, rounded - previous)
     calculateRange()
-  }, [calculateRange, enabled, scrollContainerRef])
+  }, [calculateRange])
 
   const scrollToMessage = useCallback((messageId: string) => {
     const index = items.findIndex((item) => item.messageId === messageId || item.uiId === messageId)
@@ -1546,8 +1536,10 @@ export function ChatView({
       const shouldLoadByVirtualRange =
         virtualWindow.enabled &&
         userScrollIntentRef.current &&
-        (isScrollingUp || virtualRange.start === 0) &&
-        virtualRange.start <= CHAT_VIRTUALIZATION_LOAD_OLDER_ROWS
+        isScrollingUp &&
+        virtualRange.start <= CHAT_VIRTUALIZATION_LOAD_OLDER_ROWS &&
+        (typeof lastOlderLoadScrollTopRef.current !== "number" ||
+          Math.abs(el.scrollTop - lastOlderLoadScrollTopRef.current) >= Math.max(240, el.clientHeight * 0.25))
       if (hasOlderMessages && canAutoLoadOlder && (shouldLoadByDomThreshold || shouldLoadByVirtualRange)) {
         logChatScrollDebug({
           source: "chat",
