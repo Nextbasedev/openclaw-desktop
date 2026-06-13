@@ -2260,55 +2260,6 @@ export function getGlobalCursorForTests() {
   return globalCursor
 }
 
-/**
- * Telegram-style chunk eviction.
- *
- * Drops messages from a session's in-memory state when their `gatewayIndex`
- * falls outside `[minSeq, maxSeq]`. Used by `useChunkedMessageSource` to
- * keep the store's per-session messages array bounded regardless of total
- * conversation size.
- *
- * Messages without a `gatewayIndex` (optimistic / not-yet-acked sends) are
- * always preserved — they have no seq yet and the next bootstrap will
- * reconcile them. Messages with `isOptimistic` are also preserved so a send
- * in-flight while the user is scrolled deep into history never disappears.
- *
- * Returns the number of evicted messages so the caller can decide whether
- * the change is worth notifying about.
- */
-export function evictMessagesOutsideSeqRange(
-  sessionKey: string,
-  minSeq: number,
-  maxSeq: number,
-): number {
-  const state = states.get(sessionKey)
-  if (!state) return 0
-  if (!Number.isFinite(minSeq) || !Number.isFinite(maxSeq)) return 0
-  if (state.messages.length === 0) return 0
-  let evicted = 0
-  const next: ChatMessage[] = []
-  for (const message of state.messages) {
-    const seq = message.gatewayIndex
-    if (typeof seq !== "number" || !Number.isFinite(seq)) {
-      next.push(message)
-      continue
-    }
-    if (message.isOptimistic) {
-      next.push(message)
-      continue
-    }
-    if (seq < minSeq || seq > maxSeq) {
-      evicted += 1
-      continue
-    }
-    next.push(message)
-  }
-  if (evicted === 0) return 0
-  state.messages = next
-  notifySync(sessionKey)
-  return evicted
-}
-
 export function clearGlobalChatEngineForTests() {
   states.clear()
   listeners.clear()

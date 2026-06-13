@@ -377,12 +377,12 @@ function parseExecApproval(
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
-// Bootstrap fetches at most ~2 chunks of history (the live tail + a small
-// cushion). The chunk pool (useChunkedMessageSource) lazy-loads older
-// chunks on demand as the user scrolls. Older page limit is one chunk so
-// each load-more pull lines up with the pool's CHUNK_SIZE = 60.
-export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 120
-export const CHAT_OLDER_PAGE_LIMIT = 60
+// Sliding-window sizes (per messageSlice.ts SLICE_SIZE = 200, EXTEND_PAGE_SIZE
+// = 100). Bootstrap loads one full window (200) so the user opens straight to
+// a fully populated tail; each older-page fetch loads one slide step (100) so
+// scroll-up auto-load lines up with the window stride.
+export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 200
+export const CHAT_OLDER_PAGE_LIMIT = 100
 export const CHAT_BOOTSTRAP_MIN_VISIBLE_ROWS = 24
 const CHAT_BOOTSTRAP_MAX_TOP_UP_PAGES = 4
 

@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatMessageSlice } from "@/hooks/useChatMessageSlice"
-import { useChunkedMessageSource } from "@/hooks/useChunkedMessageSource"
-import { chunkIdForSeq } from "@/lib/chat-engine-v2/messageChunkPool"
+
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
@@ -1031,34 +1030,15 @@ export function ChatView({
   )
 
   // ---------------------------------------------------------------------------
-  // Telegram-style chunked source: take the full messages[] from
-  // useChatMessages, keep at most MAX_CHUNKS_IN_MEMORY * CHUNK_SIZE rows
-  // mounted, fetch evicted chunks from the server when the user scrolls back
-  // into them. The chat-engine-v2 store is concurrently trimmed via
-  // evictMessagesOutsideSeqRange so memory stays bounded regardless of total
-  // conversation length.
+  // Render-window source: the chat-engine-v2 store keeps every projected
+  // message for the session; the slice hook below bounds what we actually
+  // mount to a 200-row sliding window (slides by 100 on extend). No chunk
+  // pool / no store eviction / no on-demand chunk refetch — the store is
+  // authoritative and the slice is a pure projection over it.
   // ---------------------------------------------------------------------------
-  const {
-    chunkedMessages,
-    activeChunkId,
-    isAtNewest: chunkPoolAtNewest,
-    setActiveChunkBySeq,
-    requestOlderChunk: requestOlderChunkPool,
-    requestNewerChunk: requestNewerChunkPool,
-    ensureChunkForSeq,
-    chunkCount,
-    poolSize,
-  } = useChunkedMessageSource({
-    messages,
-    sessionKey,
-    isGenerating,
-    loadOlderMessages,
-    hasOlderMessages,
-  })
-
   const visibleAllMessages = useMemo(
-    () => visibleMessages(chunkedMessages, messageActionState),
-    [chunkedMessages, messageActionState]
+    () => visibleMessages(messages, messageActionState),
+    [messages, messageActionState]
   )
   const renderedMessages = useMemo(
     () => buildStableChatRows(visibleAllMessages),
@@ -1157,20 +1137,7 @@ export function ChatView({
     )
   }, [])
 
-  // Drive the chunk pool's active chunk from the viewport position. As the
-  // user scrolls, the message at the middle of the visible window decides
-  // which chunk is "active"; the pool uses that to pick eviction candidates
-  // and to know what "next older / newer" means for the sentinels.
-  useEffect(() => {
-    if (visibleRange.lastIndex < visibleRange.firstIndex) return
-    const midIndex = Math.floor((visibleRange.firstIndex + visibleRange.lastIndex) / 2)
-    // visibleRange is relative to slicedMessages — take that index there.
-    const sliceTarget = slicedMessages[midIndex]
-    if (!sliceTarget) return
-    const seq = sliceTarget.gatewayIndex
-    if (typeof seq !== "number" || !Number.isFinite(seq)) return
-    setActiveChunkBySeq(seq)
-  }, [setActiveChunkBySeq, slicedMessages, visibleRange.firstIndex, visibleRange.lastIndex])
+
 
   const recomputeRangeRafRef = useRef<number | null>(null)
   const scheduleRecomputeRange = useCallback(() => {
@@ -1245,14 +1212,10 @@ export function ChatView({
               clientHeight: container.clientHeight,
             })
             extendSliceOlder()
-            // NOTE: do NOT also call requestOlderChunkPool here. The chunk
-            // pool's older-side fetch is driven exclusively by
-            // handleScroll's existing 60%-remaining auto-load path
-            // (loadOlderWithoutJump → loadOlderMessages), which adds the
-            // next adjacent chunk to `messages` and the pool's hot path
-            // picks it up. Triggering both was causing duplicate fetches
-            // and scroll-anchor thrash that snapped the viewport back
-            // down.
+            // Server-side older fetch is driven by handleScroll's 60%-
+            // remaining auto-load (loadOlderWithoutJump → loadOlderMessages).
+            // The slice math here only shifts which rows we mount; it does
+            // not fetch.
             requestAnimationFrame(() => {
               sliceExtendInFlightRef.current = "none"
             })
@@ -1268,8 +1231,6 @@ export function ChatView({
               clientHeight: container.clientHeight,
             })
             extendSliceNewer()
-            // Symmetric: request the next newer chunk from the pool.
-            void requestNewerChunkPool()
             requestAnimationFrame(() => {
               sliceExtendInFlightRef.current = "none"
             })
@@ -1286,7 +1247,7 @@ export function ChatView({
     if (top) observer.observe(top)
     if (bottom) observer.observe(bottom)
     return () => observer.disconnect()
-  }, [extendSliceOlder, extendSliceNewer, requestNewerChunkPool, scrollContainerRef, sessionKey, sliceStartIndex, sliceEndIndex])
+  }, [extendSliceOlder, extendSliceNewer, scrollContainerRef, sessionKey, sliceStartIndex, sliceEndIndex])
 
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const contextFetchSeqRef = useRef(0)
@@ -1713,32 +1674,13 @@ export function ChatView({
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
-    // 1) If the live tail chunk is not in the pool (user scrolled deep into
-    // history and we evicted it), fetch it from the server first. The
-    // pool's newestKnownChunkId is what we target.
-    // 2) Pin the slice back to the newest tail so the bottom row exists in
-    // the DOM, then scroll to it.
-    const newestChunkSeq = (() => {
-      // Prefer the newest seq we have in the chunked array.
-      for (let i = chunkedMessages.length - 1; i >= 0; i -= 1) {
-        const seq = chunkedMessages[i]?.gatewayIndex
-        if (typeof seq === "number" && Number.isFinite(seq)) return seq
-      }
-      return null
-    })()
-    const doScroll = () => {
-      pinSliceToNewest()
-      requestAnimationFrame(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-      })
-    }
-    if (newestChunkSeq !== null && !chunkPoolAtNewest) {
-      // Need to refetch the live-tail chunk before scrolling.
-      void ensureChunkForSeq(newestChunkSeq).then(doScroll)
-    } else {
-      doScroll()
-    }
-  }, [bottomRef, chunkedMessages, chunkPoolAtNewest, ensureChunkForSeq, pinSliceToNewest])
+    // Pin the slice back to the newest tail (slides the 200-row window to
+    // the end of the store) then scroll the bottom anchor into view.
+    pinSliceToNewest()
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+    })
+  }, [bottomRef, pinSliceToNewest])
 
   const syncJumpToBottomVisibility = useCallback(() => {
     const el = scrollContainerRef.current
@@ -2086,19 +2028,10 @@ export function ChatView({
       (msg) => msg.messageId === messageId || msg.uiId === messageId,
     )
     if (targetIndex < 0) {
-      // Target isn't in the chunked pool at all. If we have a seq hint, ask
-      // the pool to fetch the chunk that contains it; the next render will
-      // mount the row and a follow-up scroll-into-view will find it.
-      if (typeof seqHint === "number" && Number.isFinite(seqHint)) {
-        void ensureChunkForSeq(seqHint).then(() => {
-          requestAnimationFrame(() => {
-            const retryRows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-            const retryTarget = retryRows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
-            if (retryTarget) retryTarget.scrollIntoView({ behavior: "auto", block: "center" })
-          })
-        })
-        return true
-      }
+      // Target isn't in the in-memory store. Older history must be loaded
+      // by scrolling up (handleScroll → loadOlderWithoutJump). No chunk
+      // refetch shortcut here.
+      void seqHint
       return false
     }
     if (targetIndex < sliceStartIndex || targetIndex > sliceEndIndex) {
@@ -2127,7 +2060,7 @@ export function ChatView({
     el.scrollTop = Math.max(0, row.top - blockOffset)
     scheduleRecomputeRange()
     return true
-  }, [ensureChunkForSeq, recenterSliceOnMessage, renderedMessages, scheduleRecomputeRange, scrollContainerRef, sliceEndIndex, sliceStartIndex, slicedMessages])
+  }, [recenterSliceOnMessage, renderedMessages, scheduleRecomputeRange, scrollContainerRef, sliceEndIndex, sliceStartIndex, slicedMessages])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -2602,10 +2535,6 @@ export function ChatView({
         onScroll={handleScroll}
         data-chat-slice-window={`${sliceStartIndex}-${sliceEndIndex}/${renderedMessages.length}`}
         data-chat-slice-at-newest={sliceIsAtNewest ? "1" : "0"}
-        data-chat-chunk-active={activeChunkId ?? ""}
-        data-chat-chunk-count={chunkCount}
-        data-chat-chunk-pool-size={poolSize}
-        data-chat-chunk-at-newest={chunkPoolAtNewest ? "1" : "0"}
         className="flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
       >
         <div className="min-h-full">

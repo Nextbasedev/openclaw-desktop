@@ -12,14 +12,22 @@
  *   https://github.com/Ajaxy/telegram-tt/blob/master/src/config.ts
  */
 
+// Sliding-window sizes per Krish's spec (2026-06-13):
+//   • Open the chat with the last 200 messages mounted.
+//   • Scrolling past either edge slides the window by 100: the new 100 are
+//     added on the leading side and the oldest 100 are dropped from the
+//     trailing side, so the mounted count stays constant at 200.
+// SLICE_SIZE === MAX_SLICE_SIZE keeps the window exactly 200 wide; the
+// extend functions immediately trim the opposite end because the candidate
+// length (200 + 100 = 300) always exceeds MAX_SLICE_SIZE (200).
 /** Base slice size we keep mounted under normal conditions. */
-export const SLICE_SIZE = 60
+export const SLICE_SIZE = 200
 /** How many messages we add when a top/bottom sentinel triggers an extend. */
-export const EXTEND_PAGE_SIZE = 30
+export const EXTEND_PAGE_SIZE = 100
 /** Hard ceiling — we trim the opposite end once we exceed this size. */
-export const MAX_SLICE_SIZE = 120
+export const MAX_SLICE_SIZE = 200
 /** How many rows we trim from the opposite end after an extend. */
-export const TRIM_BATCH_SIZE = 30
+export const TRIM_BATCH_SIZE = 100
 
 /**
  * Minimal shape we need from a message for sequencing decisions. Real

@@ -50,50 +50,49 @@ describe("sliceMessages", () => {
 })
 
 describe("extendOlder", () => {
-  test("grows toward older messages and keeps tail when under cap", () => {
+  // With Krish's spec (SLICE_SIZE === MAX_SLICE_SIZE) every extend trims the
+  // opposite end immediately: the window slides backward by EXTEND_PAGE_SIZE
+  // and the mounted count stays exactly SLICE_SIZE.
+  test("slides window backward by EXTEND_PAGE_SIZE and trims the tail", () => {
     const totalMessages = 500
     const start = initialSliceWindow(totalMessages)
     const result = extendOlder(start, totalMessages)
     expect(result.window.startIndex).toBe(start.startIndex - EXTEND_PAGE_SIZE)
-    expect(result.window.endIndex).toBe(start.endIndex)
-    expect(result.window.isAtNewest).toBe(true)
-    expect(result.trimmed).toBe(false)
+    expect(result.window.endIndex).toBe(start.endIndex - TRIM_BATCH_SIZE)
+    expect(result.window.endIndex - result.window.startIndex + 1).toBe(SLICE_SIZE)
+    expect(result.window.isAtNewest).toBe(false)
+    expect(result.trimmed).toBe(true)
     expect(result.reachedStart).toBe(false)
-    expect(result.reachedEnd).toBe(true)
   })
 
-  test("trims newest end once over MAX_SLICE_SIZE", () => {
-    const totalMessages = 500
+  test("keeps mounted count constant across many extends", () => {
+    const totalMessages = 2000
     let win = initialSliceWindow(totalMessages)
-    // After two extends, slice length = SLICE_SIZE + 2*EXTEND_PAGE_SIZE = 120, still <= MAX.
-    win = extendOlder(win, totalMessages).window
-    win = extendOlder(win, totalMessages).window
-    expect(win.endIndex - win.startIndex + 1).toBe(SLICE_SIZE + 2 * EXTEND_PAGE_SIZE)
-    expect(win.endIndex - win.startIndex + 1).toBe(MAX_SLICE_SIZE)
-    // Third extend pushes over the cap -> trim from newest end.
-    const third = extendOlder(win, totalMessages)
-    expect(third.trimmed).toBe(true)
-    expect(third.window.endIndex).toBe(win.endIndex - TRIM_BATCH_SIZE)
-    expect(third.window.isAtNewest).toBe(false)
+    for (let i = 0; i < 5; i += 1) {
+      win = extendOlder(win, totalMessages).window
+      expect(win.endIndex - win.startIndex + 1).toBe(SLICE_SIZE)
+    }
+    // After 5 backward slides, start moved back by 5 * EXTEND_PAGE_SIZE.
+    expect(win.startIndex).toBe(totalMessages - SLICE_SIZE - 5 * EXTEND_PAGE_SIZE)
   })
 
-  test("preserveTail keeps newest row pinned even past MAX_SLICE_SIZE", () => {
-    const totalMessages = 500
-    let win = initialSliceWindow(totalMessages)
-    win = extendOlder(win, totalMessages).window
-    win = extendOlder(win, totalMessages).window
-    const r = extendOlder(win, totalMessages, { preserveTail: true })
-    expect(r.trimmed).toBe(false)
+  test("preserveTail keeps newest row pinned even when window grows past cap", () => {
+    const totalMessages = 2000
+    const start = initialSliceWindow(totalMessages)
+    const r = extendOlder(start, totalMessages, { preserveTail: true })
+    // Tail preserved: endIndex still at last index.
     expect(r.window.endIndex).toBe(totalMessages - 1)
     expect(r.window.isAtNewest).toBe(true)
-    // Window can exceed the soft cap when preserveTail is on (caller knows).
+    // Start moved back, so window has temporarily grown beyond MAX_SLICE_SIZE
+    // (this is the streaming-protect path — caller knows to allow it).
+    expect(r.trimmed).toBe(false)
     expect(r.window.endIndex - r.window.startIndex + 1).toBeGreaterThan(MAX_SLICE_SIZE)
   })
 
   test("reports reachedStart when we hit the beginning", () => {
-    const totalMessages = 80
+    const totalMessages = 250
     let win = initialSliceWindow(totalMessages)
-    expect(win.startIndex).toBe(20)
+    expect(win.startIndex).toBe(totalMessages - SLICE_SIZE)
     win = extendOlder(win, totalMessages).window
     expect(win.startIndex).toBe(0)
     const r = extendOlder(win, totalMessages)
@@ -110,22 +109,20 @@ describe("extendOlder", () => {
 })
 
 describe("extendNewer", () => {
-  test("grows toward newer messages and trims oldest beyond cap", () => {
-    const totalMessages = 500
-    // Start far back: pretend user already scrolled up.
-    let win = { startIndex: 100, endIndex: 100 + SLICE_SIZE - 1, isAtNewest: false }
-    win = extendNewer(win, totalMessages).window
-    win = extendNewer(win, totalMessages).window
-    expect(win.endIndex - win.startIndex + 1).toBe(MAX_SLICE_SIZE)
-    const third = extendNewer(win, totalMessages)
-    expect(third.trimmed).toBe(true)
-    expect(third.window.startIndex).toBe(win.startIndex + TRIM_BATCH_SIZE)
+  test("slides window forward by EXTEND_PAGE_SIZE and trims the head", () => {
+    const totalMessages = 2000
+    let win = { startIndex: 500, endIndex: 500 + SLICE_SIZE - 1, isAtNewest: false }
+    const r = extendNewer(win, totalMessages)
+    expect(r.window.startIndex).toBe(500 + TRIM_BATCH_SIZE)
+    expect(r.window.endIndex).toBe(500 + SLICE_SIZE - 1 + EXTEND_PAGE_SIZE)
+    expect(r.window.endIndex - r.window.startIndex + 1).toBe(SLICE_SIZE)
+    expect(r.trimmed).toBe(true)
   })
   test("clamps at last index and reports reachedEnd", () => {
-    const totalMessages = 100
-    const win = { startIndex: 50, endIndex: 79, isAtNewest: false }
+    const totalMessages = 250
+    const win = { startIndex: 50, endIndex: 200, isAtNewest: false }
     const r = extendNewer(win, totalMessages)
-    expect(r.window.endIndex).toBe(99)
+    expect(r.window.endIndex).toBe(249)
     expect(r.window.isAtNewest).toBe(true)
     expect(r.reachedEnd).toBe(true)
   })
@@ -156,33 +153,26 @@ describe("recenterAround", () => {
 })
 
 describe("applyLiveMessageArrival", () => {
-  test("extends end without trimming head while window stays under cap", () => {
+  test("trims head immediately to keep mounted count at MAX_SLICE_SIZE", () => {
+    // Window starts already at MAX. Live arrival should slide head forward.
     const totalMessages = 500
     const win = initialSliceWindow(totalMessages)
-    // Pretend the array grew by 1 (a new live message arrived).
+    expect(win.endIndex - win.startIndex + 1).toBe(MAX_SLICE_SIZE)
     const next = applyLiveMessageArrival(win, totalMessages + 1)
     expect(next.endIndex).toBe(totalMessages)
     expect(next.isAtNewest).toBe(true)
-    // Slice extended to include the new row; head is unchanged because
-    // window is still under the soft cap (60 + 1 < 120).
-    expect(next.startIndex).toBe(win.startIndex)
-    expect(next.endIndex - next.startIndex + 1).toBe(SLICE_SIZE + 1)
+    expect(next.startIndex).toBe(win.startIndex + TRIM_BATCH_SIZE)
     expect(next.endIndex - next.startIndex + 1).toBeLessThanOrEqual(MAX_SLICE_SIZE)
   })
 
-  test("trims head once cumulative arrivals push slice past MAX_SLICE_SIZE", () => {
-    // Manually grow the window via repeated arrivals until we cross the cap.
-    const baseTotal = 500
-    let win = initialSliceWindow(baseTotal)
-    let total = baseTotal
-    // Simulate enough live arrivals that the slice would otherwise exceed MAX_SLICE_SIZE.
-    for (let i = 0; i < MAX_SLICE_SIZE; i += 1) {
+  test("stays bounded as many arrivals stream in", () => {
+    let total = 500
+    let win = initialSliceWindow(total)
+    for (let i = 0; i < 1000; i += 1) {
       total += 1
       win = applyLiveMessageArrival(win, total)
-      expect(win.endIndex - win.startIndex + 1).toBeLessThanOrEqual(MAX_SLICE_SIZE + TRIM_BATCH_SIZE)
+      expect(win.endIndex - win.startIndex + 1).toBeLessThanOrEqual(MAX_SLICE_SIZE)
     }
-    // Final window must respect MAX_SLICE_SIZE (head was trimmed at some point).
-    expect(win.endIndex - win.startIndex + 1).toBeLessThanOrEqual(MAX_SLICE_SIZE)
     expect(win.isAtNewest).toBe(true)
     expect(win.endIndex).toBe(total - 1)
   })

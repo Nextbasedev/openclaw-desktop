@@ -3,7 +3,6 @@ import { createOpenClawQueryClient, queryKeys } from "../../query"
 import {
   clearGlobalChatEngineForTests,
   ensureGlobalChatEngine,
-  evictMessagesOutsideSeqRange,
   getGlobalChatSession,
   getGlobalCursorForTests,
   ingestGlobalChatFrameForTests,
