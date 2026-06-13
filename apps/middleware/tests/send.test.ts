@@ -860,7 +860,6 @@ describe("chat send routes", () => {
     const completeGatewaySend = resolveGatewaySend as unknown as ((value: Record<string, unknown>) => void);
     completeGatewaySend({ runId: "r1", status: "started" });
     await waitFor(() => context.runs.getRun("run:one")?.gatewayRunId === "r1");
-    context.runs.updateRunStatus("run:one", "done", { statusLabel: null });
     await app.close();
   });
 
@@ -873,52 +872,12 @@ describe("chat send routes", () => {
       order.push(`start:${params?.idempotencyKey}`);
       await new Promise((resolve) => setTimeout(resolve, params?.idempotencyKey === "one" ? 40 : 0));
       order.push(`end:${params?.idempotencyKey}`);
-      context.runs.updateRunStatus(`run:${params?.idempotencyKey}`, "done", { statusLabel: null });
       return { runId: params?.idempotencyKey };
     });
     const first = app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "first", idempotencyKey: "one" } });
     const second = app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "second", idempotencyKey: "two" } });
     await Promise.all([first, second]);
     await waitFor(() => order.length === 4);
-    expect(order).toEqual(["start:one", "end:one", "start:two", "end:two"]);
-    await app.close();
-  });
-
-  test("queues local user projection behind the active session send", async () => {
-    const app = await createApp(config("queue-local-projection"));
-    const context = contextOf(app);
-    let resolveFirst: ((value: Record<string, unknown>) => void) | null = null;
-    const order: string[] = [];
-    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, params?: Record<string, unknown>) => {
-      if (method !== "chat.send") return { ok: true };
-      order.push(`start:${params?.idempotencyKey}`);
-      if (params?.idempotencyKey === "one") {
-        return await new Promise<Record<string, unknown>>((resolve) => {
-          resolveFirst = (value) => {
-            order.push("end:one");
-            context.runs.updateRunStatus("run:one", "done", { statusLabel: null });
-            resolve(value);
-          };
-        });
-      }
-      order.push(`end:${params?.idempotencyKey}`);
-      context.runs.updateRunStatus(`run:${params?.idempotencyKey}`, "done", { statusLabel: null });
-      return { runId: params?.idempotencyKey };
-    });
-
-    const first = await app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "first", idempotencyKey: "one" } });
-    expect(first.statusCode).toBe(200);
-    await waitFor(() => Boolean(context.messages.findMessageById("s1", "client:one")) && resolveFirst !== null);
-
-    const second = await app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "second", idempotencyKey: "two" } });
-    expect(second.statusCode).toBe(200);
-    expect(context.messages.findMessageById("s1", "client:two")).toBeNull();
-    expect(order).toEqual(["start:one"]);
-
-    const completeFirst = resolveFirst as ((value: Record<string, unknown>) => void) | null;
-    expect(completeFirst).toBeTypeOf("function");
-    completeFirst?.({ runId: "one" });
-    await waitFor(() => Boolean(context.messages.findMessageById("s1", "client:two")) && order.includes("end:two"));
     expect(order).toEqual(["start:one", "end:one", "start:two", "end:two"]);
     await app.close();
   });

@@ -7,15 +7,14 @@ export class SessionSendQueue {
     const previous = this.tails.get(sessionKey) ?? Promise.resolve();
     let release!: () => void;
     const current = new Promise<void>((resolve) => { release = resolve; });
-    const tail = previous.catch(() => undefined).then(() => current);
-    this.tails.set(sessionKey, tail);
+    this.tails.set(sessionKey, previous.catch(() => undefined).then(() => current));
 
     await previous.catch(() => undefined);
     try {
       return await task();
     } finally {
       release();
-      if (this.tails.get(sessionKey) === tail) {
+      if (this.tails.get(sessionKey) === current) {
         this.tails.delete(sessionKey);
       }
     }

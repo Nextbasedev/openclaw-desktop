@@ -36,7 +36,6 @@ const LOCAL_FIRST_SQLITE_MAX_AGE_MS = 5 * 60 * 1000;
 const LOCAL_FIRST_BACKGROUND_SYNC_MIN_AGE_MS = 2 * 60 * 1000;
 const DEFAULT_CHAT_SEND_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = DEFAULT_CHAT_SEND_TIMEOUT_MS + 10_000;
-const SEND_QUEUE_COMPLETION_POLL_MS = 250;
 const localFirstBootstrapTimestamps = new Map<string, number>();
 const localFirstSqliteBlocked = new Set<string>();
 
@@ -782,29 +781,6 @@ function elapsedMs(startedAtMs: number) {
   return Math.max(0, Date.now() - startedAtMs);
 }
 
-function delayMs(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
-function safeGetRun(context: AppContext, runId: string) {
-  try {
-    return context.runs.getRun(runId);
-  } catch {
-    return null;
-  }
-}
-
-async function waitForRunTerminal(context: AppContext, runId: string, timeoutMs: number) {
-  const deadlineMs = Date.now() + Math.max(0, timeoutMs);
-  while (Date.now() < deadlineMs) {
-    const run = safeGetRun(context, runId);
-    if (!run) return null;
-    if (["done", "error", "aborted"].includes(run.status)) return run;
-    await delayMs(Math.min(SEND_QUEUE_COMPLETION_POLL_MS, Math.max(1, deadlineMs - Date.now())));
-  }
-  return safeGetRun(context, runId);
-}
-
 function messageFactorSummary(messages: unknown[]) {
   let assistantCount = 0;
   let userCount = 0;
@@ -1129,127 +1105,129 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       gatewayAttachmentCount: prepared.attachments?.length ?? 0,
       sourceAttachments: attachmentMetadata(input.attachments),
     });
+    const nowIso = new Date().toISOString();
     const runId = localRunId(input.idempotencyKey);
     const clientMessageId = input.clientMessageId || `client:${input.idempotencyKey}`;
-    void context.sendQueue.run(input.sessionKey, async () => {
-      log.info("send.queue.enter", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), accepted: true });
-      const nowIso = new Date().toISOString();
-      context.runs.upsertRun({
-        runId,
-        sessionKey: input.sessionKey,
+    context.runs.upsertRun({
+      runId,
+      sessionKey: input.sessionKey,
+      clientMessageId,
+      idempotencyKey: input.idempotencyKey,
+      status: "thinking",
+      statusLabel: "Thinking",
+      startedAtMs: sendStartedAtMs,
+      updatedAtMs: Date.now(),
+    });
+    const optimisticRun = context.runs.getRun(runId);
+    const clientMessage = {
+      role: "user",
+      text: prepared.message,
+      createdAt: nowIso,
+      isOptimistic: true,
+      __clientOptimistic: true,
+      __openclaw: {
+        id: clientMessageId,
         clientMessageId,
         idempotencyKey: input.idempotencyKey,
-        status: "thinking",
-        statusLabel: "Thinking",
-        startedAtMs: sendStartedAtMs,
-        updatedAtMs: Date.now(),
-      });
-      const optimisticRun = context.runs.getRun(runId);
-      const clientMessage = {
-        role: "user",
-        text: prepared.message,
-        createdAt: nowIso,
-        isOptimistic: true,
-        __clientOptimistic: true,
-        __openclaw: {
-          id: clientMessageId,
-          clientMessageId,
+        runId,
+      },
+    };
+    context.chatLive.addOptimisticUser(input.sessionKey, {
+      id: clientMessage.__openclaw.id,
+      text: prepared.message,
+      runId,
+      idempotencyKey: input.idempotencyKey,
+    });
+    const optimisticCreatedAtMs = Date.now();
+    const optimisticSeq = context.messages.nextMessageSeq(input.sessionKey);
+    context.messages.insertOptimisticMessage({
+      sessionKey: input.sessionKey,
+      openclawSeq: optimisticSeq,
+      messageId: clientMessage.__openclaw.id,
+      role: "user",
+      data: clientMessage,
+      updatedAtMs: optimisticCreatedAtMs,
+    });
+    context.compat?.touchChatActivity({
+      sessionKey: input.sessionKey,
+      at: nowIso,
+      lastMessageText: prepared.message,
+    });
+    log.info("message.persist.optimistic", { sessionKey: input.sessionKey, messageId: clientMessage.__openclaw.id, messageSeq: optimisticSeq, role: "user" });
+    const event = context.messages.appendProjectionEvent({
+      sessionKey: input.sessionKey,
+      eventType: "chat.message.upsert",
+      payload: canonicalPatchPayload({
+        sessionKey: input.sessionKey,
+        semanticType: "chat.user.created",
+        run: optimisticRun,
+        messageId: clientMessage.__openclaw.id,
+        payload: {
+          sessionKey: input.sessionKey,
+          message: clientMessage,
+          optimistic: true,
           idempotencyKey: input.idempotencyKey,
           runId,
         },
-      };
-      context.chatLive.addOptimisticUser(input.sessionKey, {
-        id: clientMessage.__openclaw.id,
-        text: prepared.message,
-        runId,
-        idempotencyKey: input.idempotencyKey,
-      });
-      const optimisticCreatedAtMs = Date.now();
-      const optimisticSeq = context.messages.nextMessageSeq(input.sessionKey);
-      context.messages.insertOptimisticMessage({
-        sessionKey: input.sessionKey,
-        openclawSeq: optimisticSeq,
-        messageId: clientMessage.__openclaw.id,
-        role: "user",
-        data: clientMessage,
-        updatedAtMs: optimisticCreatedAtMs,
-      });
-      context.compat?.touchChatActivity({
-        sessionKey: input.sessionKey,
-        at: nowIso,
-        lastMessageText: prepared.message,
-      });
-      log.info("message.persist.optimistic", { sessionKey: input.sessionKey, messageId: clientMessage.__openclaw.id, messageSeq: optimisticSeq, role: "user" });
-      const event = context.messages.appendProjectionEvent({
-        sessionKey: input.sessionKey,
-        eventType: "chat.message.upsert",
-        payload: canonicalPatchPayload({
-          sessionKey: input.sessionKey,
-          semanticType: "chat.user.created",
-          run: optimisticRun,
-          messageId: clientMessage.__openclaw.id,
-          payload: {
-            sessionKey: input.sessionKey,
-            message: clientMessage,
-            optimistic: true,
-            idempotencyKey: input.idempotencyKey,
-            runId,
-          },
-        }),
-      });
-      context.patchBus.broadcast({
-        cursor: event.cursor,
-        type: event.eventType,
-        sessionKey: event.sessionKey,
-        payload: event.payload,
-        createdAtMs: event.createdAtMs,
-      });
-      log.info("patch.broadcast", { sessionKey: input.sessionKey, type: event.eventType, cursor: event.cursor, optimistic: true });
-      const existingSession = context.messages.getSession(input.sessionKey);
-      context.messages.upsertSession({
+      }),
+    });
+    context.patchBus.broadcast({
+      cursor: event.cursor,
+      type: event.eventType,
+      sessionKey: event.sessionKey,
+      payload: event.payload,
+      createdAtMs: event.createdAtMs,
+    });
+    log.info("patch.broadcast", { sessionKey: input.sessionKey, type: event.eventType, cursor: event.cursor, optimistic: true });
+    const existingSession = context.messages.getSession(input.sessionKey);
+    context.messages.upsertSession({
+      sessionKey: input.sessionKey,
+      sessionId: existingSession?.sessionId ?? null,
+      data: {
+        ...objectData(existingSession?.data),
         sessionKey: input.sessionKey,
         sessionId: existingSession?.sessionId ?? null,
-        data: {
-          ...objectData(existingSession?.data),
-          sessionKey: input.sessionKey,
-          sessionId: existingSession?.sessionId ?? null,
-          status: "running",
-          statusLabel: "Thinking",
-          lastActiveAt: nowIso,
-          lastMessageAt: nowIso,
-          lastMessageText: prepared.message,
-        },
-        updatedAtMs: optimisticCreatedAtMs,
-      });
-      log.info("session.status.persist", { sessionKey: input.sessionKey, sessionId: existingSession?.sessionId ?? null, status: "running", statusLabel: "Thinking" });
-      const statusEvent = context.messages.appendProjectionEvent({
+        status: "running",
+        statusLabel: "Thinking",
+        lastActiveAt: nowIso,
+        lastMessageAt: nowIso,
+        lastMessageText: prepared.message,
+      },
+      updatedAtMs: optimisticCreatedAtMs,
+    });
+    log.info("session.status.persist", { sessionKey: input.sessionKey, sessionId: existingSession?.sessionId ?? null, status: "running", statusLabel: "Thinking" });
+    const statusEvent = context.messages.appendProjectionEvent({
+      sessionKey: input.sessionKey,
+      eventType: "chat.status",
+      payload: canonicalPatchPayload({
         sessionKey: input.sessionKey,
-        eventType: "chat.status",
-        payload: canonicalPatchPayload({
+        semanticType: "chat.run.status",
+        run: optimisticRun,
+        legacyStatus: "thinking",
+        legacyStatusLabel: "Thinking",
+        payload: {
           sessionKey: input.sessionKey,
-          semanticType: "chat.run.status",
-          run: optimisticRun,
-          legacyStatus: "thinking",
-          legacyStatusLabel: "Thinking",
-          payload: {
-            sessionKey: input.sessionKey,
-            status: "thinking",
-            statusLabel: "Thinking",
-            optimistic: true,
-            idempotencyKey: input.idempotencyKey,
-            runId,
-          },
-        }),
-      });
-      context.patchBus.broadcast({
-        cursor: statusEvent.cursor,
-        type: statusEvent.eventType,
-        sessionKey: statusEvent.sessionKey,
-        payload: statusEvent.payload,
-        createdAtMs: statusEvent.createdAtMs,
-      });
-      log.info("status.broadcast", { sessionKey: input.sessionKey, type: statusEvent.eventType, cursor: statusEvent.cursor, status: "thinking", idempotencyKey: input.idempotencyKey });
-      try {
+          status: "thinking",
+          statusLabel: "Thinking",
+          optimistic: true,
+          idempotencyKey: input.idempotencyKey,
+          runId,
+        },
+      }),
+    });
+    context.patchBus.broadcast({
+      cursor: statusEvent.cursor,
+      type: statusEvent.eventType,
+      sessionKey: statusEvent.sessionKey,
+      payload: statusEvent.payload,
+      createdAtMs: statusEvent.createdAtMs,
+    });
+    log.info("status.broadcast", { sessionKey: input.sessionKey, type: statusEvent.eventType, cursor: statusEvent.cursor, status: "thinking", idempotencyKey: input.idempotencyKey });
+
+
+    void context.sendQueue.run(input.sessionKey, async () => {
+      log.info("send.queue.enter", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), accepted: true });
+          try {
             const gatewaySendStartedAtMs = nowMs();
             log.info("gateway.chat.send.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, gatewayAttachmentCount: prepared.attachments?.length ?? 0, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
             const result = await context.gateway.request<Record<string, unknown>>("chat.send", {
@@ -1467,15 +1445,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               log.info("status.broadcast", { sessionKey: input.sessionKey, type: doneEvent.eventType, cursor: doneEvent.cursor, status: "done", idempotencyKey: input.idempotencyKey });
             }
 
-            const completed = gatewaySendCompleted(result, currentHistory);
-            if (!completed) {
-              log.info("send.queue.wait_for_completion.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, runId, timeoutMs: input.timeoutMs || DEFAULT_CHAT_SEND_TIMEOUT_MS });
-              const finalRun = await waitForRunTerminal(context, runId, input.timeoutMs || DEFAULT_CHAT_SEND_TIMEOUT_MS);
-              const terminal = Boolean(finalRun && ["done", "error", "aborted"].includes(finalRun.status));
-              log.info("send.queue.wait_for_completion.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, runId, status: finalRun?.status ?? null, terminal, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
-            }
-
-            log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: completed || ["done", "error", "aborted"].includes(safeGetRun(context, runId)?.status ?? ""), status: typeof result.status === "string" ? result.status : undefined });
+            log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: gatewaySendCompleted(result, currentHistory), status: typeof result.status === "string" ? result.status : undefined });
             return { ok: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, ...result };
           } catch (error) {
             context.runs.updateRunStatus(runId, "error", { statusLabel: error instanceof Error ? error.message : "Message failed", error: errorMeta(error) });
