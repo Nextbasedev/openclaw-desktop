@@ -18,6 +18,7 @@ import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParse
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { frontendLog } from "@/lib/clientLogs"
 import { randomId } from "@/lib/id"
+import { exportMessagesMarkdown } from "@/lib/messageActions"
 import {
   applyTerminalToolState,
   groupAssistantToolCallsByMessage,
@@ -433,6 +434,7 @@ export function ChatView({
   initialPrompt,
   onFirstMessageSent,
   onSelectTool,
+  onForkNavigate,
   isBackgroundSession = false,
 }: Props) {
   const [state, setState] = useState<HistoryState>(() => ({
@@ -445,6 +447,11 @@ export function ChatView({
   }))
   const [sending, setSending] = useState(false)
   const [streamCursor, setStreamCursor] = useState<number | null>(null)
+  const [reactions, setReactions] = useState<Record<string, "up" | "down">>({})
+  const [pinnedIds, setPinnedIds] = useState<string[]>([])
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
+  const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
+  const [composerSeed, setComposerSeed] = useState<string | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const scrollContentRef = useRef<HTMLDivElement | null>(null)
   const cursorRef = useRef(0)
@@ -456,6 +463,11 @@ export function ChatView({
     cursorRef.current = 0
     shouldFollowScrollRef.current = true
     setStreamCursor(null)
+    setReactions({})
+    setPinnedIds([])
+    setReplyTo(null)
+    setActivePopoverId(null)
+    setComposerSeed(null)
     setState({
       loading: true,
       error: null,
@@ -615,6 +627,8 @@ export function ChatView({
       messages: orderChatMessages([...current.messages, optimisticMessage]),
     }))
     onFirstMessageSent?.(text)
+    setReplyTo(null)
+    setComposerSeed(null)
 
     try {
       await sendChatV2({
@@ -673,6 +687,112 @@ export function ChatView({
           : message
       ),
     }))
+  }
+
+  function findMessageById(messageId: string) {
+    return state.messages.find((message) => message.messageId === messageId)
+  }
+
+  function handleEdit(messageId: string, newText: string) {
+    setState((current) => ({
+      ...current,
+      messages: current.messages.map((message) =>
+        message.messageId === messageId
+          ? { ...message, text: newText, sendStatus: undefined, sendError: null }
+          : message
+      ),
+    }))
+    void handleSend({ text: newText })
+  }
+
+  function handleRetrySend(messageId: string) {
+    const message = findMessageById(messageId)
+    if (!message || message.role !== "user") return
+    setState((current) => ({
+      ...current,
+      composerError: null,
+      messages: current.messages.map((item) =>
+        item.messageId === messageId
+          ? { ...item, sendStatus: undefined, sendError: null }
+          : item
+      ),
+    }))
+    const attachments = message.retryPayload?.attachments ?? message.attachments
+      ?.filter((attachment) => typeof attachment.content === "string")
+      .map((attachment) => ({
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        content: attachment.content ?? "",
+        encoding: "utf-8" as const,
+        size: attachment.size ?? attachment.content?.length ?? 0,
+      }))
+    void handleSend(message.retryPayload ?? { text: message.text, attachments })
+  }
+
+  function handleDelete(messageId: string) {
+    setState((current) => ({
+      ...current,
+      messages: current.messages.filter((message) => message.messageId !== messageId),
+    }))
+    setPinnedIds((current) => current.filter((id) => id !== messageId))
+    setReactions((current) => {
+      const next = { ...current }
+      delete next[messageId]
+      return next
+    })
+    setReplyTo((current) => current?.messageId === messageId ? null : current)
+    setActivePopoverId((current) => current === messageId ? null : current)
+  }
+
+  function handleReact(messageId: string, reaction: "up" | "down") {
+    setReactions((current) => {
+      const next = { ...current }
+      if (next[messageId] === reaction) delete next[messageId]
+      else next[messageId] = reaction
+      return next
+    })
+  }
+
+  function handleFork(messageId: string) {
+    onForkNavigate?.({
+      name: "Forked chat",
+      sessionKey: `${sessionKey}:fork:${messageId}`,
+    })
+  }
+
+  function handlePin(messageId: string) {
+    setPinnedIds((current) =>
+      current.includes(messageId)
+        ? current.filter((id) => id !== messageId)
+        : [...current, messageId]
+    )
+  }
+
+  function handleReply(messageId: string) {
+    const message = findMessageById(messageId)
+    if (!message) return
+    setReplyTo(message)
+  }
+
+  function handleExport(messageId: string) {
+    const message = findMessageById(messageId)
+    if (!message || typeof navigator === "undefined") return
+    void navigator.clipboard.writeText(exportMessagesMarkdown([message]))
+  }
+
+  function handleAskSelectedText(messageId: string, text: string, comment?: string) {
+    const selected = text.trim()
+    if (!selected) return
+    setReplyTo({
+      messageId: `${messageId}:selection`,
+      role: "assistant",
+      text: selected,
+    })
+    setComposerSeed(comment?.trim() ?? "")
+  }
+
+  function handleCancelReply() {
+    setReplyTo(null)
   }
 
   const renderedMessages = useMemo(
@@ -868,11 +988,30 @@ export function ChatView({
                 {(message.text.trim() || message.attachments?.length) ? (
                   <MessageBubble
                     message={message}
+                    onEdit={
+                      message.role === "user" && message.messageId === renderedMessages[latestRenderedUserIndex]?.messageId
+                        ? handleEdit
+                        : undefined
+                    }
+                    onRetrySend={message.role === "user" ? handleRetrySend : undefined}
+                    onReply={handleReply}
+                    onPin={handlePin}
+                    onDelete={handleDelete}
+                    onReact={message.role === "assistant" ? handleReact : undefined}
+                    onExport={handleExport}
+                    onFork={message.role === "assistant" ? handleFork : undefined}
+                    onAskSelectedText={message.role === "assistant" ? handleAskSelectedText : undefined}
+                    isPinned={pinnedIds.includes(message.messageId)}
+                    reaction={reactions[message.messageId]}
                     isGenerating={isGenerating}
                     isActivelyStreaming={isStreamingAssistant}
                     animateAssistantText={animateAssistantText}
                     onTextAnimationComplete={handleTextAnimationComplete}
                     suppressActions={false}
+                    popoverOpen={activePopoverId === message.messageId}
+                    onPopoverOpenChange={(open) =>
+                      setActivePopoverId(open ? message.messageId : null)
+                    }
                     onResolveApproval={(approvalId, decision) =>
                       resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
                     }
@@ -894,12 +1033,14 @@ export function ChatView({
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         <ChatBox
           key={sessionKey}
-          initialPrompt={initialPrompt}
+          initialPrompt={composerSeed ?? initialPrompt}
           errorMessage={state.composerError}
           onSend={handleSend}
           disabled={state.loading || sending}
           isGenerating={isGenerating}
           onAbort={handleAbort}
+          replyTo={replyTo}
+          onCancelReply={handleCancelReply}
           draftKey={`chat:${sessionKey}`}
         />
       </div>
