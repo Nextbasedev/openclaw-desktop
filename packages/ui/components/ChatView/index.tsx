@@ -1,12 +1,13 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
 import {
   abortChatV2,
   fetchChatMessagesV2,
+  fetchSessionContextUsage,
   openPatchStreamV2,
   resolveExecApprovalV2,
   sendChatV2,
@@ -19,6 +20,7 @@ import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { frontendLog } from "@/lib/clientLogs"
 import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
+import { normalizeSessionTokenUsage, type SessionTokenUsage } from "@/lib/sessionContextUsage"
 import {
   applyTerminalToolState,
   groupAssistantToolCallsByMessage,
@@ -452,10 +454,24 @@ export function ChatView({
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
   const [composerSeed, setComposerSeed] = useState<string | null>(null)
+  const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const scrollContentRef = useRef<HTMLDivElement | null>(null)
   const cursorRef = useRef(0)
   const shouldFollowScrollRef = useRef(true)
+  const contextFetchSeqRef = useRef(0)
+  const wasGeneratingRef = useRef(false)
+
+  const refreshSessionUsage = useCallback(async () => {
+    const seq = ++contextFetchSeqRef.current
+    try {
+      const response = await fetchSessionContextUsage(sessionKey)
+      if (seq !== contextFetchSeqRef.current) return
+      setSessionUsage(normalizeSessionTokenUsage(response.usage))
+    } catch {
+      if (seq === contextFetchSeqRef.current) setSessionUsage(null)
+    }
+  }, [sessionKey])
 
   useEffect(() => {
     if (isBackgroundSession) return
@@ -468,6 +484,7 @@ export function ChatView({
     setReplyTo(null)
     setActivePopoverId(null)
     setComposerSeed(null)
+    setSessionUsage(null)
     setState({
       loading: true,
       error: null,
@@ -816,6 +833,21 @@ export function ChatView({
   )
   const promptPreview = initialPrompt?.trim()
   const isGenerating = isActiveStreamStatus(state.streamStatus)
+
+  // Reset + initial fetch on session change
+  useEffect(() => {
+    setSessionUsage(null)
+    void refreshSessionUsage()
+  }, [refreshSessionUsage])
+
+  // Refresh when a generation just finished (isGenerating true -> false)
+  useEffect(() => {
+    const wasGenerating = wasGeneratingRef.current
+    wasGeneratingRef.current = isGenerating
+    if (!wasGenerating || isGenerating) return
+    void refreshSessionUsage()
+  }, [isGenerating, refreshSessionUsage])
+
   const liveTool = isGenerating ? liveRunningTool(renderedMessages) : null
   const statusText = isGenerating
     ? generatingStatusText(state.streamStatus, state.statusLabel, liveTool)
@@ -1040,6 +1072,7 @@ export function ChatView({
           isGenerating={isGenerating}
           onAbort={handleAbort}
           replyTo={replyTo}
+          sessionUsage={sessionUsage}
           onCancelReply={handleCancelReply}
           draftKey={`chat:${sessionKey}`}
         />
