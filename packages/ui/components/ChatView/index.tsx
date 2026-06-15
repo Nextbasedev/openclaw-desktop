@@ -1347,7 +1347,12 @@ export function ChatView({
     if (windowState.isLoadingNewer) return
     if (!windowState.hasNewer) return
 
-    // Capture anchor BEFORE we mark loading or fetch (mirrors older-page path).
+    // Capture anchor BEFORE we mark loading or fetch. Newer fetch evicts
+    // from start to keep buffer at MAX_LOADED; anchor restoration keeps
+    // the user's first-visible-row pinned. Without restoration, the user
+    // would experience content jumping forward by ~100 rows (the evicted
+    // count). With restoration, scrollTop drops by the evicted height —
+    // a one-time jolt but the user's content stays continuous.
     captureFirstVisibleRowAnchor()
 
     const seq = ++newerFetchSeqRef.current
@@ -1393,27 +1398,24 @@ export function ChatView({
         return
       }
 
-      // Decide if this newer fetch reaches the live tail. If the backend
-      // returned fewer than the requested limit, we're at the tail and it's
-      // safe to evict from the start (user is or will soon be at the bottom
-      // of the document; the trim is invisible). Otherwise DO NOT evict —
-      // let the buffer grow temporarily past MAX_LOADED during active
-      // scroll-down. Evicting from the start mid-scroll shrinks the document
-      // above the user, forcing the scroll anchor to yank scrollTop backward
-      // by the evicted height — the user perceives this as 'breaking' or
-      // being thrown back. Quiescent eviction happens once we reach the tail.
+      // Always evict from start to keep the buffer bounded at MAX_LOADED.
+      // We deliberately DO NOT run anchor restoration on newer fetches
+      // (captureFirstVisibleRowAnchor is not called for the newer path).
+      // Without restoration, the browser keeps the same scrollTop value,
+      // and the eviction+append simply shifts which rows are at each
+      // document offset — the user sees rows 'flow' past as they scroll
+      // down, with the next page already loaded. Stable buffer = stable
+      // older-fetch geometry too (no buffer-overflow eviction destroying
+      // the older-page anchor).
       const responseCount = response.messageCount ?? response.messages.length
-      const reachedLiveTail = responseCount < OLDER_PAGE
 
       setState((current) => {
         const combined = [...current.messages, ...newerMessages]
-        const evictedFromStart = reachedLiveTail
-          ? computeEvictedAfterAppend(
-              current.messages.length,
-              newerMessages.length,
-              MAX_LOADED
-            )
-          : 0
+        const evictedFromStart = computeEvictedAfterAppend(
+          current.messages.length,
+          newerMessages.length,
+          MAX_LOADED
+        )
         const finalMessages =
           evictedFromStart > 0 ? combined.slice(evictedFromStart) : combined
         const newOldest = finalMessages[0]
