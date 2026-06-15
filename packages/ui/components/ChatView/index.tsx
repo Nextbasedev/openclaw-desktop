@@ -49,6 +49,7 @@ import {
   INITIAL_WINDOW_STATE,
   MAX_LOADED,
   OLDER_PAGE,
+  REFRACTORY_PIXELS,
   applyInitialPage,
   applyLiveAppend,
   applyNewerPage,
@@ -492,12 +493,20 @@ export function ChatView({
   } | null>(null)
   const olderFetchSeqRef = useRef(0)
   const newerFetchSeqRef = useRef(0)
-  const olderTriggerArmedRef = useRef(true)
-  const newerTriggerArmedRef = useRef(true)
+  // Direction-locked refractory. After an older fetch resolves we record the
+  // scrollTop AT resolve time; the older trigger refuses to fire again until
+  // the user has scrolled UP from that anchor by at least REFRACTORY_PIXELS.
+  // Symmetric for newer. This kills the older/newer alternation loop where
+  // each fetch's eviction satisfies the OPPOSITE direction's row-count
+  // threshold (an older fetch evicts rows from the bottom → rowsBelow drops
+  // ≤ 60 → newer fires; then newer evicts from top → rowsAbove drops ≤ 60 →
+  // older fires; ad infinitum).
+  const lastOlderResolvedScrollTopRef = useRef<number | null>(null)
+  const lastNewerResolvedScrollTopRef = useRef<number | null>(null)
   // Set to true while we are programmatically adjusting scrollTop (anchor
   // restoration). Without this, the synthetic scroll event from setting
-  // container.scrollTop would call handleScroll, re-arm both triggers, and
-  // re-fire fetches in an infinite loop.
+  // container.scrollTop would call handleScroll and trigger evaluators in an
+  // infinite loop.
   const isProgrammaticScrollRef = useRef(false)
   const windowStateRef = useRef<WindowState>(windowState)
 
@@ -520,8 +529,8 @@ export function ChatView({
     newerFetchSeqRef.current = 0
     shouldFollowScrollRef.current = true
     pendingScrollAnchorRef.current = null
-    olderTriggerArmedRef.current = true
-    newerTriggerArmedRef.current = true
+    lastOlderResolvedScrollTopRef.current = null
+    lastNewerResolvedScrollTopRef.current = null
     setStreamCursor(null)
     setReactions({})
     setPinnedIds([])
@@ -1166,8 +1175,6 @@ export function ChatView({
 
     // Capture anchor BEFORE we mark loading or fetch.
     captureFirstVisibleRowAnchor()
-    // Refractory: suppress further older-trigger evaluations until next user scroll.
-    olderTriggerArmedRef.current = false
 
     const seq = ++olderFetchSeqRef.current
     frontendLog(
@@ -1203,6 +1210,11 @@ export function ChatView({
           })
         )
         pendingScrollAnchorRef.current = null
+        // Pin refractory anchor even on empty resolve: backend said no more
+        // older history, but we still want the trigger to not refire until
+        // user actively scrolls up further.
+        const container = scrollContainerRef.current
+        if (container) lastOlderResolvedScrollTopRef.current = container.scrollTop
         frontendLog(
           "chat",
           "chat-rebuild.window.older-fetch-resolved",
@@ -1262,6 +1274,13 @@ export function ChatView({
 
         return { ...current, messages: finalMessages }
       })
+      // Record the anchor scrollTop AFTER anchor restoration has settled.
+      // Direction-locked refractory will require the user to scroll UP from
+      // this position by REFRACTORY_PIXELS before the older trigger can fire again.
+      requestAnimationFrame(() => {
+        const container = scrollContainerRef.current
+        if (container) lastOlderResolvedScrollTopRef.current = container.scrollTop
+      })
     } catch (err) {
       if (seq !== olderFetchSeqRef.current) return
       setWindowState((s) => ({ ...s, isLoadingOlder: false }))
@@ -1282,9 +1301,17 @@ export function ChatView({
 
   const evaluateOlderTrigger = useCallback(() => {
     if (state.loading) return
-    if (!olderTriggerArmedRef.current) return
     if (windowState.isLoadingOlder) return
     if (!windowState.hasOlder) return
+    // Direction-locked refractory: after an older fetch resolved, require the
+    // user to scroll UP from the resolved-anchor scrollTop by REFRACTORY_PIXELS
+    // before firing again. Prevents the older/newer alternation loop where each
+    // fetch's eviction satisfies the OPPOSITE direction's row-count trigger.
+    const container = scrollContainerRef.current
+    const lastAnchor = lastOlderResolvedScrollTopRef.current
+    if (container && lastAnchor !== null && (lastAnchor - container.scrollTop) < REFRACTORY_PIXELS) {
+      return
+    }
     const rowsAboveViewport = measureRowsAboveViewport()
     if (
       !shouldFetchOlder({
@@ -1319,8 +1346,6 @@ export function ChatView({
 
     // Capture anchor BEFORE we mark loading or fetch (mirrors older-page path).
     captureFirstVisibleRowAnchor()
-    // Refractory: suppress further newer-trigger evaluations until next user scroll.
-    newerTriggerArmedRef.current = false
 
     const seq = ++newerFetchSeqRef.current
     frontendLog(
@@ -1355,6 +1380,8 @@ export function ChatView({
           })
         )
         pendingScrollAnchorRef.current = null
+        const container = scrollContainerRef.current
+        if (container) lastNewerResolvedScrollTopRef.current = container.scrollTop
         frontendLog(
           "chat",
           "chat-rebuild.window.newer-fetch-resolved",
@@ -1411,6 +1438,11 @@ export function ChatView({
 
         return { ...current, messages: finalMessages }
       })
+      // Pin refractory anchor AFTER anchor restoration settles.
+      requestAnimationFrame(() => {
+        const container = scrollContainerRef.current
+        if (container) lastNewerResolvedScrollTopRef.current = container.scrollTop
+      })
     } catch (err) {
       if (seq !== newerFetchSeqRef.current) return
       setWindowState((s) => ({ ...s, isLoadingNewer: false }))
@@ -1434,8 +1466,8 @@ export function ChatView({
     olderFetchSeqRef.current = 0
     newerFetchSeqRef.current = 0
     pendingScrollAnchorRef.current = null
-    olderTriggerArmedRef.current = true
-    newerTriggerArmedRef.current = true
+    lastOlderResolvedScrollTopRef.current = null
+    lastNewerResolvedScrollTopRef.current = null
     shouldFollowScrollRef.current = true
     setStreamCursor(null)
     setReplyTo(null)
@@ -1523,9 +1555,15 @@ export function ChatView({
 
   const evaluateNewerTrigger = useCallback(() => {
     if (state.loading) return
-    if (!newerTriggerArmedRef.current) return
     if (windowState.isLoadingNewer) return
     if (!windowState.hasNewer) return
+    // Direction-locked refractory: require the user to scroll DOWN from the
+    // resolved-anchor scrollTop by REFRACTORY_PIXELS before firing again.
+    const container = scrollContainerRef.current
+    const lastAnchor = lastNewerResolvedScrollTopRef.current
+    if (container && lastAnchor !== null && (container.scrollTop - lastAnchor) < REFRACTORY_PIXELS) {
+      return
+    }
     const rowsBelowViewport = measureRowsBelowViewport()
     if (
       !shouldFetchNewer({
@@ -1582,15 +1620,12 @@ export function ChatView({
     const element = scrollContainerRef.current
     if (!element) return
     // Ignore the synthetic scroll event that fires when we programmatically
-    // adjust container.scrollTop during anchor restoration. Otherwise we'd
-    // re-arm both triggers from our own adjustment and loop forever.
+    // adjust container.scrollTop during anchor restoration. Otherwise our own
+    // adjustment would re-enter handleScroll and refire the evaluators.
     if (isProgrammaticScrollRef.current) return
     shouldFollowScrollRef.current = isNearScrollBottom(element)
-    // A user-driven scroll event re-arms both autoload triggers. The rAF-deferred
-    // length-change effect does NOT re-arm — it only re-evaluates. This breaks the
-    // cascade where a single user gesture pulls in multiple older/newer pages.
-    olderTriggerArmedRef.current = true
-    newerTriggerArmedRef.current = true
+    // Refractory is now direction-locked + scroll-distance-based inside the
+    // evaluators themselves — no per-event re-arming here.
     evaluateOlderTrigger()
     evaluateNewerTrigger()
   }

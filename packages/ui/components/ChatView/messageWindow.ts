@@ -20,6 +20,13 @@ export const INITIAL_PAGE = 160
 export const OLDER_PAGE = 100
 /** Number of rows above/below the viewport at which a paging fetch fires. */
 export const TOP_TRIGGER = 60
+/**
+ * Pixel distance the user must scroll past the last-resolved-anchor scrollTop
+ * in the relevant direction before a same-direction page fetch is allowed to
+ * fire again. Prevents the older/newer alternation loop where each fetch's
+ * eviction satisfies the OPPOSITE direction's row-count threshold.
+ */
+export const REFRACTORY_PIXELS = 200
 
 /**
  * The single source of truth for the chat window's load state.
