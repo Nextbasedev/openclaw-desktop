@@ -30,12 +30,17 @@ export const TOP_TRIGGER = 60
  */
 export const BOTTOM_TRIGGER = 60
 /**
- * Pixel distance the user must scroll past the last-resolved-anchor scrollTop
- * in the relevant direction before a same-direction page fetch is allowed to
- * fire again. Prevents the older/newer alternation loop where each fetch's
- * eviction satisfies the OPPOSITE direction's row-count threshold.
+ * Wall-clock minimum gap (ms) between two same-direction fetches. Replaces a
+ * pixel-distance refractory which became stale across major buffer mutations
+ * (the scrollTop coordinate isn't comparable across prepend+evict cycles).
+ * Prevents the older/newer alternation loop and rapid re-fire during fast
+ * scroll bursts.
+ *
+ * 250ms is short enough that a deliberate user scroll never feels gated, and
+ * long enough that a single fetch resolve + post-resolution evaluator pass
+ * cannot cascade into a second fetch in the same direction.
  */
-export const REFRACTORY_PIXELS = 200
+export const REFRACTORY_MS = 250
 
 /**
  * The single source of truth for the chat window's load state.
