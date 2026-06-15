@@ -67,8 +67,13 @@ import {
 import { ThinkingBlock } from "./ThinkingBlock"
 import { ToolCallSteps } from "./ToolCallSteps"
 import { SubagentBar } from "./SubagentBar"
+import { SubagentCard } from "./SubagentCard"
 import { SubagentFullChat } from "./SubagentFullChat"
-import { deriveSpawnedSubagents } from "./subagentDerive"
+import {
+  buildSubagentAnchorMaps,
+  deriveSpawnedSubagents,
+  indexSpawnsByToolCallId,
+} from "./subagentDerive"
 import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "./types"
 
 type Props = {
@@ -606,6 +611,7 @@ export function ChatView({
     setActivePopoverId(null)
     setComposerSeed(null)
     setSessionUsage(null)
+    setActiveSubagent(null)
 
     // ---- new-session optimistic bootstrap shortcut --------------------------
     // The parent (AppPage.handleQuickSend) just created this session and
@@ -1211,6 +1217,20 @@ export function ChatView({
     [renderedMessages]
   )
 
+  // Anchor each spawn to the triggering user message (or orphan-anchor it to
+  // the assistant message that hosted the sessions_spawn tool call when there's
+  // no preceding user). SubagentCards render INLINE at these anchors so a
+  // spawn shows up exactly where it happened in the chat — immediately and
+  // visibly tied to the user message that triggered it.
+  const subagentAnchors = useMemo(
+    () =>
+      buildSubagentAnchorMaps(
+        renderedMessages,
+        indexSpawnsByToolCallId(spawnedSubagents),
+      ),
+    [renderedMessages, spawnedSubagents],
+  )
+
   useEffect(() => {
     frontendLog(
       "chat",
@@ -1226,6 +1246,19 @@ export function ChatView({
 
   const openSubagent = useCallback(
     (sub: SpawnedSubagent) => {
+      // Defensive: SubagentBar disables the open button until sessionKey
+      // arrives, but guard here too so we never set activeSubagent to a
+      // value that the overlay condition would reject (leaving us with a
+      // ghost-selected entry that does nothing visible).
+      if (!sub.sessionKey) {
+        frontendLog(
+          "chat",
+          "chat-rebuild.subagent.open-skipped",
+          { sessionKey, subagentId: sub.id, reason: "no-sessionKey" },
+          "warn"
+        )
+        return
+      }
       setActiveSubagent(sub)
       onSubagentOpen?.(sub.sessionKey, sub.id)
       frontendLog(
@@ -1266,6 +1299,21 @@ export function ChatView({
     const match = spawnedSubagents.find((s) => s.sessionKey === activeSubagentKey)
     if (match) setActiveSubagent(match)
   }, [activeSubagentKey, activeSubagent, spawnedSubagents])
+
+  // Keep activeSubagent freshly synced with derived list so status changes
+  // (spawning -> working -> completed) flow through to the overlay header.
+  // Match by sessionKey (stable across status changes); fall back to id.
+  useEffect(() => {
+    if (!activeSubagent) return
+    const fresh = spawnedSubagents.find(
+      (s) =>
+        (activeSubagent.sessionKey && s.sessionKey === activeSubagent.sessionKey) ||
+        s.id === activeSubagent.id
+    )
+    if (fresh && fresh !== activeSubagent) {
+      setActiveSubagent(fresh)
+    }
+  }, [spawnedSubagents, activeSubagent])
   const pinnedMessages = useMemo(() => {
     const messagesById = new Map(renderedMessages.map((message) => [message.messageId, message]))
     return pinnedIds
@@ -2232,6 +2280,14 @@ export function ChatView({
                   flashId === message.messageId && "ring-2 ring-primary/60 ring-offset-2 ring-offset-background"
                 )}
               >
+                {message.role === "assistant" && subagentAnchors.orphanByAssistantId.get(message.messageId)?.length ? (
+                  <div className="mb-2">
+                    <SubagentCard
+                      subagents={subagentAnchors.orphanByAssistantId.get(message.messageId) ?? []}
+                      onOpen={openSubagent}
+                    />
+                  </div>
+                ) : null}
                 {message.role === "assistant" && message.reasoningText && (
                   <ThinkingBlock text={message.reasoningText} />
                 )}
@@ -2279,6 +2335,14 @@ export function ChatView({
                       resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
                     }
                   />
+                ) : null}
+                {message.role === "user" && subagentAnchors.byTriggerUserId.get(message.messageId)?.length ? (
+                  <div className="mt-3">
+                    <SubagentCard
+                      subagents={subagentAnchors.byTriggerUserId.get(message.messageId) ?? []}
+                      onOpen={openSubagent}
+                    />
+                  </div>
                 ) : null}
               </div>
               )
