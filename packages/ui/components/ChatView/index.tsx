@@ -49,6 +49,7 @@ import {
   INITIAL_WINDOW_STATE,
   MAX_LOADED,
   OLDER_PAGE,
+  BOTTOM_TRIGGER,
   REFRACTORY_PIXELS,
   applyInitialPage,
   applyLiveAppend,
@@ -1579,14 +1580,29 @@ export function ChatView({
   }, [sessionKey])
 
   const evaluateNewerTrigger = useCallback(() => {
-    if (state.loading) return
-    if (windowState.isLoadingNewer) return
-    if (!windowState.hasNewer) return
+    if (state.loading) {
+      frontendLog("chat", "chat-rebuild.window.newer-trigger-skip", { sessionKey, reason: "state.loading" }, "debug")
+      return
+    }
+    if (windowState.isLoadingNewer) {
+      frontendLog("chat", "chat-rebuild.window.newer-trigger-skip", { sessionKey, reason: "isLoadingNewer" }, "debug")
+      return
+    }
+    if (!windowState.hasNewer) {
+      frontendLog("chat", "chat-rebuild.window.newer-trigger-skip", { sessionKey, reason: "hasNewer=false", newestLoadedSeq: windowState.newestLoadedSeq }, "debug")
+      return
+    }
     // Direction-locked refractory: require the user to scroll DOWN from the
     // resolved-anchor scrollTop by REFRACTORY_PIXELS before firing again.
     const container = scrollContainerRef.current
     const lastAnchor = lastNewerResolvedScrollTopRef.current
     if (container && lastAnchor !== null && (container.scrollTop - lastAnchor) < REFRACTORY_PIXELS) {
+      frontendLog(
+        "chat",
+        "chat-rebuild.window.newer-trigger-skip",
+        { sessionKey, reason: "refractory", lastAnchor, scrollTop: container.scrollTop, delta: container.scrollTop - lastAnchor },
+        "debug"
+      )
       return
     }
     const rowsBelowViewport = measureRowsBelowViewport()
@@ -1597,6 +1613,12 @@ export function ChatView({
         isLoadingNewer: windowState.isLoadingNewer,
       })
     ) {
+      frontendLog(
+        "chat",
+        "chat-rebuild.window.newer-trigger-skip",
+        { sessionKey, reason: "rowsBelow-over-threshold", rowsBelowViewport, threshold: BOTTOM_TRIGGER },
+        "debug"
+      )
       return
     }
     frontendLog(
