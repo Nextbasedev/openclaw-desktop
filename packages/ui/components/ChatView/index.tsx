@@ -66,7 +66,10 @@ import {
 } from "./messageWindow"
 import { ThinkingBlock } from "./ThinkingBlock"
 import { ToolCallSteps } from "./ToolCallSteps"
-import type { ChatMessage, InlineToolCall, StreamStatus } from "./types"
+import { SubagentBar } from "./SubagentBar"
+import { SubagentFullChat } from "./SubagentFullChat"
+import { deriveSpawnedSubagents } from "./subagentDerive"
+import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "./types"
 
 type Props = {
   sessionKey: string
@@ -460,6 +463,8 @@ export function ChatView({
   onFirstMessageSent,
   onSelectTool,
   onForkNavigate,
+  activeSubagentKey,
+  onSubagentOpen,
   isBackgroundSession = false,
 }: Props) {
   // ---- new-session bootstrap detection --------------------------------------
@@ -528,6 +533,11 @@ export function ChatView({
   const [composerSeed, setComposerSeed] = useState<string | null>(null)
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const [windowState, setWindowState] = useState<WindowState>(INITIAL_WINDOW_STATE)
+  // Local sub-agent take-over state. When non-null, the chat surface renders
+  // <SubagentFullChat/> instead of the normal message stream. Parent is
+  // notified via onSubagentOpen so the inspector / agent breadcrumb stays in
+  // sync, but the source of truth for which subagent is visible lives here.
+  const [activeSubagent, setActiveSubagent] = useState<SpawnedSubagent | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const scrollContentRef = useRef<HTMLDivElement | null>(null)
   const cursorRef = useRef(0)
@@ -1192,6 +1202,70 @@ export function ChatView({
     () => orderChatMessages(state.messages),
     [state.messages]
   )
+
+  // Sub-agents derived from the message stream. Live updates flow naturally
+  // as sessions_spawn tool patches mutate tool.status / tool.resultText on the
+  // underlying messages via applyChatPatch.
+  const spawnedSubagents = useMemo(
+    () => deriveSpawnedSubagents(renderedMessages),
+    [renderedMessages]
+  )
+
+  useEffect(() => {
+    frontendLog(
+      "chat",
+      "chat-rebuild.subagent.derived",
+      {
+        sessionKey,
+        count: spawnedSubagents.length,
+        sessionKeys: spawnedSubagents.map((s) => s.sessionKey).filter(Boolean),
+      },
+      "debug"
+    )
+  }, [sessionKey, spawnedSubagents])
+
+  const openSubagent = useCallback(
+    (sub: SpawnedSubagent) => {
+      setActiveSubagent(sub)
+      onSubagentOpen?.(sub.sessionKey, sub.id)
+      frontendLog(
+        "chat",
+        "chat-rebuild.subagent.open",
+        {
+          sessionKey,
+          subagentSessionKey: sub.sessionKey,
+          subagentId: sub.id,
+          toolCallId: sub.toolCallId,
+          status: sub.status,
+        },
+        "info"
+      )
+    },
+    [onSubagentOpen, sessionKey]
+  )
+
+  const closeSubagent = useCallback(() => {
+    setActiveSubagent(null)
+    onSubagentOpen?.(null, null)
+    frontendLog(
+      "chat",
+      "chat-rebuild.subagent.close",
+      { sessionKey },
+      "info"
+    )
+  }, [onSubagentOpen, sessionKey])
+
+  // Sync to parent-driven activeSubagentKey (e.g. inspector panel) — find
+  // matching spawn and open it.
+  useEffect(() => {
+    if (!activeSubagentKey) {
+      if (activeSubagent !== null) setActiveSubagent(null)
+      return
+    }
+    if (activeSubagent?.sessionKey === activeSubagentKey) return
+    const match = spawnedSubagents.find((s) => s.sessionKey === activeSubagentKey)
+    if (match) setActiveSubagent(match)
+  }, [activeSubagentKey, activeSubagent, spawnedSubagents])
   const pinnedMessages = useMemo(() => {
     const messagesById = new Map(renderedMessages.map((message) => [message.messageId, message]))
     return pinnedIds
@@ -2009,6 +2083,29 @@ export function ChatView({
     return <ChatLoadingSkeleton />
   }
 
+  // Subagent take-over: when a spawned sub-agent is opened, render its full
+  // chat overlay in place of the parent message stream. Composer + counter
+  // chip stay accessible by virtue of being absolutely positioned; the
+  // overlay sits below them in the same container.
+  if (activeSubagent && activeSubagent.sessionKey) {
+    return (
+      <div
+        className="relative flex h-full w-full flex-col overflow-hidden bg-background"
+        data-chat-rebuild-history="true"
+        data-session-key={sessionKey}
+        data-subagent-active={activeSubagent.sessionKey}
+      >
+        <SubagentFullChat
+          sessionKey={activeSubagent.sessionKey}
+          label={activeSubagent.label}
+          status={activeSubagent.status}
+          fallbackPrompt={activeSubagent.task ?? ""}
+          onBack={closeSubagent}
+        />
+      </div>
+    )
+  }
+
   return (
     <div
       className="relative flex h-full w-full flex-col overflow-hidden bg-background"
@@ -2060,6 +2157,13 @@ export function ChatView({
           </div>
         </div>
       </div>
+      {spawnedSubagents.length > 0 && (
+        <div className="shrink-0 border-b border-border/10 bg-background/60 px-4 py-2 backdrop-blur-sm">
+          <div className="mx-auto max-w-3xl">
+            <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
+          </div>
+        </div>
+      )}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
