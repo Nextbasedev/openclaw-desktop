@@ -729,6 +729,104 @@ export function ChatView({
       const reattachCursor = hydrateFromRegistry.streamCursor ?? 0
       cursorRef.current = reattachCursor
       setStreamCursor(reattachCursor)
+
+      // Backfill safety net: even though hydrateFromRegistry skipped the
+      // history fetch for fast-paint, fire a background fetch to catch any
+      // messages the registry might have missed while ChatView was unmounted.
+      // This covers cases where runWatcher's applyChatPatch silently dropped
+      // a patch (malformed payload caught by try/catch), the global stream
+      // briefly disconnected and missed patches, or terminal-state messages
+      // arrived in a sequence that confused the cursor-forward guard.
+      // The reconcile happens via the same setState pattern history fetch
+      // uses elsewhere; if the result is identical to current messages, the
+      // setState is a no-op render.
+      const reconcileQuery = liveTailQuery()
+      fetchChatMessagesV2({
+        sessionKey,
+        beforeSeq: reconcileQuery.beforeSeq,
+        limit: reconcileQuery.limit,
+      })
+        .then((history) => {
+          if (cancelled) return
+          if (history.sessionKey && history.sessionKey !== sessionKey) return
+          const freshMessages = normalizeHistory(
+            history.messages.map((message) => message.data),
+          )
+          const freshCursor =
+            typeof history.cursor === "number" ? history.cursor : 0
+          frontendLog(
+            "chat",
+            "chat-rebuild.runs.reattach.reconcile",
+            {
+              sessionKey,
+              registryCount: seededMessages.length,
+              freshCount: freshMessages.length,
+              registryCursor: reattachCursor,
+              freshCursor,
+            },
+            "debug",
+          )
+          // If the fresh history is strictly newer (cursor advanced) OR has
+          // more messages, swap to it. Otherwise keep the optimistic
+          // registry snapshot to avoid flicker.
+          if (
+            freshCursor > reattachCursor ||
+            freshMessages.length > seededMessages.length
+          ) {
+            cursorRef.current = Math.max(cursorRef.current, freshCursor)
+            setStreamCursor((current) =>
+              current !== null && current >= freshCursor ? current : freshCursor,
+            )
+            // If fresh history ends with an assistant message that has
+            // actual content (text or completed tool calls), the run is
+            // over — force streamStatus to idle to clear stuck thinking
+            // indicator. runWatcher should've done this via terminal
+            // statusFromPatch, but if that signal was lost we recover here.
+            const lastFreshMessage = freshMessages[freshMessages.length - 1]
+            const runLooksComplete =
+              lastFreshMessage?.role === "assistant" &&
+              Boolean(
+                lastFreshMessage.text.trim() ||
+                  lastFreshMessage.toolCalls?.some(
+                    (t) => t.status === "success" || t.status === "error",
+                  ),
+              )
+            setState((current) => ({
+              ...current,
+              messages: orderChatMessages(freshMessages),
+              streamStatus: runLooksComplete ? "idle" : current.streamStatus,
+              statusLabel: runLooksComplete ? null : current.statusLabel,
+            }))
+            const freshFirst = freshMessages[0]
+            const freshLast = freshMessages[freshMessages.length - 1]
+            setWindowState(
+              applyInitialPage({
+                returnedCount: freshMessages.length,
+                oldestSeq:
+                  freshFirst && typeof freshFirst.gatewayIndex === "number"
+                    ? freshFirst.gatewayIndex
+                    : null,
+                newestSeq:
+                  freshLast && typeof freshLast.gatewayIndex === "number"
+                    ? freshLast.gatewayIndex
+                    : null,
+                requestedLimit: reconcileQuery.limit,
+              }),
+            )
+          }
+        })
+        .catch((error) => {
+          frontendLog(
+            "chat",
+            "chat-rebuild.runs.reattach.reconcile-error",
+            {
+              sessionKey,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            "warn",
+          )
+        })
+
       return () => {
         cancelled = true
       }
