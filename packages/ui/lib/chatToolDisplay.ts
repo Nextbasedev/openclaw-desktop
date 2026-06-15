@@ -105,14 +105,22 @@ export function groupAssistantToolCallsByMessage(messages: ChatMessage[]) {
   const grouped = new Map<string, InlineToolCall[]>()
   const suppressed = new Set<string>()
   let firstToolMessageId: string | null = null
+  let textAnchorMessageId: string | null = null
   let collected: InlineToolCall[] = []
+  let collectedMessageIds: string[] = []
 
   function flush() {
-    if (firstToolMessageId && collected.length > 0) {
-      grouped.set(firstToolMessageId, collected)
+    const anchorId = textAnchorMessageId ?? firstToolMessageId
+    if (anchorId && collected.length > 0) {
+      grouped.set(anchorId, collected)
+      for (const messageId of collectedMessageIds) {
+        if (messageId !== anchorId) suppressed.add(messageId)
+      }
     }
     firstToolMessageId = null
+    textAnchorMessageId = null
     collected = []
+    collectedMessageIds = []
   }
 
   for (const message of messages) {
@@ -122,18 +130,15 @@ export function groupAssistantToolCallsByMessage(messages: ChatMessage[]) {
     }
     if (message.role !== "assistant") continue
     if (message.text.trim()) {
-      // Assistant text is the visible boundary of a response segment. Do not
-      // keep merging later tool activity into the earlier steps block, or one
-      // new running tool makes the completed steps above old answers look like
-      // they are loading again.
-      flush()
+      textAnchorMessageId ??= message.messageId
     }
     if (!message.toolCalls?.length) continue
 
     if (!firstToolMessageId) {
       firstToolMessageId = message.messageId
-    } else {
-      suppressed.add(message.messageId)
+    }
+    if (!collectedMessageIds.includes(message.messageId)) {
+      collectedMessageIds.push(message.messageId)
     }
     collected = mergeToolCalls(collected, message.toolCalls)
   }

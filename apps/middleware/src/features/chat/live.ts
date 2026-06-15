@@ -249,7 +249,7 @@ export class ChatLiveIngest {
       this.handleChatEvent(event.payload);
       return;
     }
-    if (event.event === "agent") {
+    if (event.event === "agent" || event.event === "agent.event") {
       this.handleAgentEvent(event.payload);
     }
   }
@@ -752,8 +752,19 @@ export class ChatLiveIngest {
       this.projectAgentToolEvent(sessionKey, gatewayRunId, run?.runId ?? null, payload.stream, data);
       return;
     }
-    if (payload.stream !== "thinking") return;
     if (!run) return;
+    if (payload.stream !== "thinking") {
+      if (this.extractLiveAssistantText(data)) {
+        if (["done", "error", "aborted"].includes(run.status)) {
+          this.log.info("agent.assistant.delta.skip_terminal_run", { sessionKey, runId: run.runId, status: run.status, gatewayRunId, stream: payload.stream });
+          return;
+        }
+        const updated = this.context.runs.updateRunStatus(run.runId, "streaming", { statusLabel: "Streaming" });
+        if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
+        this.broadcastLiveAssistantText(sessionKey, updated ?? run, data);
+      }
+      return;
+    }
     const text = textFromLiveValue(data.text);
     const delta = textFromLiveValue(data.delta) ?? text;
     if (!text && !delta) return;

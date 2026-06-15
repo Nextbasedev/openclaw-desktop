@@ -1,0 +1,447 @@
+"use client"
+
+import React, { useState, useCallback, useMemo } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
+import remarkBreaks from "remark-breaks"
+import { useTheme } from "next-themes"
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
+import {
+  vs,
+  vscDarkPlus,
+} from "react-syntax-highlighter/dist/esm/styles/prism"
+import { cn } from "@/lib/utils"
+import { LuCopy, LuCheck } from "react-icons/lu"
+import { LanguageIcon } from "@/components/icons/LanguageIcon"
+import { MermaidBlock } from "./MermaidBlock"
+import { useStreamingText } from "./useStreamingText"
+import { openExternalUrl } from "@/lib/ipc"
+import { isChatErrorLine } from "@/lib/chatErrorText"
+
+function CopyBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }, [text])
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/25 transition-colors hover:text-foreground/50"
+    >
+      {copied ? <LuCheck className="size-3.5" /> : <LuCopy className="size-3.5" />}
+    </button>
+  )
+}
+
+function cleanSyntaxStyle(
+  style: Record<string, React.CSSProperties>,
+): Record<string, React.CSSProperties> {
+  return Object.fromEntries(Object.entries(style).map(([key, val]) => {
+    if (typeof val === "object" && val !== null) {
+      const rest = { ...(val as Record<string, unknown>) }
+      delete rest.background
+      delete rest.backgroundColor
+      return [key, rest as React.CSSProperties]
+    }
+    return [key, val]
+  }))
+}
+
+const cleanDarkStyle = cleanSyntaxStyle(vscDarkPlus)
+const cleanLightStyle = cleanSyntaxStyle(vs)
+
+function langDisplayName(lang?: string): string {
+  if (!lang) return "Code"
+  const names: Record<string, string> = {
+    js: "JavaScript", javascript: "JavaScript",
+    ts: "TypeScript", typescript: "TypeScript",
+    tsx: "TSX", jsx: "JSX",
+    py: "Python", python: "Python",
+    rb: "Ruby", ruby: "Ruby",
+    rs: "Rust", rust: "Rust",
+    go: "Go", java: "Java", cpp: "C++", c: "C",
+    cs: "C#", csharp: "C#",
+    php: "PHP", swift: "Swift", kotlin: "Kotlin",
+    sh: "Shell", bash: "Bash", zsh: "Zsh",
+    powershell: "PowerShell", ps1: "PowerShell",
+    sql: "SQL", html: "HTML", css: "CSS",
+    scss: "SCSS", less: "Less", sass: "Sass",
+    json: "JSON", yaml: "YAML", yml: "YAML",
+    xml: "XML", toml: "TOML", ini: "INI",
+    md: "Markdown", markdown: "Markdown",
+    graphql: "GraphQL", docker: "Dockerfile",
+    dockerfile: "Dockerfile",
+  }
+  return names[lang.toLowerCase()] ?? lang.charAt(0).toUpperCase() + lang.slice(1)
+}
+
+function CodeBlock({ language, children }: { language?: string; children: string }) {
+  const { resolvedTheme } = useTheme()
+  const code = children.replace(/\n$/, "")
+  const displayLang = langDisplayName(language)
+  const isDark = resolvedTheme !== "light"
+  const syntaxStyle = isDark ? cleanDarkStyle : cleanLightStyle
+  const plainTextColor = isDark ? "#d4d4d4" : "#1f1f1f"
+
+  return (
+    <div className="group/code relative my-2.5 max-w-full min-w-0 overflow-hidden rounded-lg border border-border/50 bg-muted/30">
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/50 bg-muted/50 px-3 py-1.5">
+        <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <LanguageIcon lang={language} className="size-4" />
+          {displayLang}
+        </span>
+        <CopyBtn text={code} />
+      </div>
+      {language ? (
+        <div className="max-w-full overflow-x-auto rounded-b-lg px-3 py-3">
+          <SyntaxHighlighter
+            style={syntaxStyle}
+            language={language}
+            PreTag="div"
+            customStyle={{
+              background: "transparent",
+              margin: 0,
+              padding: "4px 0",
+              fontSize: "12px",
+              minWidth: 0,
+              color: plainTextColor,
+            }}
+            codeTagProps={{ style: { background: "transparent" } }}
+          >
+            {code}
+          </SyntaxHighlighter>
+        </div>
+      ) : (
+        <div className="max-w-full overflow-x-auto rounded-b-lg px-3 py-3">
+          <pre
+            className="min-w-0 whitespace-pre font-mono text-xs leading-relaxed"
+            style={{ color: plainTextColor }}
+          >
+            {code}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function highlightString(text: string, highlightTexts: string[]) {
+  if (highlightTexts.length === 0) return text
+
+  const parts: React.ReactNode[] = []
+  const lowerText = text.toLowerCase()
+  let cursor = 0
+
+  while (cursor < text.length) {
+    let nextIndex = -1
+    let nextText = ""
+    for (const highlight of highlightTexts) {
+      const index = lowerText.indexOf(highlight.toLowerCase(), cursor)
+      if (index !== -1 && (nextIndex === -1 || index < nextIndex)) {
+        nextIndex = index
+        nextText = highlight
+      }
+    }
+
+    if (nextIndex === -1 || !nextText) {
+      parts.push(text.slice(cursor))
+      break
+    }
+
+    if (nextIndex > cursor) parts.push(text.slice(cursor, nextIndex))
+    const matchedText = text.slice(nextIndex, nextIndex + nextText.length)
+    parts.push(
+      <mark
+        key={`${nextIndex}-${matchedText}`}
+        className="rounded-sm bg-blue-400/15 px-1 py-0.5 font-semibold text-sky-50"
+      >
+        {matchedText}
+      </mark>,
+    )
+    cursor = nextIndex + nextText.length
+  }
+
+  return parts
+}
+
+function highlightChildren(children: React.ReactNode, highlightTexts: string[]) {
+  if (highlightTexts.length === 0) return children
+  return React.Children.map(children, (child) => {
+    if (typeof child === "string") return highlightString(child, highlightTexts)
+    return child
+  })
+}
+
+function normalizeHighlightTexts(highlightTexts?: string[]) {
+  return Array.from(
+    new Set(
+      (highlightTexts ?? [])
+        .map((text) => text.trim())
+        .filter((text) => text.length > 0),
+    ),
+  )
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 20)
+}
+
+function plainTextFromChildren(children: React.ReactNode): string {
+  const parts = React.Children.toArray(children)
+  if (!parts.every((part) => typeof part === "string")) return ""
+  return parts.join("")
+}
+
+function hasBlockChildren(children: React.ReactNode): boolean {
+  const parts = React.Children.toArray(children)
+  return parts.some((child) => {
+    if (!React.isValidElement(child)) return false
+    const type = child.type
+    if (typeof type === "string" && ["div", "pre", "table", "ul", "ol", "blockquote", "hr", "figure"].includes(type)) return true
+    // CodeBlock and other custom components render as div/pre
+    if (typeof type === "function" && (type.name === "CodeBlock" || type.name === "MermaidBlock")) return true
+    return false
+  })
+}
+
+function MarkdownParagraph({
+  children,
+  highlightTexts,
+}: {
+  children?: React.ReactNode
+  highlightTexts?: string[]
+}) {
+  const plainText = plainTextFromChildren(children)
+  const content = highlightTexts?.length
+    ? highlightChildren(children, highlightTexts)
+    : children
+
+  const isBlock = hasBlockChildren(children)
+  const Tag = isBlock ? "div" : "p"
+
+  return (
+    <Tag
+      className={cn(
+        "my-2.5 break-words leading-normal [overflow-wrap:anywhere] first:mt-0 last:mb-0",
+        isChatErrorLine(plainText) ? "text-red-300" : "text-foreground/85"
+      )}
+    >
+      {content}
+    </Tag>
+  )
+}
+
+const mdComponents = {
+  pre({ children }: { children?: React.ReactNode }) { return <>{children}</> },
+  code(props: { className?: string; children?: React.ReactNode }) {
+    const { className, children, ...rest } = props
+    const text = String(children)
+    const match = /language-(\w+)/.exec(className || "")
+    const isBlock = match || text.includes("\n") || /[┌┐└┘│─├┤┬┴┼╔╗╚╝║═╠╣╦╩╬]/.test(text) || (text.length > 60 && /[{[\]()→←↑↓|>]/.test(text))
+    if (isBlock) {
+      if (match?.[1] === "mermaid") return <MermaidBlock code={text} />
+      return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
+    }
+    return <code className="break-words rounded-md border border-[#d4d4d4] bg-[#f3f3f3] px-1.5 py-0.5 text-[0.85em] font-mono text-[#a31515] [overflow-wrap:anywhere] dark:border-[#3c3c3c]/55 dark:bg-[#1e1e1e] dark:text-[#ce9178]" {...rest}>{children}</code>
+  },
+  table({ children }: { children?: React.ReactNode }) {
+    return (<div className="my-2 max-w-full overflow-hidden rounded-lg border border-border/50"><div className="max-w-full overflow-x-auto"><table className="w-full border-separate border-spacing-0 text-[13px]">{children}</table></div></div>)
+  },
+  thead({ children }: { children?: React.ReactNode }) { return <thead className="border-b border-border/30 bg-foreground/5">{children}</thead> },
+  tr({ children }: { children?: React.ReactNode }) { return <tr className="border-b border-border/10 last:border-0 transition-colors hover:bg-foreground/2">{children}</tr> },
+  th({ children }: { children?: React.ReactNode }) { return <th className="px-3 py-2 text-left text-[12px] font-semibold text-foreground/80">{children}</th> },
+  td({ children }: { children?: React.ReactNode }) { return <td className="break-words px-3 py-2 text-foreground/70 [overflow-wrap:anywhere]">{children}</td> },
+  a({ href, children }: { href?: string; children?: React.ReactNode }) {
+    const safeHref = typeof href === "string" ? href : ""
+    const canOpen = /^(https?:|mailto:|tel:)/i.test(safeHref)
+    return (
+      <a
+        href={safeHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(event) => {
+          if (!canOpen) return
+          event.preventDefault()
+          openExternalUrl(safeHref).catch(() => {
+            window.open(safeHref, "_blank", "noopener,noreferrer")
+          })
+        }}
+        className="cursor-pointer text-blue-400 underline decoration-blue-400/30 underline-offset-2 transition-colors hover:text-blue-300 hover:decoration-blue-300/50"
+      >
+        {children}
+      </a>
+    )
+  },
+  h1({ children }: { children?: React.ReactNode }) { return <h1 className="mb-3 mt-6 border-b border-border/20 pb-2 text-[18px] font-bold text-foreground first:mt-0">{children}</h1> },
+  h2({ children }: { children?: React.ReactNode }) { return <h2 className="mb-2.5 mt-5 border-b border-border/15 pb-1.5 text-[16px] font-semibold text-foreground first:mt-0">{children}</h2> },
+  h3({ children }: { children?: React.ReactNode }) { return <h3 className="mb-2 mt-4 text-[15px] font-semibold text-foreground first:mt-0">{children}</h3> },
+  h4({ children }: { children?: React.ReactNode }) { return <h4 className="mb-1.5 mt-3 text-[14px] font-medium text-foreground first:mt-0">{children}</h4> },
+  p({ children }: { children?: React.ReactNode }) { return <MarkdownParagraph>{children}</MarkdownParagraph> },
+  ul({ children }: { children?: React.ReactNode }) { return <ul className="my-2.5 list-outside list-disc space-y-1.5 pl-7 text-foreground/85 marker:text-foreground/30">{children}</ul> },
+  ol({ children }: { children?: React.ReactNode }) { return <ol className="my-2.5 list-outside list-decimal space-y-2 pl-8 text-foreground/85 marker:text-foreground/60 marker:font-semibold">{children}</ol> },
+  li({ children }: { children?: React.ReactNode }) { return <li className="break-words pl-1 leading-[1.75] [overflow-wrap:anywhere] [&>ol]:my-1 [&>p:first-child]:inline [&>p:first-child]:my-0 [&>p]:my-1 [&>ul]:my-1">{children}</li> },
+  blockquote({ children }: { children?: React.ReactNode }) { return <blockquote className="my-3 rounded-r-lg border-l-[3px] border-blue-400/40 bg-blue-400/4 py-2 pl-4 pr-3 text-foreground/70 [&>p]:my-1">{children}</blockquote> },
+  hr() { return <hr className="my-5 border-border/25" /> },
+  strong({ children }: { children?: React.ReactNode }) { return <strong className="font-semibold text-foreground">{children}</strong> },
+  em({ children }: { children?: React.ReactNode }) { return <em className="italic text-foreground/75">{children}</em> },
+  img({ src, alt }: { src?: string | Blob; alt?: string }) { return <span className="my-3 block"><img src={typeof src === "string" ? src : undefined} alt={alt || ""} className="max-w-full rounded-lg border border-border/20" loading="lazy" /></span> },
+}
+
+import type { EmbedContent } from "./types"
+
+const EMBED_RE = /\[embed\s+ref="([^"]+)"(?:\s+title="([^"]*)")?(?:\s+height="([^"]*)")?\s*\/?\]/g
+
+function EmbedBlock({ embed }: { embed: EmbedContent }) {
+  const html = embed.content
+  const wrapped = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;color:#e4e4e7;background:transparent;padding:12px}
+    table{width:100%;border-collapse:collapse;border:1px solid #333}
+    th,td{padding:8px 12px;text-align:left;border:1px solid #333}
+    th{background:#252529;font-weight:600;color:#a1a1aa}
+    tr:nth-child(even){background:#1a1a1e}
+    tr:hover{background:#252529}
+    a{color:#60a5fa;text-decoration:underline}
+  </style></head><body>${html}</body></html>`
+
+  return (
+    <div className="my-3 overflow-hidden rounded-lg border border-border/20 bg-[#1a1a1e]">
+      {embed.title && (
+        <div className="border-b border-border/15 bg-[#252529] px-4 py-2 text-[12px] font-medium text-foreground/60">
+          {embed.title}
+        </div>
+      )}
+      <iframe
+        srcDoc={wrapped}
+        sandbox="allow-same-origin"
+        className="w-full border-0"
+        style={{ minHeight: 120, height: 400 }}
+        onLoad={(e) => {
+          const frame = e.currentTarget
+          const doc = frame.contentDocument
+          if (doc?.body) {
+            frame.style.height = `${doc.body.scrollHeight + 24}px`
+          }
+        }}
+      />
+    </div>
+  )
+}
+
+function splitTextAndEmbeds(text: string, embeds?: EmbedContent[]) {
+  EMBED_RE.lastIndex = 0
+  const hasEmbedRef = EMBED_RE.test(text)
+  EMBED_RE.lastIndex = 0
+
+  if (!embeds || embeds.length === 0 || !hasEmbedRef) {
+    return [{ type: "text" as const, value: text }]
+  }
+
+  const embedMap = new Map(embeds.map((e) => [e.ref, e]))
+  const parts: Array<{ type: "text"; value: string } | { type: "embed"; embed: EmbedContent }> = []
+  let lastIndex = 0
+
+  let match: RegExpExecArray | null
+  while ((match = EMBED_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", value: text.slice(lastIndex, match.index) })
+    }
+    const ref = match[1]
+    const embed = embedMap.get(ref)
+    if (embed) {
+      parts.push({ type: "embed", embed })
+    }
+    lastIndex = match.index + match[0].length
+  }
+  if (lastIndex < text.length) {
+    parts.push({ type: "text", value: text.slice(lastIndex) })
+  }
+  return parts
+}
+
+export function MarkdownContent({
+  text,
+  className,
+  embeds,
+  streaming,
+  highlightTexts,
+  onRevealComplete,
+  revealMode = "immediate",
+}: {
+  text: string
+  className?: string
+  embeds?: EmbedContent[]
+  streaming?: boolean
+  highlightTexts?: string[]
+  onRevealComplete?: () => void
+  revealMode?: "buffered" | "immediate"
+}) {
+  const { displayText, isRevealing } = useStreamingText(
+    text,
+    streaming,
+    onRevealComplete,
+    { mode: revealMode },
+  )
+  const parts = useMemo(
+    () => splitTextAndEmbeds(displayText, embeds),
+    [displayText, embeds],
+  )
+  const normalizedHighlightTexts = useMemo(
+    () => normalizeHighlightTexts(highlightTexts),
+    [highlightTexts],
+  )
+  const highlightedComponents = useMemo(() => {
+    if (normalizedHighlightTexts.length === 0) return mdComponents
+    return {
+      ...mdComponents,
+      p({ children }: { children?: React.ReactNode }) {
+        return <MarkdownParagraph highlightTexts={normalizedHighlightTexts}>{children}</MarkdownParagraph>
+      },
+      li({ children }: { children?: React.ReactNode }) {
+        return <li className="break-words pl-1 leading-[1.75] [overflow-wrap:anywhere] [&>ol]:my-1 [&>p:first-child]:inline [&>p:first-child]:my-0 [&>p]:my-1 [&>ul]:my-1">{highlightChildren(children, normalizedHighlightTexts)}</li>
+      },
+      blockquote({ children }: { children?: React.ReactNode }) {
+        return <blockquote className="my-3 rounded-r-lg border-l-[3px] border-blue-400/40 bg-blue-400/4 py-2 pl-4 pr-3 text-foreground/70 [&>p]:my-1">{highlightChildren(children, normalizedHighlightTexts)}</blockquote>
+      },
+      strong({ children }: { children?: React.ReactNode }) {
+        return <strong className="font-semibold text-foreground">{highlightChildren(children, normalizedHighlightTexts)}</strong>
+      },
+      em({ children }: { children?: React.ReactNode }) {
+        return <em className="italic text-foreground/75">{highlightChildren(children, normalizedHighlightTexts)}</em>
+      },
+      h1({ children }: { children?: React.ReactNode }) {
+        return <h1 className="mb-3 mt-6 border-b border-border/20 pb-2 text-[18px] font-bold text-foreground first:mt-0">{highlightChildren(children, normalizedHighlightTexts)}</h1>
+      },
+      h2({ children }: { children?: React.ReactNode }) {
+        return <h2 className="mb-2.5 mt-5 border-b border-border/15 pb-1.5 text-[16px] font-semibold text-foreground first:mt-0">{highlightChildren(children, normalizedHighlightTexts)}</h2>
+      },
+      h3({ children }: { children?: React.ReactNode }) {
+        return <h3 className="mb-2 mt-4 text-[15px] font-semibold text-foreground first:mt-0">{highlightChildren(children, normalizedHighlightTexts)}</h3>
+      },
+      h4({ children }: { children?: React.ReactNode }) {
+        return <h4 className="mb-1.5 mt-3 text-[14px] font-medium text-foreground first:mt-0">{highlightChildren(children, normalizedHighlightTexts)}</h4>
+      },
+      td({ children }: { children?: React.ReactNode }) {
+        return <td className="break-words px-3 py-2 text-foreground/70 [overflow-wrap:anywhere]">{highlightChildren(children, normalizedHighlightTexts)}</td>
+      },
+      th({ children }: { children?: React.ReactNode }) {
+        return <th className="px-3 py-2 text-left text-[12px] font-semibold text-foreground/80">{highlightChildren(children, normalizedHighlightTexts)}</th>
+      },
+    }
+  }, [normalizedHighlightTexts])
+
+  return (
+    <div className={cn("prose-chat max-w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere]", isRevealing && "streaming-text", className)}>
+      {parts.map((part, i) =>
+        part.type === "embed" ? (
+          <EmbedBlock key={`embed-${i}`} embed={part.embed} />
+        ) : (
+          <ReactMarkdown key={`md-${i}`} remarkPlugins={[remarkGfm, remarkBreaks]} components={highlightedComponents}>
+            {part.value}
+          </ReactMarkdown>
+        ),
+      )}
+    </div>
+  )
+}

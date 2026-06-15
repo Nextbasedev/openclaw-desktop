@@ -134,6 +134,46 @@ export type ParsedChatHistory = {
   subagents: SpawnedSubagent[]
 }
 
+type NormalizedHistoryRole = "user" | "assistant" | "tool"
+
+function normalizeHistoryRole(role: unknown): NormalizedHistoryRole | null {
+  if (typeof role !== "string") return null
+  const value = role.trim().toLowerCase().replace(/[\s-]+/g, "_")
+  if (!value) return null
+
+  if (
+    value === "user" ||
+    value === "human" ||
+    value === "client" ||
+    value === "requester"
+  ) {
+    return "user"
+  }
+
+  if (
+    value === "assistant" ||
+    value === "ai" ||
+    value === "agent" ||
+    value === "bot" ||
+    value === "model"
+  ) {
+    return "assistant"
+  }
+
+  if (
+    value === "tool" ||
+    value === "tool_result" ||
+    value === "toolresult" ||
+    value === "function" ||
+    value === "function_result" ||
+    value === "functionresult"
+  ) {
+    return "tool"
+  }
+
+  return null
+}
+
 function openclawSeq(raw: RawHistoryMessage) {
   const seq = raw.__openclaw?.seq
   return typeof seq === "number" && Number.isFinite(seq)
@@ -354,7 +394,7 @@ function visibleMessageText(raw: RawHistoryMessage): string {
   const text = raw.text || extractText(raw.content)
   if (text.trim()) return normalizeAssistantText(text)
   if (
-    raw.role === "assistant" &&
+    normalizeHistoryRole(raw.role) === "assistant" &&
     raw.stopReason === "error" &&
     raw.errorMessage
   ) {
@@ -448,7 +488,6 @@ function blockDurationMs(block: ContentBlock): number | null {
 }
 
 export function stripBootstrap(t: string): string {
-  if (!t) return ""
   return t.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
 }
 
@@ -732,7 +771,7 @@ function readMessageAttachments(raw: RawHistoryMessage): ChatMessage["attachment
 
 function isGatewayInjectedCommandOutput(message: RawHistoryMessage) {
   return (
-    message.role === "assistant" &&
+    normalizeHistoryRole(message.role) === "assistant" &&
     message.provider === "openclaw" &&
     message.model === "gateway-injected"
   )
@@ -748,10 +787,10 @@ export function isAbortedGatewayArtifact(message: RawHistoryMessage) {
 }
 
 function isSlashCommandMessage(message: RawHistoryMessage | undefined) {
-  if (!message || message.role !== "user") return false
-  const rawText = message.text || extractText(message.content)
-  if (!rawText) return false
-  const text = cleanUserMessageText(rawText)
+  if (!message || normalizeHistoryRole(message.role) !== "user") return false
+  const text = cleanUserMessageText(
+    message.text || extractText(message.content)
+  )
   return text.trim().startsWith("/")
 }
 
@@ -760,10 +799,10 @@ export function isTransientSlashCommandHistory(
 ): boolean {
   if (raw.length === 0) return false
   const visible = raw.filter((message) => {
-    if (message.role === "user") {
-      const rawText = message.text || extractText(message.content)
-      if (!rawText) return false
-      const text = cleanUserMessageText(rawText)
+    if (normalizeHistoryRole(message.role) === "user") {
+      const text = cleanUserMessageText(
+        message.text || extractText(message.content)
+      )
       return text.length > 0
     }
     return Boolean(
@@ -791,12 +830,13 @@ export function deduplicateRawMessages(
   for (const item of raw) {
     if (isAbortedGatewayArtifact(item)) continue
     const currText = visibleMessageText(item).trim()
-    if (item.role === "assistant" && !currText && !toolBlocks(item).length && !thinkingText(item).trim()) {
+    const currRole = normalizeHistoryRole(item.role)
+    if (currRole === "assistant" && !currText && !toolBlocks(item).length && !thinkingText(item).trim()) {
       continue
     }
 
     const prev = result[result.length - 1]
-    if (prev && prev.role === item.role) {
+    if (prev && normalizeHistoryRole(prev.role) === currRole) {
       const prevText = prev.text || extractText(prev.content)
       const prevIdentity = rawMessageIdentity(prev)
       const currIdentity = rawMessageIdentity(item)
@@ -834,7 +874,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
   let assistantMergeBlockedByUserBoundary = false
 
   for (const item of deduped) {
-    const role = item.role
+    const role = normalizeHistoryRole(item.role)
 
     if (role === "user") {
       const rawText = item.text || extractText(item.content)
@@ -959,7 +999,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
       continue
     }
 
-    if (role === "tool" || role === "tool_result" || role === "toolResult") {
+    if (role === "tool") {
       const matched = item.toolCallId
         ? pendingToolById.get(item.toolCallId) ??
           resultQueue.find((call) => call.id === item.toolCallId)

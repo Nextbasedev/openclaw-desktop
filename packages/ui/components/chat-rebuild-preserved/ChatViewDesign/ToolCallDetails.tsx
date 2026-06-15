@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { cn } from "@/lib/utils"
+import { middlewareFetch } from "@/lib/middleware-client"
 import type { InlineToolCall } from "./types"
 
 function isPlaceholderToolResult(value: unknown) {
@@ -198,13 +199,29 @@ export function ToolCallDetails({
   sessionKey?: string
 }) {
   const [showFull, setShowFull] = useState(false)
-  const effectiveOutputText = outputText
-  const effectiveFullText = fullOutputText
-  const showWaitingForOutput = !effectiveOutputText && call.status === "running"
+  const [fetchedFullText, setFetchedFullText] = useState<string | null>(null)
+  const [fetching, setFetching] = useState(false)
+
+  const fetchFullResult = useCallback(async () => {
+    if (fetchedFullText || !sessionKey || !call.id) return
+    setFetching(true)
+    try {
+      const result = await middlewareFetch<{ ok: boolean; text: string }>(
+        `/api/chat/tool-result?sessionKey=${encodeURIComponent(sessionKey)}&toolCallId=${encodeURIComponent(call.id)}`,
+        { timeoutMs: 30_000 }
+      )
+      if (result.ok && result.text) setFetchedFullText(result.text)
+    } catch {} finally {
+      setFetching(false)
+    }
+  }, [sessionKey, call.id, fetchedFullText])
+
+  const effectiveFullText = fetchedFullText ?? fullOutputText
+  const showWaitingForOutput = !outputText && call.status === "running"
   const showErrorFallback = !outputText && call.status === "error"
-  const showEmptyState = !inputText && !effectiveOutputText && call.status !== "running" && call.status !== "error"
+  const showEmptyState = !inputText && !outputText && call.status !== "running" && call.status !== "error"
   const showDivider = Boolean(
-    inputText && (effectiveOutputText || showWaitingForOutput || showErrorFallback || showEmptyState)
+    inputText && (outputText || showWaitingForOutput || showErrorFallback)
   )
 
   return (
@@ -215,27 +232,29 @@ export function ToolCallDetails({
         </DetailBlock>
       )}
       {showDivider && <div className="h-px bg-transparent" />}
-      <div className="grid transition-[grid-template-rows] duration-300 ease-out" style={{ gridTemplateRows: effectiveOutputText || showWaitingForOutput || showErrorFallback || showEmptyState ? "1fr" : "0fr" }}>
+      <div className="grid transition-[grid-template-rows] duration-300 ease-out" style={{ gridTemplateRows: outputText || showWaitingForOutput || showErrorFallback || showEmptyState ? "1fr" : "0fr" }}>
         <div className="overflow-hidden">
           <div className="transition-all duration-300 ease-out animate-in fade-in-0 slide-in-from-top-1">
-            {effectiveOutputText ? (
+            {outputText ? (
               <>
                 <DetailBlock
                   label={call.status === "error" ? "Error" : "Output"}
                   tone={call.status === "error" ? "error" : "success"}
                   expanded={showFull && Boolean(effectiveFullText)}
                 >
-                  {showFull && effectiveFullText ? effectiveFullText : effectiveOutputText}
+                  {showFull && effectiveFullText ? effectiveFullText : outputText}
                 </DetailBlock>
-                {fullOutputText && (
+                {(fullOutputText || (outputText.includes("(truncated)") && sessionKey)) && (
                   <button
                     type="button"
                     onClick={() => {
+                      if (!showFull && !effectiveFullText) void fetchFullResult()
                       setShowFull((v) => !v)
                     }}
-                    className="w-full border-t border-white/2 bg-white/5 px-5 py-1.5 text-center text-[11px] font-medium text-blue-700 transition-colors hover:bg-white/[0.07] hover:text-blue-800 dark:text-[#93C5FD]/75 dark:hover:text-[#93C5FD]"
+                    disabled={fetching}
+                    className="w-full border-t border-white/2 bg-white/5 px-5 py-1.5 text-center text-[11px] font-medium text-blue-700 transition-colors hover:bg-white/[0.07] hover:text-blue-800 disabled:opacity-50 dark:text-[#93C5FD]/75 dark:hover:text-[#93C5FD]"
                   >
-                    {showFull ? "Collapse output" : `Show full output (${Math.round(fullOutputText.length / 1024)}KB)`}
+                    {fetching ? "Loading full output…" : showFull ? "Collapse output" : effectiveFullText ? `Show full output (${Math.round(effectiveFullText.length / 1024)}KB)` : "Fetch full output"}
                   </button>
                 )}
               </>

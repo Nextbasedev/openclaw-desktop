@@ -52,8 +52,8 @@ export async function loadMiddlewareStartupBootstrap(): Promise<BootstrapPayload
   const cached = localFirst
     ? { spaces: localFirst.spaces, activeSpaceId: localFirst.activeSpaceId, chats: [], sessions: localFirst.sessions }
     : await persistentCacheGet<BootstrapPayload>(BOOTSTRAP_CACHE_KEY)
-  if (getMiddlewareConnection()) void fetchMiddlewareStartupBootstrap()
-  return cached ?? await fetchMiddlewareStartupBootstrap()
+  if (cached) return cached
+  return await fetchMiddlewareStartupBootstrap()
 }
 
 export async function refreshMiddlewareStartupBootstrap(): Promise<BootstrapPayload | null> {

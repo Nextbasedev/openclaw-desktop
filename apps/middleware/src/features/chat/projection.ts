@@ -116,8 +116,6 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
   sessionData: Record<string, unknown>;
   messages: unknown[];
   messageCount: number;
-  knownTotalMessages?: number;
-  oldestLoadedSeq?: number;
   cursor: number;
   projection: { upserted: number; lastSeq: number; liveSubscribed: boolean };
   historyMeta?: { thinkingLevel?: unknown; fastMode?: unknown; verboseLevel?: unknown };
@@ -136,10 +134,6 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
   ).map(toolCallProjection);
   const sessionStatus = legacySessionStatusFromRunStatus(runStatus);
 
-  const knownTotalMessages = params.knownTotalMessages ?? params.messageCount;
-  const oldestLoadedSeq = params.oldestLoadedSeq ?? null;
-  const hasOlder = knownTotalMessages > params.messageCount || (typeof oldestLoadedSeq === "number" && oldestLoadedSeq > 1);
-
   return {
     ok: true,
     source: "middleware-projection",
@@ -149,11 +143,11 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
     runStatus,
     statusLabel,
     activeRun: activeRunProjection(activeRun),
-    historyCoverage: hasOlder ? "windowed" : "full",
-    fullMessagesIncluded: !hasOlder,
-    hasOlder,
-    knownTotalMessages,
-    oldestLoadedSeq,
+    historyCoverage: "full",
+    fullMessagesIncluded: true,
+    hasOlder: false,
+    knownTotalMessages: params.messageCount,
+    oldestLoadedSeq: null,
     messages: params.messages,
     messageCount: params.messageCount,
     tools,

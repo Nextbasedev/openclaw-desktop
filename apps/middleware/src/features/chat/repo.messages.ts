@@ -829,7 +829,7 @@ export class MessageRepository {
   }
 
   listMessages(sessionKey: string, opts: { afterSeq?: number; beforeSeq?: number; limit?: number; latest?: boolean } = {}): ProjectedMessage[] {
-    const limit = Math.max(1, Math.min(1000, opts.limit ?? 200));
+    const limit = Math.max(1, Math.min(10_000, opts.limit ?? 200));
     const beforeSeq = opts.beforeSeq ?? null;
     const rows = this.db.prepare(beforeSeq !== null ? `
       SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
@@ -860,6 +860,38 @@ export class MessageRepository {
       ORDER BY openclaw_seq ASC
       LIMIT @limit
     `).all({ sessionKey, afterSeq: opts.afterSeq ?? 0, beforeSeq, limit }) as Array<{
+      session_key: string;
+      segment_id: string | null;
+      session_id: string | null;
+      gateway_seq: number | null;
+      openclaw_seq: number;
+      message_id: string | null;
+      role: string | null;
+      data_json: string;
+      updated_at_ms: number;
+    }>;
+    return rows
+      .map((row): ProjectedMessage => ({
+        sessionKey: row.session_key,
+        segmentId: row.segment_id,
+        sessionId: row.session_id,
+        gatewaySeq: row.gateway_seq,
+        openclawSeq: row.openclaw_seq,
+        messageId: row.message_id,
+        role: row.role,
+        data: fromJson(row.data_json) as OpenClawMessage,
+        updatedAtMs: row.updated_at_ms,
+      }))
+      .filter((row) => !isInternalSubagentCompletionMessage(row.data));
+  }
+
+  listAllMessages(sessionKey: string): ProjectedMessage[] {
+    const rows = this.db.prepare(`
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+      ORDER BY openclaw_seq ASC
+    `).all({ sessionKey }) as Array<{
       session_key: string;
       segment_id: string | null;
       session_id: string | null;

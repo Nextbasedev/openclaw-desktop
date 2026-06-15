@@ -427,7 +427,7 @@ function toolResultText(result: unknown) {
 async function fetchChatBootstrap(
   sessionKey: string
 ): Promise<ChatBootstrapData & { v2Cursor?: number }> {
-  const freshHistory = await fetchChatBootstrapV2(sessionKey, CHAT_BOOTSTRAP_MESSAGE_LIMIT).then((result) => ({
+  const freshHistory = await fetchChatBootstrapV2(sessionKey).then((result) => ({
     source: result.source,
     projectionVersion: result.projectionVersion ?? result.projection?.version,
     messages: result.messages,

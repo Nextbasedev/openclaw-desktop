@@ -1,7 +1,8 @@
-import type { ChatMessage, StreamStatus } from "../../components/ChatView/types"
+import type { ChatMessage, InlineToolCall, StreamStatus } from "../../components/ChatView/types"
 import { cleanUserMessageText, parseChatHistory } from "../chatHistoryParser"
 import { dedupeChatMessages } from "../chatMessageDedupe"
-import type { PatchFrame, PatchPayloadV2 } from "./types"
+import { isAwaitingLiveToolResult, isInferredFallbackToolResult } from "../liveToolCalls"
+import type { PatchFrame, PatchPayloadV2, ToolCallProjectionV2 } from "./types"
 
 type ApplyPatchState = {
   cursor: number
@@ -27,6 +28,10 @@ function isMessagePatchType(type: string) {
 function patchSemanticType(frame: PatchFrame): string {
   const semanticType = patchPayload(frame)?.semanticType
   return typeof semanticType === "string" && semanticType.trim() ? semanticType : frame.patch.type
+}
+
+function isToolPatchType(frame: PatchFrame): boolean {
+  return frame.patch.type.startsWith("chat.tool.") || patchSemanticType(frame).startsWith("chat.tool.")
 }
 
 function patchMessage(frame: PatchFrame): unknown | null {
@@ -66,6 +71,110 @@ function patchRunId(frame: PatchFrame): string | null {
     if (typeof runId === "string" && runId.trim()) return runId.trim()
   }
   return null
+}
+
+function realEpochMs(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
+  const ms = value > 100_000_000 && value < 10_000_000_000 ? value * 1000 : value
+  const now = Date.now()
+  if (ms < 1_700_000_000_000 || ms > now + 5 * 60 * 1000) return undefined
+  return Math.round(ms)
+}
+
+function comparableTimeMs(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
+  return value > 100_000_000 && value < 10_000_000_000 ? value * 1000 : value
+}
+
+function formatToolDuration(startedAtMs: number | undefined, finishedAtMs: number | null | undefined) {
+  const started = comparableTimeMs(startedAtMs)
+  const finished = comparableTimeMs(finishedAtMs)
+  if (typeof started !== "number" || typeof finished !== "number") return undefined
+  const elapsedMs = finished - started
+  if (elapsedMs < 0 || elapsedMs > 30 * 60 * 1000) return undefined
+  const seconds = elapsedMs / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
+function textFromUnknown(value: unknown): string {
+  if (typeof value === "string") return value
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (typeof item === "string") return item
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const block = item as Record<string, unknown>
+        const nested = block.text ?? block.content ?? block.output ?? block.result ?? block.message ?? block.value
+        return nested === undefined || nested === null ? "" : textFromUnknown(nested)
+      }
+      return ""
+    }).join("")
+  }
+  if (value && typeof value === "object") {
+    const object = value as Record<string, unknown>
+    if (typeof object.text === "string") return object.text
+    if (object.text !== undefined && object.text !== null) return textFromUnknown(object.text)
+    if (typeof object.content === "string") return object.content
+    if (Array.isArray(object.content)) return textFromUnknown(object.content)
+    const nested = object.output ?? object.result ?? object.message ?? object.value
+    if (nested !== undefined && nested !== null) return textFromUnknown(nested)
+  }
+  if (value == null) return ""
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function parseExecApproval(text: string): InlineToolCall["approval"] | undefined {
+  if (!text.includes("Approval required")) return undefined
+  const fullMatch = text.match(new RegExp("Approval required \\(id\\s+([^,\\s)]+),\\s+full\\s+([^)]+)\\)", "i"))
+  const slug = fullMatch?.[1]?.trim()
+  const id = fullMatch?.[2]?.trim() || slug
+  if (!id) return undefined
+  const command = text.match(new RegExp("Command:\\s*```(?:sh)?\\s*\\n([\\s\\S]*?)\\n```", "i"))?.[1]?.trim()
+  const replyLine = text.match(new RegExp("Reply with:\\s*/approve\\s+\\S+\\s+([^\\n]+)", "i"))?.[1] ?? "allow-once|deny"
+  const allowedDecisions = replyLine
+    .split("|")
+    .map((item) => item.trim())
+    .filter((item): item is "allow-once" | "allow-always" | "deny" => item === "allow-once" || item === "allow-always" || item === "deny")
+  return { id, slug, command, allowedDecisions: allowedDecisions.length > 0 ? allowedDecisions : ["allow-once", "deny"] }
+}
+
+function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | null {
+  const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
+    ? tool.toolCallId
+    : typeof tool.id === "string" && tool.id.trim()
+      ? tool.id
+      : null
+  if (!id) return null
+  const phase = typeof tool.phase === "string" ? tool.phase : ""
+  const status = tool.status === "error" || phase === "error" || phase === "failed"
+    ? "error"
+    : tool.status === "success" || phase === "result" || phase === "done" || phase === "complete" || phase === "completed" || phase === "success"
+      ? "success"
+      : "running"
+  const awaitingResult = tool.awaitingResult === true || isAwaitingLiveToolResult(tool.resultMeta)
+  const hasRealResultMeta = tool.resultMeta !== undefined &&
+    tool.resultMeta !== null &&
+    !isInferredFallbackToolResult(tool.resultMeta) &&
+    !isAwaitingLiveToolResult(tool.resultMeta)
+  const resultText = hasRealResultMeta ? textFromUnknown(tool.resultMeta) : undefined
+  return {
+    id,
+    tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
+    status,
+    awaitingResult,
+    duration: formatToolDuration(
+      typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
+      typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
+    ),
+    startedAt: realEpochMs(tool.startedAtMs),
+    completedAt: realEpochMs(tool.finishedAtMs),
+    input: tool.argsMeta,
+    resultText,
+    approval: resultText ? parseExecApproval(resultText) : undefined,
+  }
 }
 
 function inferAssistantSeqFromRun(state: ApplyPatchState, frame: PatchFrame, parsed: ChatMessage[], messageSeq: number | undefined): number | undefined {
@@ -209,6 +318,90 @@ function mergeInlineToolCalls(existing: ChatMessage["toolCalls"], incoming: NonN
     } : tool)
   }
   return Array.from(merged.values())
+}
+
+function toolPatchRunId(frame: PatchFrame, tool: ToolCallProjectionV2): string | null {
+  const runId = patchRunId(frame)
+  if (runId) return runId
+  return typeof tool.runId === "string" && tool.runId.trim() ? tool.runId.trim() : null
+}
+
+function toolPatchInline(frame: PatchFrame): { tool: InlineToolCall; runId: string | null } | null {
+  if (!isToolPatchType(frame)) return null
+  const rawTool = patchPayload(frame)?.toolCall
+  if (!rawTool || typeof rawTool !== "object" || Array.isArray(rawTool)) return null
+  const projection = rawTool as ToolCallProjectionV2
+  const tool = toolProjectionToInline(projection)
+  if (!tool) return null
+  return { tool, runId: toolPatchRunId(frame, projection) }
+}
+
+function latestUserIndex(messages: ChatMessage[]) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") return i
+  }
+  return -1
+}
+
+function inferToolAssistantSeqFromRun(state: ApplyPatchState, runId: string | null): number | undefined {
+  if (!runId) return undefined
+  const matchingUser = [...state.messages]
+    .reverse()
+    .find((item) => item.role === "user" && item.runId === runId && typeof item.gatewayIndex === "number" && Number.isFinite(item.gatewayIndex))
+  return typeof matchingUser?.gatewayIndex === "number" ? matchingUser.gatewayIndex + 1 : undefined
+}
+
+function findToolPatchTargetIndex(messages: ChatMessage[], tool: InlineToolCall, runId: string | null): number {
+  const afterIndex = latestUserIndex(messages)
+  for (let i = messages.length - 1; i > afterIndex; i--) {
+    const message = messages[i]
+    if (message?.role !== "assistant" || !message.toolCalls?.some((item) => item.id === tool.id)) continue
+    if (runId && message.runId && message.runId !== runId) continue
+    return i
+  }
+  if (runId) {
+    for (let i = messages.length - 1; i > afterIndex; i--) {
+      const message = messages[i]
+      if (message?.role === "assistant" && message.runId === runId && !message.text.trim()) return i
+    }
+  }
+  return -1
+}
+
+function applyToolPatch(state: ApplyPatchState, frame: PatchFrame): ApplyPatchState | null {
+  const inline = toolPatchInline(frame)
+  if (!inline) return null
+  const messages = [...state.messages]
+  const targetIndex = findToolPatchTargetIndex(messages, inline.tool, inline.runId)
+
+  if (targetIndex >= 0) {
+    const target = messages[targetIndex]
+    messages[targetIndex] = {
+      ...target,
+      runId: target.runId ?? inline.runId ?? undefined,
+      toolCalls: mergeInlineToolCalls(target.toolCalls, [inline.tool]),
+    }
+    return {
+      cursor: frame.patch.cursor,
+      messages: dedupeChatMessages(messages),
+    }
+  }
+
+  const gatewayIndex = inferToolAssistantSeqFromRun(state, inline.runId)
+  const createdAt = new Date(frame.patch.createdAtMs).toISOString()
+  messages.push({
+    messageId: inline.runId ? `live:${inline.runId}:tools` : `live:${inline.tool.id}:tools`,
+    role: "assistant",
+    text: "",
+    createdAt,
+    runId: inline.runId ?? undefined,
+    gatewayIndex,
+    toolCalls: [inline.tool],
+  })
+  return {
+    cursor: frame.patch.cursor,
+    messages: dedupeChatMessages(messages),
+  }
 }
 
 function mergeToolOnlyAssistantMessages(baseMessages: ChatMessage[], incoming: ChatMessage[], frame: PatchFrame) {
@@ -463,6 +656,8 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
       messages: state.messages.filter((message) => message.messageId !== removeId),
     }
   }
+  const toolState = applyToolPatch(state, frame)
+  if (toolState) return toolState
   const message = patchMessage(frame)
   if (!message) return { ...state, cursor: frame.patch.cursor }
   const optimisticId = patchOptimisticId(frame)

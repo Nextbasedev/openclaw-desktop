@@ -88,6 +88,9 @@ function summarizeV2Body(body: BodyInit | null | undefined): unknown {
   }
 }
 
+const chatBootstrapRequests = new Map<string, Promise<ChatBootstrapV2>>()
+const chatMessagesRequests = new Map<string, Promise<ChatMessagesPageV2>>()
+
 async function fetchJson<T>(path: string, init?: RequestInit & { schedulerPriority?: RequestPriority; schedulerSessionKey?: string | null; schedulerLabel?: string }): Promise<T> {
   const startedAt = performance.now()
   const method = (init?.method ?? "GET").toUpperCase()
@@ -137,13 +140,20 @@ async function fetchJson<T>(path: string, init?: RequestInit & { schedulerPriori
   }
 }
 
-export async function fetchChatBootstrapV2(sessionKey: string, limit = 200): Promise<ChatBootstrapV2> {
-  const params = new URLSearchParams({ sessionKey, limit: String(limit) })
-  return fetchJson<ChatBootstrapV2>(`/api/chat/bootstrap?${params.toString()}`, {
+export async function fetchChatBootstrapV2(sessionKey: string): Promise<ChatBootstrapV2> {
+  const key = `bootstrap:${sessionKey}`
+  const existing = chatBootstrapRequests.get(key)
+  if (existing) return existing
+  const params = new URLSearchParams({ sessionKey })
+  const request = fetchJson<ChatBootstrapV2>(`/api/chat/bootstrap?${params.toString()}`, {
     schedulerPriority: "active-chat",
     schedulerSessionKey: sessionKey,
     schedulerLabel: `bootstrap:${sessionKey}`,
+  }).finally(() => {
+    chatBootstrapRequests.delete(key)
   })
+  chatBootstrapRequests.set(key, request)
+  return request
 }
 
 export type ChatMessagesPageV2 = {
@@ -161,6 +171,7 @@ export type ChatMessagesPageV2 = {
     updatedAtMs: number
   }>
   messageCount: number
+  cursor?: number
 }
 
 export async function fetchChatMessagesV2(input: {
@@ -169,17 +180,22 @@ export async function fetchChatMessagesV2(input: {
   afterSeq?: number
   limit?: number
 }): Promise<ChatMessagesPageV2> {
-  const params = new URLSearchParams({
-    sessionKey: input.sessionKey,
-    limit: String(input.limit ?? 80),
-  })
+  const params = new URLSearchParams({ sessionKey: input.sessionKey })
+  if (typeof input.limit === "number") params.set("limit", String(input.limit))
   if (typeof input.beforeSeq === "number") params.set("beforeSeq", String(input.beforeSeq))
   if (typeof input.afterSeq === "number") params.set("afterSeq", String(input.afterSeq))
-  return fetchJson<ChatMessagesPageV2>(`/api/chat/messages?${params.toString()}`, {
+  const key = `messages:${params.toString()}`
+  const existing = chatMessagesRequests.get(key)
+  if (existing) return existing
+  const request = fetchJson<ChatMessagesPageV2>(`/api/chat/messages?${params.toString()}`, {
     schedulerPriority: "active-chat",
     schedulerSessionKey: input.sessionKey,
     schedulerLabel: `messages:${input.sessionKey}`,
+  }).finally(() => {
+    chatMessagesRequests.delete(key)
   })
+  chatMessagesRequests.set(key, request)
+  return request
 }
 
 export async function fetchSessionContextUsage(sessionKey: string): Promise<{

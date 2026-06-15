@@ -15,13 +15,10 @@ import { classifyGatewayMessageSemanticType, extractToolEventsFromMessage, isErr
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
-import type { ProjectedRun } from "./repo.runs.js";
 import type { OpenClawMessage, ProjectedMessage } from "./types.js";
 
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
-  limit: z.coerce.number().int().positive().max(1000).optional(),
-  maxChars: z.coerce.number().int().positive().optional(),
 });
 
 const sessionContextQuery = z.object({
@@ -29,15 +26,8 @@ const sessionContextQuery = z.object({
 });
 
 
-const STALE_BOOTSTRAP_RUN_MS = 2 * 60 * 1000;
-const STALE_BOOTSTRAP_TOOL_MS = 30 * 60 * 1000;
-const LOCAL_FIRST_FRESH_MS = 30_000;
-const LOCAL_FIRST_SQLITE_MAX_AGE_MS = 5 * 60 * 1000;
-const LOCAL_FIRST_BACKGROUND_SYNC_MIN_AGE_MS = 2 * 60 * 1000;
 const DEFAULT_CHAT_SEND_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = DEFAULT_CHAT_SEND_TIMEOUT_MS + 10_000;
-const localFirstBootstrapTimestamps = new Map<string, number>();
-const localFirstSqliteBlocked = new Set<string>();
 
 type SessionContextUsage = {
   input: number;
@@ -125,33 +115,10 @@ function withStoredTotalCacheRead(usage: SessionContextUsage | null, totalCacheR
   };
 }
 
-/** Clear local-first cache — for test isolation only. */
+/** Kept for older tests; chat bootstrap no longer uses a local-first cache. */
 export function clearLocalFirstBootstrapCache() {
-  localFirstBootstrapTimestamps.clear();
-  coldBootstrapJobs.clear();
-  // Block SQLite-first for all known sessions until next Gateway bootstrap
-  // stamps them fresh. This ensures test sequential bootstraps go to Gateway.
-  localFirstSqliteBlocked.clear();
-  // Mark all as blocked — next Gateway bootstrap will unblock
-  localFirstSqliteBlocked.add('*');
 }
-const MIN_REAL_TIMESTAMP_MS = 1_700_000_000_000;
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
-const archiveProjectionJobs = new Map<string, Promise<void>>();
-// Per-session in-flight dedupe for the cold (non-local-first) bootstrap build.
-// Mirrors archiveProjectionJobs so K concurrent first-bootstraps for the same
-// huge session collapse into ONE synchronous build instead of K parallel ones.
-type ChatBootstrapSnapshot = ReturnType<typeof buildChatBootstrapSnapshot>;
-const coldBootstrapJobs = new Map<string, Promise<ChatBootstrapSnapshot>>();
-// Above this message count we skip the per-message `messageFactorSummary` on the
-// hot bootstrap log line (it re-projects every message just to emit a log).
-const BOOTSTRAP_FACTOR_SUMMARY_LIMIT = 1500;
-// Chunk size for the final serialize loop so a huge window can't block the loop.
-const BOOTSTRAP_SERIALIZE_YIELD_EVERY = 200;
-// Default newest-message window read back for the foreground snapshot. Kept at
-// 1000 (no behavior change); `hasOlder`/older-pagination already supports a
-// smaller window if we later tune this down once verified live.
-const BOOTSTRAP_PROJECTION_LIMIT = 1000;
 
 
 // Hard cap on bytes read for a bounded (maxLines) probe so a multi-MB archive
@@ -500,38 +467,6 @@ async function persistArchivedHistorySegments(context: AppContext, sessionKey: s
   return { fileCount: archivedFiles.length, importedFiles, skippedFiles, changedFiles, upserted, projectedTools, changed: importedFiles > 0 || changedFiles > 0 };
 }
 
-function lastMessageIsAssistantText(messages: unknown[]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (!message || typeof message !== "object" || Array.isArray(message)) continue;
-    const data = message as Record<string, unknown>;
-    const role = typeof data.role === "string" ? data.role : null;
-    const text = textFromMessage(data).trim();
-    if (!role && !text) continue;
-    return projectGatewayMessage(data).assistantHasFinalText;
-  }
-  return false;
-}
-
-/** Returns true if there's any assistant message with text after the last user message. */
-function hasAssistantResponseAfterLastUser(messages: unknown[]) {
-  let lastUserIndex = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (!msg || typeof msg !== "object" || Array.isArray(msg)) continue;
-    const data = msg as Record<string, unknown>;
-    if (data.role === "user") { lastUserIndex = i; break; }
-  }
-  if (lastUserIndex < 0) return false;
-  for (let i = lastUserIndex + 1; i < messages.length; i++) {
-    const msg = messages[i];
-    if (!msg || typeof msg !== "object" || Array.isArray(msg)) continue;
-    const data = msg as Record<string, unknown>;
-    if (data.role === "assistant" && textFromMessage(data).trim().length > 0) return true;
-  }
-  return false;
-}
-
 function safeResultMeta(value: unknown, depth = 0): unknown {
   if (value === null || value === undefined) return null;
   if (typeof value === "string") {
@@ -577,137 +512,6 @@ function historyTimestampMs(message: Record<string, unknown>): number | null {
   return null;
 }
 
-function oldestRunningToolAgeMs(context: AppContext, sessionKey: string, runId: string) {
-  const startedAtMs = context.runs
-    .listRunningToolCalls(sessionKey, runId)
-    .map((tool) => tool.startedAtMs)
-    .filter((value) => Number.isFinite(value) && value >= MIN_REAL_TIMESTAMP_MS);
-  if (startedAtMs.length === 0) return null;
-  return Math.max(0, Date.now() - Math.min(...startedAtMs));
-}
-
-type InferredToolResult = {
-  status: "success" | "error";
-  finishedAtMs: number | null;
-  resultMeta: unknown;
-};
-
-type ToolResultIndex = {
-  /** First forward index of a tool-role result message carrying this toolCallId. */
-  idResultIndex: Map<string, number>;
-  /** Per-index parsed tool-role result info (null when not a tool-role message). */
-  resultInfo: Array<InferredToolResult | null>;
-  /** Suffix array: nearest index >= i that is an id-less tool result OR assistant-final. */
-  nextStopAtOrAfter: Int32Array;
-  /** historyTimestampMs per message index. */
-  finishedAtMs: Array<number | null>;
-};
-
-/**
- * Single forward pass that replaces the old O(n) per-tool `inferToolResultFromHistory`
- * scan with O(1) lookups. For 600+ tools over thousands of messages this turns the
- * old O(n²) into O(n). Yields every ~25 messages so a huge history can't freeze the loop.
- */
-async function buildToolResultIndex(messages: unknown[]): Promise<ToolResultIndex> {
-  const n = messages.length;
-  const idResultIndex = new Map<string, number>();
-  const resultInfo: Array<InferredToolResult | null> = new Array(n).fill(null);
-  const finishedAtMs: Array<number | null> = new Array(n).fill(null);
-  const isStop: boolean[] = new Array(n).fill(false);
-  for (let i = 0; i < n; i += 1) {
-    const message = messages[i];
-    if (!message || typeof message !== "object" || Array.isArray(message)) continue;
-    const data = message as Record<string, unknown>;
-    finishedAtMs[i] = historyTimestampMs(data);
-    if (data.role === "tool" || data.role === "tool_result" || data.role === "toolResult") {
-      const resultToolCallId = readToolCallId(data);
-      const resultMeta = safeResultMeta(data.result ?? data.output ?? data.text ?? data.content ?? data.message ?? data.value);
-      resultInfo[i] = {
-        status: isErrorToolResult(resultMeta) ? "error" : "success",
-        finishedAtMs: finishedAtMs[i],
-        resultMeta,
-      };
-      if (resultToolCallId) {
-        if (!idResultIndex.has(resultToolCallId)) idResultIndex.set(resultToolCallId, i);
-      } else {
-        // Id-less tool result — matches the next tool call forward (original behavior).
-        isStop[i] = true;
-      }
-    } else if (projectGatewayMessage(data).assistantHasFinalText) {
-      isStop[i] = true;
-    }
-    if (i % 25 === 24) await yieldToEventLoop();
-  }
-  const nextStopAtOrAfter = new Int32Array(n + 1).fill(-1);
-  for (let i = n - 1; i >= 0; i -= 1) {
-    nextStopAtOrAfter[i] = isStop[i] ? i : nextStopAtOrAfter[i + 1];
-  }
-  return { idResultIndex, resultInfo, nextStopAtOrAfter, finishedAtMs };
-}
-
-/** O(1) replacement for the forward scan: nearest of {matching-id result, id-less result, assistant-final}. */
-function resolveInferredToolResult(index: ToolResultIndex, messageIndex: number, toolCallId: string): InferredToolResult | null {
-  const idIdxRaw = index.idResultIndex.get(toolCallId);
-  const idIdx = idIdxRaw !== undefined && idIdxRaw > messageIndex ? idIdxRaw : -1;
-  const stopIdxRaw = messageIndex + 1 < index.nextStopAtOrAfter.length ? index.nextStopAtOrAfter[messageIndex + 1] : -1;
-  const stopIdx = stopIdxRaw;
-  if (idIdx >= 0 && (stopIdx < 0 || idIdx <= stopIdx)) {
-    return index.resultInfo[idIdx];
-  }
-  if (stopIdx >= 0) {
-    const info = index.resultInfo[stopIdx];
-    if (info) return info; // id-less tool result
-    // assistant-final fallback
-    return { status: "success", finishedAtMs: index.finishedAtMs[stopIdx], resultMeta: undefined };
-  }
-  return null;
-}
-
-async function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messages: unknown[], run: ProjectedRun | null, completed: boolean) {
-  let inferred = 0;
-  const index = await buildToolResultIndex(messages);
-  for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
-    const message = messages[messageIndex];
-    if (!message || typeof message !== "object" || Array.isArray(message)) continue;
-    const data = message as Record<string, unknown>;
-    if (data.role !== "assistant") continue;
-    const openclaw = objectData(data.__openclaw);
-    const messageId = typeof openclaw.id === "string" ? openclaw.id : typeof data.id === "string" ? data.id : typeof data.messageId === "string" ? data.messageId : null;
-    for (const toolEvent of projectGatewayMessage(data).toolEvents) {
-      if (toolEvent.phase !== "calling" && toolEvent.phase !== "start") continue;
-      const toolCallId = toolEvent.toolCallId;
-      const name = toolEvent.name;
-      if (!toolCallId || !name) continue;
-      const existingTool = context.runs.getToolCall(sessionKey, toolCallId);
-      if (existingTool?.runId && existingTool.runId !== run?.runId) continue;
-      // Do not adopt old detached tool rows into a newly active run during
-      // bootstrap. Old middleware versions persisted some inferred tools without
-      // a run_id; if those rows are replayed after a fresh user send, assigning
-      // them to the current run resurrects ancient tool cards as live activity.
-      if (existingTool && !existingTool.runId && run && existingTool.startedAtMs < run.startedAtMs - 1000) continue;
-      const result = resolveInferredToolResult(index, messageIndex, toolCallId) ?? (completed
-        ? { status: "success" as const, finishedAtMs: historyTimestampMs(data), resultMeta: undefined }
-        : null);
-      context.runs.upsertToolCall({
-        sessionKey,
-        toolCallId,
-        runId: run?.runId ?? null,
-        messageId,
-        name,
-        phase: result ? "result" : "calling",
-        status: result?.status,
-        argsMeta: toolEvent.args,
-        resultMeta: result?.resultMeta,
-        startedAtMs: historyTimestampMs(data) ?? undefined,
-        finishedAtMs: result?.finishedAtMs ?? undefined,
-      });
-      inferred += 1;
-    }
-    if (messageIndex % 25 === 24) await yieldToEventLoop();
-  }
-  return inferred;
-}
-
 type ChatHistoryResponse = {
   sessionKey?: string;
   sessionId?: string;
@@ -737,10 +541,6 @@ function attachmentMetadata(raw: unknown) {
       };
     }),
   };
-}
-
-function isTerminalSendStatus(status: unknown) {
-  return typeof status === "string" && ["done", "complete", "completed", "success", "succeeded", "finished"].includes(status.trim().toLowerCase());
 }
 
 function assistantHasVisibleAnswer(message: ProjectedMessage) {
@@ -854,109 +654,6 @@ export async function prewarmArchivedHistory(context: AppContext, sessionKey: st
   } catch {
     return { ok: false, reason: "error" };
   }
-}
-
-function scheduleArchivedHistoryProjection(params: {
-  context: AppContext;
-  log: ReturnType<typeof createLogger>;
-  sessionKey: string;
-  history: ChatHistoryResponse;
-}) {
-  const existing = archiveProjectionJobs.get(params.sessionKey);
-  if (existing) {
-    params.log.info("bootstrap.archived-history.schedule.skip", { sessionKey: params.sessionKey, reason: "already-running" });
-    return existing;
-  }
-  const job = new Promise<void>((resolve, reject) => {
-    setImmediate(async () => {
-      try {
-        if (!params.context.db.open) {
-          resolve();
-          return;
-        }
-        const startedAtMs = nowMs();
-        params.log.info("bootstrap.archived-history.background.start", { sessionKey: params.sessionKey });
-        const archivedProjection = await persistArchivedHistorySegments(params.context, params.sessionKey, params.history);
-        if (archivedProjection.fileCount > 0) {
-          params.log.info("bootstrap.archived-history.persist", {
-            sessionKey: params.sessionKey,
-            archivedFiles: archivedProjection.fileCount,
-            importedFiles: archivedProjection.importedFiles,
-            skippedFiles: archivedProjection.skippedFiles,
-            changedFiles: archivedProjection.changedFiles,
-            upserted: archivedProjection.upserted,
-            projectedTools: archivedProjection.projectedTools,
-            background: true,
-          });
-        }
-        const resequence = archivedProjection.changed
-          ? params.context.messages.resequenceSessionMessages(params.sessionKey)
-          : { changedMessages: 0, changedSegments: 0 };
-        if (resequence.changedMessages > 0 || resequence.changedSegments > 0) {
-          params.log.info("bootstrap.messages.resequence", {
-            sessionKey: params.sessionKey,
-            changedMessages: resequence.changedMessages,
-            changedSegments: resequence.changedSegments,
-            background: true,
-          });
-        }
-        // Lazy backfill for sessions imported BEFORE 0014 (messages projected but
-        // zero tool rows). Idempotent + bounded; only runs when the session has no
-        // tool rows at all, so post-0014 imports skip it.
-        let backfilledTools = 0;
-        if (params.context.db.open && params.context.runs.countToolCalls(params.sessionKey) === 0) {
-          backfilledTools = await backfillArchivedToolCalls(params.context, params.sessionKey);
-          if (backfilledTools > 0) {
-            params.log.info("bootstrap.archived-history.tools.backfill", { sessionKey: params.sessionKey, backfilledTools });
-          }
-        }
-        // Broadcast a bootstrap-refresh event so the UI knows archived
-        // messages (and now tool cards) are available and can refetch/update.
-        if ((archivedProjection.changed || backfilledTools > 0) && params.context.db.open) {
-          const projectedMessages = params.context.messages.listMessages(params.sessionKey, { limit: 1000, latest: true });
-          const refreshEvent = params.context.messages.appendProjectionEvent({
-            sessionKey: params.sessionKey,
-            eventType: "chat.bootstrap",
-            payload: { sessionKey: params.sessionKey, messageCount: projectedMessages.length, backgroundArchiveImport: true },
-          });
-          params.context.patchBus.broadcast({
-            cursor: refreshEvent.cursor,
-            type: refreshEvent.eventType,
-            sessionKey: refreshEvent.sessionKey,
-            payload: refreshEvent.payload,
-            createdAtMs: refreshEvent.createdAtMs,
-          });
-          params.log.info("bootstrap.archived-history.background.broadcast", {
-            sessionKey: params.sessionKey,
-            cursor: refreshEvent.cursor,
-            messageCount: projectedMessages.length,
-          });
-        }
-        params.log.info("bootstrap.archived-history.background.end", {
-          sessionKey: params.sessionKey,
-          durationMs: elapsedMs(startedAtMs),
-          changed: archivedProjection.changed,
-          importedFiles: archivedProjection.importedFiles,
-          changedFiles: archivedProjection.changedFiles,
-          upserted: archivedProjection.upserted,
-          resequencedMessages: resequence.changedMessages,
-          resequencedSegments: resequence.changedSegments,
-        });
-        resolve();
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }).catch((error) => {
-    params.log.warn("bootstrap.archived-history.background.fail", {
-      sessionKey: params.sessionKey,
-      error: errorMeta(error),
-    });
-  }).finally(() => {
-    if (archiveProjectionJobs.get(params.sessionKey) === job) archiveProjectionJobs.delete(params.sessionKey);
-  });
-  archiveProjectionJobs.set(params.sessionKey, job);
-  return job;
 }
 
 export async function registerChatRoutes(app: FastifyInstance, context: AppContext) {
@@ -1555,199 +1252,17 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       throw new HttpError(400, "Invalid chat bootstrap query", "INVALID_QUERY", parsed.error.flatten());
     }
     const bootstrapStartedAtMs = nowMs();
-    const staleCleanup = context.runs.finalizeStaleActivity();
-    if (staleCleanup.runsFinalized || staleCleanup.toolsFinalized || staleCleanup.detachedToolsFinalized) {
-      log.warn("bootstrap.stale-activity-finalized", { sessionKey: parsed.data.sessionKey, ...staleCleanup });
-    }
-    log.info("bootstrap.start", { sessionKey: parsed.data.sessionKey, limit: parsed.data.limit, hasMaxChars: parsed.data.maxChars !== undefined });
-
-    // ── Local-first fast path ──
-    // Serve from local SQLite projection immediately when:
-    //   1. Session exists in SQLite with messages, AND
-    //   2. Either: recently bootstrapped in-memory (within 30s)
-    //      OR: SQLite data is recent (<5min) AND Gateway is connected
-    //          (live patch stream keeps SQLite up-to-date)
-    const localSession = context.messages.getSession(parsed.data.sessionKey);
-    const lastBootstrapAt = localFirstBootstrapTimestamps.get(parsed.data.sessionKey) ?? 0;
-    const inMemoryFresh = lastBootstrapAt > 0 && (nowMs() - lastBootstrapAt) < LOCAL_FIRST_FRESH_MS;
-    const gatewayConnected = context.gateway.status().connected;
-    // When Gateway is connected, live events keep SQLite current — any existing
-    // data is valid regardless of age. Only check age when disconnected.
-    const canServeFromSqlite = Boolean(
-      !localFirstSqliteBlocked.has('*') &&
-      localSession &&
-      (gatewayConnected || (nowMs() - localSession.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS)
-    );
-    const shouldServeLocal = inMemoryFresh || canServeFromSqlite;
-    const requestedBootstrapLimit = parsed.data.limit ?? 1000;
-    let localMessages = localSession && shouldServeLocal
-      ? context.messages.listMessages(parsed.data.sessionKey, { limit: requestedBootstrapLimit, latest: true })
-      : [];
-
-    const localOldestSeq = localMessages.length > 0 ? (localMessages[0]?.openclawSeq ?? null) : null;
-    const localWindowIncomplete = Boolean(
-      localSession &&
-      shouldServeLocal &&
-      gatewayConnected &&
-      localMessages.length > 0 &&
-      localMessages.length < requestedBootstrapLimit &&
-      typeof localOldestSeq === "number" &&
-      localOldestSeq > 1
-    );
-
-    if (localWindowIncomplete) {
-      const oldestLoadedSeq = localOldestSeq as number;
-      const latestSeq = context.messages.nextMessageSeq(parsed.data.sessionKey) - 1;
-      const backfillLimit = Math.min(1000, Math.max(requestedBootstrapLimit, latestSeq - oldestLoadedSeq + requestedBootstrapLimit));
-      try {
-        const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
-          sessionKey: parsed.data.sessionKey,
-          limit: backfillLimit,
-        });
-        const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
-        const rawMessages = history.messages ?? [];
-        const normalized = normalizeHistoryMessages(sessionKey, rawMessages);
-        if (normalized.length > 0) {
-          const existingSession = context.messages.getSession(sessionKey);
-          const segment = context.messages.ensureActiveSegment({
-            sessionKey,
-            sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
-            sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
-          });
-          const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-          if (projection.upserted > 0) {
-            const event = context.messages.appendProjectionEvent({
-              sessionKey,
-              eventType: "chat.bootstrap",
-              payload: {
-                sessionKey,
-                messageCount: context.messages.countMessages(sessionKey),
-                lastSeq: context.messages.nextMessageSeq(sessionKey) - 1,
-                historyCoverage: "metadata",
-                fullMessagesIncluded: false,
-                hasOlder: true,
-                bootstrapBackfill: true,
-              },
-            });
-            context.patchBus.broadcast({ cursor: event.cursor, type: event.eventType, sessionKey, payload: event.payload, createdAtMs: event.createdAtMs });
-          }
-          localMessages = context.messages.listMessages(parsed.data.sessionKey, { limit: requestedBootstrapLimit, latest: true });
-          log.info("bootstrap.local-first.backfill", {
-            sessionKey,
-            requestedBootstrapLimit,
-            backfillLimit,
-            oldestLoadedSeq,
-            normalized: normalized.length,
-            upserted: projection.upserted,
-            returnedMessageCount: localMessages.length,
-          });
-        }
-      } catch (error) {
-        log.warn("bootstrap.local-first.backfill.fail", { sessionKey: parsed.data.sessionKey, requestedBootstrapLimit, oldestLoadedSeq, error: errorMeta(error) });
-      }
-    }
-
-    const canServeLocal = Boolean(localSession && localMessages.length > 0 && shouldServeLocal);
-
-    if (canServeLocal) {
-      const serialized = localMessages.map(serializeProjectedMessage);
-      const sessionData = objectData(localSession!.data);
-      const cursor = context.messages.latestSessionCursor(parsed.data.sessionKey);
-      log.info("bootstrap.local-first", {
-        sessionKey: parsed.data.sessionKey,
-        messageCount: serialized.length,
-        reason: inMemoryFresh ? "in-memory-fresh" : "sqlite-fresh-gateway-connected",
-        sqliteAgeMs: localSession ? nowMs() - localSession.updatedAtMs : null,
-        gatewayConnected,
-        cursor,
-        durationMs: elapsedMs(bootstrapStartedAtMs),
-      });
-      // Background Gateway sync is intentionally throttled. When Gateway is
-      // connected, live patches keep SQLite current; firing chat.history for
-      // every local-first bootstrap caused desktop startup / space switches to
-      // queue dozens of Gateway calls and made the app feel frozen.
-      const localAgeMs = localSession ? nowMs() - localSession.updatedAtMs : Number.POSITIVE_INFINITY;
-      const shouldBackgroundSync =
-        !inMemoryFresh &&
-        gatewayConnected &&
-        localAgeMs > LOCAL_FIRST_BACKGROUND_SYNC_MIN_AGE_MS;
-      if (shouldBackgroundSync) {
-        void (async () => {
-          try {
-            const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
-              sessionKey: parsed.data.sessionKey,
-              ...(parsed.data.limit ? { limit: parsed.data.limit } : {}),
-            });
-            const sk = history.sessionKey ?? parsed.data.sessionKey;
-            const msgs = history.messages ?? [];
-            const normalized = normalizeHistoryMessages(sk, msgs);
-            const segment = context.messages.ensureActiveSegment({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null });
-            context.messages.upsertSession({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, data: { ...sessionData, ...(history.status ? { status: history.status } : {}) } });
-            const proj = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-            const activeRun = context.runs.findLatestPendingRun(sk);
-            const pruned = activeRun ? 0 : context.messages.pruneSegmentToCanonicalMessages({ sessionKey: sk, segmentId: segment.segmentId, baseSeq: segment.baseSeq, canonicalMessages: normalized });
-            if (proj.upserted > 0 || pruned > 0) {
-              const total = context.messages.countMessages(sk);
-              const newEvent = context.messages.appendProjectionEvent({ sessionKey: sk, eventType: "chat.bootstrap", payload: { sessionKey: sk, messageCount: total, lastSeq: context.messages.nextMessageSeq(sk) - 1, backgroundRefresh: true, pruned } });
-              context.patchBus.broadcast({ cursor: newEvent.cursor, type: newEvent.eventType, sessionKey: sk, payload: newEvent.payload, createdAtMs: newEvent.createdAtMs });
-              log.info("bootstrap.background-sync.changed", { sessionKey: sk, upserted: proj.upserted, pruned, cursor: newEvent.cursor });
-            } else {
-              log.info("bootstrap.background-sync.unchanged", { sessionKey: sk, pruned });
-            }
-            localFirstBootstrapTimestamps.set(sk, Date.now());
-          } catch (error) {
-            log.warn("bootstrap.background-sync.fail", { sessionKey: parsed.data.sessionKey, error: errorMeta(error) });
-          }
-        })();
-      } else {
-        log.info("bootstrap.background-sync.skip", {
-          sessionKey: parsed.data.sessionKey,
-          reason: inMemoryFresh ? "in-memory-fresh" : gatewayConnected ? "sqlite-recent" : "gateway-disconnected",
-          sqliteAgeMs: Number.isFinite(localAgeMs) ? localAgeMs : null,
-        });
-      }
-      void context.chatLive.ensureSessionSubscribed(parsed.data.sessionKey).catch(() => {});
-      const totalMessages = context.messages.countMessages(parsed.data.sessionKey);
-      const oldestSeq = serialized.length > 0 ? (localMessages[0]?.openclawSeq ?? null) : null;
-      return buildChatBootstrapSnapshot(context, {
-        sessionKey: parsed.data.sessionKey,
-        sessionId: localSession!.sessionId,
-        sessionData,
-        messages: serialized,
-        messageCount: serialized.length,
-        knownTotalMessages: totalMessages,
-        oldestLoadedSeq: typeof oldestSeq === "number" ? oldestSeq : undefined,
-        cursor,
-        projection: { upserted: 0, lastSeq: context.messages.nextMessageSeq(parsed.data.sessionKey) - 1, liveSubscribed: false },
-      });
-    }
-    // ── End local-first fast path ──
-
-    // Per-session in-flight dedupe (mirrors archiveProjectionJobs): collapse K
-    // concurrent cold first-bootstraps for the same session into ONE build so a
-    // huge session can't run the full synchronous chain K times in parallel.
-    const coldKey = parsed.data.sessionKey;
-    const existingColdJob = coldBootstrapJobs.get(coldKey);
-    if (existingColdJob) {
-      log.info("bootstrap.cold.dedupe", { sessionKey: coldKey, durationMs: elapsedMs(bootstrapStartedAtMs) });
-      return existingColdJob;
-    }
-    const coldJob = (async (): Promise<ChatBootstrapSnapshot> => {
+    log.info("bootstrap.start", { sessionKey: parsed.data.sessionKey });
     const gatewayHistoryStartedAtMs = nowMs();
     const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
       sessionKey: parsed.data.sessionKey,
-      ...(parsed.data.limit ? { limit: parsed.data.limit } : {}),
-      ...(parsed.data.maxChars ? { maxChars: parsed.data.maxChars } : {}),
     });
     const historyMessageCount = history.messages?.length ?? 0;
-    log.info("bootstrap.gateway.history", { sessionKey: history.sessionKey ?? parsed.data.sessionKey, sessionId: history.sessionId ?? null, durationMs: elapsedMs(gatewayHistoryStartedAtMs), messageFactors: historyMessageCount <= BOOTSTRAP_FACTOR_SUMMARY_LIMIT ? messageFactorSummary(history.messages ?? []) : { total: historyMessageCount, summarySkipped: true }, status: history.status ?? null });
+    log.info("bootstrap.gateway.history", { sessionKey: history.sessionKey ?? parsed.data.sessionKey, sessionId: history.sessionId ?? null, durationMs: elapsedMs(gatewayHistoryStartedAtMs), messageCount: historyMessageCount, status: history.status ?? null });
 
     const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
     const messages = history.messages ?? [];
     const normalized = normalizeHistoryMessages(sessionKey, messages);
-    // Yield after the (synchronous) normalize so concurrent requests (incl. /health)
-    // are served before the heavy SQLite stages start.
-    await yieldToEventLoop();
     const existingSession = context.messages.getSession(sessionKey);
     const segment = context.messages.ensureActiveSegment({
       sessionKey,
@@ -1770,103 +1285,34 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
     log.info("bootstrap.session.persist", { sessionKey, sessionId: history.sessionId ?? existingSession?.sessionId ?? null, status: typeof sessionData.status === "string" ? sessionData.status : null });
     const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-    await yieldToEventLoop();
     const bootstrapPruned = context.runs.findLatestPendingRun(sessionKey) ? 0 : context.messages.pruneSegmentToCanonicalMessages({ sessionKey, segmentId: segment.segmentId, baseSeq: segment.baseSeq, canonicalMessages: normalized });
-    await yieldToEventLoop();
     const bootstrapLastSeq = context.messages.nextMessageSeq(sessionKey) - 1;
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, pruned: bootstrapPruned, lastSeq: bootstrapLastSeq });
-    void scheduleArchivedHistoryProjection({ context, log, sessionKey, history });
 
-    const latestRun = context.runs.latestRun(sessionKey);
-    const activeRun = context.runs.findLatestPendingRun(sessionKey);
-    const bootstrapCompleted = isTerminalSendStatus(sessionData.status) || lastMessageIsAssistantText(messages);
-    const inferenceRun = activeRun ?? latestRun;
-    const inferredToolCount = await inferBootstrapToolCalls(context, sessionKey, messages, inferenceRun ?? null, bootstrapCompleted);
-    if (inferredToolCount > 0) log.info("bootstrap.tools.inferred", { sessionKey, inferredToolCount, runId: inferenceRun?.runId ?? null, completed: bootstrapCompleted });
-    if (activeRun && context.runs.hasRunningTools(sessionKey, activeRun.runId)) {
-      context.runs.updateRunStatus(activeRun.runId, "tool_running", { statusLabel: context.runs.listRunningToolCalls(sessionKey, activeRun.runId)[0]?.name ?? activeRun.statusLabel ?? null });
-    }
-
-    if (activeRun) {
-      const finalizedPreRunTools = context.runs.completeRunningToolsStartedBefore(sessionKey, activeRun.runId, activeRun.startedAtMs - 1000, {
-        status: "success",
-      });
-      if (finalizedPreRunTools > 0) {
-        log.warn("bootstrap.stale-prerun-tools-finalized", { sessionKey, runId: activeRun.runId, finalizedTools: finalizedPreRunTools, runStartedAtMs: activeRun.startedAtMs });
-        if (activeRun.status === "tool_running" && !context.runs.hasRunningTools(sessionKey, activeRun.runId)) {
-          context.runs.updateRunStatus(activeRun.runId, "streaming", { statusLabel: "Streaming" });
-        }
-      }
-    }
-
-    if (activeRun) {
-      const staleRunMs = Date.now() - activeRun.updatedAtMs;
-      const staleToolMs = oldestRunningToolAgeMs(context, sessionKey, activeRun.runId);
-      const shouldFinalizeStaleRun =
-        (staleRunMs > STALE_BOOTSTRAP_RUN_MS && (lastMessageIsAssistantText(messages) || hasAssistantResponseAfterLastUser(messages))) ||
-        (staleToolMs !== null && staleToolMs > STALE_BOOTSTRAP_TOOL_MS);
-      if (shouldFinalizeStaleRun) {
-        const reason = staleToolMs !== null && staleToolMs > STALE_BOOTSTRAP_TOOL_MS
-          ? "stale_bootstrap_tool_replay"
-          : "stale_bootstrap_after_assistant_final";
-        const finalizedTools = context.runs.completeRunningTools(sessionKey, activeRun.runId, {
-          status: "success",
-        });
-        context.runs.updateRunStatus(activeRun.runId, "done", { statusLabel: null });
-        sessionData.status = "done";
-        sessionData.statusLabel = null;
-        context.messages.upsertSession({
-          sessionKey,
-          sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
-          data: sessionData,
-        });
-        log.warn("bootstrap.stale-run-finalized", { sessionKey, runId: activeRun.runId, previousStatus: activeRun.status, finalizedTools, staleMs: staleRunMs, staleToolMs, reason });
-      }
-    }
-
-    const projectionLimit = parsed.data.limit ?? BOOTSTRAP_PROJECTION_LIMIT;
-    const rawProjected = context.messages.listMessages(sessionKey, { limit: projectionLimit, latest: true });
-    const projectedMessages: ReturnType<typeof serializeProjectedMessage>[] = [];
-    for (let i = 0; i < rawProjected.length; i += 1) {
-      projectedMessages.push(serializeProjectedMessage(rawProjected[i]!));
-      // Chunk the serialize so a 1000-message window can't block the event loop.
-      if (i % BOOTSTRAP_SERIALIZE_YIELD_EVERY === BOOTSTRAP_SERIALIZE_YIELD_EVERY - 1) await yieldToEventLoop();
-    }
-    log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length, limit: projectionLimit });
+    const rawProjected = context.messages.listAllMessages(sessionKey);
+    const projectedMessages = rawProjected.map(serializeProjectedMessage);
+    log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length });
     void context.chatLive.ensureSessionSubscribed(sessionKey).catch((error) => {
       log.warn("bootstrap.live-subscribe.background.fail", { sessionKey, error: errorMeta(error) });
     });
     context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.bootstrap",
-      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "metadata", fullMessagesIncluded: false, pruned: bootstrapPruned },
+      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "full", fullMessagesIncluded: true, pruned: bootstrapPruned },
     });
-    localFirstBootstrapTimestamps.set(sessionKey, nowMs());
-    localFirstSqliteBlocked.delete('*');
     const sessionCursor = context.messages.latestSessionCursor(sessionKey);
     log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: sessionCursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: "background" } });
 
-    const totalMessages = context.messages.countMessages(sessionKey);
-    const oldestSeq = projectedMessages.length > 0 ? ((projectedMessages[0] as { __openclaw?: { seq?: number } }).__openclaw?.seq ?? null) : null;
     return buildChatBootstrapSnapshot(context, {
       sessionKey,
       sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
       sessionData,
       messages: projectedMessages,
       messageCount: projectedMessages.length,
-      knownTotalMessages: totalMessages,
-      oldestLoadedSeq: typeof oldestSeq === "number" ? oldestSeq : undefined,
       cursor: sessionCursor,
       projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: false },
       historyMeta: { thinkingLevel: history.thinkingLevel, fastMode: history.fastMode, verboseLevel: history.verboseLevel },
     });
-    })().finally(() => {
-      // On success OR failure clear the entry so a bad build can't wedge future
-      // callers; awaiters still receive the same resolved snapshot or rejection.
-      if (coldBootstrapJobs.get(coldKey) === coldJob) coldBootstrapJobs.delete(coldKey);
-    });
-    coldBootstrapJobs.set(coldKey, coldJob);
-    return coldJob;
   });
 
   app.get("/api/chat/messages", async (request) => {
@@ -1879,52 +1325,21 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     if (!parsed.success) {
       throw new HttpError(400, "Invalid chat messages query", "INVALID_QUERY", parsed.error.flatten());
     }
-    log.info("messages.read.start", { sessionKey: parsed.data.sessionKey, afterSeq: parsed.data.afterSeq ?? 0, beforeSeq: parsed.data.beforeSeq ?? null, limit: parsed.data.limit });
-    let messages = context.messages.listMessages(parsed.data.sessionKey, {
-      afterSeq: parsed.data.afterSeq,
-      beforeSeq: parsed.data.beforeSeq,
-      limit: parsed.data.limit,
-    });
-    if (messages.length === 0 && typeof parsed.data.beforeSeq === "number" && parsed.data.beforeSeq > 1) {
-      const latestSeq = context.messages.nextMessageSeq(parsed.data.sessionKey) - 1;
-      const requestedLimit = parsed.data.limit ?? 80;
-      const backfillLimit = Math.min(1000, Math.max(requestedLimit, latestSeq - parsed.data.beforeSeq + requestedLimit));
-      try {
-        const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
-          sessionKey: parsed.data.sessionKey,
-          limit: backfillLimit,
-        });
-        const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
-        const rawMessages = history.messages ?? [];
-        const normalized = normalizeHistoryMessages(sessionKey, rawMessages);
-        if (normalized.length > 0) {
-          const existingSession = context.messages.getSession(sessionKey);
-          const segment = context.messages.ensureActiveSegment({
-            sessionKey,
-            sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
-            sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
-          });
-          const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-          if (projection.upserted > 0) {
-            const event = context.messages.appendProjectionEvent({
-              sessionKey,
-              eventType: "chat.bootstrap",
-              payload: { sessionKey, messageCount: context.messages.countMessages(sessionKey), lastSeq: context.messages.nextMessageSeq(sessionKey) - 1, historyCoverage: "metadata", fullMessagesIncluded: false, hasOlder: true, olderBackfill: true },
-            });
-            context.patchBus.broadcast({ cursor: event.cursor, type: event.eventType, sessionKey, payload: event.payload, createdAtMs: event.createdAtMs });
-          }
-          messages = context.messages.listMessages(parsed.data.sessionKey, {
-            afterSeq: parsed.data.afterSeq,
-            beforeSeq: parsed.data.beforeSeq,
-            limit: parsed.data.limit,
-          });
-          log.info("messages.gateway-backfill", { sessionKey, beforeSeq: parsed.data.beforeSeq, requestedLimit, backfillLimit, normalized: normalized.length, upserted: projection.upserted, returnedMessageCount: messages.length });
-        }
-      } catch (error) {
-        log.warn("messages.gateway-backfill.fail", { sessionKey: parsed.data.sessionKey, beforeSeq: parsed.data.beforeSeq, error: errorMeta(error) });
-      }
-    }
-    log.info("messages.read.end", { sessionKey: parsed.data.sessionKey, messageCount: messages.length });
+    log.info("messages.read.start", { sessionKey: parsed.data.sessionKey, afterSeq: parsed.data.afterSeq ?? null, beforeSeq: parsed.data.beforeSeq ?? null, limit: parsed.data.limit });
+    const hasWindowQuery =
+      parsed.data.afterSeq !== undefined ||
+      parsed.data.beforeSeq !== undefined ||
+      parsed.data.limit !== undefined;
+    const messages = hasWindowQuery
+      ? context.messages.listMessages(parsed.data.sessionKey, {
+          afterSeq: parsed.data.afterSeq,
+          beforeSeq: parsed.data.beforeSeq,
+          limit: parsed.data.limit,
+        })
+      : context.messages.listAllMessages(parsed.data.sessionKey);
+    // Chat screen rebuild: older-message remote refill is disabled with the old virtualized loader.
+    const sessionCursor = context.messages.latestSessionCursor(parsed.data.sessionKey);
+    log.info("messages.read.end", { sessionKey: parsed.data.sessionKey, messageCount: messages.length, cursor: sessionCursor });
     return {
       ok: true,
       source: "middleware-projection",
@@ -1940,6 +1355,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         updatedAtMs: message.updatedAtMs,
       })),
       messageCount: messages.length,
+      cursor: sessionCursor,
     };
   });
 

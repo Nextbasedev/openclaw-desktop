@@ -26,11 +26,12 @@ describe("ChatView tool display grouping", () => {
 
     const { grouped, suppressed } = groupAssistantToolCallsByMessage(messages)
 
-    expect(grouped.get("a-tools-1")).toMatchObject([
+    expect(grouped.get("a-text")).toMatchObject([
       { id: "memory", tool: "memory_search" },
       { id: "read", tool: "read" },
       { id: "grep", tool: "grep" },
     ])
+    expect(suppressed.has("a-tools-1")).toBe(true)
     expect(suppressed.has("a-tools-2")).toBe(true)
   })
 
@@ -55,7 +56,7 @@ describe("ChatView tool display grouping", () => {
     expect(suppressed.has("a-final-with-tools")).toBe(false)
   })
 
-  test("starts a new steps block after assistant text so later running tools do not relabel old answers", () => {
+  test("keeps late same-turn tools with the assistant answer instead of a separate stack", () => {
     const messages: ChatMessage[] = [
       { messageId: "u1", role: "user", text: "check project" },
       {
@@ -75,9 +76,12 @@ describe("ChatView tool display grouping", () => {
 
     const { grouped, suppressed } = groupAssistantToolCallsByMessage(messages)
 
-    expect(grouped.get("a-tools-1")).toMatchObject([{ id: "read", status: "success" }])
-    expect(grouped.get("a-tools-late")).toMatchObject([{ id: "exec", status: "running" }])
-    expect(suppressed.size).toBe(0)
+    expect(grouped.get("a-text")).toMatchObject([
+      { id: "read", status: "success" },
+      { id: "exec", status: "running" },
+    ])
+    expect(suppressed.has("a-tools-1")).toBe(true)
+    expect(suppressed.has("a-tools-late")).toBe(true)
   })
 
   test("starts a new steps block after the next user message", () => {
@@ -134,7 +138,7 @@ describe("ChatView tool display grouping", () => {
 
     const { grouped } = groupAssistantToolCallsByMessage(messages)
 
-    expect(grouped.get("a-tools-done")?.[0]).toMatchObject({
+    expect(grouped.get("a-final")?.[0]).toMatchObject({
       id: "exec",
       status: "success",
       duration: "2.0s",

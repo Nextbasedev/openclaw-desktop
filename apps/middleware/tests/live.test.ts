@@ -864,6 +864,47 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("broadcasts live assistant deltas from Gateway agent text events", async () => {
+    const app = await createApp(config("agent-assistant-text-events"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", gatewayRunId: "gw-run-1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "agent.event",
+      payload: {
+        sessionKey: "s1",
+        runId: "gw-run-1",
+        stream: "response",
+        data: { delta: "Hel" },
+      },
+    });
+    listener({
+      type: "event",
+      event: "agent",
+      payload: {
+        sessionKey: "s1",
+        runId: "gw-run-1",
+        stream: "response",
+        data: { content: [{ type: "text", text: "lo" }] },
+      },
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const patches = replay.json().patches as Array<{ type: string; payload?: { semanticType?: string; message?: { text?: string } } }>;
+    const textPatches = patches.filter((patch) => patch.type === "chat.message.upsert" && patch.payload?.semanticType === "chat.assistant.delta");
+    expect(textPatches.map((patch) => patch.payload?.message?.text)).toEqual(["Hel", "Hello"]);
+    await app.close();
+  });
+
   test("does not infer missing result for previous sequential tool when the next tool starts", async () => {
     const app = await createApp(config("sequential-tool-no-inferred-result"));
     const context = contextOf(app);

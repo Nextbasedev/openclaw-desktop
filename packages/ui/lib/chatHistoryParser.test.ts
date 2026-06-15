@@ -307,6 +307,27 @@ describe("parseChatHistory", () => {
     )
   })
 
+  it("normalizes legacy role aliases before rendering history", () => {
+    const parsed = parseChatHistory([
+      {
+        role: "human",
+        text: "hey\\",
+        __openclaw: { id: "u1", seq: 1, gatewaySeq: 1 },
+      },
+      {
+        role: "ai",
+        text: "Done.",
+        __openclaw: { id: "a1", seq: 2, gatewaySeq: 2 },
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 2)
+    assert.equal(parsed.messages[0]?.role, "user")
+    assert.equal(parsed.messages[0]?.text, "hey\\")
+    assert.equal(parsed.messages[1]?.role, "assistant")
+    assert.equal(parsed.messages[1]?.text, "Done.")
+  })
+
   it("does not create visible messages for gateway-only user entries", () => {
     const parsed = parseChatHistory([
       {

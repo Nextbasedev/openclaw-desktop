@@ -1,54 +1,28 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
-import { useChatMessages } from "@/hooks/useChatMessages"
-import { useChatMessageSlice } from "@/hooks/useChatMessageSlice"
-
-import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
-import { MessageBubble, TypingDots } from "./MessageBubble"
-import { ToolCallSteps } from "./ToolCallSteps"
-import { ChatSearch } from "./ChatSearch"
-import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
-import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
-import { dedupeSpawnedSubagents } from "@/lib/chat-engine-v2/store"
-import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
-import { logChatScrollDebug } from "./chatScrollDebug"
-import {
-  computeOffsets,
-  computeVisibleRange,
-  findRowOffset,
-  offsetBasedScrollRestoration,
-  type RowOffset,
-} from "./viewportWindow"
-
-import { ThinkingBlock } from "./ThinkingBlock"
-import { SubagentCard } from "./SubagentCard"
-import { SubagentFullChat } from "./SubagentFullChat"
-import { PinnedMessagesPopover } from "./PinnedMessagesPopover"
-import { MessageFeedbackDialog } from "./MessageFeedbackDialog"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
-import { fetchSessionContextUsage } from "@/lib/chat-engine-v2/client"
-import { normalizeSessionTokenUsage, type SessionTokenUsage } from "@/lib/sessionContextUsage"
-import { type ChatComposerSubmit } from "@/lib/chatAttachments"
-import { isSubagentSessionKey } from "@/lib/subagentSession"
-import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
-  exportMessagesMarkdown,
-  initialMessageActionState,
-  messageActionReducer,
-  pinnedMessages,
-  visibleMessages,
-} from "@/lib/messageActions"
-import { invoke } from "@/lib/ipc"
-import { dedupeRequest } from "@/lib/requestDedupe"
-import { resolveExecApprovalV2 } from "@/lib/chat-engine-v2/client"
-import { emit } from "@/lib/events"
+  abortChatV2,
+  fetchChatMessagesV2,
+  openPatchStreamV2,
+  resolveExecApprovalV2,
+  sendChatV2,
+} from "@/lib/chat-engine-v2/client"
+import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "@/lib/chat-engine-v2/applyPatches"
+import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
+import type { PatchFrame } from "@/lib/chat-engine-v2/types"
+import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParser"
+import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { frontendLog } from "@/lib/clientLogs"
-import { currentChatWindowId, logChatViewInvariant } from "@/lib/chatTimelineDiagnostics"
-import { toast } from "react-toastify"
-import { MdKeyboardDoubleArrowDown } from "react-icons/md"
+import { randomId } from "@/lib/id"
+import {
+  applyTerminalToolState,
+  groupAssistantToolCallsByMessage,
+  terminalToolStateById,
+} from "@/lib/chatToolDisplay"
 import {
   LuBrain,
   LuClock,
@@ -64,307 +38,16 @@ import {
   LuWrench,
 } from "react-icons/lu"
 import type { IconType } from "react-icons"
-import { motion, AnimatePresence } from "framer-motion"
-import { Icons } from "@/components/icons"
-import { cn } from "@/lib/utils"
-import {
-  applyTerminalToolState,
-  groupAssistantToolCallsByMessage,
-  terminalToolStateById,
-} from "@/lib/chatToolDisplay"
-import type {
-  ChatMessage,
-  EditPreviewState,
-  InlineToolCall,
-  ReplyTo,
-  SpawnedSubagent,
-} from "./types"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-
-const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
-
-type RowMeasurerProps = {
-  uiId: string
-  absoluteIndex: number
-  onMeasure: (uiId: string, height: number) => void
-  children: React.ReactNode
-}
-
-/**
- * Thin wrapper that reports its own measured height to the parent via
- * ResizeObserver. Used by the viewport-windowed render path so the spacer math
- * stays accurate as messages grow (streaming text, tool steps expanding, etc).
- */
-function RowMeasurer({ uiId, absoluteIndex, onMeasure, children }: RowMeasurerProps) {
-  const ref = useRef<HTMLDivElement | null>(null)
-
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    // Initial measurement on mount.
-    onMeasure(uiId, el.getBoundingClientRect().height)
-    if (typeof ResizeObserver === "undefined") return
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const next = entry.contentRect.height
-        if (Number.isFinite(next) && next > 0) onMeasure(uiId, next)
-      }
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [uiId, onMeasure])
-
-  return (
-    <div ref={ref} data-row-measurer-ui-id={uiId} data-row-measurer-index={absoluteIndex}>
-      {children}
-    </div>
-  )
-}
-
-type MessageScrollAnchor = {
-  id: string
-  uiId: string
-  messageId: string
-  top: number
-  /**
-   * Distance from the top of the scroll container to the anchor row's top at
-   * capture time. Used by the offset-based restoration path when the anchor
-   * row is unmounted by the viewport-window renderer at restore time.
-   */
-  offsetWithinViewport: number
-  previousScrollHeight: number
-  previousScrollTop: number
-}
-
-function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrollAnchor | null {
-  if (!container) return null
-  const containerRect = container.getBoundingClientRect()
-  const containerTop = containerRect.top
-  const anchorY = containerTop + Math.min(180, Math.max(80, containerRect.height * 0.25))
-  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-  const visibleRow =
-    rows.find((row) => {
-      const rect = row.getBoundingClientRect()
-      return rect.top <= anchorY && rect.bottom >= anchorY
-    }) ?? rows.find((row) => row.getBoundingClientRect().bottom > containerTop + 1)
-  if (!visibleRow) {
-    return {
-      id: "",
-      uiId: "",
-      messageId: "",
-      top: containerTop,
-      offsetWithinViewport: 0,
-      previousScrollHeight: container.scrollHeight,
-      previousScrollTop: container.scrollTop,
-    }
-  }
-  const visibleRect = visibleRow.getBoundingClientRect()
-  return {
-    id: visibleRow.id,
-    uiId: visibleRow.dataset.uiId ?? "",
-    messageId: visibleRow.dataset.messageId ?? "",
-    top: visibleRect.top,
-    offsetWithinViewport: visibleRect.top - containerTop,
-    previousScrollHeight: container.scrollHeight,
-    previousScrollTop: container.scrollTop,
-  }
-}
-
-type AnchorRestoreOptions = {
-  /**
-   * Optional: returns the row's measured top within the scroll content for a
-   * given uiId, used when the anchor row is unmounted by the viewport-window
-   * renderer. Returning null falls through to height-delta restoration.
-   */
-  resolveAnchorOffset?: (uiId: string) => number | null
-}
-
-function restoreMessageScrollAnchor(
-  container: HTMLElement | null,
-  anchor: MessageScrollAnchor | null,
-  options: AnchorRestoreOptions = {},
-) {
-  if (!container || !anchor) return
-  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-  if (anchor.uiId || anchor.messageId) {
-    const row = rows.find((item) => item.dataset.uiId === anchor.uiId) ??
-      rows.find((item) => item.dataset.messageId === anchor.messageId)
-    if (row) {
-      const deltaPx = row.getBoundingClientRect().top - anchor.top
-      container.scrollTop += deltaPx
-      logChatScrollDebug({
-        source: "chat",
-        event: "restore-anchor-row",
-        anchorId: anchor.uiId || anchor.messageId,
-        anchorTop: anchor.top,
-        deltaPx,
-        scrollTop: container.scrollTop,
-        scrollHeight: container.scrollHeight,
-        clientHeight: container.clientHeight,
-      })
-      return
-    }
-  }
-  if (anchor.id) {
-    const row = document.getElementById(anchor.id)
-    if (row) {
-      const deltaPx = row.getBoundingClientRect().top - anchor.top
-      container.scrollTop += deltaPx
-      logChatScrollDebug({ source: "chat", event: "restore-anchor-dom-id", anchorId: anchor.id, anchorTop: anchor.top, deltaPx, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
-      return
-    }
-  }
-  if (options.resolveAnchorOffset && anchor.uiId) {
-    const anchorTop = options.resolveAnchorOffset(anchor.uiId)
-    if (typeof anchorTop === "number" && Number.isFinite(anchorTop)) {
-      const target = offsetBasedScrollRestoration({
-        anchorTop,
-        offsetWithinViewport: anchor.offsetWithinViewport,
-      })
-      container.scrollTop = target
-      logChatScrollDebug({
-        source: "chat",
-        event: "restore-anchor-offset",
-        anchorId: anchor.uiId,
-        anchorTop,
-        deltaPx: target - anchor.previousScrollTop,
-        scrollTop: container.scrollTop,
-        scrollHeight: container.scrollHeight,
-        clientHeight: container.clientHeight,
-      })
-      return
-    }
-  }
-  const delta = container.scrollHeight - anchor.previousScrollHeight
-  container.scrollTop = anchor.previousScrollTop + Math.max(0, delta)
-  logChatScrollDebug({ source: "chat", event: "restore-anchor-height-delta", anchorId: anchor.uiId || anchor.id, deltaPx: delta, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
-}
-
-/**
- * Phase 2 anchor settle: one synchronous restore (already inside the
- * useLayoutEffect — DOM is fully painted) + one rAF restore to catch
- * post-paint resize (Markdown, code blocks). Then DONE. No repeated
- * timeouts that fight legitimate user scroll.
- *
- * The previous implementation called restore() up to 5 times over 360ms
- * which produced visible jumping when the user kept scrolling after a
- * load fired. Two restores is enough — the layout-effect happens AFTER
- * paint, so the first restore lands on the final geometry except for
- * downstream lazy-layout work (which one rAF covers).
- */
-function settleMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null, done: () => void) {
-  if (!container) { done(); return }
-  let finished = false
-  const finish = () => {
-    if (finished) return
-    finished = true
-    done()
-  }
-  restoreMessageScrollAnchor(container, anchor)
-  requestAnimationFrame(() => {
-    if (finished) return
-    restoreMessageScrollAnchor(container, anchor)
-    finish()
-  })
-  // Hard cutoff in case rAF never fires (tab backgrounded etc).
-  window.setTimeout(finish, 250)
-}
-const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
-
-function useAssistantUiChatViewEnabled() {
-  const envEnabled = process.env.NEXT_PUBLIC_OPENCLAW_ASSISTANT_UI_CHATVIEW === "1"
-  return useSyncExternalStore(
-    () => () => {},
-    () => {
-      if (envEnabled) return true
-      try {
-        return window.localStorage.getItem(ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY) === "1"
-      } catch {
-        return false
-      }
-    },
-    () => envEnabled
-  )
-}
-
-type StatusIconMeta = {
-  icon: IconType
-  className: string
-  label: string
-}
-
-const STATUS_ICON_CLASS = "text-amber-400"
-
-const STATUS_TOOL_ICON_META: Record<string, StatusIconMeta> = {
-  read: { icon: LuFileText, className: STATUS_ICON_CLASS, label: "Read file" },
-  write: { icon: LuPencil, className: STATUS_ICON_CLASS, label: "Write file" },
-  edit: { icon: LuPencil, className: STATUS_ICON_CLASS, label: "Edit file" },
-  apply_patch: { icon: LuFileCode, className: STATUS_ICON_CLASS, label: "Apply patch" },
-  exec: { icon: LuFileCode, className: STATUS_ICON_CLASS, label: "Run command" },
-  process: { icon: LuRefreshCw, className: STATUS_ICON_CLASS, label: "Process" },
-  web_fetch: { icon: LuGlobe, className: STATUS_ICON_CLASS, label: "Fetch web page" },
-  web_search: { icon: LuGlobe, className: STATUS_ICON_CLASS, label: "Search web" },
-  cron: { icon: LuClock, className: STATUS_ICON_CLASS, label: "Schedule job" },
-  sessions_list: { icon: LuMessageSquare, className: STATUS_ICON_CLASS, label: "List sessions" },
-  sessions_history: { icon: LuMessageSquare, className: STATUS_ICON_CLASS, label: "Session history" },
-  sessions_send: { icon: LuMessageSquare, className: STATUS_ICON_CLASS, label: "Send to session" },
-  sessions_spawn: { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Spawn sub-agent" },
-  sessions_yield: { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Wait for sub-agent" },
-  subagents: { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Sub-agent" },
-  session_status: { icon: LuSettings2, className: STATUS_ICON_CLASS, label: "Session status" },
-  image: { icon: LuImage, className: STATUS_ICON_CLASS, label: "Analyze image" },
-  image_generate: { icon: LuImage, className: STATUS_ICON_CLASS, label: "Generate image" },
-  memory_get: { icon: LuBrain, className: STATUS_ICON_CLASS, label: "Read memory" },
-  memory_search: { icon: LuBrain, className: STATUS_ICON_CLASS, label: "Search memory" },
-  update_plan: { icon: LuWrench, className: STATUS_ICON_CLASS, label: "Update plan" },
-}
-
-function statusIconMeta(tool?: string | null): StatusIconMeta {
-  if (tool && STATUS_TOOL_ICON_META[tool]) return STATUS_TOOL_ICON_META[tool]
-  return { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Thinking" }
-}
-
-function ProcessStatusIcon({ tool }: { tool?: string | null }) {
-  const meta = statusIconMeta(tool)
-  const Icon = meta.icon
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          className="mr-2 flex size-4 shrink-0 items-center justify-center"
-          aria-label={meta.label}
-        >
-          <Icon className={cn("size-3.5", meta.className)} />
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="left" sideOffset={8} className="text-[11px]">
-        {meta.label}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
-function AbortedDivider({ inline = false }: { inline?: boolean }) {
-  return (
-    <div className={cn(inline ? "mt-3 py-1" : "mx-auto max-w-[44rem] px-4 py-2")} aria-label="Run aborted">
-      <div className="flex items-center gap-3 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/55">
-        <div className="h-px flex-1 bg-border/50" />
-        <span className="rounded-full border border-border/60 bg-background px-3 py-1">Aborted</span>
-        <div className="h-px flex-1 bg-border/50" />
-      </div>
-    </div>
-  )
-}
+import { MessageBubble } from "./MessageBubble"
+import { ThinkingBlock } from "./ThinkingBlock"
+import { ToolCallSteps } from "./ToolCallSteps"
+import type { ChatMessage, InlineToolCall, StreamStatus } from "./types"
 
 type Props = {
   sessionKey: string
   sessionTitle?: string
   onFirstMessageSent?: (text: string) => void
-  initialMessages?: import("./types").ChatMessage[]
+  initialMessages?: ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
   initialPrompt?: string
   activeSubagentKey?: string | null
@@ -386,8 +69,159 @@ type Props = {
     projectId?: string | null
     topicId?: string | null
   }) => void
-  /** When true the view is mounted in a hidden div (background session). */
   isBackgroundSession?: boolean
+}
+
+type HistoryState = {
+  loading: boolean
+  error: string | null
+  composerError: string | null
+  messages: ChatMessage[]
+  streamStatus: StreamStatus
+  statusLabel: string | null
+}
+
+const ACTIVE_STREAM_STATUSES = new Set<StreamStatus>([
+  "queued",
+  "running",
+  "collect",
+  "thinking",
+  "tool_running",
+  "streaming",
+  "stopping",
+  "restarting",
+])
+
+const FOLLOW_SCROLL_THRESHOLD_PX = 96
+
+type StatusIconMeta = {
+  icon: IconType
+  label: string
+}
+
+const STATUS_TOOL_ICON_META: Record<string, StatusIconMeta> = {
+  read: { icon: LuFileText, label: "Read file" },
+  write: { icon: LuPencil, label: "Write file" },
+  edit: { icon: LuPencil, label: "Edit file" },
+  apply_patch: { icon: LuFileCode, label: "Apply patch" },
+  exec: { icon: LuFileCode, label: "Run command" },
+  process: { icon: LuRefreshCw, label: "Process" },
+  web_fetch: { icon: LuGlobe, label: "Fetch web page" },
+  web_search: { icon: LuGlobe, label: "Search web" },
+  cron: { icon: LuClock, label: "Schedule job" },
+  sessions_list: { icon: LuMessageSquare, label: "List sessions" },
+  sessions_history: { icon: LuMessageSquare, label: "Session history" },
+  sessions_send: { icon: LuMessageSquare, label: "Send to session" },
+  sessions_spawn: { icon: LuSparkles, label: "Spawn sub-agent" },
+  sessions_yield: { icon: LuSparkles, label: "Wait for sub-agent" },
+  subagents: { icon: LuSparkles, label: "Sub-agent" },
+  session_status: { icon: LuSettings2, label: "Session status" },
+  image: { icon: LuImage, label: "Analyze image" },
+  image_generate: { icon: LuImage, label: "Generate image" },
+  memory_get: { icon: LuBrain, label: "Read memory" },
+  memory_search: { icon: LuBrain, label: "Search memory" },
+  update_plan: { icon: LuWrench, label: "Update plan" },
+}
+
+function statusIconMeta(tool?: string | null): StatusIconMeta {
+  if (tool && STATUS_TOOL_ICON_META[tool]) return STATUS_TOOL_ICON_META[tool]
+  return { icon: LuSparkles, label: "Thinking" }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value))
+}
+
+function seqOf(raw: RawHistoryMessage): number | null {
+  const seq = raw.__openclaw?.seq
+  return typeof seq === "number" && Number.isFinite(seq) ? seq : null
+}
+
+function timestampOf(message: ChatMessage): number {
+  if (!message.createdAt) return Number.POSITIVE_INFINITY
+  const value = Date.parse(message.createdAt)
+  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY
+}
+
+function rawTimestampOf(raw: RawHistoryMessage): number {
+  if (typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp)) {
+    return raw.timestamp > 100_000_000 && raw.timestamp < 10_000_000_000
+      ? Math.round(raw.timestamp * 1000)
+      : Math.round(raw.timestamp)
+  }
+  if (!raw.createdAt) return Number.POSITIVE_INFINITY
+  const value = Date.parse(raw.createdAt)
+  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY
+}
+
+function orderedRawMessages(raw: unknown[]): RawHistoryMessage[] {
+  return raw
+    .filter(isRecord)
+    .map((item, index) => ({ item: item as RawHistoryMessage, index }))
+    .sort((a, b) => {
+      const aSeq = seqOf(a.item)
+      const bSeq = seqOf(b.item)
+      if (aSeq !== null && bSeq !== null && aSeq !== bSeq) return aSeq - bSeq
+      if (aSeq !== null && bSeq === null) return -1
+      if (aSeq === null && bSeq !== null) return 1
+      const aTime = rawTimestampOf(a.item)
+      const bTime = rawTimestampOf(b.item)
+      if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) {
+        return aTime - bTime
+      }
+      return a.index - b.index
+    })
+    .map(({ item }) => item)
+}
+
+function orderChatMessages(messages: ChatMessage[]) {
+  return messages
+    .map((message, index) => ({ message, index }))
+    .sort((a, b) => {
+      const aSeq = a.message.gatewayIndex
+      const bSeq = b.message.gatewayIndex
+      if (typeof aSeq === "number" && typeof bSeq === "number" && aSeq !== bSeq) return aSeq - bSeq
+      if (typeof aSeq === "number" && typeof bSeq !== "number") return -1
+      if (typeof aSeq !== "number" && typeof bSeq === "number") return 1
+      const timeDelta = timestampOf(a.message) - timestampOf(b.message)
+      if (Number.isFinite(timeDelta) && timeDelta !== 0) return timeDelta
+      return a.index - b.index
+    })
+    .map(({ message }) => message)
+}
+
+function normalizeHistory(rawMessages: unknown[]): ChatMessage[] {
+  const orderedRaw = orderedRawMessages(rawMessages)
+  const parsed = parseChatHistory(orderedRaw)
+  return orderChatMessages(parsed.messages)
+}
+
+function patchPayload(frame: PatchFrame): Record<string, unknown> | null {
+  const payload = frame.patch.payload
+  return isRecord(payload) ? payload : null
+}
+
+function patchSemanticType(frame: PatchFrame): string {
+  const semanticType = patchPayload(frame)?.semanticType
+  return typeof semanticType === "string" && semanticType.trim() ? semanticType : frame.patch.type
+}
+
+function patchBelongsToSession(frame: PatchFrame, sessionKey: string): boolean {
+  if (frame.patch.sessionKey) return frame.patch.sessionKey === sessionKey
+  const payloadSessionKey = patchPayload(frame)?.sessionKey
+  return payloadSessionKey === sessionKey
+}
+
+function isActiveStreamStatus(status: StreamStatus) {
+  return ACTIVE_STREAM_STATUSES.has(status)
+}
+
+function hasActiveAssistantAfterLastUser(messages: ChatMessage[]) {
+  const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user")
+  return messages.slice(lastUserIndex + 1).some((message) =>
+    message.role === "assistant" &&
+    Boolean(message.text.trim() || message.reasoningText?.trim() || message.toolCalls?.length)
+  )
 }
 
 function summarizeToolInput(tool: InlineToolCall) {
@@ -408,2201 +242,680 @@ function summarizeToolInput(tool: InlineToolCall) {
   return typeof candidate === "string" ? candidate.slice(0, 90) : ""
 }
 
-function cleanSubagentReply(text: string) {
-  return text
-    .split("\n")
-    .filter((line) => {
-      const trimmed = line.trim()
-      if (trimmed === "Done.") return false
-      if (/^I spawned a subagent\b/i.test(trimmed)) return false
-      return true
-    })
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
+function liveRunningTool(messages: ChatMessage[]): InlineToolCall | null {
+  const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user")
+  const activeTurnMessages = lastUserIndex >= 0 ? messages.slice(lastUserIndex + 1) : messages
+  for (const message of activeTurnMessages) {
+    for (const tool of message.toolCalls ?? []) {
+      if (
+        tool.status === "running" &&
+        tool.tool !== "sessions_spawn" &&
+        tool.tool !== "subagents" &&
+        tool.tool !== "sessions_yield"
+      ) {
+        return tool
+      }
+    }
+  }
+  return null
 }
 
-function PreviewResponseCard({
-  title,
-  user,
-  assistant,
-  loading,
-  onSelect,
-  disabled,
-}: {
-  title: string
-  user: ChatMessage
-  assistant?: ChatMessage | null
-  loading?: boolean
-  onSelect: () => void
-  disabled?: boolean
+function toolPatchId(frame: PatchFrame): string | null {
+  const payload = patchPayload(frame)
+  const direct = payload?.toolCallId
+  if (typeof direct === "string" && direct.trim()) return direct
+  const toolCall = payload?.toolCall
+  if (!isRecord(toolCall)) return null
+  const nested = toolCall.toolCallId ?? toolCall.id
+  return typeof nested === "string" && nested.trim() ? nested : null
+}
+
+function findVisibleTool(messages: ChatMessage[], toolCallId: string | null): InlineToolCall | null {
+  if (!toolCallId) return null
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const match = messages[messageIndex]?.toolCalls?.find((tool) => tool.id === toolCallId)
+    if (match) return match
+  }
+  return null
+}
+
+function visibleToolCount(messages: ChatMessage[]) {
+  return messages.reduce((total, message) => total + (message.toolCalls?.length ?? 0), 0)
+}
+
+function isNearScrollBottom(element: HTMLElement, threshold = FOLLOW_SCROLL_THRESHOLD_PX) {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= threshold
+}
+
+function scrollElementToBottom(element: HTMLElement, behavior: ScrollBehavior = "auto") {
+  element.scrollTo({
+    top: element.scrollHeight,
+    behavior,
+  })
+}
+
+function generatingStatusText(status: StreamStatus, statusLabel: string | null, liveTool: InlineToolCall | null) {
+  if (liveTool) {
+    const input = summarizeToolInput(liveTool)
+    return `Running ${liveTool.tool}${input ? `: ${input}` : ""}...`
+  }
+  if (status === "thinking") return "Thinking - waiting for the next event..."
+  if (status === "queued") return statusLabel ? `Queued - ${statusLabel}...` : "Queued..."
+  if (status === "running") return statusLabel ? `Running - ${statusLabel}...` : "Running..."
+  if (status === "collect") return statusLabel ? `Collecting - ${statusLabel}...` : "Collecting..."
+  if (status === "tool_running") return `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
+  if (status === "streaming") return "Responding..."
+  if (status === "stopping") return "Stopping..."
+  if (status === "restarting") return "Restarting..."
+  return statusLabel ? `${statusLabel}...` : "Thinking - waiting for the next event..."
+}
+
+function shouldAnimateAssistantMessage(params: {
+  message: ChatMessage
+  index: number
+  messages: ChatMessage[]
+  isGenerating: boolean
 }) {
+  const { message, index, messages, isGenerating } = params
+  if (message.role !== "assistant" || !message.text.trim()) return false
+  const isLast = index === messages.length - 1
+  return (isLast && isGenerating) || message.animateText === true
+}
+
+function isActivelyStreamingAssistant(params: {
+  message: ChatMessage
+  index: number
+  messages: ChatMessage[]
+  isGenerating: boolean
+}) {
+  const { message, index, messages, isGenerating } = params
+  return isGenerating && message.role === "assistant" && index === messages.length - 1
+}
+
+function GeneratingStatus({ label, tool }: { label: string; tool?: string | null }) {
+  const meta = statusIconMeta(tool)
+  const Icon = meta.icon
+  const text = label.replace(/\.{3}$/, "")
   return (
-    <div className="flex min-h-[260px] flex-1 flex-col rounded-2xl border border-border/30 bg-foreground/[0.025] p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        <button
-          type="button"
-          disabled={disabled || loading || !assistant?.text}
-          onClick={onSelect}
-          className="rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Use this
-        </button>
-      </div>
-      <div className="mb-3 rounded-xl bg-[#252529] px-3 py-2 text-sm text-white">
-        <p className="line-clamp-5 whitespace-pre-wrap">{user.text}</p>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border/20 bg-background/40 p-3 text-sm leading-relaxed text-foreground/90">
-        {assistant?.text ? (
-          <p className="whitespace-pre-wrap">{assistant.text}</p>
-        ) : loading ? (
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <TypingDots />
-            <span>Generating edited response…</span>
-          </div>
-        ) : (
-          <span className="text-muted-foreground">No response yet</span>
-        )}
-      </div>
+    <div className="flex min-h-[22px] items-center">
+      <span
+        className="mr-2 flex size-4 shrink-0 items-center justify-center"
+        aria-label={meta.label}
+        title={meta.label}
+      >
+        <Icon className="size-3.5 text-amber-400" />
+      </span>
+      <span className="thinking-shimmer text-[14px] font-normal leading-relaxed tracking-normal">
+        {text}
+        <span className="thinking-ellipsis" aria-hidden="true" />
+      </span>
     </div>
   )
 }
 
-function EditPreviewPanel({
-  preview,
-  onSelect,
-}: {
-  preview: EditPreviewState
-  onSelect: (selected: "original" | "edited") => void
-}) {
-  const loadingEdited =
-    preview.status === "streaming" && !preview.edited.assistant?.text
-  const isRegenerate =
-    preview.original.user.text.trim() === preview.edited.user.text.trim()
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 8 }}
-      className="mt-6 rounded-3xl border border-primary/20 bg-primary/[0.03] p-4 shadow-lg shadow-black/10"
-    >
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">
-            Choose the response to keep
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            {isRegenerate
-              ? "Compare the current answer with the regenerated one."
-              : "Future context continues only from the version you select."}
-          </p>
-        </div>
-        {preview.status === "error" && (
-          <span className="rounded-full bg-red-500/10 px-2 py-1 text-xs text-red-400">
-            {preview.error ?? "Preview failed"}
-          </span>
-        )}
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <PreviewResponseCard
-          title="Original"
-          user={preview.original.user}
-          assistant={preview.original.assistant}
-          onSelect={() => onSelect("original")}
-        />
-        <PreviewResponseCard
-          title={isRegenerate ? "Regenerated" : "Edited"}
-          user={preview.edited.user}
-          assistant={preview.edited.assistant}
-          loading={loadingEdited}
-          disabled={preview.status === "error"}
-          onSelect={() => onSelect("edited")}
-        />
-      </div>
-    </motion.div>
-  )
+function stableToolKey(tool: InlineToolCall): string {
+  if (tool.id) return `id:${tool.id}`
+  return [
+    "fallback",
+    tool.tool,
+    tool.startedAt ?? "",
+    tool.completedAt ?? "",
+    summarizeToolInput(tool),
+  ].join(":")
+}
+
+function toolKeySet(tools: InlineToolCall[]) {
+  return new Set(tools.map(stableToolKey))
+}
+
+function hasAllToolKeys(source: Set<string>, target: Set<string>) {
+  for (const key of source) {
+    if (!target.has(key)) return false
+  }
+  return true
+}
+
+function toolCallsForMessage(
+  groupedToolCalls: Map<string, InlineToolCall[]>,
+  message: ChatMessage
+) {
+  return groupedToolCalls.get(message.messageId) ?? message.toolCalls ?? []
+}
+
+function toolOnlyRowsOwnedByLaterText(
+  messages: ChatMessage[],
+  groupedToolCalls: Map<string, InlineToolCall[]>
+) {
+  const suppressed = new Set<string>()
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]
+    if (message?.role !== "assistant") continue
+    if (message.text.trim() || message.reasoningText) continue
+
+    const tools = toolCallsForMessage(groupedToolCalls, message)
+    if (tools.length === 0) continue
+
+    const sourceKeys = toolKeySet(tools)
+    const laterTextKeys = new Set<string>()
+    for (let nextIndex = index + 1; nextIndex < messages.length; nextIndex += 1) {
+      const next = messages[nextIndex]
+      if (!next || next.role === "user") break
+      if (next.role !== "assistant" || !next.text.trim()) continue
+
+      const nextTools = toolCallsForMessage(groupedToolCalls, next)
+      if (nextTools.length === 0) continue
+      for (const key of toolKeySet(nextTools)) laterTextKeys.add(key)
+      if (hasAllToolKeys(sourceKeys, laterTextKeys)) {
+        suppressed.add(message.messageId)
+        break
+      }
+    }
+  }
+
+  return suppressed
+}
+
+function composerAttachmentsToMessageAttachments(
+  attachments: ChatComposerSubmit["attachments"]
+): ChatMessage["attachments"] {
+  if (!attachments?.length) return undefined
+  return attachments.map((attachment) => ({
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    content: attachment.content,
+    size: attachment.size,
+  }))
 }
 
 export function ChatView({
   sessionKey,
   sessionTitle,
-  onFirstMessageSent,
-  initialMessages,
-  onSelectTool,
   initialPrompt,
-  activeSubagentKey: externalSubagentKey,
-  onSubagentOpen,
-  forkContext,
-  activeSpaceId,
-  onForkNavigate,
+  onFirstMessageSent,
+  onSelectTool,
   isBackgroundSession = false,
 }: Props) {
-  const {
-    messages,
-    status,
-    statusLabel,
-    wasAborted,
-    loading,
-    hasOlderMessages,
-    loadingOlderMessages,
-    loadOlderMessages,
-    hasNewerMessages,
-    loadingNewerMessages,
-    loadNewerMessages,
-    unloadOldestPage,
-    unloadNewestPage,
-    loadError,
-    errorMessage,
-    isSending,
-    isGenerating,
-    bottomRef,
-    scrollContainerRef,
-    onScroll,
-    handleSend,
-    handleAbort,
-    handleEdit,
-    editPreview,
-    selectEditBranch,
-    switchBranch,
-    markTextAnimationComplete,
-    pendingTools,
-    spawnedSubagents,
-    dataSource,
-  } = useChatMessages(sessionKey, initialMessages)
-
-  const lastAssistantText = messages
-    .filter((m) => m.role === "assistant")
-    .at(-1)?.text
-
-  // Keep a stable ref for handleSend so the toast listener doesn't re-attach
-  const handleSendRef = useRef(handleSend)
-  handleSendRef.current = handleSend
-
-  // Listen for Windows toast reply / open events.
-  // Use a ref for unlisten functions so Strict Mode double-mounts
-  // don't leave dangling listeners behind.
-  const toastUnlistenRef = useRef<{ reply?: () => void; open?: () => void }>({})
-  const lastRunErrorToastRef = useRef<string | null>(null)
-  const viewGenerationRef = useRef(0)
-  const windowIdRef = useRef<string | null>(null)
-  if (windowIdRef.current === null) windowIdRef.current = currentChatWindowId()
+  const [state, setState] = useState<HistoryState>(() => ({
+    loading: true,
+    error: null,
+    composerError: null,
+    messages: [],
+    streamStatus: "idle",
+    statusLabel: null,
+  }))
+  const [sending, setSending] = useState(false)
+  const [streamCursor, setStreamCursor] = useState<number | null>(null)
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const scrollContentRef = useRef<HTMLDivElement | null>(null)
+  const cursorRef = useRef(0)
+  const shouldFollowScrollRef = useRef(true)
 
   useEffect(() => {
-    const setup = async () => {
-      const tauri = (window as unknown as Record<string, unknown>)
-        .__TAURI_INTERNALS__
-      if (!tauri) return
-      try {
-        const { listen } = await import("@tauri-apps/api/event")
-        const { getCurrentWindow } = await import("@tauri-apps/api/window")
-
-        // Clean up any previous dangling listeners (React Strict Mode)
-        toastUnlistenRef.current.reply?.()
-        toastUnlistenRef.current.open?.()
-
-        toastUnlistenRef.current.reply = await listen<{
-          sessionKey: string
-          text: string
-        }>("toast-reply", (event) => {
-          if (event.payload.sessionKey === sessionKey) {
-            void handleSendRef
-              .current({ text: event.payload.text })
-              .then(async () => {
-                try {
-                  const win = getCurrentWindow()
-                  // Only minimize if the app wasn't already focused
-                  // (user replied from a background toast). If they're
-                  // already inside the app, keep the window open.
-                  const focused = await win.isFocused()
-                  if (!focused) await win.minimize()
-                } catch {
-                  // Ignore window API errors
-                }
-              })
-              .catch(() => {})
-          }
-        })
-
-        toastUnlistenRef.current.open = await listen<{ sessionKey: string }>(
-          "toast-open",
-          (event) => {
-            if (event.payload.sessionKey === sessionKey) {
-              const win = getCurrentWindow()
-              void win
-                .unminimize()
-                .then(() => win.setFocus())
-                .catch(() => {})
-            }
-          }
-        )
-      } catch {
-        // Ignore if Tauri API is not available
-      }
-    }
-    setup()
-    return () => {
-      toastUnlistenRef.current.reply?.()
-      toastUnlistenRef.current.open?.()
-    }
-  }, [sessionKey])
-
-  useEffect(() => {
-    if (status !== "error") {
-      lastRunErrorToastRef.current = null
-      return
-    }
-
-    const message = errorMessage || "Something went wrong. Try again."
-    const toastKey = `${sessionKey}:${message}`
-    if (lastRunErrorToastRef.current === toastKey) return
-    lastRunErrorToastRef.current = toastKey
-    toast.error(message)
-  }, [errorMessage, sessionKey, status])
-
-  const [internalSubagentKey, setInternalSubagentKey] = useState<string | null>(
-    null
-  )
-  const [activeSubagent, setActiveSubagent] = useState<SpawnedSubagent | null>(
-    null
-  )
-  const [messageActionState, dispatchMessageAction] = useState(
-    initialMessageActionState
-  )
-  const [composerSeed, setComposerSeed] = useState(initialPrompt ?? "")
-  const [replyTo, setReplyTo] = useState<ReplyTo | null>(null)
-  const [pinnedPopoverOpen, setPinnedPopoverOpen] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
-  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const handleHighlightMessage = useCallback((messageId: string | null) => {
-    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
-    setHighlightedMessageId(messageId)
-    if (messageId) {
-      highlightTimerRef.current = setTimeout(() => setHighlightedMessageId(null), 2000)
-    }
-  }, [])
-
-  // Ctrl+F / Cmd+F opens in-chat search
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
-        e.preventDefault()
-        setSearchOpen(true)
-      }
-    }
-    window.addEventListener("keydown", handler)
-    return () => window.removeEventListener("keydown", handler)
-  }, [])
-
-
-  const pinButtonRef = useRef<HTMLButtonElement>(null)
-  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
-  const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
-  const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
-  const [modelSwitching, setModelSwitching] = useState(false)
-  const lastFeedbackTimesRef = useRef<Record<string, number>>({})
-  const [showJumpToBottom, setShowJumpToBottom] = useState(false)
-  const [forceRenderKey, setForceRenderKey] = useState(0)
-
-  const [dbPins, setDbPins] = useState<{
-    pins: Array<{ messageId: string; messageText: string }>
-    loaded: boolean
-  }>({ pins: [], loaded: false })
-
-  useEffect(() => {
+    if (isBackgroundSession) return
     let cancelled = false
-    // Reset everything when the session changes
-    dispatchMessageAction(initialMessageActionState)
-    setDbPins({ pins: [], loaded: false })
+    cursorRef.current = 0
+    shouldFollowScrollRef.current = true
+    setStreamCursor(null)
+    setState({
+      loading: true,
+      error: null,
+      composerError: null,
+      messages: [],
+      streamStatus: "idle",
+      statusLabel: null,
+    })
 
-    const connectionKey = (() => {
-      if (typeof window === "undefined") return "server"
-      const url = window.localStorage.getItem("openclaw.middleware.url")?.trim() ?? ""
-      const token = window.localStorage.getItem("openclaw.middleware.token")?.trim() ?? ""
-      return url ? `${url}|${token ? "token" : "no-token"}` : "default"
-    })()
-
-    dedupeRequest(
-      `chat-pins:${connectionKey}:${sessionKey}`,
-      () => invoke<{ pins: Array<{ messageId: string; messageText: string }> }>(
-        "middleware_pins_list",
-        { sessionKey },
-      ),
-      { ttlMs: 30_000 },
-    )
-      .then((res) => {
+    fetchChatMessagesV2({ sessionKey })
+      .then((history) => {
         if (cancelled) return
-        const pins = Array.isArray(res?.pins) ? res.pins : []
-        setDbPins({ pins, loaded: true })
-        // Apply fetched pins immediately. If IDs match exactly, they'll show up.
-        // If IDs mismatch, the reconciliation effect will fix them.
-        dispatchMessageAction((prev) => ({
-          ...prev,
-          pinnedIds: pins.map((p: { messageId: string }) => p.messageId),
-        }))
+        if (history.sessionKey && history.sessionKey !== sessionKey) return
+        const messages = normalizeHistory(
+          history.messages.map((message) => message.data)
+        )
+        const cursor = typeof history.cursor === "number" ? history.cursor : 0
+        cursorRef.current = cursor
+        setStreamCursor(cursor)
+        setState({
+          loading: false,
+          error: null,
+          composerError: null,
+          messages,
+          streamStatus: "idle",
+          statusLabel: null,
+        })
       })
-      .catch(() => {
-        if (!cancelled) setDbPins({ pins: [], loaded: true })
+      .catch((error) => {
+        if (cancelled) return
+        setState({
+          loading: false,
+          error: error instanceof Error ? error.message : String(error),
+          composerError: null,
+          messages: [],
+          streamStatus: "error",
+          statusLabel: null,
+        })
       })
 
     return () => {
       cancelled = true
     }
-  }, [sessionKey])
-
-  // Reconcile DB pins against the loaded messages.
-  // This handles the case where messageIds stored in the DB differ from the
-  // ones the Gateway returns (e.g. after a sync or regeneration), by falling
-  // back to a text snippet match.
-  useEffect(() => {
-    if (!dbPins.loaded || messages.length === 0) return
-
-    const currentIds = new Set(messages.map((m) => m.messageId))
-    const seen = new Set<string>()
-    const resolved: string[] = []
-
-    for (const pin of dbPins.pins) {
-      let id: string | undefined
-      if (currentIds.has(pin.messageId)) {
-        id = pin.messageId
-      } else if (pin.messageText) {
-        const snippet = pin.messageText.slice(0, 80)
-        const match = messages.find((m) => m.text.includes(snippet))
-        if (match) id = match.messageId
-      }
-
-      if (id && !seen.has(id)) {
-        seen.add(id)
-        resolved.push(id)
-      }
-    }
-
-    // Only update if the resolved set differs from current pinnedIds.
-    // We compare arrays to avoid infinite update loops.
-    const currentPinnedSet = new Set(messageActionState.pinnedIds)
-    const setsMatch =
-      resolved.length === currentPinnedSet.size &&
-      resolved.every((id) => currentPinnedSet.has(id))
-
-    if (!setsMatch) {
-      dispatchMessageAction((prev) => ({
-        ...prev,
-        pinnedIds: resolved,
-      }))
-    }
-  }, [messages, dbPins.pins, dbPins.loaded, messageActionState.pinnedIds])
-  const activeSubKey =
-    externalSubagentKey ??
-    internalSubagentKey ??
-    activeSubagent?.sessionKey ??
-    null
-  const activeLiveSubagent = activeSubagent
-    ? spawnedSubagents.find(
-        (sub) =>
-          sub.toolCallId === activeSubagent.toolCallId ||
-          (sub.sessionKey && sub.sessionKey === activeSubagent.sessionKey)
-      ) ?? activeSubagent
-    : null
-
-  // Only suppress notifications when the main chat for THIS session is visible.
-  // If a subagent is open, the user is on another page, or this is a
-  // background (hidden) session, notify normally.
-  const isMainChatVisible =
-    !isBackgroundSession && !(activeSubKey && activeSubagent)
-
-  useChatCompletionNotify({
-    sessionKey,
-    sessionTitle,
-    status,
-    lastAssistantText,
-    isVisible: isMainChatVisible,
-  })
+  }, [isBackgroundSession, sessionKey])
 
   useEffect(() => {
-    const viewGeneration = viewGenerationRef.current + 1
-    viewGenerationRef.current = viewGeneration
-    frontendLog("chat", "chat-view.mount", {
-      sessionKey,
-      sessionTitle,
-      isBackgroundSession,
-      windowId: windowIdRef.current,
-      viewGeneration,
-    })
-    return () =>
-      frontendLog("chat", "chat-view.unmount", {
-        sessionKey,
-        isBackgroundSession,
-        windowId: windowIdRef.current,
-        viewGeneration,
+    if (isBackgroundSession || streamCursor === null) return
+    return openPatchStreamV2(streamCursor, (frame) => {
+      if (frame.type !== "patch") return
+      if (!patchBelongsToSession(frame, sessionKey)) return
+      const previousCursor = cursorRef.current
+      if (frame.patch.cursor <= previousCursor) return
+      cursorRef.current = Math.max(cursorRef.current, frame.patch.cursor)
+      const patchStatus = statusFromPatch(frame)
+      const semanticType = patchSemanticType(frame)
+      if (semanticType === "chat.assistant.delta") {
+        const message = patchPayload(frame)?.message
+        const text = isRecord(message) && typeof message.text === "string" ? message.text : null
+        frontendLog(
+          "chat",
+          "chat-rebuild.assistant-delta.apply",
+          {
+            sessionKey,
+            cursor: frame.patch.cursor,
+            textLength: text?.length ?? 0,
+          },
+          "debug"
+        )
+      }
+      setState((current) => {
+        const toolId = semanticType.startsWith("chat.tool.") ? toolPatchId(frame) : null
+        const beforeTool = findVisibleTool(current.messages, toolId)
+        const patched = applyChatPatch(
+          {
+            cursor: previousCursor,
+            messages: current.messages,
+          },
+          frame
+        )
+        const orderedMessages = orderChatMessages(patched.messages)
+        const afterTool = findVisibleTool(orderedMessages, toolId)
+        if (semanticType.startsWith("chat.tool.")) {
+          frontendLog(
+            "chat",
+            "chat-rebuild.tool-patch.apply",
+            {
+              sessionKey,
+              cursor: frame.patch.cursor,
+              patchType: frame.patch.type,
+              semanticType,
+              toolCallId: toolId,
+              beforeStatus: beforeTool?.status ?? null,
+              afterStatus: afterTool?.status ?? null,
+              visible: Boolean(afterTool),
+              beforeToolCount: visibleToolCount(current.messages),
+              afterToolCount: visibleToolCount(orderedMessages),
+              beforeMessageCount: current.messages.length,
+              afterMessageCount: orderedMessages.length,
+            },
+            "debug"
+          )
+        } else if (semanticType === "chat.assistant.delta") {
+          const liveRunId = typeof patchPayload(frame)?.runId === "string" ? patchPayload(frame)?.runId : null
+          const assistant = [...orderedMessages]
+            .reverse()
+            .find((message) => message.role === "assistant" && (!liveRunId || message.runId === liveRunId))
+          frontendLog(
+            "chat",
+            "chat-rebuild.assistant-delta.render-state",
+            {
+              sessionKey,
+              cursor: frame.patch.cursor,
+              runId: liveRunId,
+              visible: Boolean(assistant?.text.trim()),
+              textLength: assistant?.text.length ?? 0,
+              messageCount: orderedMessages.length,
+            },
+            "debug"
+          )
+        }
+        const nextStatus = patchStatus?.status ??
+          (patchImpliesActiveRun(frame) ? "thinking" : current.streamStatus)
+        return {
+          ...current,
+          loading: false,
+          error: null,
+          messages: orderedMessages,
+          streamStatus: nextStatus,
+          statusLabel: patchStatus?.label ?? current.statusLabel,
+        }
       })
-  }, [isBackgroundSession, sessionKey, sessionTitle])
-
-  useEffect(() => {
-    frontendLog(
-      "status",
-      "chat-view.render-state",
-      {
-        sessionKey,
-        status,
-        statusLabel,
-        loading,
-        loadError: Boolean(loadError),
-        isSending,
-        isGenerating,
-        messageCount: messages.length,
-        pendingToolCount: pendingTools.length,
-        spawnedSubagentCount: spawnedSubagents.length,
-        windowId: windowIdRef.current,
-        viewGeneration: viewGenerationRef.current,
-      },
-      "debug"
-    )
-  }, [
-    isGenerating,
-    isSending,
-    loadError,
-    loading,
-    messages.length,
-    pendingTools.length,
-    sessionKey,
-    spawnedSubagents.length,
-    status,
-    statusLabel,
-  ])
-
-  useEffect(() => {
-    logChatViewInvariant({
-      windowId: windowIdRef.current,
-      viewGeneration: viewGenerationRef.current,
-      activeSessionKey: sessionKey,
-      renderedSessionKey: sessionKey,
-      messageListSessionKey: sessionKey,
-      messageCount: messages.length,
-      reason: "chat-view-render",
     })
-  }, [messages.length, sessionKey])
+  }, [isBackgroundSession, sessionKey, streamCursor])
 
-  useEffect(() => {
-    setComposerSeed(initialPrompt ?? "")
-  }, [initialPrompt])
+  async function handleSend(payload: ChatComposerSubmit) {
+    const text = payload.text.trim()
+    if (!text && !payload.attachments?.length) return
 
-  const openSubagent = useCallback(
-    (sub: SpawnedSubagent) => {
-      if (!sub.sessionKey || sub.sessionKey === sessionKey) return
-      frontendLog("session", "subagent.open", {
-        parentSessionKey: sessionKey,
-        childSessionKey: sub.sessionKey,
-        status: sub.status,
-        toolCallId: sub.toolCallId,
-      })
-      setActiveSubagent({ ...sub, sessionKey: sub.sessionKey })
-      setInternalSubagentKey(sub.sessionKey)
-      onSubagentOpen?.(sub.sessionKey, sub.id || `spawn:${sub.toolCallId}`)
-    },
-    [onSubagentOpen, sessionKey]
-  )
-
-  const closeSubagent = useCallback(() => {
-    frontendLog("session", "subagent.close", {
-      parentSessionKey: sessionKey,
-      childSessionKey: activeSubKey,
-    })
-    setActiveSubagent(null)
-    setInternalSubagentKey(null)
-    onSubagentOpen?.(null, null)
-  }, [activeSubKey, onSubagentOpen, sessionKey])
-
-  const activeSubagentFallbackText = useMemo(() => {
-    if (!activeLiveSubagent || !isSubagentSessionKey(activeLiveSubagent.sessionKey)) {
-      return ""
+    const optimisticId = randomId()
+    shouldFollowScrollRef.current = true
+    const optimisticMessage: ChatMessage = {
+      messageId: optimisticId,
+      role: "user",
+      text,
+      createdAt: new Date().toISOString(),
+      isOptimistic: true,
+      sendStatus: "sending",
+      attachments: composerAttachmentsToMessageAttachments(payload.attachments),
     }
-    const assistantMessages = messages.filter(
-      (message) => message.role === "assistant" && message.text.trim()
-    )
-    const resultMessage =
-      [...assistantMessages]
-        .reverse()
-        .find(
-          (message) =>
-            /\bI spawned a subagent\b/i.test(message.text) ||
-            /\bDone\./i.test(message.text)
-        ) ?? assistantMessages.at(-1)
-    return cleanSubagentReply(resultMessage?.text ?? "")
-  }, [activeLiveSubagent, messages])
 
-  const activeSubagentFallbackPrompt =
-    activeLiveSubagent?.task?.trim() || "Run the delegated sub-agent task."
+    setSending(true)
+    setState((current) => ({
+      ...current,
+      composerError: null,
+      streamStatus: "thinking",
+      statusLabel: "Thinking",
+      messages: orderChatMessages([...current.messages, optimisticMessage]),
+    }))
+    onFirstMessageSent?.(text)
 
-  const firstFiredRef = useRef(false)
-
-  const resolveExecApproval = useCallback(
-    async (
-      approvalId: string,
-      decision: "allow-once" | "allow-always" | "deny"
-    ) => {
-      try {
-        await resolveExecApprovalV2({ approvalId, decision })
-      } catch {
-        await invoke("middleware_exec_approval_resolve", {
-          input: { approvalId, decision },
-        })
-      }
-      emit("chat:activity", { sessionKey })
-    },
-    [sessionKey]
-  )
-
-  const handleSessionModelSelect = useCallback(
-    async (modelId: string) => {
-      const toastId = toast.loading(`Switching model to ${modelId}…`)
-      setModelSwitching(true)
-      try {
-        await invoke("middleware_chat_model_set", {
-          input: { sessionKey, modelId },
-        })
-        emit("chat:activity", { sessionKey })
-        toast.update(toastId, {
-          render: `Switched model to ${modelId}`,
-          type: "success",
-          isLoading: false,
-          autoClose: 1800,
-        })
-      } catch (error) {
-        toast.update(toastId, {
-          render:
-            error instanceof Error ? error.message : "Failed to switch model",
-          type: "error",
-          isLoading: false,
-          autoClose: 3500,
-        })
-        throw error
-      } finally {
-        setModelSwitching(false)
-      }
-    },
-    [sessionKey]
-  )
-
-  const wrappedSend = useCallback(
-    async (payload: ChatComposerSubmit) => {
-      frontendLog("composer", "chat-view.send.request", {
-        sessionKey,
-        hasText: Boolean(payload.text.trim()),
-        textLength: payload.text.trim().length,
-        attachmentCount: payload.attachments?.length ?? 0,
-        isModelSwitching: modelSwitching,
-      })
-      if (modelSwitching) {
-        toast.info("Switching model… please wait before sending.")
-        return
-      }
-      const shouldNotifyFirstSend =
-        !firstFiredRef.current &&
-        messages.length === 0 &&
-        Boolean(onFirstMessageSent)
-      if (shouldNotifyFirstSend && onFirstMessageSent) {
-        firstFiredRef.current = true
-        onFirstMessageSent(payload.text)
-      }
-      dispatchMessageAction((prev) =>
-        messageActionReducer(prev, { type: "clear_reply" })
-      )
-      setReplyTo(null)
-      setComposerSeed("")
-      const sent = await handleSend(payload)
-      if (sent === false) {
-        firstFiredRef.current = false
-        return
-      }
-    },
-    [handleSend, messages.length, modelSwitching, onFirstMessageSent, sessionKey]
-  )
-
-  const retrySend = useCallback(
-    (messageId: string) => {
-      const message = messages.find((m) => m.messageId === messageId)
-      if (!message?.retryPayload) return
-      void handleSend(message.retryPayload, messageId)
-    },
-    [handleSend, messages]
-  )
-
-  // ---------------------------------------------------------------------------
-  // Render-window source: the chat-engine-v2 store keeps every projected
-  // message for the session; the slice hook below bounds what we actually
-  // mount to a 200-row sliding window (slides by 100 on extend). No chunk
-  // pool / no store eviction / no on-demand chunk refetch — the store is
-  // authoritative and the slice is a pure projection over it.
-  // ---------------------------------------------------------------------------
-  const visibleAllMessages = useMemo(
-    () => visibleMessages(messages, messageActionState),
-    [messages, messageActionState]
-  )
-  const renderedMessages = useMemo(
-    () => buildStableChatRows(visibleAllMessages),
-    [visibleAllMessages, forceRenderKey]
-  )
-
-  // ---------------------------------------------------------------------------
-  // Telegram-style sliced message window
-  // ---------------------------------------------------------------------------
-  // The chat-engine-v2 store keeps every message; this hook keeps a bounded
-  // slice (~60 rows by default) over the canonical `renderedMessages` array
-  // and grows / trims it on scroll triggers + live arrivals. All downstream
-  // memos (subagents, grouped tool calls, latest user index, etc.) still see
-  // the full `renderedMessages` array so cross-row references resolve
-  // correctly.
-  const {
-    slicedMessages,
-    startIndex: sliceStartIndex,
-    endIndex: sliceEndIndex,
-    isAtNewest: sliceIsAtNewest,
-    extendOlder: extendSliceOlder,
-    extendNewer: extendSliceNewer,
-    recenterOnMessage: recenterSliceOnMessage,
-    pinToNewest: pinSliceToNewest,
-  } = useChatMessageSlice<StableChatMessage>({
-    messages: renderedMessages,
-    sessionKey,
-    isGenerating,
-  })
-  // The slice extend functions are no-ops now (sentinels removed) but the
-  // surface is kept for `recenterOnMessage` and `pinToNewest`. Touch them
-  // so the unused-variable lint stays quiet.
-  void extendSliceOlder
-  void extendSliceNewer
-
-  // ---------------------------------------------------------------------------
-  // Viewport-windowed rendering
-  // ---------------------------------------------------------------------------
-  // We render only the message rows whose vertical range intersects the
-  // viewport (with an overscan of ~1 screen on each side). Rows outside that
-  // range are replaced by a top/bottom spacer so the scrollbar position and
-  // height stay identical to a non-virtualized render.
-  //
-  // Live streaming, caching, and pagination are NOT touched: the streaming
-  // assistant row is part of `renderedMessages` and naturally sits inside the
-  // viewport (or is reachable via the existing Jump-to-Bottom button).
-  const rowHeightsRef = useRef<Map<string, number>>(new Map())
-  const [heightsVersion, setHeightsVersion] = useState(0)
-  const heightsBumpScheduledRef = useRef(false)
-  const updateRowHeight = useCallback((uiId: string, height: number) => {
-    if (!Number.isFinite(height) || height <= 0) return
-    const map = rowHeightsRef.current
-    const previous = map.get(uiId)
-    // 1px tolerance avoids re-renders from sub-pixel ResizeObserver jitter.
-    if (typeof previous === "number" && Math.abs(previous - height) < 1) return
-    map.set(uiId, height)
-    if (heightsBumpScheduledRef.current) return
-    heightsBumpScheduledRef.current = true
-    requestAnimationFrame(() => {
-      heightsBumpScheduledRef.current = false
-      setHeightsVersion((v) => v + 1)
-    })
-  }, [])
-
-  // Reset row-height cache on session switch so stale heights from another
-  // chat never leak into the current viewport math.
-  useLayoutEffect(() => {
-    rowHeightsRef.current = new Map()
-    setHeightsVersion(0)
-  }, [sessionKey])
-
-  const rowOffsets = useMemo<RowOffset[]>(() => {
-    void heightsVersion // depend on the bump so cumulative tops refresh
-    return computeOffsets(
-      slicedMessages.map((m) => m.uiId),
-      (id) => rowHeightsRef.current.get(id),
-    ).offsets
-  }, [slicedMessages, heightsVersion])
-
-  const [visibleRange, setVisibleRange] = useState<{
-    firstIndex: number
-    lastIndex: number
-    topSpacerPx: number
-    bottomSpacerPx: number
-  }>(() => ({ firstIndex: 0, lastIndex: -1, topSpacerPx: 0, bottomSpacerPx: 0 }))
-
-  const recomputeRangeFromScroll = useCallback((el: HTMLElement | null, offsets: readonly RowOffset[]) => {
-    if (!el) return
-    const next = computeVisibleRange({
-      scrollTop: el.scrollTop,
-      clientHeight: el.clientHeight,
-      offsets,
-    })
-    setVisibleRange((prev) =>
-      prev.firstIndex === next.firstIndex &&
-      prev.lastIndex === next.lastIndex &&
-      prev.topSpacerPx === next.topSpacerPx &&
-      prev.bottomSpacerPx === next.bottomSpacerPx
-        ? prev
-        : next
-    )
-  }, [])
-
-
-
-  const recomputeRangeRafRef = useRef<number | null>(null)
-  const scheduleRecomputeRange = useCallback(() => {
-    if (recomputeRangeRafRef.current !== null) return
-    recomputeRangeRafRef.current = requestAnimationFrame(() => {
-      recomputeRangeRafRef.current = null
-      // Read latest offsets at fire time so we don't capture a stale snapshot.
-      const offsets = computeOffsets(
-        slicedMessages.map((m) => m.uiId),
-        (id) => rowHeightsRef.current.get(id),
-      ).offsets
-      recomputeRangeFromScroll(scrollContainerRef.current, offsets)
-    })
-  }, [recomputeRangeFromScroll, slicedMessages, scrollContainerRef])
-
-  // Recompute whenever the row list, measured heights, or session change.
-  useLayoutEffect(() => {
-    recomputeRangeFromScroll(scrollContainerRef.current, rowOffsets)
-  }, [recomputeRangeFromScroll, rowOffsets, scrollContainerRef])
-
-  useEffect(() => {
-    return () => {
-      if (recomputeRangeRafRef.current !== null) {
-        cancelAnimationFrame(recomputeRangeRafRef.current)
-      }
-    }
-  }, [])
-
-  const resolveAnchorOffsetFromHeights = useCallback((uiId: string) => {
-    const offsets = computeOffsets(
-      slicedMessages.map((m) => m.uiId),
-      (id) => rowHeightsRef.current.get(id),
-    ).offsets
-    const row = findRowOffset(offsets, uiId)
-    return row ? row.top : null
-  }, [slicedMessages])
-
-  // ---------------------------------------------------------------------------
-  // Slice-extend sentinels (Telegram-style backwards/forwards triggers)
-  // ---------------------------------------------------------------------------
-  // Two invisible 1px divs sit just above and below the current slice. An
-  // IntersectionObserver watches them against the scroll container; when one
-  // enters the viewport (with ~1 viewport rootMargin), we extend the slice
-  // in that direction. A guarded ref prevents thrashing if the user scrolls
-  // past both edges quickly.
-  // Slice-extend sentinels were removed. The single sliding-window source of
-  // truth is the store-level window driven by handleScroll →
-  // loadOlderWithoutJump / loadNewerWithoutJump, which:
-  //   1) Capture a scroll anchor row before fetching.
-  //   2) Fetch the next PAGE_SIZE (100) older/newer messages.
-  //   3) Drop PAGE_SIZE from the opposite end via
-  //      trimSessionMessageWindow so total mounted stays ≈ WINDOW_SIZE (200).
-  //   4) Settle the anchor in useLayoutEffect so scrollTop snaps to the
-  //      same visible row — no jump, no blink.
-  // The slice hook is now a pure projection of `renderedMessages` (which is
-  // already bounded by the store window), so it never trims and never
-  // creates parallel fetch triggers.
-
-  const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
-  const contextFetchSeqRef = useRef(0)
-  const wasGeneratingRef = useRef(false)
-
-  const refreshSessionUsage = useCallback(async () => {
-    const seq = ++contextFetchSeqRef.current
     try {
-      const response = await fetchSessionContextUsage(sessionKey)
-      if (seq !== contextFetchSeqRef.current) return
-      setSessionUsage(normalizeSessionTokenUsage(response.usage))
-    } catch {
-      if (seq === contextFetchSeqRef.current) setSessionUsage(null)
+      await sendChatV2({
+        sessionKey,
+        text,
+        attachments: payload.attachments,
+        idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
+        clientMessageId: optimisticId,
+        replyTo: payload.replyTo
+          ? {
+              messageId: payload.replyTo.messageId,
+              snippet: payload.replyTo.text.slice(0, 500),
+            }
+          : undefined,
+        autonomyMode: payload.autonomyMode ?? null,
+        execPolicy: payload.execPolicy ?? undefined,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Message failed to send."
+      setState((current) => ({
+        ...current,
+        composerError: message,
+        streamStatus: "error",
+        statusLabel: null,
+        messages: current.messages.map((item) =>
+          item.messageId === optimisticId
+            ? {
+                ...item,
+                sendStatus: "failed",
+                sendError: message,
+              }
+            : item
+        ),
+      }))
+      throw error
+    } finally {
+      setSending(false)
     }
-  }, [sessionKey])
+  }
 
-  useEffect(() => {
-    setSessionUsage(null)
-    void refreshSessionUsage()
-  }, [refreshSessionUsage])
+  async function handleAbort() {
+    setState((current) => ({
+      ...current,
+      streamStatus: "stopping",
+      statusLabel: "Stopping",
+    }))
+    await abortChatV2({ sessionKey })
+  }
 
-  useEffect(() => {
-    const wasGenerating = wasGeneratingRef.current
-    wasGeneratingRef.current = isGenerating
-    if (!wasGenerating || isGenerating) return
-    void refreshSessionUsage()
-  }, [isGenerating, refreshSessionUsage])
-  const mountedAtRef = useRef(Date.now())
-  const userScrollIntentRef = useRef(false)
-  const needsInitialScrollRef = useRef(true)
-  const loadOlderClickInFlightRef = useRef(false)
-  const olderLoadAwaitingRenderRef = useRef(false)
-  const lastOlderLoadAtRef = useRef(0)
-  const lastOlderLoadScrollTopRef = useRef<number | null>(null)
-  const initialScrollSessionKeyRef = useRef(sessionKey)
-  const previousScrollTopRef = useRef(0)
-  const previousScrollTimeRef = useRef(Date.now())
-  const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null)
-  const olderAutoLoadBlockedUntilRef = useRef(0)
+  function handleTextAnimationComplete(messageId: string) {
+    setState((current) => ({
+      ...current,
+      messages: current.messages.map((message) =>
+        message.messageId === messageId
+          ? { ...message, animateText: false }
+          : message
+      ),
+    }))
+  }
 
-  useEffect(() => {
-    olderAutoLoadBlockedUntilRef.current = Date.now() + 1500
-  }, [isGenerating])
-
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    const previous = window.history.scrollRestoration
-    window.history.scrollRestoration = "manual"
-    return () => {
-      window.history.scrollRestoration = previous
-    }
-  }, [])
-
-  // Reset mount timestamp on session change
-  useLayoutEffect(() => {
-    initialScrollSessionKeyRef.current = sessionKey
-    mountedAtRef.current = Date.now()
-    userScrollIntentRef.current = false
-    needsInitialScrollRef.current = true
-    loadOlderClickInFlightRef.current = false
-    lastOlderLoadAtRef.current = 0
-    lastOlderLoadScrollTopRef.current = null
-    previousScrollTopRef.current = 0
-    previousScrollTimeRef.current = Date.now()
-  }, [sessionKey])
-
+  const renderedMessages = useMemo(
+    () => orderChatMessages(state.messages),
+    [state.messages]
+  )
+  const scrollFollowKey = useMemo(
+    () => renderedMessages.map((message) => [
+      message.messageId,
+      message.text.length,
+      message.reasoningText?.length ?? 0,
+      message.toolCalls?.map((tool) => [
+        tool.id,
+        tool.status,
+        tool.resultText?.length ?? 0,
+        tool.duration ?? "",
+        tool.awaitingResult ? "awaiting" : "",
+      ].join("/")).join("|") ?? "",
+    ].join(":")).join(";"),
+    [renderedMessages]
+  )
+  const title = sessionTitle?.trim() || "New chat"
+  const promptPreview = initialPrompt?.trim()
+  const isGenerating = isActiveStreamStatus(state.streamStatus)
+  const liveTool = isGenerating ? liveRunningTool(renderedMessages) : null
+  const statusText = isGenerating
+    ? generatingStatusText(state.streamStatus, state.statusLabel, liveTool)
+    : null
+  const showThinkingState = isGenerating && !hasActiveAssistantAfterLastUser(renderedMessages)
   const latestRenderedUserIndex = useMemo(() => {
-    for (let i = renderedMessages.length - 1; i >= 0; i--) {
-      if (renderedMessages[i].role === "user") return i
+    for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
+      if (renderedMessages[index]?.role === "user") return index
     }
     return -1
   }, [renderedMessages])
-
-  const userMessageHistory = useMemo(
-    () =>
-      messages
-        .filter((message) => message.role === "user")
-        .map((message) => message.text.trim())
-        .filter((text) => text.length > 0),
-    [messages]
+  const { grouped: groupedToolCalls, suppressed: suppressedToolCallMessages } = useMemo(
+    () => groupAssistantToolCallsByMessage(renderedMessages),
+    [renderedMessages]
   )
-  const pinned = useMemo(
-    () => pinnedMessages(messages, messageActionState),
-    [messages, messageActionState]
+  const duplicateToolOnlyRows = useMemo(
+    () => toolOnlyRowsOwnedByLaterText(renderedMessages, groupedToolCalls),
+    [groupedToolCalls, renderedMessages]
   )
-
-  const replyToMessage = useCallback(
-    (messageId: string) => {
-      const target = messages.find((message) => message.messageId === messageId)
-      if (!target) return
-      dispatchMessageAction((prev) =>
-        messageActionReducer(prev, { type: "reply", messageId })
-      )
-      setReplyTo({
-        messageId: target.messageId,
-        role: target.role,
-        text: target.text,
-      })
-    },
-    [messages]
-  )
-
-  const askAboutSelectedText = useCallback(
-    (messageId: string, text: string, comment?: string) => {
-      const selected = text.trim()
-      if (!selected) return
-      setReplyTo({
-        messageId: `${messageId}:selection`,
-        role: "assistant",
-        text: selected,
-      })
-      setComposerSeed(comment?.trim() ?? "")
-    },
-    []
-  )
-
-  const cancelReply = useCallback(() => {
-    setReplyTo(null)
-    dispatchMessageAction((prev) =>
-      messageActionReducer(prev, { type: "clear_reply" })
-    )
-  }, [])
-
-  const togglePin = useCallback(
-    (messageId: string) => {
-      const isPinned = messageActionState.pinnedIds.includes(messageId)
-      dispatchMessageAction((prev) =>
-        messageActionReducer(prev, {
-          type: isPinned ? "unpin" : "pin",
-          messageId,
-        })
-      )
-      if (isPinned) {
-        const msg = messages.find((m) => m.messageId === messageId)
-        const snippet = msg?.text?.slice(0, 80) ?? ""
-
-        setDbPins((prev) => ({
-          ...prev,
-          pins: prev.pins.filter((p) => {
-            // Match by exact ID or by text snippet (in case ID changed)
-            if (p.messageId === messageId) return false
-            if (snippet && p.messageText?.includes(snippet)) return false
-            return true
-          }),
-        }))
-
-        invoke("middleware_pins_remove", {
-          sessionKey,
-          messageId,
-          messageText: msg?.text?.slice(0, 200) ?? "",
-        }).catch(() => {})
-      } else {
-        const msg = messages.find((m) => m.messageId === messageId)
-        const text = msg?.text?.slice(0, 200) ?? ""
-
-        setDbPins((prev) => ({
-          ...prev,
-          pins: [...prev.pins, { messageId, messageText: text }],
-        }))
-
-        invoke("middleware_pins_add", {
-          sessionKey,
-          messageId,
-          messageText: text,
-        }).catch(() => {})
-      }
-    },
-    [sessionKey, messages, messageActionState.pinnedIds]
-  )
-
-  const deleteMessage = useCallback((messageId: string) => {
-    dispatchMessageAction((prev) =>
-      messageActionReducer(prev, { type: "delete", messageId })
-    )
-  }, [])
-
-  const reactToMessage = useCallback(
-    (messageId: string, reaction: "up" | "down") => {
-      const current = messageActionState.reactions[messageId]
-      const isRemoving = current === reaction
-
-      dispatchMessageAction((prev) =>
-        messageActionReducer(prev, { type: "react", messageId, reaction })
-      )
-
-      // Guard against double-clicks or rapid firing on the same message
-      const now = Date.now()
-      const lastTime = lastFeedbackTimesRef.current[messageId] || 0
-      if (now - lastTime < 500) return
-      lastFeedbackTimesRef.current[messageId] = now
-
-      if (isRemoving) {
-        invoke("middleware_message_feedback_delete", {
-          conversation_id: sessionKey,
-          message_id: messageId,
-        }).catch(() => {})
-        return
-      }
-
-      // Handle Feedback API (New or Changed)
-      const rating = reaction === "up" ? "thumbsUp" : "thumbsDown"
-
-      const payload: {
-        conversation_id: string
-        message_id: string
-        rating: string
-        tag_choices?: string[]
-        tags?: string[]
-        free_text?: string
-      } = {
-        conversation_id: sessionKey,
-        message_id: messageId,
-        rating,
-      }
-
-      if (reaction === "down") {
-        payload.tag_choices = [
-          "Incorrect or incomplete",
-          "Not what I asked for",
-          "Slow or buggy",
-          "Style or tone",
-          "Safety or legal concern",
-          "Other",
-        ]
-        payload.tags = ["Other"]
-      }
-
-      invoke("middleware_message_feedback", payload)
-        .then((res) => console.log("[Feedback Response]", res))
-        .catch(() => {})
-
-      if (reaction === "down") {
-        setFeedbackTargetId(messageId)
-        setFeedbackDialogOpen(true)
-      }
-    },
-    [sessionKey, messageActionState.reactions]
-  )
-
-  // Phase 2: while an anchor restore is in flight, gate further auto-loads
-  // so we don't fire load/trim cascades that fight the current settle.
-  const anchorRestoreInFlightRef = useRef(false)
-  const loadOlderWithoutJump = useCallback(async () => {
-    const now = Date.now()
-    if (!hasOlderMessages || loadingOlderMessages || loadOlderClickInFlightRef.current) return
-    // Phase 3: previously blocked older-load while isGenerating. The
-    // streaming assistant row is now protected from trim via animateText
-    // (messageWindow.isProtected), so older-load + bottom-trim during
-    // streaming cannot disturb the live tail.
-    if (now < olderAutoLoadBlockedUntilRef.current) return
-    if (anchorRestoreInFlightRef.current) return
-    if (now - lastOlderLoadAtRef.current < 900) return
-    lastOlderLoadAtRef.current = now
-    loadOlderClickInFlightRef.current = true
-    olderLoadAwaitingRenderRef.current = true
-    anchorRestoreInFlightRef.current = true
-    pendingOlderAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
-    logChatScrollDebug({
-      source: "chat",
-      event: "load-older-start",
-      sessionKey,
-      anchorId: pendingOlderAnchorRef.current?.uiId || pendingOlderAnchorRef.current?.id,
-      anchorTop: pendingOlderAnchorRef.current?.top,
-      scrollTop: scrollContainerRef.current?.scrollTop,
-      scrollHeight: scrollContainerRef.current?.scrollHeight,
-      clientHeight: scrollContainerRef.current?.clientHeight,
-    })
-    try {
-      await loadOlderMessages()
-      // Phase 1 sliding-window: after pulling an older page in, drop a
-      // page from the bottom so total loaded count stays ≈ window size.
-      // The store-level trim refuses to touch optimistic / pending rows
-      // so the live tail stays safe.
-      const droppedFromBottom = unloadNewestPage()
-      if (droppedFromBottom > 0) {
-        logChatScrollDebug({ source: "chat", event: "slide-up-unload-bottom", sessionKey, dropped: droppedFromBottom })
-      }
-    } catch {
-      pendingOlderAnchorRef.current = null
-      olderLoadAwaitingRenderRef.current = false
-      loadOlderClickInFlightRef.current = false
-      anchorRestoreInFlightRef.current = false
-    }
-  }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, scrollContainerRef, sessionKey, unloadNewestPage])
-
-  // Phase 1 sliding-window: symmetric newer-side load. Capture an anchor,
-  // append the next page, drop a page from the top. Anchor restore in the
-  // useLayoutEffect below keeps the user's visible row in place.
-  const loadNewerClickInFlightRef = useRef(false)
-  const lastNewerLoadAtRef = useRef(0)
-  const lastNewerLoadScrollTopRef = useRef<number | null>(null)
-  const pendingNewerAnchorRef = useRef<ReturnType<typeof captureMessageScrollAnchor> | null>(null)
-  const newerLoadAwaitingRenderRef = useRef(false)
-  const loadNewerWithoutJump = useCallback(async () => {
-    const now = Date.now()
-    if (!hasNewerMessages || loadingNewerMessages || loadNewerClickInFlightRef.current) return
-    if (isGenerating) return
-    if (anchorRestoreInFlightRef.current) return
-    if (now - lastNewerLoadAtRef.current < 900) return
-    lastNewerLoadAtRef.current = now
-    loadNewerClickInFlightRef.current = true
-    newerLoadAwaitingRenderRef.current = true
-    anchorRestoreInFlightRef.current = true
-    pendingNewerAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
-    logChatScrollDebug({
-      source: "chat",
-      event: "load-newer-start",
-      sessionKey,
-      anchorId: pendingNewerAnchorRef.current?.uiId || pendingNewerAnchorRef.current?.id,
-      anchorTop: pendingNewerAnchorRef.current?.top,
-      scrollTop: scrollContainerRef.current?.scrollTop,
-      scrollHeight: scrollContainerRef.current?.scrollHeight,
-      clientHeight: scrollContainerRef.current?.clientHeight,
-    })
-    try {
-      await loadNewerMessages()
-      const droppedFromTop = unloadOldestPage()
-      if (droppedFromTop > 0) {
-        logChatScrollDebug({ source: "chat", event: "slide-down-unload-top", sessionKey, dropped: droppedFromTop })
-      }
-    } catch {
-      pendingNewerAnchorRef.current = null
-      newerLoadAwaitingRenderRef.current = false
-      loadNewerClickInFlightRef.current = false
-      anchorRestoreInFlightRef.current = false
-    }
-  }, [hasNewerMessages, isGenerating, loadNewerMessages, loadingNewerMessages, scrollContainerRef, sessionKey, unloadOldestPage])
-
-  useLayoutEffect(() => {
-    const anchor = pendingOlderAnchorRef.current
-    if (!anchor) return
-    pendingOlderAnchorRef.current = null
-    olderLoadAwaitingRenderRef.current = false
-    settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
-      const el = scrollContainerRef.current
-      if (el) {
-        previousScrollTopRef.current = el.scrollTop
-        previousScrollTimeRef.current = Date.now()
-        lastOlderLoadScrollTopRef.current = el.scrollTop
-      }
-      loadOlderClickInFlightRef.current = false
-      anchorRestoreInFlightRef.current = false
-    })
-  }, [renderedMessages.length, scrollContainerRef])
-
-  // Phase 1: newer-side anchor restore. Runs whenever the rendered message
-  // count changes — catches both the loadNewer append and the symmetric
-  // unloadOldestPage trim.
-  useLayoutEffect(() => {
-    const anchor = pendingNewerAnchorRef.current
-    if (!anchor) return
-    pendingNewerAnchorRef.current = null
-    newerLoadAwaitingRenderRef.current = false
-    settleMessageScrollAnchor(scrollContainerRef.current, anchor, () => {
-      const el = scrollContainerRef.current
-      if (el) {
-        previousScrollTopRef.current = el.scrollTop
-        previousScrollTimeRef.current = Date.now()
-        lastNewerLoadScrollTopRef.current = el.scrollTop
-      }
-      loadNewerClickInFlightRef.current = false
-      anchorRestoreInFlightRef.current = false
-    })
-  }, [renderedMessages.length, scrollContainerRef])
-
-  const handleScroll = useCallback(() => {
-    onScroll()
-    const el = scrollContainerRef.current
-    if (el) {
-      // Recompute the visible window slice every scroll tick (rAF-throttled).
-      scheduleRecomputeRange()
-      const now = Date.now()
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
-      setShowJumpToBottom(!atBottom)
-      // Phase 3: older-load allowed during streaming — animateText
-      // protection in messageWindow keeps the live tail safe from trim.
-      const canAutoLoadOlder = now >= olderAutoLoadBlockedUntilRef.current
-      if (hasOlderMessages && canAutoLoadOlder && shouldAutoLoadOlderHistory({
-        scrollTop: el.scrollTop,
-        scrollHeight: el.scrollHeight,
-        clientHeight: el.clientHeight,
-        previousScrollTop: previousScrollTopRef.current,
-      })) {
-        logChatScrollDebug({ source: "chat", event: "load-older-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
-        void loadOlderWithoutJump()
-      }
-      // Phase 2 newer-side trigger:
-      //   - scrolling downward (current > previous)
-      //   - distanceFromBottom <= 60% clientHeight (with floor 500px)
-      //   - transition into the zone OR rearm distance from last fire
-      //   - not during anchor restore / streaming / no-newer-known
-      const scrollingDown = el.scrollTop > previousScrollTopRef.current
-      const maxScroll = el.scrollHeight - el.clientHeight
-      const distanceFromBottom = Math.max(0, maxScroll - el.scrollTop)
-      const prevDistanceFromBottom = Math.max(0, maxScroll - previousScrollTopRef.current)
-      const bottomThresholdPx = Math.max(500, el.clientHeight * 0.6)
-      const crossedIntoNewerZone = prevDistanceFromBottom > bottomThresholdPx && distanceFromBottom <= bottomThresholdPx
-      const newerRearmedByDistance = (() => {
-        if (lastNewerLoadScrollTopRef.current === null) return true
-        const rearmDistance = Math.max(500, el.clientHeight * 0.75)
-        return el.scrollTop - lastNewerLoadScrollTopRef.current >= rearmDistance
-      })()
-      if (
-        hasNewerMessages &&
-        !loadingNewerMessages &&
-        !isGenerating &&
-        !anchorRestoreInFlightRef.current &&
-        scrollingDown &&
-        distanceFromBottom <= bottomThresholdPx &&
-        (crossedIntoNewerZone || newerRearmedByDistance)
-      ) {
-        logChatScrollDebug({ source: "chat", event: "load-newer-trigger", sessionKey, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })
-        void loadNewerWithoutJump()
-      }
-      previousScrollTopRef.current = el.scrollTop
-      previousScrollTimeRef.current = now
-    }
-    if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, hasNewerMessages, hasOlderMessages, isGenerating, loadNewerWithoutJump, loadOlderWithoutJump, loadingNewerMessages, onScroll, scrollContainerRef])
-
-  const jumpToLatestMessage = useCallback(() => {
-    setShowJumpToBottom(false)
-    // Pin the slice back to the newest tail (slides the 200-row window to
-    // the end of the store) then scroll the bottom anchor into view.
-    pinSliceToNewest()
-    requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-    })
-  }, [bottomRef, pinSliceToNewest])
-
-  const syncJumpToBottomVisibility = useCallback(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    setShowJumpToBottom(
-      el.scrollHeight - el.scrollTop - el.clientHeight > JUMP_TO_BOTTOM_THRESHOLD_PX
-    )
-  }, [scrollContainerRef])
-
-  useEffect(() => {
-    syncJumpToBottomVisibility()
-  }, [renderedMessages.length, scrollContainerRef, syncJumpToBottomVisibility])
-
-  // Hidden/minimized windows can leave the scroll pane visually blank until a
-  // scroll event forces layout/paint. Nudge React and the scroll container when
-  // the document/window becomes visible again so the existing DOM repaints.
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof document === "undefined") return
-    let rafId: number | null = null
-    const recoverVisibleRender = () => {
-      if (document.visibilityState !== "visible") return
-      setForceRenderKey((prev) => prev + 1)
-      if (rafId !== null) cancelAnimationFrame(rafId)
-      rafId = requestAnimationFrame(() => {
-        const el = scrollContainerRef.current
-        if (!el) return
-        // Force layout and a no-op scroll write; this mirrors the manual scroll
-        // that currently makes the blank transcript paint again.
-        void el.getBoundingClientRect()
-        el.scrollTop = el.scrollTop
-        syncJumpToBottomVisibility()
-      })
-    }
-    document.addEventListener("visibilitychange", recoverVisibleRender)
-    window.addEventListener("focus", recoverVisibleRender)
-    window.addEventListener("pageshow", recoverVisibleRender)
-    return () => {
-      if (rafId !== null) cancelAnimationFrame(rafId)
-      document.removeEventListener("visibilitychange", recoverVisibleRender)
-      window.removeEventListener("focus", recoverVisibleRender)
-      window.removeEventListener("pageshow", recoverVisibleRender)
-    }
-  }, [scrollContainerRef, syncJumpToBottomVisibility])
-
-  useLayoutEffect(() => {
-    if (
-      needsInitialScrollRef.current &&
-      initialScrollSessionKeyRef.current === sessionKey &&
-      renderedMessages.length > 0 &&
-      !loading &&
-      !userScrollIntentRef.current
-    ) {
-      needsInitialScrollRef.current = false
-      const scrollToLatest = () => {
-        const el = scrollContainerRef.current
-        if (!el) return
-        bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-        el.scrollTop = el.scrollHeight
-        previousScrollTopRef.current = el.scrollTop
-        previousScrollTimeRef.current = Date.now()
-        setShowJumpToBottom(false)
-      }
-      requestAnimationFrame(() => {
-        scrollToLatest()
-        requestAnimationFrame(scrollToLatest)
-        window.setTimeout(scrollToLatest, 120)
-        window.setTimeout(scrollToLatest, 360)
-      })
-    }
-  }, [renderedMessages.length, loading, scrollContainerRef, sessionKey, bottomRef])
-
-
-
-  const handleFeedbackSubmit = useCallback(
-    (feedback: { tags: string[]; details: string }) => {
-      if (!feedbackTargetId) return
-
-      const payload = {
-        conversation_id: sessionKey,
-        message_id: feedbackTargetId,
-        rating: "thumbsDown",
-        tag_choices: [
-          "Incorrect or incomplete",
-          "Not what I asked for",
-          "Slow or buggy",
-          "Style or tone",
-          "Safety or legal concern",
-          "Other",
-        ],
-        tags: feedback.tags,
-        details: feedback.details,
-      }
-
-      invoke("middleware_message_feedback", payload)
-        .then((res) => console.log("[Feedback Response]", res))
-        .catch(() => {})
-    },
-    [sessionKey, feedbackTargetId]
-  )
-
-  const forkFromMessage = useCallback(
-    async (messageId: string) => {
-      const msg = messages.find((m) => m.messageId === messageId)
-      if (!msg || msg.gatewayIndex === undefined) return
-      const requestId = `fork-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      const optimisticName =
-        forkContext?.type === "topic"
-          ? `Fork: ${forkContext.topicName}`
-          : "Forked chat"
-      emit("fork:create", {
-        status: "pending",
-        requestId,
-        name: optimisticName,
-        spaceId: activeSpaceId ?? undefined,
-        context: forkContext ?? { type: "chat" },
-      })
-      const toastId = toast.loading(
-        forkContext?.type === "topic"
-          ? "Creating fork topic…"
-          : "Creating fork chat…"
-      )
-      try {
-        const result = await invoke<{
-          chatId?: string | null
-          sessionKey: string
-          name: string
-          projectId?: string | null
-          topicId?: string | null
-        }>("middleware_chat_fork", {
-          input: {
-            sessionKey,
-            messageId,
-            gatewayIndex: msg.gatewayIndex,
-            context: forkContext ?? { type: "chat" },
-          },
-        })
-        emit("fork:create", {
-          status: "resolved",
-          requestId,
-          name: result.name,
-          chatId: result.chatId,
-          sessionKey: result.sessionKey,
-          projectId: result.projectId,
-          topicId: result.topicId,
-          spaceId: activeSpaceId ?? undefined,
-          context: forkContext ?? { type: "chat" },
-        })
-        toast.update(toastId, {
-          render:
-            forkContext?.type === "topic"
-              ? "Fork topic created"
-              : "Fork chat created",
-          type: "success",
-          isLoading: false,
-          autoClose: 2500,
-        })
-        onForkNavigate?.({
-          id: result.chatId,
-          name: result.name,
-          sessionKey: result.sessionKey,
-          projectId: result.projectId,
-          topicId: result.topicId,
-        })
-      } catch (err) {
-        emit("fork:create", {
-          status: "failed",
-          requestId,
-          spaceId: activeSpaceId ?? undefined,
-          context: forkContext ?? { type: "chat" },
-        })
-        toast.update(toastId, {
-          render: "Fork failed",
-          type: "error",
-          isLoading: false,
-          autoClose: 4000,
-        })
-        console.error("Fork failed", err)
-      }
-    },
-    [sessionKey, messages, forkContext, activeSpaceId, onForkNavigate]
-  )
-
-  const exportOneMessage = useCallback(
-    (messageId: string) => {
-      const target = messages.find((message) => message.messageId === messageId)
-      if (!target) return
-      void navigator.clipboard.writeText(exportMessagesMarkdown([target]))
-    },
-    [messages]
-  )
-
-  const lastEditableUserId = useMemo(() => {
-    for (let i = renderedMessages.length - 1; i >= 0; i--) {
-      if (renderedMessages[i].role === "user")
-        return renderedMessages[i].messageId
-      if (renderedMessages[i].role === "assistant") continue
-    }
-    return null
-  }, [renderedMessages])
-
-  const assistantMessages = messages.filter((m) => m.role === "assistant")
-  const lastTwoAssistantIds = new Set(
-    assistantMessages.slice(-2).map((m) => m.messageId)
-  )
-  const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
-    tools.filter(
-      (t) =>
-        t.tool !== "sessions_spawn" &&
-        t.tool !== "subagents" &&
-        t.tool !== "sessions_yield"
-    )
-
-  const { grouped: groupedToolCalls, suppressed: suppressedToolCallMessages } =
-    useMemo(
-      () => groupAssistantToolCallsByMessage(renderedMessages),
-      [renderedMessages]
-    )
-
   const terminalToolState = useMemo(
-    () => terminalToolStateById(renderedMessages, pendingTools),
-    [renderedMessages, pendingTools]
+    () => terminalToolStateById(renderedMessages),
+    [renderedMessages]
   )
 
-  const activeTurnToolCalls = useMemo(() => {
-    if (!isGenerating || latestRenderedUserIndex < 0) return []
-    const merged = new Map<string, import("./types").InlineToolCall>()
-    for (const tool of pendingTools) merged.set(tool.id, tool)
-    for (const message of renderedMessages.slice(latestRenderedUserIndex + 1)) {
-      if (message.role === "user") break
-      if (message.role !== "assistant") continue
-      for (const tool of message.toolCalls ?? []) {
-        const existing = merged.get(tool.id)
-        merged.set(tool.id, {
-          ...(existing ?? tool),
-          ...tool,
-          duration: tool.duration ?? existing?.duration,
-          startedAt: tool.startedAt ?? existing?.startedAt,
-          completedAt: tool.completedAt ?? existing?.completedAt,
-          resultText: tool.resultText ?? existing?.resultText,
-          approval: tool.approval ?? existing?.approval,
-          awaitingResult: tool.resultText ? false : (tool.awaitingResult ?? existing?.awaitingResult),
-        })
-      }
-    }
-    return Array.from(merged.values())
-  }, [isGenerating, latestRenderedUserIndex, pendingTools, renderedMessages])
+  function handleScroll() {
+    const element = scrollContainerRef.current
+    if (!element) return
+    shouldFollowScrollRef.current = isNearScrollBottom(element)
+  }
 
-  const spawnsByToolCallId = useMemo(() => {
-    const map = new Map<string, SpawnedSubagent>()
-    for (const sub of spawnedSubagents) {
-      map.set(sub.toolCallId, sub)
-    }
-    return map
-  }, [spawnedSubagents])
+  useLayoutEffect(() => {
+    if (state.loading) return
+    const element = scrollContainerRef.current
+    if (!element) return
+    if (!shouldFollowScrollRef.current) return
+    scrollElementToBottom(element)
+  }, [isGenerating, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText])
 
-  const getSubagentsForMessage = useCallback(
-    (toolCalls?: import("./types").InlineToolCall[]): SpawnedSubagent[] => {
-      if (!toolCalls) return []
-      const matched: SpawnedSubagent[] = []
-      for (const tc of toolCalls) {
-        if (tc.tool === "sessions_spawn") {
-          const sub = spawnsByToolCallId.get(tc.id)
-          if (sub) matched.push(sub)
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    const content = scrollContentRef.current
+    if (!container || !content || typeof ResizeObserver === "undefined") return
+
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      if (!shouldFollowScrollRef.current) return
+      if (frame) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        if (shouldFollowScrollRef.current) {
+          scrollElementToBottom(container)
         }
-      }
-      return dedupeSpawnedSubagents(matched)
-    },
-    [spawnsByToolCallId]
-  )
-
-  const {
-    subagentsByTriggerUserId,
-    orphanSubagentsByAssistantId,
-    subagentRenderScope,
-    currentTurnSubagents,
-  } = useMemo(() => {
-    const byTriggerUserId = new Map<string, SpawnedSubagent[]>()
-    const orphanByAssistantId = new Map<string, SpawnedSubagent[]>()
-    let nearestUserId: string | null = null
-    let latestUserMessageId: string | null = null
-
-    for (const msg of renderedMessages) {
-      if (msg.role === "user") {
-        nearestUserId = msg.messageId
-        latestUserMessageId = msg.messageId
-        continue
-      }
-
-      const msgSubagents = getSubagentsForMessage(msg.toolCalls)
-      if (msgSubagents.length === 0) continue
-
-      if (nearestUserId) {
-        const existing = byTriggerUserId.get(nearestUserId) ?? []
-        byTriggerUserId.set(nearestUserId, dedupeSpawnedSubagents([
-          ...existing,
-          ...msgSubagents,
-        ]))
-      } else {
-        orphanByAssistantId.set(msg.messageId, dedupeSpawnedSubagents(msgSubagents))
-      }
+      })
+    })
+    observer.observe(content)
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      observer.disconnect()
     }
+  }, [sessionKey])
 
-    const latestUserSubagents = latestUserMessageId
-      ? dedupeSpawnedSubagents(byTriggerUserId.get(latestUserMessageId) ?? [])
-      : []
-    return {
-      subagentsByTriggerUserId: byTriggerUserId,
-      orphanSubagentsByAssistantId: orphanByAssistantId,
-      currentTurnSubagents: latestUserSubagents,
-      subagentRenderScope: {
-        latestUserMessageId,
-        currentTurnCount: latestUserSubagents.length,
-        anchoredCount: Array.from(byTriggerUserId.values()).reduce((sum, items) => sum + items.length, 0),
-        orphanCount: Array.from(orphanByAssistantId.values()).reduce((sum, items) => sum + items.length, 0),
+  useEffect(() => {
+    if (duplicateToolOnlyRows.size === 0) return
+    frontendLog(
+      "chat",
+      "chat-rebuild.tool-stack-collapse",
+      {
+        sessionKey,
+        suppressedToolRows: duplicateToolOnlyRows.size,
+        messageCount: renderedMessages.length,
       },
-    }
-  }, [getSubagentsForMessage, renderedMessages])
-
-  useEffect(() => {
-    if (spawnedSubagents.length === 0) return
-    frontendLog("chat", "subagents.render.scope", {
-      sessionKey,
-      globalCount: spawnedSubagents.length,
-      activeCount: spawnedSubagents.filter((sub) => isActiveSubagent(sub.status)).length,
-      latestUserMessageId: subagentRenderScope.latestUserMessageId,
-      currentTurnCount: subagentRenderScope.currentTurnCount,
-      anchoredCount: subagentRenderScope.anchoredCount,
-      orphanCount: subagentRenderScope.orphanCount,
-      messageCount: renderedMessages.length,
-    }, "debug")
-  }, [renderedMessages.length, sessionKey, spawnedSubagents, subagentRenderScope])
-
-  const scrollToRenderedMessage = useCallback((messageId: string, seqHint?: number) => {
-    // Fast path: target row is already mounted in the DOM.
-    const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-    const target = rows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
-    if (target) {
-      target.scrollIntoView({ behavior: "auto", block: "center" })
-      return true
-    }
-    // Slow path: target may live outside the current Telegram-style slice.
-    // If so, recenter the slice around it first; the next render will mount
-    // the row and we fall back to the offset-based scroll restoration below.
-    const targetIndex = renderedMessages.findIndex(
-      (msg) => msg.messageId === messageId || msg.uiId === messageId,
+      "debug"
     )
-    if (targetIndex < 0) {
-      // Target isn't in the in-memory store. Older history must be loaded
-      // by scrolling up (handleScroll → loadOlderWithoutJump). No chunk
-      // refetch shortcut here.
-      void seqHint
-      return false
-    }
-    if (targetIndex < sliceStartIndex || targetIndex > sliceEndIndex) {
-      recenterSliceOnMessage(messageId)
-      // After the slice recenters, the offsets array used below will be valid
-      // on the *next* paint. Fall back to a scrollIntoView retry on rAF.
-      requestAnimationFrame(() => {
-        const retryRows = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
-        const retryTarget = retryRows.find((row) => row.dataset.messageId === messageId || row.dataset.uiId === messageId)
-        if (retryTarget) retryTarget.scrollIntoView({ behavior: "auto", block: "center" })
-      })
-      return true
-    }
-    // Target sits inside the slice but is unmounted by the viewport-window
-    // renderer. Use measured offsets to scroll there.
-    const el = scrollContainerRef.current
-    if (!el) return false
-    const offsets = computeOffsets(
-      slicedMessages.map((m) => m.uiId),
-      (id) => rowHeightsRef.current.get(id),
-    ).offsets
-    const sliceRelativeIndex = targetIndex - sliceStartIndex
-    const row = offsets[sliceRelativeIndex]
-    if (!row) return false
-    const blockOffset = Math.max(0, (el.clientHeight - row.height) / 2)
-    el.scrollTop = Math.max(0, row.top - blockOffset)
-    scheduleRecomputeRange()
-    return true
-  }, [recenterSliceOnMessage, renderedMessages, scheduleRecomputeRange, scrollContainerRef, sliceEndIndex, sliceStartIndex, slicedMessages])
+  }, [duplicateToolOnlyRows.size, renderedMessages.length, sessionKey])
 
-  // Listen for scroll-to-message events from Ctrl+K global search
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail
-      if (detail?.sessionKey === sessionKey && detail?.messageId) {
-        scrollToRenderedMessage(detail.messageId)
-        handleHighlightMessage(detail.messageId)
-      }
-    }
-    window.addEventListener("openclaw:scroll-to-message", handler)
-    return () => window.removeEventListener("openclaw:scroll-to-message", handler)
-  }, [sessionKey, scrollToRenderedMessage, handleHighlightMessage])
-
-  const abortedMarkerMessageId = useMemo(() => {
-    if (!wasAborted || isGenerating) return null
-    for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
-      const message = renderedMessages[index]
-      if (message.role === "assistant") return message.messageId
-    }
+  if (isBackgroundSession) {
     return null
-  }, [isGenerating, renderedMessages, wasAborted])
-
-  const renderMessageRow = useCallback(
-    (index: number, msg: StableChatMessage) => {
-      const isLast = index === renderedMessages.length - 1
-      const showPending =
-        index === latestRenderedUserIndex &&
-        isGenerating &&
-        activeTurnToolCalls.length > 0 &&
-        msg.role === "user"
-      const isActivelyStreaming =
-        isLast && isGenerating && msg.role === "assistant"
-      const animateAssistantText =
-        msg.role === "assistant" &&
-        msg.text.trim().length > 0 &&
-        (isActivelyStreaming || (isLast && msg.animateText === true))
-      let hasLaterAssistantInSameTurn = false
-      if (msg.role === "assistant") {
-        for (const next of renderedMessages.slice(index + 1)) {
-          if (next.role === "user") break
-          if (next.role === "assistant" && next.text.trim()) {
-            hasLaterAssistantInSameTurn = true
-            break
-          }
-        }
-      }
-      const isActiveTurnAssistant =
-        msg.role === "assistant" && index > latestRenderedUserIndex
-      const suppressAssistantActions =
-        msg.role === "assistant" &&
-        (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
-      const filteredPending = toolCallsWithoutSpawn(activeTurnToolCalls).filter((t) => {
-        // During a live turn, keep the active tool stack stable under the user
-        // message: completed tools stay in the same stack while the next tool
-        // starts, instead of jumping into separate assistant tool blocks.
-        if (isGenerating) return true
-        const isInMessageHistory = renderedMessages.some(
-          (m) => m.role === "assistant" && m.toolCalls?.some((tc) => tc.id === t.id)
-        )
-        return !isInMessageHistory
-      })
-      const messageToolCalls =
-        msg.role === "assistant" && suppressedToolCallMessages.has(msg.messageId)
-          ? []
-          : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
-      const suppressLiveToolOnlyAssistantRow =
-        isGenerating &&
-        msg.role === "assistant" &&
-        index > latestRenderedUserIndex &&
-        !msg.text.trim() &&
-        !msg.reasoningText &&
-        messageToolCalls.length > 0
-      if (suppressLiveToolOnlyAssistantRow) return null
-      const activeTurnAssistantToolCalls =
-        isGenerating && msg.role === "assistant" && index > latestRenderedUserIndex
-          ? []
-          : messageToolCalls
-      const shouldFinalizeDisplayedTools =
-        msg.role === "assistant" &&
-        (index < latestRenderedUserIndex || !isGenerating || pendingTools.length === 0)
-      const filteredToolCalls = applyTerminalToolState(
-        toolCallsWithoutSpawn(activeTurnAssistantToolCalls),
-        terminalToolState,
-        { finalizeStaleRunning: shouldFinalizeDisplayedTools }
-      )
-      const anchoredUserSubagents =
-        msg.role === "user"
-          ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
-          : []
-      const orphanAssistantSubagents =
-        msg.role === "assistant"
-          ? (orphanSubagentsByAssistantId.get(msg.messageId) ?? [])
-          : []
-      const liveSubagents =
-        msg.role === "user" && isLast && isGenerating
-          ? getSubagentsForMessage(pendingTools)
-          : []
-      const userSubagents =
-        anchoredUserSubagents.length > 0 ? anchoredUserSubagents : liveSubagents
-
-      return (
-        <div
-          id={`message-${msg.uiId}`}
-          data-chat-message-row="true"
-          data-ui-id={msg.uiId}
-          data-message-id={msg.messageId}
-          className={cn(
-            "mx-auto max-w-[44rem] px-4 py-3",
-            highlightedMessageId && highlightedMessageId !== msg.messageId && "opacity-40",
-            highlightedMessageId === msg.messageId && "rounded-lg ring-1 ring-yellow-500/40"
-          )}
-        >
-          {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
-            <div className="mb-2">
-              <SubagentCard
-                subagents={orphanAssistantSubagents}
-                onOpen={openSubagent}
-              />
-            </div>
-          )}
-          {msg.role === "assistant" && msg.reasoningText && (
-            <ThinkingBlock
-              text={msg.reasoningText}
-              defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
-            />
-          )}
-          {(() => {
-            const assistantHasText = msg.role === "assistant" && msg.text.trim().length > 0
-            const shouldOpenToolStepsByDefault =
-              lastTwoAssistantIds.has(msg.messageId) &&
-              !assistantHasText &&
-              filteredToolCalls.length <= 3
-            const toolSteps = msg.role === "assistant" && filteredToolCalls && filteredToolCalls.length > 0
-              ? (
-                  <div className="mb-4 max-w-[85%]">
-                    <ToolCallSteps
-                      tools={filteredToolCalls}
-                      defaultOpen={shouldOpenToolStepsByDefault}
-                      onSelectTool={onSelectTool}
-                      onResolveApproval={resolveExecApproval}
-                      sessionKey={sessionKey}
-                    />
-                  </div>
-                )
-              : null
-            const bubble = (msg.role === "user" || msg.text) ? (
-              <MessageBubble
-                message={msg}
-                afterContent={msg.messageId === abortedMarkerMessageId ? <AbortedDivider inline /> : undefined}
-                onEdit={
-                  msg.role === "user" && msg.messageId === lastEditableUserId
-                    ? handleEdit
-                    : undefined
-                }
-                onRetrySend={retrySend}
-                onSwitchBranch={switchBranch}
-                onReply={replyToMessage}
-                onPin={togglePin}
-                onDelete={deleteMessage}
-                onReact={msg.role === "assistant" ? reactToMessage : undefined}
-                onExport={exportOneMessage}
-                onTextAnimationComplete={markTextAnimationComplete}
-                onFork={msg.role === "assistant" ? forkFromMessage : undefined}
-                onResolveApproval={resolveExecApproval}
-                onAskSelectedText={
-                  msg.role === "assistant" ? askAboutSelectedText : undefined
-                }
-                isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
-                reaction={messageActionState.reactions[msg.messageId]}
-                isGenerating={isGenerating}
-                isActivelyStreaming={isActivelyStreaming}
-                animateAssistantText={animateAssistantText}
-                suppressActions={suppressAssistantActions}
-                popoverOpen={activePopoverId === msg.messageId}
-                onPopoverOpenChange={(open) =>
-                  setActivePopoverId(open ? msg.messageId : null)
-                }
-              />
-            ) : null
-            return <>{toolSteps}{bubble}</>
-          })()}
-          {msg.role === "user" && userSubagents.length > 0 && (
-            <div className="mt-3">
-              <SubagentCard subagents={userSubagents} onOpen={openSubagent} />
-            </div>
-          )}
-          {showPending && filteredPending.length > 0 && (
-            <div className="mt-2 max-w-[85%]">
-              <ToolCallSteps
-                tools={filteredPending}
-                defaultOpen
-                onSelectTool={onSelectTool}
-                onResolveApproval={resolveExecApproval}
-                sessionKey={sessionKey}
-              />
-            </div>
-          )}
-        </div>
-      )
-    },
-    [
-      activePopoverId,
-      activeTurnToolCalls,
-      abortedMarkerMessageId,
-      askAboutSelectedText,
-      deleteMessage,
-      exportOneMessage,
-      forkFromMessage,
-      getSubagentsForMessage,
-      handleEdit,
-      isGenerating,
-      lastEditableUserId,
-      lastTwoAssistantIds,
-      latestRenderedUserIndex,
-      markTextAnimationComplete,
-      messageActionState.pinnedIds,
-      messageActionState.reactions,
-      onSelectTool,
-      openSubagent,
-      orphanSubagentsByAssistantId,
-      pendingTools,
-      reactToMessage,
-      groupedToolCalls,
-      suppressedToolCallMessages,
-      terminalToolState,
-      renderedMessages.length,
-      replyToMessage,
-      resolveExecApproval,
-      retrySend,
-      setActivePopoverId,
-      subagentsByTriggerUserId,
-      switchBranch,
-      togglePin,
-    ]
-  )
-
-  const experimentalAssistantUiChatViewEnabled = useAssistantUiChatViewEnabled()
-  // Keep the experimental Vercel/assistant-ui chat view disabled until it
-  // reaches parity with the mature renderer for live pending tools, approvals,
-  // subagents, and send-time scroll ownership.
-  const assistantUiChatViewEnabled = false && experimentalAssistantUiChatViewEnabled
-
-  if (activeSubKey && activeLiveSubagent) {
-    return (
-      <SubagentFullChat
-        sessionKey={activeSubKey}
-        label={activeLiveSubagent.label}
-        status={activeLiveSubagent.status}
-        fallbackPrompt={activeSubagentFallbackPrompt}
-        fallbackText={activeSubagentFallbackText}
-        onBack={closeSubagent}
-      />
-    )
   }
 
-  const liveTool = isGenerating
-    ? pendingTools.find(
-        (tool) =>
-          tool.status === "running" &&
-          tool.tool !== "sessions_spawn" &&
-          tool.tool !== "subagents" &&
-          tool.tool !== "sessions_yield"
-      )
-    : undefined
-  const liveToolInput = liveTool ? summarizeToolInput(liveTool) : ""
-  const liveToolText = liveTool
-    ? `Running ${liveTool.tool}${liveToolInput ? `: ${liveToolInput}` : ""}...`
-    : null
-
-  const statusText =
-    liveToolText ??
-    (status === "thinking"
-      ? "Thinking - waiting for the next event..."
-      : status === "queued"
-        ? statusLabel
-          ? `Queued - ${statusLabel}...`
-          : "Queued..."
-        : status === "running"
-          ? statusLabel
-            ? `Running - ${statusLabel}...`
-            : "Running..."
-          : status === "collect"
-            ? statusLabel
-              ? `Collecting - ${statusLabel}...`
-              : "Collecting..."
-            : status === "tool_running"
-              ? `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
-              : status === "streaming"
-                ? "Responding..."
-                : status === "stopping"
-                  ? "Stopping..."
-                  : status === "restarting"
-                    ? "Restarting..."
-                    : isGenerating
-                      ? statusLabel
-                        ? `${statusLabel}...`
-                        : "Thinking - waiting for the next event..."
-                      : null)
-
-  if (loading && messages.length === 0) {
+  if (state.loading && renderedMessages.length === 0) {
     return <ChatLoadingSkeleton />
-  }
-
-  if (loadError) {
-    return (
-      <div className="flex h-full w-full items-center justify-center px-8">
-        <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-5 py-4 text-center">
-          <p className="text-sm font-medium text-red-400">
-            Failed to load session
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">{loadError}</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (messages.length === 0) {
-    return (
-      <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
-        <AnimatedGreeting />
-        <ChatBox
-          onSend={wrappedSend}
-          disabled={false}
-          isGenerating={isGenerating}
-          historyMessages={userMessageHistory}
-          onAbort={handleAbort}
-          initialPrompt={composerSeed || undefined}
-          replyTo={replyTo}
-          onCancelReply={cancelReply}
-          onModelSelect={handleSessionModelSelect}
-          modelSwitching={modelSwitching}
-          glowOnMount
-          draftKey={sessionKey}
-          sessionUsage={sessionUsage}
-        />
-        {statusText && (
-          <div className="flex items-center pl-1">
-            <ProcessStatusIcon tool={liveTool?.tool} />
-            <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-              {statusText.replace(/\.{3}$/, "")}
-              <span className="thinking-ellipsis" aria-hidden="true" />
-            </span>
-          </div>
-        )}
-      </div>
-    )
   }
 
   return (
     <div
-      className="relative flex h-full w-full flex-col overflow-hidden"
-      onWheelCapture={() => {
-        userScrollIntentRef.current = true
-      }}
-      onPointerDownCapture={() => {
-        userScrollIntentRef.current = true
-      }}
-      onTouchMoveCapture={() => {
-        userScrollIntentRef.current = true
-      }}
-      onKeyDownCapture={(event) => {
-        if (["ArrowUp", "PageUp", "Home", "Space"].includes(event.key)) {
-          userScrollIntentRef.current = true
-        }
-      }}
+      className="relative flex h-full w-full flex-col overflow-hidden bg-background"
+      data-chat-rebuild-history="true"
+      data-session-key={sessionKey}
     >
-      {/* Sub-header for chat actions & pins */}
-      <div className="z-40 flex h-9 shrink-0 items-center justify-between bg-background/70 px-4 backdrop-blur-[2px]">
-        <div className="flex items-center gap-4">
-          {/* <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground/50">
-            <Icons.BubbleChat size={12} className="opacity-50" />
-            <span className="uppercase tracking-widest">Conversation</span>
-          </div> */}
+      <div className="z-10 flex h-9 shrink-0 items-center justify-between bg-background/70 px-4 backdrop-blur-[2px]">
+        <div className="min-w-0 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground/55">
+          {title}
         </div>
-
-        {dataSource === "syncing" && (
-          <div className="flex items-center gap-1.5 rounded-full bg-muted/30 px-2.5 py-1 text-[10px] text-muted-foreground/60">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-yellow-500/60" />
-            <span>Syncing…</span>
-          </div>
-        )}
-
-        <div className="relative">
-          <button
-            ref={pinButtonRef}
-            onClick={() => setPinnedPopoverOpen(!pinnedPopoverOpen)}
-            className={cn(
-              "group relative flex size-8 cursor-pointer items-center justify-center rounded-sm transition-all",
-              pinnedPopoverOpen
-                ? "text-foreground shadow-inner"
-                : pinned.length > 0
-                  ? "animate-pulse text-foreground"
-                  : "text-muted-foreground/60 hover:text-foreground"
-            )}
-          >
-            <Icons.Pin
-              size={16}
-              className={cn(
-                "transition-transform",
-                pinnedPopoverOpen && "scale-110"
-              )}
-            />
-          </button>
-
-          <PinnedMessagesPopover
-            open={pinnedPopoverOpen}
-            onClose={() => setPinnedPopoverOpen(false)}
-            pinned={pinned}
-            onTogglePin={togglePin}
-            triggerRef={pinButtonRef}
-            onNavigateToMessage={(id) => {
-              void scrollToRenderedMessage(id)
-            }}
-          />
+        <div className="text-[11px] text-muted-foreground/55">
+          {renderedMessages.length} messages
         </div>
       </div>
-
-      <MessageFeedbackDialog
-        open={feedbackDialogOpen}
-        onClose={() => setFeedbackDialogOpen(false)}
-        onSubmit={handleFeedbackSubmit}
-      />
-
-      <ChatSearch
-        messages={renderedMessages}
-        sessionKey={sessionKey}
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        onScrollToMessage={(id: string, seq?: number) => scrollToRenderedMessage(id, seq)}
-        onHighlightMessage={handleHighlightMessage}
-      />
-
-      {assistantUiChatViewEnabled ? (
-        <>
-          <OpenClawVercelChat
-            sessionKey={sessionKey}
-            messages={renderedMessages}
-            isGenerating={isGenerating}
-            statusText={statusText}
-            hasOlderMessages={hasOlderMessages}
-            loadingOlderMessages={loadingOlderMessages}
-            onLoadOlderMessages={loadOlderMessages}
-            onSelectTool={onSelectTool}
-            onResolveApproval={resolveExecApproval}
-          />
-
-          <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
-            <ChatBox
-              onSend={wrappedSend}
-              disabled={false}
-              isGenerating={isGenerating}
-              onAbort={handleAbort}
-              initialPrompt={composerSeed || undefined}
-              replyTo={replyTo}
-              onCancelReply={cancelReply}
-              onModelSelect={handleSessionModelSelect}
-              modelSwitching={modelSwitching}
-              historyMessages={userMessageHistory}
-              draftKey={sessionKey}
-              sessionUsage={sessionUsage}
-            />
-          </div>
-        </>
-      ) : (
-        <>
 
       <div
-        ref={(ref) => {
-          scrollContainerRef.current = ref
-        }}
+        ref={scrollContainerRef}
         onScroll={handleScroll}
-        data-chat-slice-window={`${sliceStartIndex}-${sliceEndIndex}/${renderedMessages.length}`}
-        data-chat-slice-at-newest={sliceIsAtNewest ? "1" : "0"}
-        className="flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
       >
-        <div className="min-h-full">
-          <div className="mx-auto max-w-3xl px-4 pt-8" />
-          {visibleRange.topSpacerPx > 0 && (
-            <div
-              aria-hidden
-              data-chat-virtual-spacer="top"
-              style={{ height: `${visibleRange.topSpacerPx}px` }}
-            />
-          )}
-          {(() => {
-            // The viewport-window range is computed against `slicedMessages`,
-            // and the slice itself is the Telegram-style 60ish-row chunk over
-            // the canonical `renderedMessages`. Absolute row indices for
-            // downstream logic (latestRenderedUserIndex etc) are recovered by
-            // adding the slice start to the viewport-relative index.
-            if (visibleRange.lastIndex < visibleRange.firstIndex) return null
-            const slice = slicedMessages.slice(
-              visibleRange.firstIndex,
-              visibleRange.lastIndex + 1,
-            )
-            return slice.map((msg, i) => {
-              const sliceRelativeIndex = visibleRange.firstIndex + i
-              const absoluteIndex = sliceStartIndex + sliceRelativeIndex
-              return (
-                <RowMeasurer
-                  key={msg.uiId}
-                  uiId={msg.uiId}
-                  absoluteIndex={absoluteIndex}
-                  onMeasure={updateRowHeight}
-                >
-                  {renderMessageRow(absoluteIndex, msg)}
-                </RowMeasurer>
-              )
-            })
-          })()}
-          {visibleRange.bottomSpacerPx > 0 && (
-            <div
-              aria-hidden
-              data-chat-virtual-spacer="bottom"
-              style={{ height: `${visibleRange.bottomSpacerPx}px` }}
-            />
-          )}
-          <div className={cn("mx-auto max-w-[44rem] px-4 pt-0", statusText ? "pb-2" : "pb-8")}>
-            <AnimatePresence initial={false}>
-              {editPreview && (
-                <EditPreviewPanel
-                  key={editPreview.branchSessionKey}
-                  preview={editPreview}
-                  onSelect={selectEditBranch}
-                />
-              )}
-            </AnimatePresence>
-            <div className={cn("flex h-[21px] items-center", statusText ? "mt-1" : "mt-2")}>
-              {statusText && (
-                <>
-                  <ProcessStatusIcon tool={liveTool?.tool} />
-                  <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                    {statusText.replace(/\.{3}$/, "")}
-                    <span className="thinking-ellipsis" aria-hidden="true" />
-                  </span>
-                </>
-              )}
+        {state.error ? (
+          <div className="flex min-h-full items-center justify-center px-8">
+            <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-5 py-4 text-center">
+              <p className="text-sm font-medium text-red-400">Failed to load history</p>
+              <p className="mt-1 text-xs text-muted-foreground">{state.error}</p>
             </div>
-            <div ref={bottomRef} className={statusText ? "h-2" : "h-8"} />
           </div>
-        </div>
+        ) : renderedMessages.length === 0 ? (
+          <div className="flex min-h-full flex-col items-center justify-center gap-6 px-6 py-10">
+            <AnimatedGreeting />
+            {promptPreview && (
+              <div className="max-w-[44rem] rounded-2xl border border-border/40 bg-foreground/[0.025] px-4 py-3 text-sm text-foreground">
+                {promptPreview}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div ref={scrollContentRef} className="min-h-full py-6">
+            {renderedMessages.map((message, index) => {
+              const isDuplicateToolOnlyRow = duplicateToolOnlyRows.has(message.messageId)
+              const rawMessageToolCalls = message.role === "assistant" && !suppressedToolCallMessages.has(message.messageId) && !isDuplicateToolOnlyRow
+                ? groupedToolCalls.get(message.messageId) ?? message.toolCalls ?? []
+                : []
+              const shouldFinalizeDisplayedTools =
+                message.role === "assistant" &&
+                (index < latestRenderedUserIndex || !isGenerating || rawMessageToolCalls.some((tool) => tool.status === "success" || tool.status === "error"))
+              const messageToolCalls = applyTerminalToolState(rawMessageToolCalls, terminalToolState, {
+                finalizeStaleRunning: shouldFinalizeDisplayedTools,
+              })
+              const suppressLiveToolOnlyAssistantRow =
+                message.role === "assistant" &&
+                index > latestRenderedUserIndex &&
+                !message.text.trim() &&
+                !message.reasoningText &&
+                suppressedToolCallMessages.has(message.messageId)
+              if (suppressLiveToolOnlyAssistantRow || (isDuplicateToolOnlyRow && !message.text.trim() && !message.reasoningText && !message.attachments?.length)) {
+                return null
+              }
+              const isStreamingAssistant = isActivelyStreamingAssistant({
+                message,
+                index,
+                messages: renderedMessages,
+                isGenerating,
+              })
+              const animateAssistantText = shouldAnimateAssistantMessage({
+                message,
+                index,
+                messages: renderedMessages,
+                isGenerating,
+              })
+              return (
+              <div
+                key={`${message.gatewayIndex ?? "no-seq"}:${message.messageId}`}
+                id={`message-${message.messageId}`}
+                data-chat-message-row="true"
+                data-message-id={message.messageId}
+                data-message-seq={message.gatewayIndex ?? ""}
+                className="mx-auto max-w-[44rem] px-4 py-3"
+              >
+                {message.role === "assistant" && message.reasoningText && (
+                  <ThinkingBlock text={message.reasoningText} />
+                )}
+                {message.role === "assistant" && messageToolCalls.length ? (
+                  <div className="mb-4 max-w-[85%]">
+                    <ToolCallSteps
+                      tools={messageToolCalls}
+                      defaultOpen={!message.text.trim()}
+                      onSelectTool={onSelectTool}
+                      onResolveApproval={(approvalId, decision) =>
+                        resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
+                      }
+                      sessionKey={sessionKey}
+                    />
+                  </div>
+                ) : null}
+                {(message.text.trim() || message.attachments?.length) ? (
+                  <MessageBubble
+                    message={message}
+                    isGenerating={isGenerating}
+                    isActivelyStreaming={isStreamingAssistant}
+                    animateAssistantText={animateAssistantText}
+                    onTextAnimationComplete={handleTextAnimationComplete}
+                    suppressActions={false}
+                    onResolveApproval={(approvalId, decision) =>
+                      resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
+                    }
+                  />
+                ) : null}
+              </div>
+              )
+            })}
+            {showThinkingState ? (
+              <div className="mx-auto max-w-[44rem] px-4 pb-2 pt-0">
+                <GeneratingStatus label={statusText ?? "Thinking..."} tool={liveTool?.tool} />
+              </div>
+            ) : null}
+            <div className="h-6" />
+          </div>
+        )}
       </div>
 
-      <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
-        <div className="pointer-events-none absolute -top-12 left-1/2 z-20 -translate-x-1/2">
-          {showJumpToBottom && (
-            <motion.button
-              type="button"
-              aria-label="Scroll to latest message"
-              title="Scroll to latest message"
-              onClick={jumpToLatestMessage}
-              initial={{ opacity: 0, y: 8, scale: 0.96 }}
-              animate={{ opacity: 1, y: [0, 4, 0], scale: 1 }}
-              transition={{
-                opacity: { duration: 0.16, ease: "easeOut" },
-                scale: { duration: 0.16, ease: "easeOut" },
-                y: { duration: 1.8, ease: "easeInOut", repeat: Infinity },
-              }}
-              whileHover={{ scale: 1.04 }}
-              whileTap={{ scale: 0.94 }}
-              className={cn(
-                "group flex size-9 cursor-pointer items-center justify-center rounded-full pointer-events-auto",
-                "border border-border/50 bg-background/95 text-foreground/80 shadow-sm backdrop-blur",
-                "transition-colors hover:bg-muted hover:text-foreground",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
-              )}
-            >
-              <span
-                aria-hidden="true"
-                className="flex origin-center bg-transparent"
-              >
-                <MdKeyboardDoubleArrowDown size={22} />
-              </span>
-            </motion.button>
-          )}
+      <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
+        <div className="mx-auto max-w-[44rem] px-4">
+          <ChatBox
+            key={sessionKey}
+            initialPrompt={initialPrompt}
+            errorMessage={state.composerError}
+            onSend={handleSend}
+            disabled={state.loading || sending}
+            isGenerating={isGenerating}
+            onAbort={handleAbort}
+            draftKey={`chat:${sessionKey}`}
+          />
         </div>
-        <ChatBox
-          onSend={wrappedSend}
-          disabled={false}
-          isGenerating={isGenerating}
-          onAbort={handleAbort}
-          initialPrompt={composerSeed || undefined}
-          replyTo={replyTo}
-          onCancelReply={cancelReply}
-          onModelSelect={handleSessionModelSelect}
-          modelSwitching={modelSwitching}
-          historyMessages={userMessageHistory}
-          draftKey={sessionKey}
-          sessionUsage={sessionUsage}
-        />
       </div>
-        </>
-      )}
     </div>
   )
 }

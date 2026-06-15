@@ -1,0 +1,6 @@
+{
+    "gatewayUrl":  "ws://127.0.0.1:18789",
+    "url":  "http://127.0.0.1:8787",
+    "pairingCode":  "RSGYZ5T",
+    "middlewareToken":  "4847e90429c964bb43e6c57060ae64f80bcb976dbff8f9a8970420e7eba6648c"
+}

@@ -46,6 +46,9 @@ export type ChatBootstrapV2 = {
   activeRun?: ActiveRunV2 | null
   historyCoverage?: HistoryCoverageV2
   fullMessagesIncluded?: boolean
+  hasOlder?: boolean
+  knownTotalMessages?: number | null
+  oldestLoadedSeq?: number | null
   messages: MessageProjectionV2[]
   messageCount: number
   tools?: ToolCallProjectionV2[]

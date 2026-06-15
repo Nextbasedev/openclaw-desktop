@@ -442,6 +442,116 @@ describe("applyChatPatch", () => {
     expect(state.messages[0]?.toolCalls?.[0]).toMatchObject({ id: "tool-1", status: "success", duration: "0.5s" })
   })
 
+  test("renders canonical websocket tool patches immediately", () => {
+    let state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.created",
+          runId: "run-1",
+          messageId: "user-1",
+          message: { role: "user", text: "inspect workspace", __openclaw: { id: "user-1", seq: 10 } },
+        },
+        createdAtMs: 1_781_346_745_000,
+      },
+    })
+
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.tool.started",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.tool.started",
+          runId: "run-1",
+          runStatus: "tool_running",
+          toolCall: {
+            toolCallId: "tool-live-1",
+            name: "bash",
+            phase: "calling",
+            status: "running",
+            argsMeta: { command: "Get-Location" },
+            startedAtMs: 1_781_346_745_000,
+          },
+        },
+        createdAtMs: 1_781_346_745_001,
+      },
+    })
+
+    expect(state.messages).toHaveLength(2)
+    expect(state.messages[1]).toMatchObject({ role: "assistant", runId: "run-1", gatewayIndex: 11 })
+    expect(state.messages[1]?.toolCalls?.[0]).toMatchObject({
+      id: "tool-live-1",
+      tool: "bash",
+      status: "running",
+      input: { command: "Get-Location" },
+    })
+  })
+
+  test("merges canonical websocket tool result into the same visible tool card", () => {
+    let state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.tool.started",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.tool.started",
+          runId: "run-1",
+          runStatus: "tool_running",
+          toolCall: {
+            toolCallId: "tool-live-1",
+            name: "bash",
+            phase: "calling",
+            status: "running",
+            argsMeta: { command: "pwd" },
+            startedAtMs: 1_781_346_745_000,
+          },
+        },
+        createdAtMs: 1_781_346_745_000,
+      },
+    })
+
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.tool.result",
+          runId: "run-1",
+          runStatus: "tool_running",
+          toolCall: {
+            toolCallId: "tool-live-1",
+            name: "bash",
+            phase: "result",
+            status: "success",
+            argsMeta: { command: "pwd" },
+            resultMeta: { output: "C:\\Users\\krish\\.openclaw\\workspace" },
+            startedAtMs: 1_781_346_745_000,
+            finishedAtMs: 1_781_346_745_500,
+          },
+        },
+        createdAtMs: 1_781_346_745_500,
+      },
+    })
+
+    const assistantMessages = state.messages.filter((message) => message.role === "assistant")
+    expect(assistantMessages).toHaveLength(1)
+    expect(assistantMessages[0]?.toolCalls).toHaveLength(1)
+    expect(assistantMessages[0]?.toolCalls?.[0]).toMatchObject({
+      id: "tool-live-1",
+      status: "success",
+      duration: "0.5s",
+      resultText: "C:\\Users\\krish\\.openclaw\\workspace",
+    })
+  })
+
   test("does not replace current optimistic user with a stale confirmed user echo", () => {
     const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",
