@@ -494,6 +494,11 @@ export function ChatView({
   const newerFetchSeqRef = useRef(0)
   const olderTriggerArmedRef = useRef(true)
   const newerTriggerArmedRef = useRef(true)
+  // Set to true while we are programmatically adjusting scrollTop (anchor
+  // restoration). Without this, the synthetic scroll event from setting
+  // container.scrollTop would call handleScroll, re-arm both triggers, and
+  // re-fire fetches in an infinite loop.
+  const isProgrammaticScrollRef = useRef(false)
   const windowStateRef = useRef<WindowState>(windowState)
 
   const refreshSessionUsage = useCallback(async () => {
@@ -1576,6 +1581,10 @@ export function ChatView({
   function handleScroll() {
     const element = scrollContainerRef.current
     if (!element) return
+    // Ignore the synthetic scroll event that fires when we programmatically
+    // adjust container.scrollTop during anchor restoration. Otherwise we'd
+    // re-arm both triggers from our own adjustment and loop forever.
+    if (isProgrammaticScrollRef.current) return
     shouldFollowScrollRef.current = isNearScrollBottom(element)
     // A user-driven scroll event re-arms both autoload triggers. The rAF-deferred
     // length-change effect does NOT re-arm — it only re-evaluates. This breaks the
@@ -1605,23 +1614,20 @@ export function ChatView({
     const currentOffset = newRow.getBoundingClientRect().top - containerTop
     const adjust = currentOffset - anchor.anchorOffsetFromContainerTop
     if (adjust !== 0) {
+      // Guard against the synthetic scroll event re-firing handleScroll →
+      // re-arming triggers → re-fetching in an infinite loop. Cleared on the
+      // next macrotask after the browser has dispatched the scroll event.
+      isProgrammaticScrollRef.current = true
       container.scrollTop += adjust
+      setTimeout(() => {
+        isProgrammaticScrollRef.current = false
+      }, 0)
     }
     // We are anchored at a specific row; the user is not at the live tail by
     // definition. Prevent the follow-bottom effect from snapping us to bottom on
     // the same render pass (scrollFollowKey changes due to messages change).
     shouldFollowScrollRef.current = false
   }, [state.messages])
-
-  useEffect(() => {
-    if (state.loading) return
-    // Defer to next frame so the layout from the prepend has stabilized.
-    const frame = requestAnimationFrame(() => {
-      evaluateOlderTrigger()
-      evaluateNewerTrigger()
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [state.messages.length, state.loading, evaluateOlderTrigger, evaluateNewerTrigger])
 
   useLayoutEffect(() => {
     if (state.loading) return
