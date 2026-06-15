@@ -1615,6 +1615,42 @@ export function ChatView({
     sessionKey,
   ])
 
+  // Post-resolution one-shot trigger re-evaluation.
+  //
+  // The autoload evaluators only run from handleScroll. If the user is
+  // already AT the bottom of the buffer (or top) and the boundary just
+  // changed because of a fetch resolution — e.g. an older fetch evicted
+  // from the end, flipping hasNewer to true while the user is sitting at
+  // what is now the new bottom — no scroll event fires and the opposite
+  // trigger never gets a chance to evaluate. The user appears stuck:
+  // hasNewer=true, rows below viewport=0, but no fetch.
+  //
+  // This effect keys ONLY on the windowState boundary fields
+  // (newest/oldestLoadedSeq, hasNewer, hasOlder). Those fields are mutated
+  // exactly once per fetch resolution (and once per live-append in the
+  // at-tail case). They do NOT change on every state.messages mutation
+  // (live patches mutate state.messages but not windowState seqs unless a
+  // live-append actually extends the loaded range). That's the key
+  // distinction from the rAF length-change re-evaluator that was removed
+  // in commit d89f7db7 — which fired on every live patch and looped.
+  //
+  // Direction-locked refractory still blocks back-to-back fires in the
+  // same direction, so calling both evaluators here can't reintroduce the
+  // alternation loop fixed in b012e46f.
+  useEffect(() => {
+    if (state.loading) return
+    evaluateOlderTrigger()
+    evaluateNewerTrigger()
+  }, [
+    windowState.newestLoadedSeq,
+    windowState.oldestLoadedSeq,
+    windowState.hasNewer,
+    windowState.hasOlder,
+    state.loading,
+    evaluateOlderTrigger,
+    evaluateNewerTrigger,
+  ])
+
   useEffect(() => {
     if (isBackgroundSession) return
     // Minimum gap between two consecutive resetToLiveTail() calls triggered by
