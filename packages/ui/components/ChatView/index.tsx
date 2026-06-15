@@ -2068,7 +2068,7 @@ export function ChatView({
                     isActivelyStreaming={isStreamingAssistant}
                     animateAssistantText={animateAssistantText}
                     onTextAnimationComplete={handleTextAnimationComplete}
-                    suppressActions={false}
+                    suppressActions={message.role === "assistant" && animateAssistantText}
                     popoverOpen={activePopoverId === message.messageId}
                     onPopoverOpenChange={(open) =>
                       setActivePopoverId(open ? message.messageId : null)
