@@ -25,11 +25,35 @@
  */
 
 import { openPatchStreamV2 } from "./client"
-import { patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
+import {
+  applyChatPatch,
+  patchImpliesActiveRun,
+  statusFromPatch,
+} from "./applyPatches"
 import * as registry from "./activeRunRegistry"
 import type { PatchFrame } from "./types"
 import { frontendLog } from "../clientLogs"
-import type { StreamStatus } from "../../components/ChatView/types"
+import type { ChatMessage, StreamStatus } from "../../components/ChatView/types"
+
+function sortByGatewayIndex(messages: ChatMessage[]): ChatMessage[] {
+  return messages
+    .map((message, index) => ({ message, index }))
+    .sort((a, b) => {
+      const aSeq = a.message.gatewayIndex
+      const bSeq = b.message.gatewayIndex
+      if (typeof aSeq === "number" && typeof bSeq === "number" && aSeq !== bSeq) return aSeq - bSeq
+      if (typeof aSeq === "number" && typeof bSeq !== "number") return -1
+      if (typeof aSeq !== "number" && typeof bSeq === "number") return 1
+      return a.index - b.index
+    })
+    .map(({ message }) => message)
+}
+
+function patchBelongsToSession(frame: PatchFrame, sessionKey: string): boolean {
+  if (frame.patch.sessionKey) return frame.patch.sessionKey === sessionKey
+  const payload = (frame.patch as { payload?: { sessionKey?: string } }).payload
+  return payload?.sessionKey === sessionKey
+}
 
 let subscribers = 0
 let teardown: (() => void) | null = null
@@ -44,6 +68,7 @@ function patchSessionKey(frame: PatchFrame): string | null {
 function handlePatch(frame: PatchFrame) {
   const sessionKey = patchSessionKey(frame)
   if (!sessionKey) return
+  if (!patchBelongsToSession(frame, sessionKey)) return
   const tracked = registry.get(sessionKey)
   if (!tracked) {
     // We don't auto-track new sessions: the registry is owned by ChatView
@@ -68,14 +93,68 @@ function handlePatch(frame: PatchFrame) {
       nextLabel = nextLabel ?? "Thinking"
     }
   }
+
+  // Apply the patch to tracked.messages so the registry snapshot stays in
+  // SYNC with what the live run is producing while no ChatView is mounted
+  // for this session. Without this, leaving a session mid-stream freezes
+  // the registry's messages at whatever was visible when ChatView unmounted;
+  // on return the user sees a stale bubble + skipped tokens (because the
+  // SSE re-subscribes from the advanced cursor and the missed patches are
+  // never replayed into messages).
+  //
+  // Skip if cursor doesn't move forward (already-applied patch).
+  let nextMessages = tracked.messages
+  const previousCursor = tracked.streamCursor ?? 0
+  const cursorIsForward =
+    typeof cursor === "number" && cursor > previousCursor
+  if (cursorIsForward) {
+    try {
+      const applied = applyChatPatch(
+        { cursor: previousCursor, messages: tracked.messages },
+        frame,
+      )
+      nextMessages = sortByGatewayIndex(applied.messages)
+    } catch (error) {
+      frontendLog(
+        "chat",
+        "chat-rebuild.runs.watcher.apply-error",
+        {
+          sessionKey,
+          patchType: frame.patch.type,
+          cursor: frame.patch.cursor,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "warn",
+      )
+    }
+  }
+
   // Only update if SOMETHING actually changed; otherwise we'd flood subscribers
   // with no-op renders on every chat patch.
   const cursorChanged =
     typeof cursor === "number" && cursor !== tracked.streamCursor
   const statusChanged = nextStatus !== tracked.streamStatus
   const labelChanged = nextLabel !== tracked.statusLabel
-  if (!cursorChanged && !statusChanged && !labelChanged) return
+  const messagesChanged = nextMessages !== tracked.messages
+  if (!cursorChanged && !statusChanged && !labelChanged && !messagesChanged) return
+
+  if (messagesChanged) {
+    frontendLog(
+      "chat",
+      "chat-rebuild.runs.watcher.apply",
+      {
+        sessionKey,
+        cursor: frame.patch.cursor,
+        patchType: frame.patch.type,
+        beforeCount: tracked.messages.length,
+        afterCount: nextMessages.length,
+      },
+      "debug",
+    )
+  }
+
   registry.publish(sessionKey, {
+    messages: nextMessages,
     streamStatus: nextStatus,
     statusLabel: nextLabel,
     streamCursor: typeof cursor === "number" ? cursor : tracked.streamCursor,
