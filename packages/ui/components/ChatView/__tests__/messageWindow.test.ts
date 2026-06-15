@@ -177,15 +177,11 @@ describe("shouldFetchNewer", () => {
     expect(shouldFetchNewer({ ...happy, isLoadingNewer: true })).toBe(false)
   })
 
-  test("returns false at rowsBelowViewport=121 (over default newer threshold)", () => {
-    expect(shouldFetchNewer({ ...happy, rowsBelowViewport: 121 })).toBe(false)
+  test("returns false at rowsBelowViewport=61 (over default newer threshold)", () => {
+    expect(shouldFetchNewer({ ...happy, rowsBelowViewport: 61 })).toBe(false)
   })
 
-  test("returns true at rowsBelowViewport=120 (exactly newer threshold)", () => {
-    expect(shouldFetchNewer({ ...happy, rowsBelowViewport: 120 })).toBe(true)
-  })
-
-  test("returns true at rowsBelowViewport=60 (well under newer threshold)", () => {
+  test("returns true at rowsBelowViewport=60 (exactly newer threshold)", () => {
     expect(shouldFetchNewer({ ...happy, rowsBelowViewport: 60 })).toBe(true)
   })
 

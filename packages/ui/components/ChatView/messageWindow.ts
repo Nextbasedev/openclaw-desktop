@@ -21,13 +21,14 @@ export const OLDER_PAGE = 100
 /** Number of rows above/below the viewport at which a paging fetch fires. */
 export const TOP_TRIGGER = 60
 /**
- * Newer-side preload trigger. We fire newer-page fetches EARLIER than older
- * because the user's perception of scroll-down preload is that new content
- * should appear before they 'touch the last loaded message'. With no eviction
- * during active scroll-down (see `fetchNewerPage`), the buffer can grow
- * temporarily, so we can afford a wider trigger window.
+ * Newer-side preload trigger. Symmetric with the older-side TOP_TRIGGER so
+ * the user experiences the same scroll-then-load cycle in both directions:
+ * scroll through the loaded buffer, hit ~60 rows from the boundary, see the
+ * next page arrive. A wider trigger (e.g. 120) was tried but it fires too
+ * early — the user barely moves before content jumps in, breaking the
+ * perceived cycle.
  */
-export const BOTTOM_TRIGGER = 120
+export const BOTTOM_TRIGGER = 60
 /**
  * Pixel distance the user must scroll past the last-resolved-anchor scrollTop
  * in the relevant direction before a same-direction page fetch is allowed to
