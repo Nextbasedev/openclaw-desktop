@@ -301,6 +301,47 @@ export class MessageRepository {
       SET openclaw_seq = @newSeq
       WHERE session_key = @sessionKey AND openclaw_seq = @oldSeq
     `);
+    // For the "late user echo" collision: a user message arrives at a seq that
+    // is already occupied by an assistant/tool row (because the gateway delivered
+    // the live assistant deltas before the user echo for the same turn). We must
+    // shift the assistant/tool block by +1 to make room at the user's seq.
+    // SQLite enforces the (session_key, segment_id, openclaw_seq) PRIMARY KEY
+    // row-by-row, so a naive `seq = seq + 1` ascending update would collide at
+    // the next row. Use a two-pass negative-sentinel: first flip to negative,
+    // then negate-and-add-one to get the final shifted value. Both passes only
+    // touch rows in [openclawSeq, ceiling).
+    const nextHardBoundarySeq = this.db.prepare(`
+      SELECT min(openclaw_seq) AS seq
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+        AND openclaw_seq > @openclawSeq
+        AND (role = 'user' OR role = 'system')
+    `);
+    const shiftAssistantBlockToNegative = this.db.prepare(`
+      UPDATE v2_messages
+      SET openclaw_seq = -openclaw_seq
+      WHERE session_key = @sessionKey
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+        AND openclaw_seq >= @openclawSeq
+        AND openclaw_seq < @ceiling
+    `);
+    const shiftAssistantBlockFromNegative = this.db.prepare(`
+      UPDATE v2_messages
+      SET openclaw_seq = (-openclaw_seq) + 1
+      WHERE session_key = @sessionKey
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+        AND openclaw_seq < 0
+    `);
+    const readShiftedRows = this.db.prepare(`
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+        AND openclaw_seq > @openclawSeq
+        AND openclaw_seq <= @ceiling
+      ORDER BY openclaw_seq ASC
+    `);
     const offset = this.db.prepare(`
       INSERT INTO v2_gateway_offsets(session_key, last_openclaw_seq, updated_at_ms)
       VALUES (@sessionKey, @lastSeq, @updatedAtMs)
@@ -383,15 +424,109 @@ export class MessageRepository {
           }
         }
         if (!idMatch && existing && (existingIsCollision || isOptimisticConflict(existing, message))) {
-          const row = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
-          const nextSeq = Math.max(openclawSeq, Number(row?.maxSeq ?? 0)) + 1;
-          // openclaw_seq is ordering, not identity. If late Gateway/history rows
-          // project onto a seq already owned by a DIFFERENT message, append the
-          // incoming row instead of overwriting it. This keeps confirmed
-          // optimistic user turns anchored and prevents tool/assistant rows from
-          // deleting the user that triggered them.
-          openclawSeq = nextSeq;
-          existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;
+          const existingRoleIsAssistantOrTool = existing.role === "assistant"
+            || existing.role === "tool"
+            || existing.role === "toolResult"
+            || existing.role === "tool_result"
+            || existing.role === "function";
+          // Restrict the shift path to the real bug signature: a late gateway
+          // user echo arrives at a seq held by an assistant/tool row that
+          // belongs to a LIVE run (has a runId in __openclaw, or is the
+          // `live:<runId>:assistant` placeholder). Generic non-run-tagged
+          // assistant rows (e.g. synthetic history fixtures, replayed history
+          // without run metadata) keep the old append-to-end behavior so we
+          // don't reorder unrelated historical turns.
+          const existingData = existing ? fromJson(existing.data_json) : null;
+          const existingHasLiveRunIdentity = Boolean(existing) && (
+            runIdentityOf(existingData) !== null
+            || (typeof existing!.message_id === "string" && existing!.message_id.startsWith("live:"))
+          );
+          if (message.role === "user" && existingIsCollision && existingRoleIsAssistantOrTool && existingHasLiveRunIdentity) {
+            // Late gateway user echo for a turn whose live assistant/tool rows
+            // already landed at this seq. Keep the user at openclawSeq and
+            // shift the colliding assistant+tool block by +1 so the user comes
+            // first. Ceiling is the next user/system row in the same segment
+            // (or maxSeq + 1), so we only move the rows that belong to this
+            // turn's run.
+            const boundary = nextHardBoundarySeq.get({
+              sessionKey: message.sessionKey,
+              segmentId,
+              openclawSeq,
+            }) as { seq?: number | null } | undefined;
+            const maxRow = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
+            const ceiling = boundary?.seq != null ? Number(boundary.seq) : Number(maxRow?.maxSeq ?? openclawSeq) + 1;
+            // Safety check: if the assistant/tool block is tightly packed up
+            // against the next user/system row (i.e. the row at ceiling - 1 is
+            // part of our shift range AND a row exists at ceiling), shifting
+            // would collide with the boundary row. Fall back to the old
+            // append-to-end behavior in that degenerate case.
+            const blockTightAgainstBoundary = boundary?.seq != null && (
+              existingAtSeq.get({
+                sessionKey: message.sessionKey,
+                openclawSeq: ceiling - 1,
+              }) as { message_id: string | null } | undefined
+            ) != null;
+            if (blockTightAgainstBoundary) {
+              const fallbackRow = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
+              const nextSeq = Math.max(openclawSeq, Number(fallbackRow?.maxSeq ?? 0)) + 1;
+              openclawSeq = nextSeq;
+              existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;
+            } else {
+            shiftAssistantBlockToNegative.run({
+              sessionKey: message.sessionKey,
+              segmentId,
+              openclawSeq,
+              ceiling,
+            });
+            shiftAssistantBlockFromNegative.run({
+              sessionKey: message.sessionKey,
+              segmentId,
+            });
+            const shiftedRows = readShiftedRows.all({
+              sessionKey: message.sessionKey,
+              segmentId,
+              openclawSeq,
+              ceiling,
+            }) as Array<{
+              session_key: string;
+              segment_id: string | null;
+              session_id: string | null;
+              gateway_seq: number | null;
+              openclaw_seq: number;
+              message_id: string | null;
+              role: string | null;
+              data_json: string;
+              updated_at_ms: number;
+            }>;
+            for (const row of shiftedRows) {
+              changedMessages.push({
+                sessionKey: row.session_key,
+                segmentId: row.segment_id,
+                sessionId: row.session_id,
+                gatewaySeq: row.gateway_seq ?? undefined,
+                openclawSeq: row.openclaw_seq,
+                messageId: row.message_id,
+                role: row.role,
+                data: fromJson(row.data_json) as ProjectedMessage["data"],
+                updatedAtMs: row.updated_at_ms,
+              });
+              lastSeq = Math.max(lastSeq, row.openclaw_seq);
+            }
+            // The slot at openclawSeq is now empty; clear `existing` so the
+            // insert path below treats it as a fresh row.
+            existing = undefined;
+            }
+          } else {
+            const row = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
+            const nextSeq = Math.max(openclawSeq, Number(row?.maxSeq ?? 0)) + 1;
+            // openclaw_seq is ordering, not identity. If late Gateway/history rows
+            // project onto a seq already owned by a DIFFERENT message, append the
+            // incoming row instead of overwriting it. This keeps confirmed
+            // optimistic user turns anchored and prevents tool/assistant rows from
+            // deleting the user that triggered them.
+            openclawSeq = nextSeq;
+            existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;
+          }
         }
 
         const dataJson = toJson(message.data);
