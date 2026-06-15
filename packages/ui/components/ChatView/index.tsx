@@ -45,6 +45,12 @@ import {
 } from "react-icons/lu"
 import type { IconType } from "react-icons"
 import { MessageBubble } from "./MessageBubble"
+import {
+  INITIAL_WINDOW_STATE,
+  applyInitialPage,
+  liveTailQuery,
+  type WindowState,
+} from "./messageWindow"
 import { ThinkingBlock } from "./ThinkingBlock"
 import { ToolCallSteps } from "./ToolCallSteps"
 import type { ChatMessage, InlineToolCall, StreamStatus } from "./types"
@@ -460,6 +466,7 @@ export function ChatView({
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
   const [composerSeed, setComposerSeed] = useState<string | null>(null)
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
+  const [windowState, setWindowState] = useState<WindowState>(INITIAL_WINDOW_STATE)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const scrollContentRef = useRef<HTMLDivElement | null>(null)
   const cursorRef = useRef(0)
@@ -494,6 +501,7 @@ export function ChatView({
     setActivePopoverId(null)
     setComposerSeed(null)
     setSessionUsage(null)
+    setWindowState(INITIAL_WINDOW_STATE)
     setState({
       loading: true,
       error: null,
@@ -503,7 +511,12 @@ export function ChatView({
       statusLabel: null,
     })
 
-    fetchChatMessagesV2({ sessionKey })
+    const initialQuery = liveTailQuery()
+    fetchChatMessagesV2({
+      sessionKey,
+      beforeSeq: initialQuery.beforeSeq,
+      limit: initialQuery.limit,
+    })
       .then((history) => {
         if (cancelled) return
         if (history.sessionKey && history.sessionKey !== sessionKey) return
@@ -513,6 +526,24 @@ export function ChatView({
         const cursor = typeof history.cursor === "number" ? history.cursor : 0
         cursorRef.current = cursor
         setStreamCursor(cursor)
+        const firstMessage = messages[0]
+        const lastMessage = messages[messages.length - 1]
+        const oldestSeq =
+          firstMessage && typeof firstMessage.gatewayIndex === "number"
+            ? firstMessage.gatewayIndex
+            : null
+        const newestSeq =
+          lastMessage && typeof lastMessage.gatewayIndex === "number"
+            ? lastMessage.gatewayIndex
+            : null
+        setWindowState(
+          applyInitialPage({
+            returnedCount: history.messageCount ?? history.messages.length,
+            oldestSeq,
+            newestSeq,
+            requestedLimit: initialQuery.limit,
+          })
+        )
         setState({
           loading: false,
           error: null,
@@ -524,6 +555,7 @@ export function ChatView({
       })
       .catch((error) => {
         if (cancelled) return
+        setWindowState(INITIAL_WINDOW_STATE)
         setState({
           loading: false,
           error: error instanceof Error ? error.message : String(error),
