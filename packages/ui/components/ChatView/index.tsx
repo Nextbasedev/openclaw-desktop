@@ -50,9 +50,15 @@ import {
   MAX_LOADED,
   OLDER_PAGE,
   applyInitialPage,
+  applyLiveAppend,
+  applyNewerPage,
   applyOlderPage,
+  canEvictFromStartOnLiveAppend,
+  computeEvictedAfterAppend,
   computeEvictedAfterPrepend,
   liveTailQuery,
+  shouldDropPatchAsEvicted,
+  shouldFetchNewer,
   shouldFetchOlder,
   type WindowState,
 } from "./messageWindow"
@@ -482,6 +488,8 @@ export function ChatView({
   const pinButtonRef = useRef<HTMLButtonElement>(null)
   const pendingPrependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
   const olderFetchSeqRef = useRef(0)
+  const newerFetchSeqRef = useRef(0)
+  const windowStateRef = useRef<WindowState>(windowState)
 
   const refreshSessionUsage = useCallback(async () => {
     const seq = ++contextFetchSeqRef.current
@@ -498,6 +506,8 @@ export function ChatView({
     if (isBackgroundSession) return
     let cancelled = false
     cursorRef.current = 0
+    olderFetchSeqRef.current = 0
+    newerFetchSeqRef.current = 0
     shouldFollowScrollRef.current = true
     pendingPrependAnchorRef.current = null
     setStreamCursor(null)
@@ -586,6 +596,10 @@ export function ChatView({
   }, [])
 
   useEffect(() => {
+    windowStateRef.current = windowState
+  }, [windowState])
+
+  useEffect(() => {
     if (isBackgroundSession || streamCursor === null) return
     return openPatchStreamV2(streamCursor, (frame) => {
       if (frame.type !== "patch") return
@@ -593,6 +607,26 @@ export function ChatView({
       const previousCursor = cursorRef.current
       if (frame.patch.cursor <= previousCursor) return
       cursorRef.current = Math.max(cursorRef.current, frame.patch.cursor)
+      if (
+        shouldDropPatchAsEvicted({
+          patchSessionCursor: frame.patch.cursor,
+          newestLoadedSeq: windowStateRef.current.newestLoadedSeq,
+          hasNewer: windowStateRef.current.hasNewer,
+        })
+      ) {
+        // Cursor advance still happens above; we just don't apply the patch visually.
+        frontendLog(
+          "chat",
+          "chat-rebuild.window.patch-dropped-evicted",
+          {
+            sessionKey,
+            patchCursor: frame.patch.cursor,
+            newestLoadedSeq: windowStateRef.current.newestLoadedSeq,
+          },
+          "debug"
+        )
+        return
+      }
       const patchStatus = statusFromPatch(frame)
       const semanticType = patchSemanticType(frame)
       if (semanticType === "chat.assistant.delta") {
@@ -662,13 +696,108 @@ export function ChatView({
         }
         const nextStatus = patchStatus?.status ??
           (patchImpliesActiveRun(frame) ? "thinking" : current.streamStatus)
+        const nextStatusLabel = patchStatus?.label ?? current.statusLabel
+
+        // Detect if a NEW message was appended (length grew at the tail).
+        const previousLength = current.messages.length
+        const appendedAtTail = orderedMessages.length > previousLength
+
+        if (appendedAtTail && orderedMessages.length > MAX_LOADED) {
+          if (canEvictFromStartOnLiveAppend(windowStateRef.current)) {
+            const evict = orderedMessages.length - MAX_LOADED
+            const finalMessages = orderedMessages.slice(evict)
+            const newOldest = finalMessages[0]
+            const newNewest = finalMessages[finalMessages.length - 1]
+            const appendedNewestSeq =
+              newNewest && typeof newNewest.gatewayIndex === "number"
+                ? newNewest.gatewayIndex
+                : null
+            const evictedOldestSeq =
+              newOldest && typeof newOldest.gatewayIndex === "number"
+                ? newOldest.gatewayIndex
+                : null
+            setWindowState((s) =>
+              applyLiveAppend({
+                prevState: s,
+                prevLoadedLength: previousLength,
+                appendedNewestSeq,
+                evictedFromStart: evict,
+                evictedOldestSeq,
+              })
+            )
+            frontendLog(
+              "chat",
+              "chat-rebuild.window.live-append-evicted",
+              { sessionKey, evicted: evict, finalLength: finalMessages.length },
+              "debug"
+            )
+            return {
+              ...current,
+              loading: false,
+              error: null,
+              messages: finalMessages,
+              streamStatus: nextStatus,
+              statusLabel: nextStatusLabel,
+            }
+          }
+          // Cannot safely evict: hasOlder is false, so evicting from start would
+          // destroy unrecoverable history. Allow the array to temporarily exceed
+          // MAX_LOADED. Still update newestLoadedSeq.
+          const newNewest = orderedMessages[orderedMessages.length - 1]
+          const appendedNewestSeq =
+            newNewest && typeof newNewest.gatewayIndex === "number"
+              ? newNewest.gatewayIndex
+              : null
+          setWindowState((s) =>
+            applyLiveAppend({
+              prevState: s,
+              prevLoadedLength: previousLength,
+              appendedNewestSeq,
+              evictedFromStart: 0,
+              evictedOldestSeq: null,
+            })
+          )
+          frontendLog(
+            "chat",
+            "chat-rebuild.window.live-append-no-evict",
+            { sessionKey, length: orderedMessages.length, reason: "hasOlder=false" },
+            "warn"
+          )
+          return {
+            ...current,
+            loading: false,
+            error: null,
+            messages: orderedMessages,
+            streamStatus: nextStatus,
+            statusLabel: nextStatusLabel,
+          }
+        }
+
+        if (appendedAtTail) {
+          // Length still ≤ MAX_LOADED, just update newestLoadedSeq.
+          const newNewest = orderedMessages[orderedMessages.length - 1]
+          const appendedNewestSeq =
+            newNewest && typeof newNewest.gatewayIndex === "number"
+              ? newNewest.gatewayIndex
+              : null
+          setWindowState((s) =>
+            applyLiveAppend({
+              prevState: s,
+              prevLoadedLength: previousLength,
+              appendedNewestSeq,
+              evictedFromStart: 0,
+              evictedOldestSeq: null,
+            })
+          )
+        }
+
         return {
           ...current,
           loading: false,
           error: null,
           messages: orderedMessages,
           streamStatus: nextStatus,
-          statusLabel: patchStatus?.label ?? current.statusLabel,
+          statusLabel: nextStatusLabel,
         }
       })
     })
@@ -967,6 +1096,24 @@ export function ChatView({
     return count
   }, [])
 
+  const measureRowsBelowViewport = useCallback((): number => {
+    const container = scrollContainerRef.current
+    if (!container) return Number.POSITIVE_INFINITY
+    const containerBottom = container.getBoundingClientRect().bottom
+    const rows = container.querySelectorAll<HTMLElement>('[data-chat-message-row="true"]')
+    let count = 0
+    // Walk from the end backward; first row whose top is at/above containerBottom marks the break.
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      const rect = rows[i].getBoundingClientRect()
+      if (rect.top >= containerBottom) {
+        count += 1
+      } else {
+        break
+      }
+    }
+    return count
+  }, [])
+
   const fetchOlderPage = useCallback(async () => {
     const oldestSeq = windowState.oldestLoadedSeq
     if (oldestSeq === null) return
@@ -1123,11 +1270,153 @@ export function ChatView({
     sessionKey,
   ])
 
+  const fetchNewerPage = useCallback(async () => {
+    const newestSeq = windowState.newestLoadedSeq
+    if (newestSeq === null) return
+    if (windowState.isLoadingNewer) return
+    if (!windowState.hasNewer) return
+
+    const seq = ++newerFetchSeqRef.current
+    frontendLog(
+      "chat",
+      "chat-rebuild.window.newer-fetch-start",
+      { sessionKey, newestSeq, limit: OLDER_PAGE, seq },
+      "debug"
+    )
+    setWindowState((s) => ({ ...s, isLoadingNewer: true }))
+
+    try {
+      const response = await fetchChatMessagesV2({
+        sessionKey,
+        afterSeq: newestSeq,
+        limit: OLDER_PAGE,
+      })
+      if (seq !== newerFetchSeqRef.current) return // stale
+      if (response.sessionKey && response.sessionKey !== sessionKey) return
+
+      const newerMessages = normalizeHistory(
+        response.messages.map((m) => m.data)
+      )
+      if (newerMessages.length === 0) {
+        setWindowState((s) =>
+          applyNewerPage({
+            prevState: s,
+            returnedCount: 0,
+            newNewestSeq: s.newestLoadedSeq,
+            evictedFromStart: 0,
+            evictedOldestSeq: null,
+            requestedLimit: OLDER_PAGE,
+          })
+        )
+        frontendLog(
+          "chat",
+          "chat-rebuild.window.newer-fetch-resolved",
+          { sessionKey, newestSeq, returnedCount: 0, evictedFromStart: 0 },
+          "debug"
+        )
+        return
+      }
+
+      setState((current) => {
+        const combined = [...current.messages, ...newerMessages]
+        const evictedFromStart = computeEvictedAfterAppend(
+          current.messages.length,
+          newerMessages.length,
+          MAX_LOADED
+        )
+        const finalMessages =
+          evictedFromStart > 0 ? combined.slice(evictedFromStart) : combined
+        const newOldest = finalMessages[0]
+        const newNewest = finalMessages[finalMessages.length - 1]
+        const evictedOldestSeq =
+          evictedFromStart > 0 && newOldest && typeof newOldest.gatewayIndex === "number"
+            ? newOldest.gatewayIndex
+            : null
+        const newNewestSeq =
+          newNewest && typeof newNewest.gatewayIndex === "number"
+            ? newNewest.gatewayIndex
+            : null
+
+        setWindowState((s) =>
+          applyNewerPage({
+            prevState: s,
+            returnedCount: response.messageCount ?? response.messages.length,
+            newNewestSeq,
+            evictedFromStart,
+            evictedOldestSeq,
+            requestedLimit: OLDER_PAGE,
+          })
+        )
+
+        frontendLog(
+          "chat",
+          "chat-rebuild.window.newer-fetch-resolved",
+          {
+            sessionKey,
+            newestSeq,
+            returnedCount: response.messageCount ?? response.messages.length,
+            evictedFromStart,
+            prevLoadedLength: current.messages.length,
+            finalLength: finalMessages.length,
+          },
+          "debug"
+        )
+
+        return { ...current, messages: finalMessages }
+      })
+    } catch (err) {
+      if (seq !== newerFetchSeqRef.current) return
+      setWindowState((s) => ({ ...s, isLoadingNewer: false }))
+      frontendLog(
+        "chat",
+        "chat-rebuild.window.newer-fetch-failed",
+        {
+          sessionKey,
+          newestSeq,
+          errorKind: err instanceof Error ? err.name : typeof err,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
+        "warn"
+      )
+    }
+  }, [sessionKey, windowState.hasNewer, windowState.isLoadingNewer, windowState.newestLoadedSeq])
+
+  const evaluateNewerTrigger = useCallback(() => {
+    if (state.loading) return
+    if (windowState.isLoadingNewer) return
+    if (!windowState.hasNewer) return
+    const rowsBelowViewport = measureRowsBelowViewport()
+    if (
+      !shouldFetchNewer({
+        rowsBelowViewport,
+        hasNewer: windowState.hasNewer,
+        isLoadingNewer: windowState.isLoadingNewer,
+      })
+    ) {
+      return
+    }
+    frontendLog(
+      "chat",
+      "chat-rebuild.window.newer-trigger-fired",
+      { sessionKey, rowsBelowViewport },
+      "debug"
+    )
+    void fetchNewerPage()
+  }, [
+    state.loading,
+    windowState.hasNewer,
+    windowState.isLoadingNewer,
+    measureRowsBelowViewport,
+    fetchNewerPage,
+    sessionKey,
+  ])
+
   function handleScroll() {
     const element = scrollContainerRef.current
     if (!element) return
     shouldFollowScrollRef.current = isNearScrollBottom(element)
     evaluateOlderTrigger()
+    evaluateNewerTrigger()
   }
 
   useLayoutEffect(() => {
@@ -1152,9 +1441,12 @@ export function ChatView({
   useEffect(() => {
     if (state.loading) return
     // Defer to next frame so the layout from the prepend has stabilized.
-    const frame = requestAnimationFrame(() => evaluateOlderTrigger())
+    const frame = requestAnimationFrame(() => {
+      evaluateOlderTrigger()
+      evaluateNewerTrigger()
+    })
     return () => cancelAnimationFrame(frame)
-  }, [state.messages.length, state.loading, evaluateOlderTrigger])
+  }, [state.messages.length, state.loading, evaluateOlderTrigger, evaluateNewerTrigger])
 
   useLayoutEffect(() => {
     if (state.loading) return
