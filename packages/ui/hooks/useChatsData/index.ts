@@ -126,10 +126,22 @@ export function useChatsData(
     const isCurrentRequest = () => loadSeqRef.current === requestSeq && currentSpaceIdRef.current === requestSpaceId
     const applyChats = (nextChats: Chat[]) => {
       if (!isCurrentRequest()) return
-      latestChatsRef.current = nextChats
-      if (requestSpaceId && !showArchived) chatsBySpaceRef.current.set(requestSpaceId, nextChats)
-      setChats(nextChats)
-      setPinnedChats(new Set(nextChats.filter((c) => c.pinned).map((c) => c.id)))
+      // Defense-in-depth: even though visibleChatsForSpace and the middleware
+      // already filter sub-agent rows from the sidebar list, double-check
+      // here so no upstream path can sneak a sub-agent session into the
+      // main chat list. Krish reported sub-agents leaking into sidebar;
+      // this guarantees they NEVER do regardless of which fetch path
+      // populated nextChats.
+      const filtered = nextChats.filter((chat) => {
+        if (chat.isSubagent) return false
+        if (chat.parentSessionKey) return false
+        if (isSubagentSessionKey(chat.sessionKey)) return false
+        return true
+      })
+      latestChatsRef.current = filtered
+      if (requestSpaceId && !showArchived) chatsBySpaceRef.current.set(requestSpaceId, filtered)
+      setChats(filtered)
+      setPinnedChats(new Set(filtered.filter((c) => c.pinned).map((c) => c.id)))
     }
     try {
       if (!showArchived) {

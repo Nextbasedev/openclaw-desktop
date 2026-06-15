@@ -33,19 +33,69 @@ function recordInput(input: unknown): Record<string, unknown> {
     : {}
 }
 
+function resultTextLooksSuccessful(resultText: string | null | undefined): boolean {
+  if (!resultText) return false
+  const lower = resultText.toLowerCase()
+  return (
+    lower.includes("completed successfully") ||
+    lower.includes("\"status\": \"completed\"") ||
+    lower.includes("status: completed") ||
+    lower.includes("task completed") ||
+    lower.includes("\"success\": true")
+  )
+}
+
+function resultTextLooksFailed(resultText: string | null | undefined): boolean {
+  if (!resultText) return false
+  const lower = resultText.toLowerCase()
+  // Only treat as failed if explicit failure markers appear. Don't conflate
+  // with 'error' substrings that appear in successful output (e.g. a
+  // sub-agent saying 'fixed 3 errors').
+  return (
+    lower.includes("\"status\": \"failed\"") ||
+    lower.includes("status: failed") ||
+    lower.includes("\"status\": \"error\"") ||
+    lower.includes("task aborted") ||
+    lower.includes("task failed") ||
+    lower.includes("\"success\": false")
+  )
+}
+
 function inferStatus(
   tool: InlineToolCall,
   childSessionKey: string | null,
 ): SubagentLifecycleStatus {
-  // Tool-level status drives subagent lifecycle. The tool result text or input
-  // surfaces the child session key once spawn succeeds.
-  if (tool.status === "error") return "failed"
-  if (tool.status === "success") {
-    // If the sessions_spawn call settled successfully but we have no child link,
-    // treat as completed (degenerate case — server never returned a session).
-    return childSessionKey ? "completed" : "completed"
+  // Three-signal status derivation:
+  //   1. Tool's own status (running / success / error) from middleware.
+  //   2. Result text patterns (more reliable than raw tool.status for
+  //      sessions_spawn because the gateway can flag the tool as error/success
+  //      for non-fatal reasons — e.g. transient timeout while child is still
+  //      producing output).
+  //   3. Presence of child session key (means spawn succeeded, child exists).
+  //
+  // Result text takes PRIORITY when it explicitly indicates completion or
+  // failure. If result text says "completed successfully" but tool.status is
+  // "error" (because middleware misread a sub-agent log), we still mark the
+  // sub-agent as completed — because the user-visible truth is that the
+  // sub-agent finished its work.
+  if (resultTextLooksFailed(tool.resultText)) return "failed"
+  if (resultTextLooksSuccessful(tool.resultText)) return "completed"
+
+  // No definitive result text signal yet — fall back to tool status.
+  if (tool.status === "error") {
+    // Tool errored but no failure marker in result text. If the child session
+    // exists and there's no positive failure signal, treat as completed
+    // (sub-agent at least produced something) rather than aggressively
+    // flipping to failed.
+    return childSessionKey ? "completed" : "failed"
   }
-  // running
+  if (tool.status === "success") {
+    // sessions_spawn tool settled successfully — sub-agent finished.
+    return "completed"
+  }
+
+  // Still running (tool.status === 'running'): if we have a child session,
+  // sub-agent is actively working. Otherwise it's still spawning.
   return childSessionKey ? "working" : "spawning"
 }
 
