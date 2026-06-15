@@ -370,7 +370,7 @@ function GeneratingStatus({ label, tool }: { label: string; tool?: string | null
       >
         <Icon className="size-3.5 text-amber-400" />
       </span>
-      <span className="thinking-shimmer text-[14px] font-normal leading-relaxed tracking-normal">
+      <span className="thinking-shimmer text-[14px] font-medium leading-relaxed tracking-normal">
         {text}
         <span className="thinking-ellipsis" aria-hidden="true" />
       </span>

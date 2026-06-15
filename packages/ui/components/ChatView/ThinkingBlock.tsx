@@ -25,7 +25,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({ text, defaultOpen = f
       >
         {open ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
         <LuBrain className="size-3.5" />
-        <span className="text-[12px] font-medium">Thinking</span>
+        <span className="text-[12px] font-semibold">Thinking</span>
         <span className="text-[11px] text-muted-foreground/40">
           reasoning preview
         </span>
