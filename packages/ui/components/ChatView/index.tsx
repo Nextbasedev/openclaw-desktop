@@ -1391,13 +1391,27 @@ export function ChatView({
         return
       }
 
+      // Decide if this newer fetch reaches the live tail. If the backend
+      // returned fewer than the requested limit, we're at the tail and it's
+      // safe to evict from the start (user is or will soon be at the bottom
+      // of the document; the trim is invisible). Otherwise DO NOT evict —
+      // let the buffer grow temporarily past MAX_LOADED during active
+      // scroll-down. Evicting from the start mid-scroll shrinks the document
+      // above the user, forcing the scroll anchor to yank scrollTop backward
+      // by the evicted height — the user perceives this as 'breaking' or
+      // being thrown back. Quiescent eviction happens once we reach the tail.
+      const responseCount = response.messageCount ?? response.messages.length
+      const reachedLiveTail = responseCount < OLDER_PAGE
+
       setState((current) => {
         const combined = [...current.messages, ...newerMessages]
-        const evictedFromStart = computeEvictedAfterAppend(
-          current.messages.length,
-          newerMessages.length,
-          MAX_LOADED
-        )
+        const evictedFromStart = reachedLiveTail
+          ? computeEvictedAfterAppend(
+              current.messages.length,
+              newerMessages.length,
+              MAX_LOADED
+            )
+          : 0
         const finalMessages =
           evictedFromStart > 0 ? combined.slice(evictedFromStart) : combined
         const newOldest = finalMessages[0]
@@ -1414,7 +1428,7 @@ export function ChatView({
         setWindowState((s) =>
           applyNewerPage({
             prevState: s,
-            returnedCount: response.messageCount ?? response.messages.length,
+            returnedCount: responseCount,
             newNewestSeq,
             evictedFromStart,
             evictedOldestSeq,
