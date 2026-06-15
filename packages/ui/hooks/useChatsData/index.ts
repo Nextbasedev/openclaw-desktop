@@ -11,6 +11,7 @@ import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import { deleteWarmChatCache } from "@/lib/warmChatCache"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
 import { clearCachedChatActivity, getAllCachedChatActivity, subscribeChatActivity } from "@/lib/chatActivityStore"
+import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
 import type { Chat, ActiveChat } from "@/types/chat"
 
 export type { Chat, ActiveChat }
@@ -222,20 +223,38 @@ export function useChatsData(
 
   useEffect(() => {
     if (showArchived) return
+    // Sidebar loader has two upstream sources that need to be UNIONed:
+    //   1. chatActivityStore  — fed by the legacy useChatMessages hook (still
+    //      used by some surfaces / sub-agent flows).
+    //   2. activeRunRegistry  — fed by the v2 ChatView so its runs are visible
+    //      to the sidebar even when ChatView is unmounted (the fix for
+    //      cross-session response persistence).
+    // Either source signaling "this session is generating" lights up the
+    // ChatRow loader, so neither path can dark out the indicator.
     const refreshRunningSessions = () => {
-      const live = getAllCachedChatActivity()
+      const legacyLive = getAllCachedChatActivity()
+      const registryLive = activeRunRegistry.generatingSessionKeys()
       setRunningSessionKeys(
         new Set(
           chats
             .map((chat) => chat.sessionKey)
-            .filter((sessionKey): sessionKey is string => Boolean(sessionKey && live.has(sessionKey))),
+            .filter((sessionKey): sessionKey is string =>
+              Boolean(
+                sessionKey &&
+                  (legacyLive.has(sessionKey) || registryLive.has(sessionKey)),
+              ),
+            ),
         ),
       )
     }
     refreshRunningSessions()
-    const unsubscribe = subscribeChatActivity(refreshRunningSessions)
+    const unsubscribeLegacy = subscribeChatActivity(refreshRunningSessions)
+    const unsubscribeRegistry = activeRunRegistry.subscribeAll(
+      refreshRunningSessions,
+    )
     return () => {
-      unsubscribe()
+      unsubscribeLegacy()
+      unsubscribeRegistry()
     }
   }, [chats, showArchived])
 

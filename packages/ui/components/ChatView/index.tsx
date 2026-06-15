@@ -15,6 +15,7 @@ import {
   sendChatV2,
 } from "@/lib/chat-engine-v2/client"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "@/lib/chat-engine-v2/applyPatches"
+import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import type { PatchFrame } from "@/lib/chat-engine-v2/types"
 import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParser"
@@ -508,25 +509,67 @@ export function ChatView({
     hasOptimisticBootstrap ? initialMessages : undefined
   )
 
-  const [state, setState] = useState<HistoryState>(() =>
-    hasOptimisticBootstrap
-      ? {
-          loading: false,
-          error: null,
-          composerError: null,
-          messages: initialMessages ?? [],
-          streamStatus: "thinking",
-          statusLabel: "Thinking",
-        }
-      : {
-          loading: true,
-          error: null,
-          composerError: null,
-          messages: [],
-          streamStatus: "idle",
-          statusLabel: null,
-        }
+  // Hydrate from the active-run registry on mount. If we have a snapshot for
+  // this session (because the user previously started a run here and then
+  // switched away while it was still in flight), we want to render that
+  // snapshot IMMEDIATELY instead of flashing the loading skeleton + empty
+  // greeting + re-bootstrap sequence. The registry survives session-switch
+  // unmounts because ChatView is keyed on chatId:sessionKey in AppPage, so a
+  // remount on the same session can pick up exactly where the previous mount
+  // left off.
+  const hydrateFromRegistry = useMemo(
+    () =>
+      !hasOptimisticBootstrap && !isBackgroundSession
+        ? activeRunRegistry.get(sessionKey)
+        : null,
+    // Capture-at-mount: the rest of this component's lifecycle handles
+    // updates by subscribing below; we only want the initial hydration
+    // decision to consider the snapshot present at first paint.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   )
+
+  const [state, setState] = useState<HistoryState>(() => {
+    if (hasOptimisticBootstrap) {
+      return {
+        loading: false,
+        error: null,
+        composerError: null,
+        messages: initialMessages ?? [],
+        streamStatus: "thinking",
+        statusLabel: "Thinking",
+      }
+    }
+    if (hydrateFromRegistry) {
+      frontendLog(
+        "chat",
+        "chat-rebuild.runs.reattach",
+        {
+          sessionKey,
+          streamStatus: hydrateFromRegistry.streamStatus,
+          messageCount: hydrateFromRegistry.messages.length,
+          isGenerating: hydrateFromRegistry.isGenerating,
+        },
+        "debug"
+      )
+      return {
+        loading: false,
+        error: null,
+        composerError: null,
+        messages: hydrateFromRegistry.messages,
+        streamStatus: hydrateFromRegistry.streamStatus,
+        statusLabel: hydrateFromRegistry.statusLabel,
+      }
+    }
+    return {
+      loading: true,
+      error: null,
+      composerError: null,
+      messages: [],
+      streamStatus: "idle",
+      statusLabel: null,
+    }
+  })
   const [sending, setSending] = useState(false)
   const [streamCursor, setStreamCursor] = useState<number | null>(null)
   const [reactions, setReactions] = useState<Record<string, "up" | "down">>({})
@@ -656,6 +699,41 @@ export function ChatView({
       }
     }
 
+    // ---- registry-hydration shortcut ----------------------------------------
+    // If a previous mount of this same session was streaming when the user
+    // switched away, the activeRunRegistry still has its snapshot. Pick up
+    // exactly where it left off: messages + cursor + status come straight
+    // from the snapshot, so the user sees the still-streaming bubble + the
+    // thinking/tool-running state with no skeleton, no greeting, no refetch.
+    if (hydrateFromRegistry) {
+      const seededMessages = hydrateFromRegistry.messages
+      const firstMessage = seededMessages[0]
+      const lastMessage = seededMessages[seededMessages.length - 1]
+      const oldestSeq =
+        firstMessage && typeof firstMessage.gatewayIndex === "number"
+          ? firstMessage.gatewayIndex
+          : null
+      const newestSeq =
+        lastMessage && typeof lastMessage.gatewayIndex === "number"
+          ? lastMessage.gatewayIndex
+          : null
+      const initialQuery = liveTailQuery()
+      setWindowState(
+        applyInitialPage({
+          returnedCount: seededMessages.length,
+          oldestSeq,
+          newestSeq,
+          requestedLimit: initialQuery.limit,
+        })
+      )
+      const reattachCursor = hydrateFromRegistry.streamCursor ?? 0
+      cursorRef.current = reattachCursor
+      setStreamCursor(reattachCursor)
+      return () => {
+        cancelled = true
+      }
+    }
+
     setStreamCursor(null)
     setWindowState(INITIAL_WINDOW_STATE)
     setState({
@@ -738,6 +816,39 @@ export function ChatView({
       if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current)
     }
   }, [])
+
+  // ---- activeRunRegistry sync ------------------------------------------------
+  // Mirror our local state into the registry on every meaningful change. The
+  // registry is what the sidebar reads for the per-session loader, and what a
+  // future remount of THIS session reads to skip the loading skeleton.
+  //
+  // We deliberately DO NOT clear the entry on unmount: when the user switches
+  // away mid-run, we want the entry to persist so:
+  //   1. The sidebar keeps showing the loader for this session.
+  //   2. The remount on return rehydrates without re-fetching history.
+  //
+  // Background-session ChatViews (e.g. the sub-agent overlay mode) don't own
+  // the run state for their own sessionKey and so don't publish here.
+  useEffect(() => {
+    if (isBackgroundSession) return
+    if (state.loading) return
+    activeRunRegistry.publish(sessionKey, {
+      messages: state.messages,
+      streamStatus: state.streamStatus,
+      statusLabel: state.statusLabel,
+      streamCursor,
+      sending,
+    })
+  }, [
+    isBackgroundSession,
+    sessionKey,
+    sending,
+    state.loading,
+    state.messages,
+    state.statusLabel,
+    state.streamStatus,
+    streamCursor,
+  ])
 
   useEffect(() => {
     windowStateRef.current = windowState

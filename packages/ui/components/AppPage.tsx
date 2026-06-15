@@ -36,6 +36,7 @@ import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/
 import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace } from "@/lib/chatListCache"
 import { localSyncSubscribeChats } from "@/lib/localFirstSync"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
+import { mountRunWatcher } from "@/lib/chat-engine-v2/runWatcher"
 import { getGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { abortSessionRequests } from "@/lib/requestScheduler"
@@ -542,6 +543,13 @@ function AppShell({
     frontendLog("ui", "app.bootstrap", { route: getRoutePath() })
     return () => frontendLog("ui", "app.unmount", { route: getRoutePath() })
   }, [])
+
+  // Persistent global SSE consumer that keeps the activeRunRegistry honest
+  // for sessions whose ChatView is not currently mounted. Without this, a
+  // run that finishes server-side while the user is on a different session
+  // would leave the sidebar loader stuck "on" for the original session
+  // until the user navigates back to it.
+  useEffect(() => mountRunWatcher(), [])
 
   useEffect(() => {
     async function initialSync() {
