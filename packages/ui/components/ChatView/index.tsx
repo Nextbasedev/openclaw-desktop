@@ -456,19 +456,67 @@ function composerAttachmentsToMessageAttachments(
 export function ChatView({
   sessionKey,
   initialPrompt,
+  initialMessages,
   onFirstMessageSent,
   onSelectTool,
   onForkNavigate,
   isBackgroundSession = false,
 }: Props) {
-  const [state, setState] = useState<HistoryState>(() => ({
-    loading: true,
-    error: null,
-    composerError: null,
-    messages: [],
-    streamStatus: "idle",
-    statusLabel: null,
-  }))
+  // ---- new-session bootstrap detection --------------------------------------
+  // When AppPage creates a brand-new chat and mounts ChatView, it hands us an
+  // `initialMessages` array containing exactly one optimistic user bubble
+  // (the message the user just typed) AND that bubble's `messageId` is the
+  // `clientMessageId` that was sent to the gateway, so the first server-side
+  // patch will rewrite this optimistic in place via applyChatPatch's
+  // optimisticId path.
+  //
+  // Pre-fix behavior on that path:
+  //   1. mount with loading:true → <ChatLoadingSkeleton/> (full-screen blink)
+  //   2. fetchChatMessagesV2 resolves empty → loading:false, messages:[] →
+  //      AnimatedGreeting (empty-state blink)
+  //   3. SSE patch lands → user bubble appears
+  //   4. streamStatus flips to thinking → thinking state appears
+  //
+  // Post-fix behavior:
+  //   1. mount with loading:false, messages=[optimistic user],
+  //      streamStatus:"thinking" → user bubble + thinking visible in the SAME
+  //      paint. No skeleton, no greeting, no transitional empty frame.
+  //   2. SSE patch lands → optimistic upgraded in place to confirmed user.
+  const hasOptimisticBootstrap = useMemo(
+    () => Boolean(initialMessages?.some((m) => m.isOptimistic && m.role === "user")),
+    // We only want to consider the initialMessages we were mounted with —
+    // later mutations of that prop (e.g., parent setting to undefined) must
+    // not retroactively flip the bootstrap mode. The parent already remounts
+    // us via key={chatId:sessionKey}, so this captured-at-mount value is
+    // stable for the lifetime of this ChatView instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
+  // Snapshot the initial messages once so a later parent-side
+  // setInitialMessages(undefined) doesn't strip the bubble out from under us.
+  const initialMessagesSnapshotRef = useRef<ChatMessage[] | undefined>(
+    hasOptimisticBootstrap ? initialMessages : undefined
+  )
+
+  const [state, setState] = useState<HistoryState>(() =>
+    hasOptimisticBootstrap
+      ? {
+          loading: false,
+          error: null,
+          composerError: null,
+          messages: initialMessages ?? [],
+          streamStatus: "thinking",
+          statusLabel: "Thinking",
+        }
+      : {
+          loading: true,
+          error: null,
+          composerError: null,
+          messages: [],
+          streamStatus: "idle",
+          statusLabel: null,
+        }
+  )
   const [sending, setSending] = useState(false)
   const [streamCursor, setStreamCursor] = useState<number | null>(null)
   const [reactions, setReactions] = useState<Record<string, "up" | "down">>({})
@@ -540,7 +588,6 @@ export function ChatView({
     lastNewerResolvedAtRef.current = 0
     lastBootstrapRecoveryAtRef.current = 0
     firstPatchLoggedRef.current = false
-    setStreamCursor(null)
     setReactions({})
     setPinnedIds([])
     setPinnedPanelOpen(false)
@@ -549,6 +596,51 @@ export function ChatView({
     setActivePopoverId(null)
     setComposerSeed(null)
     setSessionUsage(null)
+
+    // ---- new-session optimistic bootstrap shortcut --------------------------
+    // The parent (AppPage.handleQuickSend) just created this session and
+    // injected an optimistic user bubble into initialMessages. Skip the
+    // history fetch entirely (the gateway has no history yet) and open the
+    // SSE patch stream immediately at cursor 0. The UI is already in its
+    // final "thinking" state from the initial setState above, so this
+    // useEffect must NOT re-set state to loading:true — doing so would
+    // flash the ChatLoadingSkeleton over the optimistic bubble.
+    if (hasOptimisticBootstrap) {
+      const seededMessages = initialMessagesSnapshotRef.current ?? []
+      const lastSeeded = seededMessages[seededMessages.length - 1]
+      const seededNewestSeq =
+        lastSeeded && typeof lastSeeded.gatewayIndex === "number"
+          ? lastSeeded.gatewayIndex
+          : null
+      // No messages have been confirmed by the gateway yet — use an empty
+      // initial page so older/newer evaluators don't try to fetch.
+      setWindowState(
+        applyInitialPage({
+          returnedCount: 0,
+          oldestSeq: null,
+          newestSeq: seededNewestSeq,
+          requestedLimit: liveTailQuery().limit,
+        })
+      )
+      cursorRef.current = 0
+      setStreamCursor(0)
+      frontendLog(
+        "chat",
+        "chat-rebuild.send.optimistic-render",
+        {
+          origin: "chatview-optimistic-bootstrap",
+          timestamp: Date.now(),
+          sessionKey,
+          seededCount: seededMessages.length,
+        },
+        "info"
+      )
+      return () => {
+        cancelled = true
+      }
+    }
+
+    setStreamCursor(null)
     setWindowState(INITIAL_WINDOW_STATE)
     setState({
       loading: true,
@@ -617,6 +709,12 @@ export function ChatView({
     return () => {
       cancelled = true
     }
+    // hasOptimisticBootstrap is captured by closure and is stable for the
+    // lifetime of this mount (set once from initialMessages; parent remounts
+    // ChatView per session via key={chatId:sessionKey}). Including it in deps
+    // would re-run the bootstrap effect if the parent later cleared
+    // initialMessages, which would wipe our optimistic bubble.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isBackgroundSession, sessionKey])
 
   useEffect(() => {
