@@ -4,6 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
+import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   abortChatV2,
   fetchChatMessagesV2,
@@ -21,6 +23,7 @@ import { frontendLog } from "@/lib/clientLogs"
 import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
 import { normalizeSessionTokenUsage, type SessionTokenUsage } from "@/lib/sessionContextUsage"
+import { cn } from "@/lib/utils"
 import {
   applyTerminalToolState,
   groupAssistantToolCallsByMessage,
@@ -35,10 +38,12 @@ import {
   LuImage,
   LuMessageSquare,
   LuPencil,
+  LuPin,
   LuRefreshCw,
   LuSettings2,
   LuSparkles,
   LuWrench,
+  LuX,
 } from "react-icons/lu"
 import type { IconType } from "react-icons"
 import { MessageBubble } from "./MessageBubble"
@@ -297,6 +302,43 @@ function scrollElementToBottom(element: HTMLElement, behavior: ScrollBehavior = 
   })
 }
 
+function messagePreview(message: ChatMessage): string {
+  const text = message.text.trim() || message.reasoningText?.trim()
+  if (text) return text.replace(/\s+/g, " ")
+  if (message.attachments?.length) {
+    return message.attachments.length === 1
+      ? `Attachment: ${message.attachments[0]?.name ?? "file"}`
+      : `${message.attachments.length} attachments`
+  }
+  if (message.toolCalls?.length) return `${message.toolCalls.length} tool call${message.toolCalls.length === 1 ? "" : "s"}`
+  return "Pinned message"
+}
+
+function relativeTimestamp(createdAt?: string): string | null {
+  if (!createdAt) return null
+  const value = Date.parse(createdAt)
+  if (!Number.isFinite(value)) return null
+  const diffSeconds = Math.round((value - Date.now()) / 1000)
+  const absSeconds = Math.abs(diffSeconds)
+  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ["year", 31_536_000],
+    ["month", 2_592_000],
+    ["week", 604_800],
+    ["day", 86_400],
+    ["hour", 3_600],
+    ["minute", 60],
+  ]
+  for (const [unit, seconds] of units) {
+    if (absSeconds >= seconds) {
+      return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(
+        Math.round(diffSeconds / seconds),
+        unit
+      )
+    }
+  }
+  return "just now"
+}
+
 function generatingStatusText(status: StreamStatus, statusLabel: string | null, liveTool: InlineToolCall | null) {
   if (liveTool) {
     const input = summarizeToolInput(liveTool)
@@ -451,6 +493,8 @@ export function ChatView({
   const [streamCursor, setStreamCursor] = useState<number | null>(null)
   const [reactions, setReactions] = useState<Record<string, "up" | "down">>({})
   const [pinnedIds, setPinnedIds] = useState<string[]>([])
+  const [pinnedPanelOpen, setPinnedPanelOpen] = useState(false)
+  const [flashId, setFlashId] = useState<string | null>(null)
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
   const [composerSeed, setComposerSeed] = useState<string | null>(null)
@@ -461,6 +505,7 @@ export function ChatView({
   const shouldFollowScrollRef = useRef(true)
   const contextFetchSeqRef = useRef(0)
   const wasGeneratingRef = useRef(false)
+  const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const refreshSessionUsage = useCallback(async () => {
     const seq = ++contextFetchSeqRef.current
@@ -481,6 +526,8 @@ export function ChatView({
     setStreamCursor(null)
     setReactions({})
     setPinnedIds([])
+    setPinnedPanelOpen(false)
+    setFlashId(null)
     setReplyTo(null)
     setActivePopoverId(null)
     setComposerSeed(null)
@@ -529,6 +576,12 @@ export function ChatView({
       cancelled = true
     }
   }, [isBackgroundSession, sessionKey])
+
+  useEffect(() => {
+    return () => {
+      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (isBackgroundSession || streamCursor === null) return
@@ -777,13 +830,29 @@ export function ChatView({
     })
   }
 
-  function handlePin(messageId: string) {
+  const handlePin = useCallback((messageId: string) => {
     setPinnedIds((current) =>
       current.includes(messageId)
         ? current.filter((id) => id !== messageId)
         : [...current, messageId]
     )
-  }
+  }, [])
+
+  const handlePinnedMessageSelect = useCallback((messageId: string) => {
+    const container = scrollContainerRef.current
+    const escapedId = typeof CSS !== "undefined" && typeof CSS.escape === "function"
+      ? CSS.escape(messageId)
+      : messageId.replace(/"/g, "\\\"")
+    const row = container?.querySelector<HTMLElement>(`[data-message-id="${escapedId}"]`)
+    row?.scrollIntoView({ behavior: "smooth", block: "center" })
+    setPinnedPanelOpen(false)
+    setFlashId(messageId)
+    if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current)
+    flashTimeoutRef.current = setTimeout(() => {
+      setFlashId((current) => current === messageId ? null : current)
+      flashTimeoutRef.current = null
+    }, 1500)
+  }, [])
 
   function handleReply(messageId: string) {
     const message = findMessageById(messageId)
@@ -816,6 +885,12 @@ export function ChatView({
     () => orderChatMessages(state.messages),
     [state.messages]
   )
+  const pinnedMessages = useMemo(() => {
+    const messagesById = new Map(renderedMessages.map((message) => [message.messageId, message]))
+    return pinnedIds
+      .map((messageId) => messagesById.get(messageId))
+      .filter((message): message is ChatMessage => Boolean(message))
+  }, [pinnedIds, renderedMessages])
   const scrollFollowKey = useMemo(
     () => renderedMessages.map((message) => [
       message.messageId,
@@ -937,6 +1012,83 @@ export function ChatView({
       data-chat-rebuild-history="true"
       data-session-key={sessionKey}
     >
+      <div className="absolute right-4 top-4 z-30">
+        <Popover open={pinnedPanelOpen} onOpenChange={setPinnedPanelOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label="Pinned messages"
+              className="relative rounded-full border-border bg-background/90 text-foreground shadow-md backdrop-blur hover:bg-muted"
+            >
+              <LuPin className="size-4" />
+              {pinnedIds.length > 0 ? (
+                <span className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full border border-background bg-primary px-1.5 text-[10px] font-semibold leading-5 text-primary-foreground shadow-sm">
+                  {pinnedIds.length}
+                </span>
+              ) : null}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" sideOffset={8} className="w-80 gap-3 border border-border bg-background p-0 text-foreground shadow-xl">
+            <div className="border-b border-border px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold">Pinned messages</h2>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {pinnedIds.length}
+                </span>
+              </div>
+            </div>
+            {pinnedMessages.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                No pinned messages yet
+              </div>
+            ) : (
+              <div className="max-h-[22rem] overflow-y-auto p-2">
+                {pinnedMessages.map((message) => (
+                  <div
+                    key={message.messageId}
+                    role="button"
+                    tabIndex={0}
+                    className="group flex w-full cursor-pointer items-start gap-3 rounded-lg px-3 py-2 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+                    onClick={() => handlePinnedMessageSelect(message.messageId)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return
+                      event.preventDefault()
+                      handlePinnedMessageSelect(message.messageId)
+                    }}
+                  >
+                    <span className="mt-0.5 shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {message.role === "user" ? "User" : "Assistant"}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="line-clamp-2 block text-sm leading-snug text-foreground">
+                        {messagePreview(message)}
+                      </span>
+                      {relativeTimestamp(message.createdAt) ? (
+                        <span className="mt-1 block text-xs text-muted-foreground">
+                          {relativeTimestamp(message.createdAt)}
+                        </span>
+                      ) : null}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Unpin message"
+                      className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-80 transition hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handlePin(message.messageId)
+                      }}
+                    >
+                      <LuX className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
+      </div>
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
@@ -999,7 +1151,11 @@ export function ChatView({
                 data-chat-message-row="true"
                 data-message-id={message.messageId}
                 data-message-seq={message.gatewayIndex ?? ""}
-                className="mx-auto max-w-[44rem] px-4 py-3"
+                data-pin-flash={flashId === message.messageId ? "true" : undefined}
+                className={cn(
+                  "mx-auto max-w-[44rem] rounded-xl px-4 py-3 transition-[box-shadow] duration-300",
+                  flashId === message.messageId && "ring-2 ring-primary/60 ring-offset-2 ring-offset-background"
+                )}
               >
                 {message.role === "assistant" && message.reasoningText && (
                   <ThinkingBlock text={message.reasoningText} />
