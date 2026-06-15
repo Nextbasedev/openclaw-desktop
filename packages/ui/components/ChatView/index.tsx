@@ -1505,6 +1505,32 @@ export function ChatView({
     sessionKey,
   ])
 
+  useEffect(() => {
+    if (isBackgroundSession) return
+    function handleBootstrapRecovery(event: Event) {
+      if (!(event instanceof CustomEvent)) return
+      const detail = event.detail as { sessionKey?: unknown } | undefined
+      if (
+        detail &&
+        typeof detail.sessionKey === "string" &&
+        detail.sessionKey !== sessionKey
+      ) {
+        return
+      }
+      frontendLog(
+        "chat",
+        "chat-rebuild.window.bootstrap-recovery",
+        { sessionKey, hasDetail: Boolean(detail) },
+        "warn"
+      )
+      void resetToLiveTail()
+    }
+    window.addEventListener("openclaw:chat-bootstrap-recovery", handleBootstrapRecovery)
+    return () => {
+      window.removeEventListener("openclaw:chat-bootstrap-recovery", handleBootstrapRecovery)
+    }
+  }, [isBackgroundSession, sessionKey, resetToLiveTail])
+
   function handleScroll() {
     const element = scrollContainerRef.current
     if (!element) return
