@@ -847,7 +847,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   return (
     <motion.div
-      initial={shouldAnimateSend ? { opacity: 0, y: 12, scale: 0.985 } : false}
+      initial={shouldAnimateSend ? { opacity: 1, y: 12, scale: 0.985 } : false}
       animate={shouldAnimateSend ? { opacity: 1, y: 0, scale: 1 } : undefined}
       transition={
         shouldAnimateSend
