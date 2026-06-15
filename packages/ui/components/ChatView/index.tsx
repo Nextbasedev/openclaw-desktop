@@ -1628,7 +1628,17 @@ export function ChatView({
       data-session-key={sessionKey}
     >
       <div className="pointer-events-none absolute right-4 top-4 z-30">
-        <div className="pointer-events-auto relative">
+        <div className="pointer-events-auto flex items-center gap-2">
+          <div
+            className="flex h-7 items-center gap-1 rounded-sm border border-border/40 bg-background/70 px-2 font-mono text-[10px] leading-none text-muted-foreground/80 shadow-sm backdrop-blur"
+            title={`loaded: ${state.messages.length} • rendered: ${renderedMessages.length}`}
+            data-chat-message-counter="true"
+          >
+            <span className="text-foreground/80">{state.messages.length}</span>
+            <span className="text-muted-foreground/40">/</span>
+            <span>{renderedMessages.length}</span>
+          </div>
+          <div className="relative">
           <button
             ref={pinButtonRef}
             onClick={() => setPinnedPanelOpen((open) => !open)}
@@ -1659,6 +1669,7 @@ export function ChatView({
             triggerRef={pinButtonRef}
             onNavigateToMessage={(id) => handlePinnedMessageSelect(id)}
           />
+          </div>
         </div>
       </div>
       <div
