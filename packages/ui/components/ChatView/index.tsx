@@ -430,7 +430,6 @@ function composerAttachmentsToMessageAttachments(
 
 export function ChatView({
   sessionKey,
-  sessionTitle,
   initialPrompt,
   onFirstMessageSent,
   onSelectTool,
@@ -695,7 +694,6 @@ export function ChatView({
     ].join(":")).join(";"),
     [renderedMessages]
   )
-  const title = sessionTitle?.trim() || "New chat"
   const promptPreview = initialPrompt?.trim()
   const isGenerating = isActiveStreamStatus(state.streamStatus)
   const liveTool = isGenerating ? liveRunningTool(renderedMessages) : null
@@ -787,15 +785,6 @@ export function ChatView({
       data-chat-rebuild-history="true"
       data-session-key={sessionKey}
     >
-      <div className="z-10 flex h-9 shrink-0 items-center justify-between bg-background/70 px-4 backdrop-blur-[2px]">
-        <div className="min-w-0 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground/55">
-          {title}
-        </div>
-        <div className="text-[11px] text-muted-foreground/55">
-          {renderedMessages.length} messages
-        </div>
-      </div>
-
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
@@ -903,18 +892,16 @@ export function ChatView({
       </div>
 
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
-        <div className="mx-auto max-w-[44rem] px-4">
-          <ChatBox
-            key={sessionKey}
-            initialPrompt={initialPrompt}
-            errorMessage={state.composerError}
-            onSend={handleSend}
-            disabled={state.loading || sending}
-            isGenerating={isGenerating}
-            onAbort={handleAbort}
-            draftKey={`chat:${sessionKey}`}
-          />
-        </div>
+        <ChatBox
+          key={sessionKey}
+          initialPrompt={initialPrompt}
+          errorMessage={state.composerError}
+          onSend={handleSend}
+          disabled={state.loading || sending}
+          isGenerating={isGenerating}
+          onAbort={handleAbort}
+          draftKey={`chat:${sessionKey}`}
+        />
       </div>
     </div>
   )
