@@ -486,9 +486,14 @@ export function ChatView({
   const wasGeneratingRef = useRef(false)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pinButtonRef = useRef<HTMLButtonElement>(null)
-  const pendingPrependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
+  const pendingScrollAnchorRef = useRef<{
+    anchorMessageId: string
+    anchorOffsetFromContainerTop: number
+  } | null>(null)
   const olderFetchSeqRef = useRef(0)
   const newerFetchSeqRef = useRef(0)
+  const olderTriggerArmedRef = useRef(true)
+  const newerTriggerArmedRef = useRef(true)
   const windowStateRef = useRef<WindowState>(windowState)
 
   const refreshSessionUsage = useCallback(async () => {
@@ -509,7 +514,9 @@ export function ChatView({
     olderFetchSeqRef.current = 0
     newerFetchSeqRef.current = 0
     shouldFollowScrollRef.current = true
-    pendingPrependAnchorRef.current = null
+    pendingScrollAnchorRef.current = null
+    olderTriggerArmedRef.current = true
+    newerTriggerArmedRef.current = true
     setStreamCursor(null)
     setReactions({})
     setPinnedIds([])
@@ -1118,6 +1125,34 @@ export function ChatView({
     return count
   }, [])
 
+  const captureFirstVisibleRowAnchor = useCallback(() => {
+    const container = scrollContainerRef.current
+    if (!container) {
+      pendingScrollAnchorRef.current = null
+      return
+    }
+    const containerTop = container.getBoundingClientRect().top
+    const rows = container.querySelectorAll<HTMLElement>('[data-chat-message-row="true"]')
+    let anchorRow: HTMLElement | null = null
+    for (let i = 0; i < rows.length; i += 1) {
+      const rect = rows[i].getBoundingClientRect()
+      if (rect.bottom > containerTop) {
+        anchorRow = rows[i]
+        break
+      }
+    }
+    const anchorMessageId = anchorRow?.getAttribute('data-message-id') ?? null
+    if (!anchorMessageId) {
+      pendingScrollAnchorRef.current = null
+      return
+    }
+    pendingScrollAnchorRef.current = {
+      anchorMessageId,
+      anchorOffsetFromContainerTop:
+        anchorRow!.getBoundingClientRect().top - containerTop,
+    }
+  }, [])
+
   const fetchOlderPage = useCallback(async () => {
     const oldestSeq = windowState.oldestLoadedSeq
     if (oldestSeq === null) return
@@ -1125,13 +1160,9 @@ export function ChatView({
     if (!windowState.hasOlder) return
 
     // Capture anchor BEFORE we mark loading or fetch.
-    const container = scrollContainerRef.current
-    if (container) {
-      pendingPrependAnchorRef.current = {
-        scrollTop: container.scrollTop,
-        scrollHeight: container.scrollHeight,
-      }
-    }
+    captureFirstVisibleRowAnchor()
+    // Refractory: suppress further older-trigger evaluations until next user scroll.
+    olderTriggerArmedRef.current = false
 
     const seq = ++olderFetchSeqRef.current
     frontendLog(
@@ -1166,7 +1197,7 @@ export function ChatView({
             requestedLimit: OLDER_PAGE,
           })
         )
-        pendingPrependAnchorRef.current = null
+        pendingScrollAnchorRef.current = null
         frontendLog(
           "chat",
           "chat-rebuild.window.older-fetch-resolved",
@@ -1229,7 +1260,7 @@ export function ChatView({
     } catch (err) {
       if (seq !== olderFetchSeqRef.current) return
       setWindowState((s) => ({ ...s, isLoadingOlder: false }))
-      pendingPrependAnchorRef.current = null
+      pendingScrollAnchorRef.current = null
       frontendLog(
         "chat",
         "chat-rebuild.window.older-fetch-failed",
@@ -1242,10 +1273,11 @@ export function ChatView({
         "warn"
       )
     }
-  }, [sessionKey, windowState.hasOlder, windowState.isLoadingOlder, windowState.oldestLoadedSeq])
+  }, [sessionKey, windowState.hasOlder, windowState.isLoadingOlder, windowState.oldestLoadedSeq, captureFirstVisibleRowAnchor])
 
   const evaluateOlderTrigger = useCallback(() => {
     if (state.loading) return
+    if (!olderTriggerArmedRef.current) return
     if (windowState.isLoadingOlder) return
     if (!windowState.hasOlder) return
     const rowsAboveViewport = measureRowsAboveViewport()
@@ -1280,6 +1312,11 @@ export function ChatView({
     if (windowState.isLoadingNewer) return
     if (!windowState.hasNewer) return
 
+    // Capture anchor BEFORE we mark loading or fetch (mirrors older-page path).
+    captureFirstVisibleRowAnchor()
+    // Refractory: suppress further newer-trigger evaluations until next user scroll.
+    newerTriggerArmedRef.current = false
+
     const seq = ++newerFetchSeqRef.current
     frontendLog(
       "chat",
@@ -1312,6 +1349,7 @@ export function ChatView({
             requestedLimit: OLDER_PAGE,
           })
         )
+        pendingScrollAnchorRef.current = null
         frontendLog(
           "chat",
           "chat-rebuild.window.newer-fetch-resolved",
@@ -1371,6 +1409,7 @@ export function ChatView({
     } catch (err) {
       if (seq !== newerFetchSeqRef.current) return
       setWindowState((s) => ({ ...s, isLoadingNewer: false }))
+      pendingScrollAnchorRef.current = null
       frontendLog(
         "chat",
         "chat-rebuild.window.newer-fetch-failed",
@@ -1383,13 +1422,15 @@ export function ChatView({
         "warn"
       )
     }
-  }, [sessionKey, windowState.hasNewer, windowState.isLoadingNewer, windowState.newestLoadedSeq])
+  }, [sessionKey, windowState.hasNewer, windowState.isLoadingNewer, windowState.newestLoadedSeq, captureFirstVisibleRowAnchor])
 
   const resetToLiveTail = useCallback(async (): Promise<void> => {
     cursorRef.current = 0
     olderFetchSeqRef.current = 0
     newerFetchSeqRef.current = 0
-    pendingPrependAnchorRef.current = null
+    pendingScrollAnchorRef.current = null
+    olderTriggerArmedRef.current = true
+    newerTriggerArmedRef.current = true
     shouldFollowScrollRef.current = true
     setStreamCursor(null)
     setReplyTo(null)
@@ -1477,6 +1518,7 @@ export function ChatView({
 
   const evaluateNewerTrigger = useCallback(() => {
     if (state.loading) return
+    if (!newerTriggerArmedRef.current) return
     if (windowState.isLoadingNewer) return
     if (!windowState.hasNewer) return
     const rowsBelowViewport = measureRowsBelowViewport()
@@ -1535,27 +1577,40 @@ export function ChatView({
     const element = scrollContainerRef.current
     if (!element) return
     shouldFollowScrollRef.current = isNearScrollBottom(element)
+    // A user-driven scroll event re-arms both autoload triggers. The rAF-deferred
+    // length-change effect does NOT re-arm — it only re-evaluates. This breaks the
+    // cascade where a single user gesture pulls in multiple older/newer pages.
+    olderTriggerArmedRef.current = true
+    newerTriggerArmedRef.current = true
     evaluateOlderTrigger()
     evaluateNewerTrigger()
   }
 
+  // Unified scroll-anchor restoration for both older-page (prepend+evict-from-end)
+  // and newer-page (append+evict-from-start) fetches. We pin the first row that was
+  // intersecting the viewport top BEFORE the fetch resolved, then after the new
+  // window renders we adjust scrollTop so that same row stays at the same visual
+  // offset. Robust to variable row heights and to either eviction direction.
   useLayoutEffect(() => {
-    const anchor = pendingPrependAnchorRef.current
+    const anchor = pendingScrollAnchorRef.current
     if (!anchor) return
+    pendingScrollAnchorRef.current = null
     const container = scrollContainerRef.current
-    if (!container) {
-      pendingPrependAnchorRef.current = null
-      return
+    if (!container) return
+    const newRow = container.querySelector<HTMLElement>(
+      `[data-chat-message-row="true"][data-message-id="${CSS.escape(anchor.anchorMessageId)}"]`
+    )
+    if (!newRow) return // anchor row was evicted — leave scrollTop as-is
+    const containerTop = container.getBoundingClientRect().top
+    const currentOffset = newRow.getBoundingClientRect().top - containerTop
+    const adjust = currentOffset - anchor.anchorOffsetFromContainerTop
+    if (adjust !== 0) {
+      container.scrollTop += adjust
     }
-    // After prepend: scrollHeight increased by ~(prepended height − evicted height).
-    // To keep the user-visible row fixed, we move scrollTop by the same delta.
-    const delta = container.scrollHeight - anchor.scrollHeight
-    if (delta !== 0) {
-      container.scrollTop = anchor.scrollTop + delta
-      // Also prevent the follow-bottom effect from snapping us down.
-      shouldFollowScrollRef.current = false
-    }
-    pendingPrependAnchorRef.current = null
+    // We are anchored at a specific row; the user is not at the live tail by
+    // definition. Prevent the follow-bottom effect from snapping us to bottom on
+    // the same render pass (scrollFollowKey changes due to messages change).
+    shouldFollowScrollRef.current = false
   }, [state.messages])
 
   useEffect(() => {
