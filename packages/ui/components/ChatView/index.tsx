@@ -4,8 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
-import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Icons } from "@/components/icons"
+import { PinnedMessagesPopover } from "./PinnedMessagesPopover"
 import {
   abortChatV2,
   fetchChatMessagesV2,
@@ -38,12 +38,10 @@ import {
   LuImage,
   LuMessageSquare,
   LuPencil,
-  LuPin,
   LuRefreshCw,
   LuSettings2,
   LuSparkles,
   LuWrench,
-  LuX,
 } from "react-icons/lu"
 import type { IconType } from "react-icons"
 import { MessageBubble } from "./MessageBubble"
@@ -302,43 +300,6 @@ function scrollElementToBottom(element: HTMLElement, behavior: ScrollBehavior = 
   })
 }
 
-function messagePreview(message: ChatMessage): string {
-  const text = message.text.trim() || message.reasoningText?.trim()
-  if (text) return text.replace(/\s+/g, " ")
-  if (message.attachments?.length) {
-    return message.attachments.length === 1
-      ? `Attachment: ${message.attachments[0]?.name ?? "file"}`
-      : `${message.attachments.length} attachments`
-  }
-  if (message.toolCalls?.length) return `${message.toolCalls.length} tool call${message.toolCalls.length === 1 ? "" : "s"}`
-  return "Pinned message"
-}
-
-function relativeTimestamp(createdAt?: string): string | null {
-  if (!createdAt) return null
-  const value = Date.parse(createdAt)
-  if (!Number.isFinite(value)) return null
-  const diffSeconds = Math.round((value - Date.now()) / 1000)
-  const absSeconds = Math.abs(diffSeconds)
-  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-    ["year", 31_536_000],
-    ["month", 2_592_000],
-    ["week", 604_800],
-    ["day", 86_400],
-    ["hour", 3_600],
-    ["minute", 60],
-  ]
-  for (const [unit, seconds] of units) {
-    if (absSeconds >= seconds) {
-      return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(
-        Math.round(diffSeconds / seconds),
-        unit
-      )
-    }
-  }
-  return "just now"
-}
-
 function generatingStatusText(status: StreamStatus, statusLabel: string | null, liveTool: InlineToolCall | null) {
   if (liveTool) {
     const input = summarizeToolInput(liveTool)
@@ -506,6 +467,7 @@ export function ChatView({
   const contextFetchSeqRef = useRef(0)
   const wasGeneratingRef = useRef(false)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pinButtonRef = useRef<HTMLButtonElement>(null)
 
   const refreshSessionUsage = useCallback(async () => {
     const seq = ++contextFetchSeqRef.current
@@ -1012,82 +974,39 @@ export function ChatView({
       data-chat-rebuild-history="true"
       data-session-key={sessionKey}
     >
-      <div className="absolute right-4 top-4 z-30">
-        <Popover open={pinnedPanelOpen} onOpenChange={setPinnedPanelOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              aria-label="Pinned messages"
-              className="relative rounded-full border-border bg-background/90 text-foreground shadow-md backdrop-blur hover:bg-muted"
-            >
-              <LuPin className="size-4" />
-              {pinnedIds.length > 0 ? (
-                <span className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full border border-background bg-primary px-1.5 text-[10px] font-semibold leading-5 text-primary-foreground shadow-sm">
-                  {pinnedIds.length}
-                </span>
-              ) : null}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" sideOffset={8} className="w-80 gap-3 border border-border bg-background p-0 text-foreground shadow-xl">
-            <div className="border-b border-border px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold">Pinned messages</h2>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                  {pinnedIds.length}
-                </span>
-              </div>
-            </div>
-            {pinnedMessages.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                No pinned messages yet
-              </div>
-            ) : (
-              <div className="max-h-[22rem] overflow-y-auto p-2">
-                {pinnedMessages.map((message) => (
-                  <div
-                    key={message.messageId}
-                    role="button"
-                    tabIndex={0}
-                    className="group flex w-full cursor-pointer items-start gap-3 rounded-lg px-3 py-2 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
-                    onClick={() => handlePinnedMessageSelect(message.messageId)}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return
-                      event.preventDefault()
-                      handlePinnedMessageSelect(message.messageId)
-                    }}
-                  >
-                    <span className="mt-0.5 shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {message.role === "user" ? "User" : "Assistant"}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="line-clamp-2 block text-sm leading-snug text-foreground">
-                        {messagePreview(message)}
-                      </span>
-                      {relativeTimestamp(message.createdAt) ? (
-                        <span className="mt-1 block text-xs text-muted-foreground">
-                          {relativeTimestamp(message.createdAt)}
-                        </span>
-                      ) : null}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="Unpin message"
-                      className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-80 transition hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        handlePin(message.messageId)
-                      }}
-                    >
-                      <LuX className="size-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
+      <div className="pointer-events-none absolute right-4 top-4 z-30">
+        <div className="pointer-events-auto relative">
+          <button
+            ref={pinButtonRef}
+            onClick={() => setPinnedPanelOpen((open) => !open)}
+            aria-label="Pinned messages"
+            className={cn(
+              "group relative flex size-8 cursor-pointer items-center justify-center rounded-sm transition-all",
+              pinnedPanelOpen
+                ? "text-foreground shadow-inner"
+                : pinnedMessages.length > 0
+                  ? "animate-pulse text-foreground"
+                  : "text-muted-foreground/60 hover:text-foreground"
             )}
-          </PopoverContent>
-        </Popover>
+          >
+            <Icons.Pin
+              size={16}
+              className={cn(
+                "transition-transform",
+                pinnedPanelOpen && "scale-110"
+              )}
+            />
+          </button>
+
+          <PinnedMessagesPopover
+            open={pinnedPanelOpen}
+            onClose={() => setPinnedPanelOpen(false)}
+            pinned={pinnedMessages}
+            onTogglePin={handlePin}
+            triggerRef={pinButtonRef}
+            onNavigateToMessage={(id) => handlePinnedMessageSelect(id)}
+          />
+        </div>
       </div>
       <div
         ref={scrollContainerRef}
