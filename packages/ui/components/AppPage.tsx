@@ -2567,12 +2567,21 @@ function AppShell({
 
   const handleQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
+    const clickAt = Date.now()
     frontendLog("composer", "quick-send.attempt", {
       hasText: Boolean(text),
       textLength: text.length,
       attachmentCount: payload.attachments?.length ?? 0,
       quickSending,
       activeSpaceId,
+    })
+    frontendLog("chat", "chat-rebuild.send.click", {
+      origin: "new-session-quick-send",
+      timestamp: clickAt,
+      hasExistingMessages: false,
+      sessionKey: null,
+      textLength: text.length,
+      attachmentCount: payload.attachments?.length ?? 0,
     })
     if (quickSending || !text) return
     if (!(await checkGatewayOrRedirect())) return
@@ -2631,6 +2640,14 @@ function AppShell({
       resolvedChatCacheRef.current.set(result.chat.id, sessionData)
       setActiveChat(createdChat)
       setActiveSessionKey(sessionKey)
+      frontendLog("chat", "chat-rebuild.send.optimistic-render", {
+        origin: "new-session-quick-send",
+        timestamp: Date.now(),
+        msSinceClick: Date.now() - clickAt,
+        sessionKey,
+        optimisticId,
+        optimisticCount: optimisticMessages.length,
+      })
       setActiveSessionTitle(fallbackName)
       dispatchGroups({
         type: "ADD_TAB",
@@ -2643,12 +2660,24 @@ function AppShell({
         sessionData,
       })
       window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
-      await applyDraftModelToSession(sessionKey, "new-chat:draft")
+      // Fire-and-forget: model selection persists in the background; it must
+      // not block the user's send. The gateway already accepts the send with
+      // the prior session/default model and the model row is informational.
+      void applyDraftModelToSession(sessionKey, "new-chat:draft").catch((err) => {
+        console.warn("applyDraftModelToSession failed (non-blocking)", err)
+      })
       frontendLog("composer", "quick-send.dispatch", {
         chatId: result.chat.id,
         sessionKey,
         optimisticId,
         attachmentCount: payload.attachments?.length ?? 0,
+      })
+      frontendLog("chat", "chat-rebuild.send.request-fired", {
+        origin: "new-session-quick-send",
+        timestamp: Date.now(),
+        msSinceClick: Date.now() - clickAt,
+        sessionKey,
+        optimisticId,
       })
       await sendChatV2({
         sessionKey,

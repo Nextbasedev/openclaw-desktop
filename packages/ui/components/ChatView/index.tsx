@@ -512,6 +512,10 @@ export function ChatView({
   // that can otherwise create a skeleton/messages blink loop on old sessions
   // whose cursor is far ahead of the gateway's replay window.
   const lastBootstrapRecoveryAtRef = useRef<number>(0)
+  // One-shot per session: has the SSE patch stream delivered its first frame?
+  // Used by chat-rebuild.send.first-patch-received diagnostics so we measure
+  // click → first-frame latency for the new-session send path.
+  const firstPatchLoggedRef = useRef<boolean>(false)
 
   const refreshSessionUsage = useCallback(async () => {
     const seq = ++contextFetchSeqRef.current
@@ -535,6 +539,7 @@ export function ChatView({
     lastOlderResolvedAtRef.current = 0
     lastNewerResolvedAtRef.current = 0
     lastBootstrapRecoveryAtRef.current = 0
+    firstPatchLoggedRef.current = false
     setStreamCursor(null)
     setReactions({})
     setPinnedIds([])
@@ -637,6 +642,20 @@ export function ChatView({
       const previousCursor = cursorRef.current
       if (frame.patch.cursor <= previousCursor) return
       cursorRef.current = Math.max(cursorRef.current, frame.patch.cursor)
+      if (!firstPatchLoggedRef.current) {
+        firstPatchLoggedRef.current = true
+        frontendLog(
+          "chat",
+          "chat-rebuild.send.first-patch-received",
+          {
+            sessionKey,
+            timestamp: Date.now(),
+            cursor: frame.patch.cursor,
+            patchType: frame.patch.type,
+          },
+          "debug"
+        )
+      }
       if (
         shouldDropPatchAsEvicted({
           patchSessionCursor: frame.patch.cursor,
@@ -837,6 +856,17 @@ export function ChatView({
     const text = payload.text.trim()
     if (!text && !payload.attachments?.length) return
 
+    const clickAt = Date.now()
+    const hasExistingMessages = state.messages.length > 0
+    frontendLog("chat", "chat-rebuild.send.click", {
+      origin: "chatview-handle-send",
+      timestamp: clickAt,
+      sessionKey,
+      hasExistingMessages,
+      textLength: text.length,
+      attachmentCount: payload.attachments?.length ?? 0,
+    })
+
     if (windowStateRef.current.hasNewer) {
       await resetToLiveTail()
     }
@@ -861,11 +891,25 @@ export function ChatView({
       statusLabel: "Thinking",
       messages: orderChatMessages([...current.messages, optimisticMessage]),
     }))
+    frontendLog("chat", "chat-rebuild.send.optimistic-render", {
+      origin: "chatview-handle-send",
+      timestamp: Date.now(),
+      msSinceClick: Date.now() - clickAt,
+      sessionKey,
+      optimisticId,
+    })
     onFirstMessageSent?.(text)
     setReplyTo(null)
     setComposerSeed(null)
 
     try {
+      frontendLog("chat", "chat-rebuild.send.request-fired", {
+        origin: "chatview-handle-send",
+        timestamp: Date.now(),
+        msSinceClick: Date.now() - clickAt,
+        sessionKey,
+        optimisticId,
+      })
       await sendChatV2({
         sessionKey,
         text,
@@ -1811,6 +1855,53 @@ export function ChatView({
       "debug"
     )
   }, [duplicateToolOnlyRows.size, renderedMessages.length, sessionKey])
+
+  // ---- send-cycle diagnostics ------------------------------------------------
+  // Fire-once-per-transition logs so Krish can verify at runtime which blink
+  // states are still happening on the new-session send path. Keep these AFTER
+  // the fix lands — they're cheap and they let us catch regressions.
+  const skeletonVisible = state.loading && renderedMessages.length === 0
+  const skeletonLoggedRef = useRef(false)
+  useEffect(() => {
+    if (skeletonVisible && !skeletonLoggedRef.current) {
+      skeletonLoggedRef.current = true
+      frontendLog(
+        "chat",
+        "chat-rebuild.send.skeleton-rendered",
+        {
+          sessionKey,
+          timestamp: Date.now(),
+          messageCount: state.messages.length,
+          renderedCount: renderedMessages.length,
+          loading: state.loading,
+        },
+        "warn"
+      )
+    } else if (!skeletonVisible && skeletonLoggedRef.current) {
+      skeletonLoggedRef.current = false
+    }
+  }, [skeletonVisible, sessionKey, state.loading, state.messages.length, renderedMessages.length])
+
+  const thinkingLoggedRef = useRef(false)
+  useEffect(() => {
+    if (showThinkingState && !thinkingLoggedRef.current) {
+      thinkingLoggedRef.current = true
+      frontendLog(
+        "chat",
+        "chat-rebuild.send.thinking-visible",
+        {
+          sessionKey,
+          timestamp: Date.now(),
+          source: "showThinkingState",
+          streamStatus: state.streamStatus,
+          messageCount: state.messages.length,
+        },
+        "debug"
+      )
+    } else if (!showThinkingState && thinkingLoggedRef.current) {
+      thinkingLoggedRef.current = false
+    }
+  }, [showThinkingState, sessionKey, state.streamStatus, state.messages.length])
 
   if (isBackgroundSession) {
     return null
