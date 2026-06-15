@@ -47,8 +47,13 @@ import type { IconType } from "react-icons"
 import { MessageBubble } from "./MessageBubble"
 import {
   INITIAL_WINDOW_STATE,
+  MAX_LOADED,
+  OLDER_PAGE,
   applyInitialPage,
+  applyOlderPage,
+  computeEvictedAfterPrepend,
   liveTailQuery,
+  shouldFetchOlder,
   type WindowState,
 } from "./messageWindow"
 import { ThinkingBlock } from "./ThinkingBlock"
@@ -475,6 +480,8 @@ export function ChatView({
   const wasGeneratingRef = useRef(false)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pinButtonRef = useRef<HTMLButtonElement>(null)
+  const pendingPrependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
+  const olderFetchSeqRef = useRef(0)
 
   const refreshSessionUsage = useCallback(async () => {
     const seq = ++contextFetchSeqRef.current
@@ -492,6 +499,7 @@ export function ChatView({
     let cancelled = false
     cursorRef.current = 0
     shouldFollowScrollRef.current = true
+    pendingPrependAnchorRef.current = null
     setStreamCursor(null)
     setReactions({})
     setPinnedIds([])
@@ -941,11 +949,212 @@ export function ChatView({
     [renderedMessages]
   )
 
+  const measureRowsAboveViewport = useCallback((): number => {
+    const container = scrollContainerRef.current
+    if (!container) return Number.POSITIVE_INFINITY
+    const containerTop = container.getBoundingClientRect().top
+    const rows = container.querySelectorAll<HTMLElement>('[data-chat-message-row="true"]')
+    let count = 0
+    for (let i = 0; i < rows.length; i += 1) {
+      const rect = rows[i].getBoundingClientRect()
+      // If the row's bottom is above the container's visible top edge, it's "above viewport".
+      if (rect.bottom <= containerTop) {
+        count += 1
+      } else {
+        break // rows are in DOM order; first non-above means we're done
+      }
+    }
+    return count
+  }, [])
+
+  const fetchOlderPage = useCallback(async () => {
+    const oldestSeq = windowState.oldestLoadedSeq
+    if (oldestSeq === null) return
+    if (windowState.isLoadingOlder) return
+    if (!windowState.hasOlder) return
+
+    // Capture anchor BEFORE we mark loading or fetch.
+    const container = scrollContainerRef.current
+    if (container) {
+      pendingPrependAnchorRef.current = {
+        scrollTop: container.scrollTop,
+        scrollHeight: container.scrollHeight,
+      }
+    }
+
+    const seq = ++olderFetchSeqRef.current
+    frontendLog(
+      "chat",
+      "chat-rebuild.window.older-fetch-start",
+      { sessionKey, oldestSeq, limit: OLDER_PAGE, seq },
+      "debug"
+    )
+    setWindowState((s) => ({ ...s, isLoadingOlder: true }))
+
+    try {
+      const response = await fetchChatMessagesV2({
+        sessionKey,
+        beforeSeq: oldestSeq,
+        limit: OLDER_PAGE,
+      })
+      if (seq !== olderFetchSeqRef.current) return // stale
+      if (response.sessionKey && response.sessionKey !== sessionKey) return
+
+      const olderMessages = normalizeHistory(
+        response.messages.map((m) => m.data)
+      )
+      if (olderMessages.length === 0) {
+        setWindowState((s) =>
+          applyOlderPage({
+            prevState: s,
+            returnedCount: 0,
+            newOldestSeq: s.oldestLoadedSeq,
+            prevLoadedLength: 0,
+            evictedFromEnd: 0,
+            evictedNewestSeq: null,
+            requestedLimit: OLDER_PAGE,
+          })
+        )
+        pendingPrependAnchorRef.current = null
+        frontendLog(
+          "chat",
+          "chat-rebuild.window.older-fetch-resolved",
+          { sessionKey, oldestSeq, returnedCount: 0, evictedFromEnd: 0 },
+          "debug"
+        )
+        return
+      }
+
+      setState((current) => {
+        const combined = [...olderMessages, ...current.messages]
+        const evictedFromEnd = computeEvictedAfterPrepend(
+          current.messages.length,
+          olderMessages.length,
+          MAX_LOADED
+        )
+        const finalMessages =
+          evictedFromEnd > 0
+            ? combined.slice(0, combined.length - evictedFromEnd)
+            : combined
+        const newOldest = finalMessages[0]
+        const newNewest = finalMessages[finalMessages.length - 1]
+        const newOldestSeq =
+          newOldest && typeof newOldest.gatewayIndex === "number"
+            ? newOldest.gatewayIndex
+            : null
+        const evictedNewestSeq =
+          evictedFromEnd > 0 && newNewest && typeof newNewest.gatewayIndex === "number"
+            ? newNewest.gatewayIndex
+            : null
+
+        setWindowState((s) =>
+          applyOlderPage({
+            prevState: s,
+            returnedCount: response.messageCount ?? response.messages.length,
+            newOldestSeq,
+            prevLoadedLength: current.messages.length,
+            evictedFromEnd,
+            evictedNewestSeq,
+            requestedLimit: OLDER_PAGE,
+          })
+        )
+
+        frontendLog(
+          "chat",
+          "chat-rebuild.window.older-fetch-resolved",
+          {
+            sessionKey,
+            oldestSeq,
+            returnedCount: response.messageCount ?? response.messages.length,
+            evictedFromEnd,
+            prevLoadedLength: current.messages.length,
+            finalLength: finalMessages.length,
+          },
+          "debug"
+        )
+
+        return { ...current, messages: finalMessages }
+      })
+    } catch (err) {
+      if (seq !== olderFetchSeqRef.current) return
+      setWindowState((s) => ({ ...s, isLoadingOlder: false }))
+      pendingPrependAnchorRef.current = null
+      frontendLog(
+        "chat",
+        "chat-rebuild.window.older-fetch-failed",
+        {
+          sessionKey,
+          oldestSeq,
+          errorKind: err instanceof Error ? err.name : typeof err,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
+        "warn"
+      )
+    }
+  }, [sessionKey, windowState.hasOlder, windowState.isLoadingOlder, windowState.oldestLoadedSeq])
+
+  const evaluateOlderTrigger = useCallback(() => {
+    if (state.loading) return
+    if (windowState.isLoadingOlder) return
+    if (!windowState.hasOlder) return
+    const rowsAboveViewport = measureRowsAboveViewport()
+    if (
+      !shouldFetchOlder({
+        rowsAboveViewport,
+        hasOlder: windowState.hasOlder,
+        isLoadingOlder: windowState.isLoadingOlder,
+      })
+    ) {
+      return
+    }
+    frontendLog(
+      "chat",
+      "chat-rebuild.window.older-trigger-fired",
+      { sessionKey, rowsAboveViewport },
+      "debug"
+    )
+    void fetchOlderPage()
+  }, [
+    state.loading,
+    windowState.hasOlder,
+    windowState.isLoadingOlder,
+    measureRowsAboveViewport,
+    fetchOlderPage,
+    sessionKey,
+  ])
+
   function handleScroll() {
     const element = scrollContainerRef.current
     if (!element) return
     shouldFollowScrollRef.current = isNearScrollBottom(element)
+    evaluateOlderTrigger()
   }
+
+  useLayoutEffect(() => {
+    const anchor = pendingPrependAnchorRef.current
+    if (!anchor) return
+    const container = scrollContainerRef.current
+    if (!container) {
+      pendingPrependAnchorRef.current = null
+      return
+    }
+    // After prepend: scrollHeight increased by ~(prepended height − evicted height).
+    // To keep the user-visible row fixed, we move scrollTop by the same delta.
+    const delta = container.scrollHeight - anchor.scrollHeight
+    if (delta !== 0) {
+      container.scrollTop = anchor.scrollTop + delta
+      // Also prevent the follow-bottom effect from snapping us down.
+      shouldFollowScrollRef.current = false
+    }
+    pendingPrependAnchorRef.current = null
+  }, [state.messages])
+
+  useEffect(() => {
+    if (state.loading) return
+    // Defer to next frame so the layout from the prepend has stabilized.
+    const frame = requestAnimationFrame(() => evaluateOlderTrigger())
+    return () => cancelAnimationFrame(frame)
+  }, [state.messages.length, state.loading, evaluateOlderTrigger])
 
   useLayoutEffect(() => {
     if (state.loading) return
