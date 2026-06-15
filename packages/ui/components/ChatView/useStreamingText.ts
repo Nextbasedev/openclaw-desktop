@@ -100,6 +100,16 @@ export function useStreamingText(
       displayRef.current = target
       revealActiveRef.current = false
       commitState(target, false)
+      // Fire completion so callers (e.g., ChatView's handleTextAnimationComplete)
+      // can clear animateText flags. Without this, reduce-motion users would
+      // see their action buttons permanently suppressed because the flag
+      // never gets cleared by the animation completion path.
+      if (streaming) {
+        queueMicrotask(() => {
+          if (cancelled) return
+          completeRef.current?.()
+        })
+      }
       return () => {
         cancelled = true
       }

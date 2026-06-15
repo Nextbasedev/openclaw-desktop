@@ -1463,6 +1463,58 @@ export function ChatView({
     void refreshSessionUsage()
   }, [isGenerating, refreshSessionUsage])
 
+  // Safety-net: clear stranded animateText flags so action buttons always
+  // appear after a response completes.
+  //
+  // Bug repro: occasionally after a response finishes, the assistant message
+  // bubble's action buttons (copy, retry, react, etc.) stay hidden. Root
+  // cause: action visibility is gated by `animateAssistantText`, which is
+  // true while EITHER (a) this is the last message + isGenerating, OR
+  // (b) message.animateText === true. The flag is set by applyChatPatch on
+  // delta patches and is only cleared when MessageBubble's MarkdownContent
+  // fires `onRevealComplete`. Multiple races prevent that callback firing:
+  //   * useStreamingText's reduce-motion early return commits state without
+  //     calling completeRef.current.
+  //   * Target text replacement (!startsWith branch) with canAnimate=false
+  //     runs no animation and never calls back.
+  //   * Message replaced by a later patch / dedupe before reveal finishes.
+  //   * Hydration from activeRunRegistry of a snapshot carrying animateText.
+  //   * Session switch unmount mid-animation.
+  // The fix is a state-derived guarantee, not a callback dependency: once
+  // a message is no longer the last assistant AND we're not generating,
+  // the flag MUST be false. Same applies to the very last message after
+  // generation completes (which is the common case Krish reported).
+  useEffect(() => {
+    if (isGenerating) return
+    let needsUpdate = false
+    for (const message of state.messages) {
+      if (message.animateText === true) {
+        needsUpdate = true
+        break
+      }
+    }
+    if (!needsUpdate) return
+    frontendLog(
+      "chat",
+      "chat-rebuild.animate-text.safety-clear",
+      {
+        sessionKey,
+        clearedCount: state.messages.filter((m) => m.animateText === true).length,
+      },
+      "debug",
+    )
+    setState((current) => {
+      let mutated = false
+      const nextMessages = current.messages.map((message) => {
+        if (message.animateText !== true) return message
+        mutated = true
+        return { ...message, animateText: false }
+      })
+      if (!mutated) return current
+      return { ...current, messages: nextMessages }
+    })
+  }, [isGenerating, state.messages, sessionKey])
+
   const liveTool = isGenerating ? liveRunningTool(renderedMessages) : null
   const statusText = isGenerating
     ? generatingStatusText(state.streamStatus, state.statusLabel, liveTool)
