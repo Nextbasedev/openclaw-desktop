@@ -509,6 +509,11 @@ export function ChatView({
   // infinite loop.
   const isProgrammaticScrollRef = useRef(false)
   const windowStateRef = useRef<WindowState>(windowState)
+  // Last wall-clock time we ran resetToLiveTail in response to a
+  // bootstrap-recovery event. Used to debounce rapid SSE recovery storms
+  // that can otherwise create a skeleton/messages blink loop on old sessions
+  // whose cursor is far ahead of the gateway's replay window.
+  const lastBootstrapRecoveryAtRef = useRef<number>(0)
 
   const refreshSessionUsage = useCallback(async () => {
     const seq = ++contextFetchSeqRef.current
@@ -531,6 +536,7 @@ export function ChatView({
     pendingScrollAnchorRef.current = null
     lastOlderResolvedScrollTopRef.current = null
     lastNewerResolvedScrollTopRef.current = null
+    lastBootstrapRecoveryAtRef.current = 0
     setStreamCursor(null)
     setReactions({})
     setPinnedIds([])
@@ -619,6 +625,11 @@ export function ChatView({
   useEffect(() => {
     windowStateRef.current = windowState
   }, [windowState])
+
+  const stateLoadingRef = useRef<boolean>(true)
+  useEffect(() => {
+    stateLoadingRef.current = state.loading
+  }, [state.loading])
 
   useEffect(() => {
     if (isBackgroundSession || streamCursor === null) return
@@ -1606,6 +1617,14 @@ export function ChatView({
 
   useEffect(() => {
     if (isBackgroundSession) return
+    // Minimum gap between two consecutive resetToLiveTail() calls triggered by
+    // bootstrap-recovery events. Old sessions whose persisted cursor is far
+    // ahead of the gateway's replay window can produce repeated
+    // replay-window-exceeded `hello` frames on every SSE (re)connect; without
+    // this guard the UI runs resetToLiveTail in a loop, producing a constant
+    // skeleton ↔ messages blink while older-page fetches also fire because the
+    // newly-bootstrapped window puts the user near the top.
+    const RECOVERY_DEBOUNCE_MS = 4000
     function handleBootstrapRecovery(event: Event) {
       if (!(event instanceof CustomEvent)) return
       const detail = event.detail as { sessionKey?: unknown } | undefined
@@ -1616,6 +1635,32 @@ export function ChatView({
       ) {
         return
       }
+      // If a reset is already in flight (state.loading is still true from a
+      // prior reset), skip — we'd just thrash the messages array and steal
+      // focus. The in-flight reset will resolve and produce a current view.
+      if (stateLoadingRef.current) {
+        frontendLog(
+          "chat",
+          "chat-rebuild.window.bootstrap-recovery-skipped-loading",
+          { sessionKey },
+          "warn"
+        )
+        return
+      }
+      // Debounce: ignore recoveries that arrive shortly after the previous one.
+      // This is the primary loop-breaker for old sessions in a recovery storm.
+      const now = Date.now()
+      const elapsed = now - lastBootstrapRecoveryAtRef.current
+      if (elapsed < RECOVERY_DEBOUNCE_MS) {
+        frontendLog(
+          "chat",
+          "chat-rebuild.window.bootstrap-recovery-debounced",
+          { sessionKey, elapsedMs: elapsed, debounceMs: RECOVERY_DEBOUNCE_MS },
+          "warn"
+        )
+        return
+      }
+      lastBootstrapRecoveryAtRef.current = now
       frontendLog(
         "chat",
         "chat-rebuild.window.bootstrap-recovery",
