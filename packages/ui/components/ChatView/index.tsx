@@ -807,6 +807,10 @@ export function ChatView({
     const text = payload.text.trim()
     if (!text && !payload.attachments?.length) return
 
+    if (windowStateRef.current.hasNewer) {
+      await resetToLiveTail()
+    }
+
     const optimisticId = randomId()
     shouldFollowScrollRef.current = true
     const optimisticMessage: ChatMessage = {
@@ -1380,6 +1384,96 @@ export function ChatView({
       )
     }
   }, [sessionKey, windowState.hasNewer, windowState.isLoadingNewer, windowState.newestLoadedSeq])
+
+  const resetToLiveTail = useCallback(async (): Promise<void> => {
+    cursorRef.current = 0
+    olderFetchSeqRef.current = 0
+    newerFetchSeqRef.current = 0
+    pendingPrependAnchorRef.current = null
+    shouldFollowScrollRef.current = true
+    setStreamCursor(null)
+    setReplyTo(null)
+    setActivePopoverId(null)
+    setComposerSeed(null)
+    setWindowState(INITIAL_WINDOW_STATE)
+    setState({
+      loading: true,
+      error: null,
+      composerError: null,
+      messages: [],
+      streamStatus: "idle",
+      statusLabel: null,
+    })
+
+    const q = liveTailQuery()
+    try {
+      const history = await fetchChatMessagesV2({
+        sessionKey,
+        beforeSeq: q.beforeSeq,
+        limit: q.limit,
+      })
+      if (history.sessionKey && history.sessionKey !== sessionKey) return
+
+      const messages = normalizeHistory(history.messages.map((m) => m.data))
+      const cursor = typeof history.cursor === "number" ? history.cursor : 0
+      cursorRef.current = cursor
+      setStreamCursor(cursor)
+
+      const firstMessage = messages[0]
+      const lastMessage = messages[messages.length - 1]
+      const oldestSeq =
+        firstMessage && typeof firstMessage.gatewayIndex === "number"
+          ? firstMessage.gatewayIndex
+          : null
+      const newestSeq =
+        lastMessage && typeof lastMessage.gatewayIndex === "number"
+          ? lastMessage.gatewayIndex
+          : null
+
+      setWindowState(
+        applyInitialPage({
+          returnedCount: history.messageCount ?? history.messages.length,
+          oldestSeq,
+          newestSeq,
+          requestedLimit: q.limit,
+        })
+      )
+      setState({
+        loading: false,
+        error: null,
+        composerError: null,
+        messages,
+        streamStatus: "idle",
+        statusLabel: null,
+      })
+      frontendLog(
+        "chat",
+        "chat-rebuild.window.reset-to-live-tail",
+        { sessionKey, messageCount: messages.length },
+        "debug"
+      )
+    } catch (err) {
+      setWindowState(INITIAL_WINDOW_STATE)
+      setState({
+        loading: false,
+        error: err instanceof Error ? err.message : String(err),
+        composerError: null,
+        messages: [],
+        streamStatus: "error",
+        statusLabel: null,
+      })
+      frontendLog(
+        "chat",
+        "chat-rebuild.window.reset-to-live-tail-failed",
+        {
+          sessionKey,
+          errorKind: err instanceof Error ? err.name : typeof err,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
+        "warn"
+      )
+    }
+  }, [sessionKey])
 
   const evaluateNewerTrigger = useCallback(() => {
     if (state.loading) return
