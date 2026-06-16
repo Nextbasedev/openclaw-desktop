@@ -339,24 +339,29 @@ function ImageAttachmentStack({
   isUser: boolean
   onOpen: (attachment: MessageAttachment) => void
 }) {
-  const visible = attachments.slice(0, 5)
-  const overflow = Math.max(0, attachments.length - visible.length)
-  const rotations = [-7, 4, -2, 6, -5]
-  const offsets = visible.length <= 3 ? [0, 62, 124] : [0, 54, 108, 162, 216]
-  const stackWidth = visible.length <= 3 ? 260 : 340
+  const imageCount = attachments.length
+  const cardWidth = imageCount <= 3 ? 112 : imageCount <= 5 ? 96 : imageCount <= 8 ? 82 : 70
+  const cardHeight = imageCount <= 3 ? 144 : imageCount <= 5 ? 132 : imageCount <= 8 ? 118 : 104
+  const step = imageCount <= 3 ? 62 : imageCount <= 5 ? 52 : imageCount <= 8 ? 42 : 34
+  const stackWidth = cardWidth + Math.max(0, imageCount - 1) * step + 10
+  const stackHeight = cardHeight + 32
+  const rotations = [-7, 4, -2, 6, -5, 3, -4, 5, -3, 4]
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
 
   return (
     <div className={cn("flex max-w-full", isUser ? "justify-end" : "justify-start")}>
       <div
-        className="relative h-40 max-w-full"
-        style={{ width: Math.min(stackWidth, 96 + Math.max(0, visible.length - 1) * 58) }}
+        className="relative max-w-full"
+        style={{ width: Math.min(stackWidth, 430), height: stackHeight }}
       >
-        {visible.map((attachment, index) => {
+        {attachments.map((attachment, index) => {
           const href = chatAttachmentHref(attachment)
-          const isTop = index === visible.length - 1
+          const isTop = index === imageCount - 1
           const isHovered = hoveredIndex === index
           const baseY = isTop ? -8 : index % 2 === 0 ? 8 : 0
+          const left = imageCount > 1 && stackWidth > 430
+            ? (index * (430 - cardWidth)) / (imageCount - 1)
+            : index * step
 
           return (
             <button
@@ -368,16 +373,18 @@ function ImageAttachmentStack({
               onFocus={() => setHoveredIndex(index)}
               onBlur={() => setHoveredIndex(null)}
               className={cn(
-                "absolute top-2 h-36 w-28 cursor-pointer overflow-hidden rounded-2xl border bg-black/20 text-left shadow-[0_18px_45px_rgba(0,0,0,0.28)] transition-transform duration-200 ease-out will-change-transform",
+                "absolute top-2 cursor-pointer overflow-hidden rounded-2xl border bg-black/20 text-left shadow-[0_18px_45px_rgba(0,0,0,0.28)] transition-transform duration-200 ease-out will-change-transform",
                 isHovered && "shadow-[0_24px_60px_rgba(0,0,0,0.38)]",
                 isUser ? "border-white/15" : "border-border/35"
               )}
               style={{
-                left: offsets[index] ?? index * 54,
+                left,
+                width: cardWidth,
+                height: cardHeight,
                 zIndex: (isHovered ? 50 : 10) + index,
                 transform: isHovered
                   ? `rotate(0deg) translateY(${baseY - 14}px) scale(1.14)`
-                  : `rotate(${rotations[index] ?? 0}deg) translateY(${baseY}px) scale(1)`,
+                  : `rotate(${rotations[index % rotations.length] ?? 0}deg) translateY(${baseY}px) scale(1)`,
               }}
               aria-label={`Preview attachment ${attachment.name}`}
             >
@@ -403,11 +410,6 @@ function ImageAttachmentStack({
                   <LuImage className="size-5 opacity-70" />
                   <span>Preview unavailable</span>
                 </div>
-              )}
-              {overflow > 0 && index === visible.length - 1 && (
-                <span className="absolute right-2 bottom-2 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-medium text-white">
-                  +{overflow}
-                </span>
               )}
             </button>
           )
