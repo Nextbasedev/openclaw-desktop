@@ -41,6 +41,7 @@ export function ChatsSection({
   const [currentPage, setCurrentPage] = useState(0)
   const [showArchived, setShowArchived] = useState(false)
   const showList = !collapsible || isOpen
+  const activeSectionLabel = showArchived ? "Archive" : sectionLabel
   const {
     chats,
     setChatOrder,
@@ -82,10 +83,6 @@ export function ChatsSection({
   }, [])
 
   useEffect(() => {
-    setShowArchived(false)
-  }, [spaceId])
-
-  useEffect(() => {
     if (currentPage > totalPages - 1) {
       setCurrentPage(Math.max(0, totalPages - 1))
     }
@@ -99,7 +96,7 @@ export function ChatsSection({
             <button
               type="button"
               onClick={() => setIsOpen((prev) => !prev)}
-              title={sectionLabel}
+              title={activeSectionLabel}
               className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-foreground"
             >
               <motion.span
@@ -109,24 +106,26 @@ export function ChatsSection({
               >
                 <Icons.ChevronDown size={12} />
               </motion.span>
-              <span className="min-w-0 truncate">{sectionLabel}</span>
+              <span className="min-w-0 truncate">{activeSectionLabel}</span>
             </button>
           ) : (
             <span
-              title={sectionLabel}
+              title={activeSectionLabel}
               className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-widest text-foreground"
             >
-              {sectionLabel}
+              {activeSectionLabel}
             </span>
           )}
-          <button
-            type="button"
-            onClick={onNewChat}
-            title="New chat"
-            className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/50 transition-colors hover:text-foreground"
-          >
-            <Icons.Plus size={13} strokeWidth={2} />
-          </button>
+          {!showArchived && (
+            <button
+              type="button"
+              onClick={onNewChat}
+              title="New chat"
+              className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/50 transition-colors hover:text-foreground"
+            >
+              <Icons.Plus size={13} strokeWidth={2} />
+            </button>
+          )}
         </div>
 
         <AnimatePresence initial={false}>
@@ -142,7 +141,7 @@ export function ChatsSection({
                 {chats.length === 0 && (
                   <button
                     type="button"
-                    onClick={showArchived ? () => setShowArchived(false) : onNewChat}
+                    onClick={showArchived ? undefined : onNewChat}
                     className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border/30 px-2.5 py-2 text-left text-[12px] text-muted-foreground/40 transition-colors hover:border-border/50 hover:text-muted-foreground"
                   >
                     {showArchived ? <Icons.Archive size={12} strokeWidth={1.5} /> : <Icons.Plus size={12} strokeWidth={1.5} />}
@@ -174,7 +173,7 @@ export function ChatsSection({
                         isPinned={pinnedChats.has(chatId)}
                         isRunning={Boolean(chat.sessionKey && runningSessionKeys.has(chat.sessionKey))}
                         onClick={() => {
-                          if (showArchived) return
+                          if (chat.archived) return
                           onChatSelect({
                             id: chat.id,
                             name: chatDisplayName(chat),
@@ -196,7 +195,7 @@ export function ChatsSection({
                         onArchive={() =>
                           handleArchiveChat(chatId)
                         }
-                        archiveLabel={showArchived ? "Restore" : "Archive"}
+                        archiveLabel={chat.archived ? "Restore" : "Archive"}
                         onDelete={() =>
                           dialogActions.openDelete(chat)
                         }

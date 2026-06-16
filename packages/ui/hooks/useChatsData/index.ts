@@ -150,13 +150,13 @@ export function useChatsData(
       }
       if (showArchived) {
         const result = await invoke<{ chats: Chat[] }>("middleware_chats_list", {
-          input: { archived: true, spaceId: requestSpaceId ?? undefined },
+          input: { archived: true },
         })
         if (!isCurrentRequest()) return
         applyChats((result.chats || []).filter((chat) => {
           if (!chat.archived) return false
           if (chat.isSubagent || chat.parentSessionKey || isSubagentSessionKey(chat.sessionKey)) return false
-          return !requestSpaceId || chat.spaceId === requestSpaceId
+          return true
         }))
         return
       }
@@ -219,6 +219,13 @@ export function useChatsData(
 
   useEffect(() => {
     const unsubscribe = on("sidebar:refresh", loadChats)
+    return () => {
+      unsubscribe()
+    }
+  }, [loadChats])
+
+  useEffect(() => {
+    const unsubscribe = on("archive:changed", loadChats)
     return () => {
       unsubscribe()
     }
@@ -421,21 +428,32 @@ export function useChatsData(
 
   const handleArchiveChat = useCallback(
     async (chatId: string) => {
+      const chat = chats.find((candidate) => candidate.id === chatId)
+      if (!chat) return
+      const archived = !chat.archived
+      setChats((prev) => prev.filter((candidate) => candidate.id !== chatId))
+      setChatOrder((prev) => prev.filter((id) => id !== chatId))
+      setPinnedChats((prev) => {
+        const next = new Set(prev)
+        next.delete(chatId)
+        return next
+      })
       try {
         invalidateMiddlewareStartupBootstrap()
         invalidateChatListCache(spaceId)
         await invoke("middleware_chats_archive", {
-          input: { chatId, archived: !showArchived },
+          input: { chatId, archived },
         })
         invalidateChatListCache(spaceId)
-        onChatClear(chatId)
+        if (archived) onChatClear(chatId)
         await loadChats()
         emit("archive:changed")
       } catch (e) {
         console.error("archive chat failed", e)
+        await loadChats()
       }
     },
-    [onChatClear, loadChats, spaceId],
+    [chats, onChatClear, loadChats, spaceId],
   )
 
   const openRename = useCallback((chat: Chat) => {
