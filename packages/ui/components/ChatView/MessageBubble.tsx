@@ -330,6 +330,80 @@ function ImageAttachmentCard({
   )
 }
 
+function ImageAttachmentStack({
+  attachments,
+  isUser,
+  onOpen,
+}: {
+  attachments: MessageAttachment[]
+  isUser: boolean
+  onOpen: (attachment: MessageAttachment) => void
+}) {
+  const visible = attachments.slice(0, 5)
+  const overflow = Math.max(0, attachments.length - visible.length)
+  const rotations = [-7, 4, -2, 6, -5]
+  const offsets = visible.length <= 3 ? [0, 62, 124] : [0, 54, 108, 162, 216]
+  const stackWidth = visible.length <= 3 ? 260 : 340
+
+  return (
+    <div className={cn("flex max-w-full", isUser ? "justify-end" : "justify-start")}>
+      <div
+        className="relative h-40 max-w-full"
+        style={{ width: Math.min(stackWidth, 96 + Math.max(0, visible.length - 1) * 58) }}
+      >
+        {visible.map((attachment, index) => {
+          const href = chatAttachmentHref(attachment)
+          const isTop = index === visible.length - 1
+
+          return (
+            <button
+              key={`${attachment.name}-${index}`}
+              type="button"
+              onClick={() => onOpen(attachment)}
+              className={cn(
+                "absolute top-2 h-36 w-28 cursor-pointer overflow-hidden rounded-2xl border bg-black/20 text-left shadow-[0_18px_45px_rgba(0,0,0,0.28)] transition-transform duration-150 hover:-translate-y-2 hover:rotate-0 hover:scale-[1.03]",
+                isUser ? "border-white/15" : "border-border/35"
+              )}
+              style={{
+                left: offsets[index] ?? index * 54,
+                zIndex: 10 + index,
+                transform: `rotate(${rotations[index] ?? 0}deg) translateY(${isTop ? -8 : index % 2 === 0 ? 8 : 0}px)`,
+              }}
+              aria-label={`Preview attachment ${attachment.name}`}
+            >
+              {href ? (
+                // eslint-disable-next-line @next/next/no-img-element -- Middleware media URLs are authenticated token links and should render directly.
+                <img
+                  src={href}
+                  alt={attachment.name}
+                  loading="lazy"
+                  decoding="async"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div
+                  className={cn(
+                    "flex h-full w-full flex-col items-center justify-center gap-2 px-2 text-center text-[11px]",
+                    isUser ? "text-white/65" : "text-muted-foreground"
+                  )}
+                >
+                  <LuImage className="size-5 opacity-70" />
+                  <span>Preview unavailable</span>
+                </div>
+              )}
+              {overflow > 0 && index === visible.length - 1 && (
+                <span className="absolute right-2 bottom-2 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-medium text-white">
+                  +{overflow}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function AttachmentPreviewDialog({
   attachment,
   open,
@@ -413,6 +487,9 @@ function MessageAttachments({
   const [selectedAttachment, setSelectedAttachment] = useState<MessageAttachment | null>(null)
   if (!attachments || attachments.length === 0) return null
 
+  const imageAttachments = attachments.filter((attachment) => getChatAttachmentKind(attachment) === "image")
+  const otherAttachments = attachments.filter((attachment) => getChatAttachmentKind(attachment) !== "image")
+
   return (
     <>
       <div
@@ -421,23 +498,24 @@ function MessageAttachments({
           isUser ? "mb-2 text-white" : "mt-2 text-foreground"
         )}
       >
-        {attachments.map((attachment, index) => {
-          const href = chatAttachmentHref(attachment)
+        {imageAttachments.length === 1 && (
+          <ImageAttachmentCard
+            attachment={imageAttachments[0]}
+            href={chatAttachmentHref(imageAttachments[0]) ?? ""}
+            isUser={isUser}
+            onOpen={() => setSelectedAttachment(imageAttachments[0])}
+          />
+        )}
+        {imageAttachments.length > 1 && (
+          <ImageAttachmentStack
+            attachments={imageAttachments}
+            isUser={isUser}
+            onOpen={setSelectedAttachment}
+          />
+        )}
+        {otherAttachments.map((attachment, index) => {
           const kind = getChatAttachmentKind(attachment)
           const key = `${attachment.name}-${index}`
-
-          if (kind === "image") {
-            return (
-              <ImageAttachmentCard
-                key={key}
-                attachment={attachment}
-                href={href ?? ""}
-                isUser={isUser}
-                onOpen={() => setSelectedAttachment(attachment)}
-              />
-            )
-          }
-
           const fileKind = kind === "pdf" ? "pdf" : "file"
           const card = (
             <button
