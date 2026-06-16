@@ -939,7 +939,7 @@ function AppShell({
         const chatResult = await fetchChatsForSpace(activeSpaceId)
         if (!isCurrentPath()) return
 
-        let found: RouteChatRecord | undefined = chatResult.find(
+        let found = chatResult.find(
           (chat) => chat.id === route.chatId && chat.spaceId === activeSpaceId,
         )
         if (!found && cachedFound) {
@@ -954,14 +954,7 @@ function AppShell({
             (chat) => chat.id === route.chatId,
           )
         }
-        if (!found) {
-          const archivedResult = await invoke<{ chats: RouteChatRecord[] }>("middleware_chats_list", {
-            input: { archived: true },
-          })
-          if (!isCurrentPath()) return
-          found = (archivedResult.chats || []).find((chat) => chat.id === route.chatId)
-        }
-        if (!found) {
+        if (!found || found.archived) {
           recoverToDraftRoute()
           return
         }
@@ -1507,7 +1500,7 @@ function AppShell({
     }
 
     try {
-      const resolved = await ensureChatSession(chat, { activeSpaceId: chat.spaceId ?? activeSpaceId })
+      const resolved = await ensureChatSession(chat, { activeSpaceId })
       if (routeRequestRef.current !== requestId) return
       resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
       if (resolved.chat.id !== chat.id || resolved.sessionKey !== (cached?.sessionKey ?? chat.sessionKey)) {
