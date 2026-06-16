@@ -953,9 +953,13 @@ export function ChatView({
   }, [windowState])
 
   const stateLoadingRef = useRef<boolean>(true)
+  const stateMessagesRef = useRef<ChatMessage[]>([])
+  const stateStreamStatusRef = useRef<StreamStatus>("idle")
   useEffect(() => {
     stateLoadingRef.current = state.loading
-  }, [state.loading])
+    stateMessagesRef.current = state.messages
+    stateStreamStatusRef.current = state.streamStatus
+  }, [state.loading, state.messages, state.streamStatus])
 
   useEffect(() => {
     if (isBackgroundSession || streamCursor === null) return
@@ -2202,6 +2206,24 @@ export function ChatView({
         typeof detail.sessionKey === "string" &&
         detail.sessionKey !== sessionKey
       ) {
+        return
+      }
+      // If a new-session send is already rendering the optimistic user bubble
+      // + Thinking state, a recovery reset would briefly swap the chat surface
+      // back to the full loading skeleton and then to a user-only history page.
+      // Fresh sessions can legitimately emit bootstrap-recovery before the
+      // first assistant frame; keep the optimistic/run state until normal
+      // patches or the post-send history reconciliation arrive.
+      if (
+        activeRunRegistry.isActiveRunStatus(stateStreamStatusRef.current) &&
+        stateMessagesRef.current.some((message) => message.role === "user")
+      ) {
+        frontendLog(
+          "chat",
+          "chat-rebuild.window.bootstrap-recovery-skipped-active-run",
+          { sessionKey, streamStatus: stateStreamStatusRef.current, messageCount: stateMessagesRef.current.length },
+          "debug"
+        )
         return
       }
       // If a reset is already in flight (state.loading is still true from a

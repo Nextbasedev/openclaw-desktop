@@ -37,6 +37,7 @@ import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace } 
 import { localSyncSubscribeChats } from "@/lib/localFirstSync"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
 import { mountRunWatcher } from "@/lib/chat-engine-v2/runWatcher"
+import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
 import { getGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { abortSessionRequests } from "@/lib/requestScheduler"
@@ -2639,6 +2640,13 @@ function AppShell({
           size: a.size,
         })),
       }]
+      activeRunRegistry.publish(sessionKey, {
+        messages: optimisticMessages,
+        streamStatus: "thinking",
+        statusLabel: "Thinking",
+        streamCursor: 0,
+        sending: true,
+      })
       setPendingPrompt(null)
       setInitialMessages(optimisticMessages)
       setActiveTab("chat")
@@ -2793,6 +2801,13 @@ function AppShell({
           size: a.size,
         })),
       }]
+      activeRunRegistry.publish(sessionKey, {
+        messages: optimisticMessages,
+        streamStatus: "thinking",
+        statusLabel: "Thinking",
+        streamCursor: 0,
+        sending: true,
+      })
       setPendingPrompt(null)
       setInitialMessages(optimisticMessages)
       setActiveSessionKey(sessionKey)
