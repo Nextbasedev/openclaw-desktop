@@ -81,6 +81,7 @@ import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from 
 import { orderChatMessages } from "./orderChatMessages"
 import { decideBootstrapRecovery } from "./bootstrapRecoveryGuard"
 import { beginSendIfIdle, endSend } from "./sendInFlightGuard"
+import { messageListKeys, toolCallKey } from "./messageRowKey"
 
 type Props = {
   sessionKey: string
@@ -370,26 +371,12 @@ function GeneratingStatus({ label, tool }: { label: string; tool?: string | null
   )
 }
 
-function stableToolKey(tool: InlineToolCall): string {
-  if (tool.id) return `id:${tool.id}`
-  return [
-    "fallback",
-    tool.tool,
-    tool.startedAt ?? "",
-    tool.completedAt ?? "",
-    summarizeToolInput(tool),
-  ].join(":")
-}
-
-function messageRowKey(message: ChatMessage): string {
-  if (message.role === "assistant" && message.runId?.trim()) {
-    return `assistant-run:${message.runId.trim()}`
-  }
-  return `${message.gatewayIndex ?? "no-seq"}:${message.messageId}`
-}
+// `messageRowKey` / `toolCallKey` are kept in their own module so they can be
+// unit-tested for stability across the full optimistic↔confirmed↔replay
+// lifecycle and across long conversations. See messageRowKey.ts.
 
 function toolKeySet(tools: InlineToolCall[]) {
-  return new Set(tools.map(stableToolKey))
+  return new Set(tools.map(toolCallKey))
 }
 
 function hasAllToolKeys(source: Set<string>, target: Set<string>) {
@@ -1669,6 +1656,14 @@ export function ChatView({
     () => terminalToolStateById(renderedMessages),
     [renderedMessages]
   )
+  // Precompute one React key per rendered row. `messageListKeys` guarantees
+  // uniqueness even if two rows somehow share a `messageId` (last line of
+  // defense for the long-conversation duplication bug). See messageRowKey.ts
+  // for the invariant.
+  const renderedRowKeys = useMemo(
+    () => messageListKeys(renderedMessages),
+    [renderedMessages]
+  )
 
   const measureRowsAboveViewport = useCallback((): number => {
     const container = scrollContainerRef.current
@@ -2587,7 +2582,7 @@ export function ChatView({
               })
               return (
               <div
-                key={messageRowKey(message)}
+                key={renderedRowKeys[index]}
                 id={`message-${message.messageId}`}
                 data-chat-message-row="true"
                 data-message-id={message.messageId}
