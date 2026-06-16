@@ -476,6 +476,7 @@ function AppShell({
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true
   )
   const [terminalActive, setTerminalActive] = useState(false)
+  const [archiveViewActive, setArchiveViewActive] = useState(false)
   const [connectAutoOpenEnabled, setConnectAutoOpenEnabled] = useState(() =>
     Boolean(initialConnect),
   )
@@ -504,6 +505,24 @@ function AppShell({
       ? "chat"
       : activeTab
   const fullScreenInspectorOpen = activeTab === "inspector"
+
+  useEffect(() => {
+    function showArchivedChats() {
+      setConnectAutoOpenEnabled(false)
+      setActiveTab("chat")
+      setArchiveViewActive(true)
+    }
+    function showActiveChats() {
+      setArchiveViewActive(false)
+    }
+
+    window.addEventListener("openclaw:show-archived-chats", showArchivedChats)
+    window.addEventListener("openclaw:show-active-chats", showActiveChats)
+    return () => {
+      window.removeEventListener("openclaw:show-archived-chats", showArchivedChats)
+      window.removeEventListener("openclaw:show-active-chats", showActiveChats)
+    }
+  }, [])
   const renderedSidebarWidth = sidebarPreviewOpen ? SIDEBAR_DEFAULT : sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED
 
   const prevTabRef = useRef("chat")
@@ -1435,6 +1454,7 @@ function AppShell({
     const requestId = ++routeRequestRef.current
     setPendingPrompt(null)
     setComposerError(null)
+    setArchiveViewActive(false)
     setActiveTab("chat")
     setActiveTopic(null)
     setInitialMessages(undefined)
@@ -2853,6 +2873,7 @@ function AppShell({
       setConnectAutoOpenEnabled(false)
     }
     if (tab === "chat") {
+      setArchiveViewActive(false)
       handleNewChat()
       return
     }
@@ -2861,6 +2882,7 @@ function AppShell({
       return
     }
     routeRequestRef.current += 1
+    setArchiveViewActive(false)
     setActiveTab(tab)
     setComposerError(null)
     const tabUrls: Record<string, string> = {
@@ -2994,7 +3016,8 @@ function AppShell({
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
         sidebarReservedWidth={renderedSidebarWidth}
-        editorGroups={effectiveActiveTab === "chat" ? displayedEditorGroups : null}
+        editorGroups={effectiveActiveTab === "chat" && !archiveViewActive ? displayedEditorGroups : null}
+        archiveViewActive={effectiveActiveTab === "chat" && archiveViewActive}
         onSelectChatTab={effectiveActiveTab === "chat" ? handleEditorTabSelect : undefined}
         onCloseChatTab={effectiveActiveTab === "chat" ? handleEditorTabClose : undefined}
         onOpenChatTabWindow={effectiveActiveTab === "chat" ? handleOpenChatTabWindow : undefined}
@@ -3002,8 +3025,8 @@ function AppShell({
         onArchiveChat={effectiveActiveTab === "chat" ? handleArchiveChatFromMenu : undefined}
         onDeleteChat={effectiveActiveTab === "chat" ? handleDeleteChatFromMenu : undefined}
         onMoveChatTab={effectiveActiveTab === "chat" ? handleEditorTabMove : undefined}
-        onNewChat={effectiveActiveTab === "chat" ? handleNewChat : undefined}
-        showSplitButton={effectiveActiveTab === "chat" && totalNonDraftTabs >= 2}
+        onNewChat={effectiveActiveTab === "chat" && !archiveViewActive ? handleNewChat : undefined}
+        showSplitButton={effectiveActiveTab === "chat" && !archiveViewActive && totalNonDraftTabs >= 2}
         splitActive={editorGroups.groups.length > 1}
         splitRatio={splitRatio}
         onToggleSplit={handleToggleSplit}

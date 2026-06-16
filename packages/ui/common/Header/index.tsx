@@ -45,6 +45,7 @@ type HeaderProps = {
   onToggleSidebar?: () => void
   sidebarReservedWidth?: number
   editorGroups?: EditorGroupsState | null
+  archiveViewActive?: boolean
   onSelectChatTab?: (groupId: "group-1" | "group-2", tabId: string) => void
   onCloseChatTab?: (id: string) => void
   onOpenChatTabWindow?: (tab: EditorTab) => void
@@ -119,6 +120,7 @@ export function Header({
   onToggleSidebar,
   sidebarReservedWidth = 0,
   editorGroups = null,
+  archiveViewActive = false,
   onSelectChatTab,
   onCloseChatTab,
   onOpenChatTabWindow,
@@ -192,6 +194,7 @@ export function Header({
   }, [])
 
   const hasVisibleTabs = Boolean(editorGroups?.groups.some((g) => g.tabs.length > 0))
+  const showArchiveTab = archiveViewActive && !minimal
   const isSplitTabs = (editorGroups?.groups.length ?? 0) > 1
   const displayOpenClawVersion = openClawVersion?.replace(/^v/i, "") ?? null
 
@@ -314,7 +317,31 @@ export function Header({
       </div>
 
       {/* Middle: tabs — flex-1 matches content area width, paddingRight keeps tabs visible */}
-      {hasVisibleTabs && editorGroups ? (
+      {showArchiveTab ? (
+        <div
+          className="relative z-10 flex min-w-0 flex-1 self-stretch items-end pt-2"
+          style={rightClusterWidth > 0 ? { paddingRight: rightClusterWidth + 12 } : undefined}
+        >
+          <div
+            className={cn(
+              "relative mb-0 flex h-[35px] w-46 shrink-0 items-center gap-2 overflow-visible rounded-t-[10px] border border-b-0 border-transparent bg-zinc-100 px-3 text-left text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.88)]",
+              "before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_#f4f4f5] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_#f4f4f5] dark:bg-background dark:shadow-none dark:before:shadow-[4px_4px_0_4px_var(--background)] dark:after:shadow-[-4px_4px_0_4px_var(--background)]"
+            )}
+            aria-label="Archive"
+          >
+            <div className="relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/[0.055] text-foreground/58 dark:bg-white/[0.055] dark:text-white/62">
+              <Icons.Archive size={12} strokeWidth={1.7} className="size-3.5" />
+            </div>
+            <div className="relative z-10 min-w-0 flex-1 overflow-hidden">
+              <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+                <span className="truncate text-[10.5px] text-foreground/34 dark:text-white/36">Chats</span>
+                <span className="shrink-0 text-[10px] text-foreground/20 dark:text-white/20">/</span>
+                <span className="truncate text-[11.5px] font-medium text-foreground/88 dark:text-white/90">Archive</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : hasVisibleTabs && editorGroups ? (
         <div
           className={cn(
             "relative z-10 min-w-0 flex-1 self-stretch pt-2",
