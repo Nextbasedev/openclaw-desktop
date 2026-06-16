@@ -79,6 +79,7 @@ import {
 } from "./subagentDerive"
 import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "./types"
 import { orderChatMessages } from "./orderChatMessages"
+import { decideBootstrapRecovery } from "./bootstrapRecoveryGuard"
 
 type Props = {
   sessionKey: string
@@ -607,6 +608,14 @@ export function ChatView({
   // that can otherwise create a skeleton/messages blink loop on old sessions
   // whose cursor is far ahead of the gateway's replay window.
   const lastBootstrapRecoveryAtRef = useRef<number>(0)
+  // Last wall-clock time a cold bootstrap (initial fetchChatMessagesV2) or
+  // resetToLiveTail RESOLVED with rendered messages. Used to suppress
+  // bootstrap-recovery events that arrive shortly after we already fetched the
+  // live tail — the view is already fresh; running resetToLiveTail would just
+  // blank the messages and refetch the same window, producing the single
+  // "skeleton → messages → skeleton → messages" blink on first session click.
+  // See bootstrapRecoveryGuard.ts for the full decision logic.
+  const lastBootstrapCompletedAtRef = useRef<number>(0)
   // One-shot per session: has the SSE patch stream delivered its first frame?
   // Used by chat-rebuild.send.first-patch-received diagnostics so we measure
   // click → first-frame latency for the new-session send path.
@@ -634,6 +643,7 @@ export function ChatView({
     lastOlderResolvedAtRef.current = 0
     lastNewerResolvedAtRef.current = 0
     lastBootstrapRecoveryAtRef.current = 0
+    lastBootstrapCompletedAtRef.current = 0
     firstPatchLoggedRef.current = false
     setReactions({})
     setPinnedIds([])
@@ -672,6 +682,11 @@ export function ChatView({
       )
       cursorRef.current = 0
       setStreamCursor(0)
+      // Optimistic bootstrap already paints the user bubble + thinking state;
+      // treat that as a completed bootstrap so any incoming bootstrap-recovery
+      // during the early send window is suppressed by the recent-bootstrap
+      // guard in addition to the active-run guard. Double belt + suspenders.
+      lastBootstrapCompletedAtRef.current = Date.now()
       frontendLog(
         "chat",
         "chat-rebuild.send.optimistic-render",
@@ -718,6 +733,10 @@ export function ChatView({
       const reattachCursor = hydrateFromRegistry.streamCursor ?? 0
       cursorRef.current = reattachCursor
       setStreamCursor(reattachCursor)
+      // Registry hydrate already painted real messages on mount; treat that as
+      // a completed bootstrap so a stray bootstrap-recovery arriving from the
+      // SSE hello frame doesn't reset the chat surface back to the skeleton.
+      lastBootstrapCompletedAtRef.current = Date.now()
 
       // Backfill safety net: even though hydrateFromRegistry skipped the
       // history fetch for fast-paint, fire a background fetch to catch any
@@ -873,6 +892,13 @@ export function ChatView({
           streamStatus: "idle",
           statusLabel: null,
         })
+        // Cold bootstrap completed with rendered messages — stamp this so the
+        // bootstrap-recovery handler can suppress redundant resets that arrive
+        // immediately after (e.g., replayWindowExceeded hello frames on the
+        // first SSE connect after history fetch). Without this stamp, the
+        // recovery handler resets to a skeleton even though we already have
+        // fresh data, producing the "messages → skeleton → messages" blink.
+        lastBootstrapCompletedAtRef.current = Date.now()
       })
       .catch((error) => {
         if (cancelled) return
@@ -2056,6 +2082,10 @@ export function ChatView({
         streamStatus: "idle",
         statusLabel: null,
       })
+      // Mirrors the cold-bootstrap success path: stamp the completion time so
+      // a chained bootstrap-recovery (e.g., SSE reconnect arriving right after
+      // a reset resolves) doesn't trigger another reset cascade.
+      lastBootstrapCompletedAtRef.current = Date.now()
       frontendLog(
         "chat",
         "chat-rebuild.window.reset-to-live-tail",
@@ -2180,14 +2210,12 @@ export function ChatView({
 
   useEffect(() => {
     if (isBackgroundSession) return
-    // Minimum gap between two consecutive resetToLiveTail() calls triggered by
-    // bootstrap-recovery events. Old sessions whose persisted cursor is far
-    // ahead of the gateway's replay window can produce repeated
-    // replay-window-exceeded `hello` frames on every SSE (re)connect; without
-    // this guard the UI runs resetToLiveTail in a loop, producing a constant
-    // skeleton ↔ messages blink while older-page fetches also fire because the
-    // newly-bootstrapped window puts the user near the top.
-    const RECOVERY_DEBOUNCE_MS = 4000
+    // See bootstrapRecoveryGuard.ts for the layered decision (active-run skip,
+    // in-flight reset skip, recent-bootstrap skip — the single-blink fix — and
+    // debounce loop-breaker). The recent-bootstrap guard is the key change
+    // over the prior debounce-only handler: it eliminates the FIRST skeleton
+    // blink after cold-bootstrap renders, which the debounce could never catch
+    // because the debounce only protects against the second-and-later events.
     function handleBootstrapRecovery(event: Event) {
       if (!(event instanceof CustomEvent)) return
       const detail = event.detail as { sessionKey?: unknown } | undefined
@@ -2198,46 +2226,27 @@ export function ChatView({
       ) {
         return
       }
-      // If a new-session send is already rendering the optimistic user bubble
-      // + Thinking state, a recovery reset would briefly swap the chat surface
-      // back to the full loading skeleton and then to a user-only history page.
-      // Fresh sessions can legitimately emit bootstrap-recovery before the
-      // first assistant frame; keep the optimistic/run state until normal
-      // patches or the post-send history reconciliation arrive.
-      if (
-        activeRunRegistry.isActiveRunStatus(stateStreamStatusRef.current) &&
-        stateMessagesRef.current.some((message) => message.role === "user")
-      ) {
-        frontendLog(
-          "chat",
-          "chat-rebuild.window.bootstrap-recovery-skipped-active-run",
-          { sessionKey, streamStatus: stateStreamStatusRef.current, messageCount: stateMessagesRef.current.length },
-          "debug"
-        )
-        return
-      }
-      // If a reset is already in flight (state.loading is still true from a
-      // prior reset), skip — we'd just thrash the messages array and steal
-      // focus. The in-flight reset will resolve and produce a current view.
-      if (stateLoadingRef.current) {
-        frontendLog(
-          "chat",
-          "chat-rebuild.window.bootstrap-recovery-skipped-loading",
-          { sessionKey },
-          "warn"
-        )
-        return
-      }
-      // Debounce: ignore recoveries that arrive shortly after the previous one.
-      // This is the primary loop-breaker for old sessions in a recovery storm.
       const now = Date.now()
-      const elapsed = now - lastBootstrapRecoveryAtRef.current
-      if (elapsed < RECOVERY_DEBOUNCE_MS) {
+      const decision = decideBootstrapRecovery({
+        isLoading: stateLoadingRef.current,
+        streamStatus: stateStreamStatusRef.current,
+        hasUserMessage: stateMessagesRef.current.some((message) => message.role === "user"),
+        lastBootstrapCompletedAt: lastBootstrapCompletedAtRef.current,
+        lastRecoveryAt: lastBootstrapRecoveryAtRef.current,
+        now,
+      })
+      if (!decision.apply) {
+        const logTag = `chat-rebuild.window.bootstrap-recovery-${decision.reason}`
         frontendLog(
           "chat",
-          "chat-rebuild.window.bootstrap-recovery-debounced",
-          { sessionKey, elapsedMs: elapsed, debounceMs: RECOVERY_DEBOUNCE_MS },
-          "warn"
+          logTag,
+          {
+            sessionKey,
+            streamStatus: stateStreamStatusRef.current,
+            messageCount: stateMessagesRef.current.length,
+            elapsedMs: decision.elapsedMs,
+          },
+          decision.reason === "skipped-active-run" ? "debug" : "warn",
         )
         return
       }
