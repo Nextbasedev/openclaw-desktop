@@ -85,6 +85,10 @@ export function stripInboundMetadata(text: string): string {
 export function cleanMessageDisplayText(value: string): string {
   return stripInboundMetadata(value)
     .replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/i, "")
+    .replace(/^\[Attached images?:[^\]]+\]\s*/gim, "")
+    .replace(/^\[Attached audio(?: file)?:[^\]]+\]\s*/gim, "")
+    .replace(/^\[Attached file:[^\]]+\]\s*/gim, "")
+    .replace(/<attached-file\b[\s\S]*?<\/attached-file>/gi, "")
     .trim();
 }
 

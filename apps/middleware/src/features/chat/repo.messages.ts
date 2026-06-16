@@ -529,9 +529,19 @@ export class MessageRepository {
           }
         }
 
-        const dataJson = toJson(message.data);
+        let dataForStore = message.data;
+        if (existing && message.role === "user") {
+          const existingData = fromJson(existing.data_json) as OpenClawMessage;
+          const incomingData = message.data as OpenClawMessage;
+          const shouldPreserveLocalDisplay = (existingData.__openclaw as Record<string, unknown> | undefined)?.preserveDisplayText === true;
+          if (shouldPreserveLocalDisplay && incomingData.attachments === undefined && existingData.attachments !== undefined) {
+            dataForStore = { ...incomingData, attachments: existingData.attachments };
+          }
+        }
+        const dataJson = toJson(dataForStore);
         const changed = !existing || existing.message_id !== message.messageId || existing.role !== message.role || existing.data_json !== dataJson;
-        const storedMessage = openclawSeq === message.openclawSeq && !segmentId ? message : { ...message, segmentId, sessionId, gatewaySeq, openclawSeq };
+        const messageToStore = dataForStore === message.data ? message : { ...message, data: dataForStore };
+        const storedMessage = openclawSeq === message.openclawSeq && !segmentId ? messageToStore : { ...messageToStore, segmentId, sessionId, gatewaySeq, openclawSeq };
         if (changed) {
           insert.run({
             sessionKey: message.sessionKey,
@@ -793,17 +803,19 @@ export class MessageRepository {
     const preserveOptimisticDisplay = !gatewayHasDisplayText && existingHasDisplayText;
     const existingOpenClaw = existingData.__openclaw ?? {};
     const gatewayOpenClaw = gatewayMessage.data.__openclaw ?? {};
+    const preserveLocalDisplayText = (existingOpenClaw as Record<string, unknown>).preserveDisplayText === true;
     const preservedRunId = gatewayOpenClaw.runId ?? existingOpenClaw.runId;
     const data = {
       ...gatewayMessage.data,
-      ...(preserveOptimisticDisplay && typeof existingData.text === "string" ? { text: existingData.text } : {}),
-      ...(preserveOptimisticDisplay && existingData.content !== undefined ? { content: existingData.content } : {}),
+      ...((preserveOptimisticDisplay || preserveLocalDisplayText) && typeof existingData.text === "string" ? { text: existingData.text } : {}),
+      ...((preserveOptimisticDisplay || preserveLocalDisplayText) && existingData.content !== undefined ? { content: existingData.content } : {}),
       ...((gatewayMessage.data as OpenClawMessage).attachments === undefined && existingData.attachments !== undefined ? { attachments: existingData.attachments } : {}),
       isOptimistic: false,
       __clientOptimistic: false,
       __openclaw: {
         ...gatewayOpenClaw,
         ...(typeof preservedRunId === "string" && preservedRunId.trim() ? { runId: preservedRunId.trim() } : {}),
+        ...(preserveLocalDisplayText ? { preserveDisplayText: true } : {}),
         id: optimisticId,
         gatewayId: gatewayMessage.messageId,
         gatewaySeq,

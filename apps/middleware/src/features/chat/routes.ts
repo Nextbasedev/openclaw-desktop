@@ -543,6 +543,24 @@ function attachmentMetadata(raw: unknown) {
   };
 }
 
+
+function displayAttachments(raw: unknown) {
+  if (!Array.isArray(raw)) return undefined;
+  const attachments = raw.map((item) => {
+    const attachment = objectData(item);
+    const name = typeof attachment.name === "string" && attachment.name.trim() ? attachment.name : "attachment";
+    const mimeType = typeof attachment.mimeType === "string" && attachment.mimeType.trim() ? attachment.mimeType : "application/octet-stream";
+    return {
+      name: name.slice(0, 200),
+      mimeType,
+      ...(typeof attachment.content === "string" ? { content: attachment.content } : {}),
+      ...(attachment.encoding === "utf-8" || attachment.encoding === "base64" ? { encoding: attachment.encoding } : {}),
+      ...(typeof attachment.size === "number" && Number.isFinite(attachment.size) ? { size: attachment.size } : {}),
+    };
+  });
+  return attachments.length > 0 ? attachments : undefined;
+}
+
 function assistantHasVisibleAnswer(message: ProjectedMessage) {
   if (message.role !== "assistant") return false;
   return cleanMessageDisplayText(textFromMessage(message.data)).trim().length > 0;
@@ -795,6 +813,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     log.info("send.factor.subscribe.ready", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, durationMs: elapsedMs(subscribeStartedAtMs), elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
 
     const prepared = prepareMessageAndAttachments(rawMessage, input.attachments);
+    const userVisibleAttachments = displayAttachments(input.attachments);
     log.info("send.prepared", {
       sessionKey: input.sessionKey,
       idempotencyKey: input.idempotencyKey,
@@ -818,7 +837,8 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const optimisticRun = context.runs.getRun(runId);
     const clientMessage = {
       role: "user",
-      text: prepared.message,
+      text: rawMessage,
+      ...(userVisibleAttachments ? { attachments: userVisibleAttachments } : {}),
       createdAt: nowIso,
       isOptimistic: true,
       __clientOptimistic: true,
@@ -827,11 +847,12 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         clientMessageId,
         idempotencyKey: input.idempotencyKey,
         runId,
+        ...(userVisibleAttachments ? { preserveDisplayText: true } : {}),
       },
     };
     context.chatLive.addOptimisticUser(input.sessionKey, {
       id: clientMessage.__openclaw.id,
-      text: prepared.message,
+      text: rawMessage,
       runId,
       idempotencyKey: input.idempotencyKey,
     });
@@ -848,7 +869,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     context.compat?.touchChatActivity({
       sessionKey: input.sessionKey,
       at: nowIso,
-      lastMessageText: prepared.message,
+      lastMessageText: rawMessage,
     });
     log.info("message.persist.optimistic", { sessionKey: input.sessionKey, messageId: clientMessage.__openclaw.id, messageSeq: optimisticSeq, role: "user" });
     const event = context.messages.appendProjectionEvent({
@@ -888,7 +909,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         statusLabel: "Thinking",
         lastActiveAt: nowIso,
         lastMessageAt: nowIso,
-        lastMessageText: prepared.message,
+        lastMessageText: rawMessage,
       },
       updatedAtMs: optimisticCreatedAtMs,
     });

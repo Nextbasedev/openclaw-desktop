@@ -216,6 +216,66 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("keeps text attachments out of the visible user message while forwarding them to Gateway", async () => {
+    const app = await createApp(config("text-attachment-display"));
+    const context = contextOf(app);
+    let gatewayMessage = "";
+    let historyLoaded = false;
+    const gatewayRequest = vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "chat.send") {
+        gatewayMessage = String(params?.message ?? "");
+        return { runId: "r1", status: "done" };
+      }
+      if (method === "chat.history") {
+        historyLoaded = true;
+        return { sessionKey: "s1", messages: [{ role: "user", text: gatewayMessage, __openclaw: { id: "gateway-user-1", seq: 1 } }] };
+      }
+      return { ok: true };
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: {
+        sessionKey: "s1",
+        text: "please review this",
+        idempotencyKey: "stable-key",
+        clientMessageId: "client-ui-1",
+        attachments: [
+          {
+            name: "notes.md",
+            mimeType: "text/markdown",
+            content: "# Private file body\nDo not render inline.",
+            encoding: "utf-8",
+            size: 42,
+          },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    await waitFor(() => historyLoaded);
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      messages: [
+        {
+          role: "user",
+          text: "please review this",
+          attachments: [{ name: "notes.md", mimeType: "text/markdown", content: "# Private file body\nDo not render inline.", size: 42 }],
+        },
+      ],
+    });
+    expect(JSON.stringify(bootstrap.json().messages[0])).not.toContain("attached-file");
+    expect(bootstrap.json().messages[0].text).not.toContain("Private file body");
+
+    expect(gatewayRequest).toHaveBeenCalledWith("chat.send", expect.objectContaining({
+      sessionKey: "s1",
+      message: expect.stringContaining('<attached-file name="notes.md" mime="text/markdown">'),
+    }), expect.any(Number));
+    await app.close();
+  });
+
   test("bootstrap keeps pending optimistic user when Gateway history is missing the user echo", async () => {
     const app = await createApp(config("bootstrap-optimistic-conflict"));
     const context = contextOf(app);
