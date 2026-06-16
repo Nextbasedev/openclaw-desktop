@@ -2659,8 +2659,8 @@ export function ChatView({
             onClick={handleJumpToLatest}
             className={cn(
               "animate-chat-latest-bob pointer-events-auto absolute -top-3 left-1/2 flex size-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full",
-              "border border-white/18 bg-white/[0.045] text-foreground/90 shadow-[0_18px_46px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.16),inset_0_-1px_0_rgba(255,255,255,0.04)] ring-1 ring-white/[0.05] backdrop-blur-2xl backdrop-saturate-150 dark:bg-white/[0.055]",
-              "transition-[border-color,background-color,box-shadow,transform] duration-200 hover:-translate-x-1/2 hover:-translate-y-[calc(50%+2px)] hover:border-white/28 hover:bg-white/[0.075] hover:shadow-[0_22px_56px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.085] active:-translate-x-1/2 active:-translate-y-1/2"
+              "border border-white/16 bg-background/22 text-foreground/90 shadow-[0_18px_46px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-1px_0_rgba(255,255,255,0.045)] ring-1 ring-white/[0.045] backdrop-blur-md backdrop-saturate-150 dark:bg-background/28",
+              "transition-[border-color,background-color,box-shadow,transform] duration-200 hover:-translate-x-1/2 hover:-translate-y-[calc(50%+2px)] hover:border-white/26 hover:bg-background/30 hover:shadow-[0_22px_56px_rgba(0,0,0,0.24),inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-1px_0_rgba(255,255,255,0.06)] dark:hover:bg-background/34 active:-translate-x-1/2 active:-translate-y-1/2"
             )}
             aria-label="Jump to latest message"
             title="Jump to latest"
