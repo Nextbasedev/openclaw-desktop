@@ -1389,16 +1389,6 @@ export function ChatView({
     )
   }, [])
 
-  // Stable identity is required for both <ToolCallSteps> and <MessageBubble>
-  // memoization to bail out on SSE patches. The old inline arrow callbacks at
-  // the call sites recreated this prop on every render, which busted the memo
-  // on every tool row in the conversation during a streaming patch.
-  const handleResolveApproval = useCallback(
-    (approvalId: string, decision: "allow-once" | "allow-always" | "deny") =>
-      resolveExecApprovalV2({ approvalId, decision }).then(() => undefined),
-    []
-  )
-
   const handlePinnedMessageSelect = useCallback((messageId: string) => {
     const container = scrollContainerRef.current
     const escapedId = typeof CSS !== "undefined" && typeof CSS.escape === "function"
@@ -2611,7 +2601,9 @@ export function ChatView({
                       tools={messageToolCalls}
                       defaultOpen={!message.text.trim()}
                       onSelectTool={onSelectTool}
-                      onResolveApproval={handleResolveApproval}
+                      onResolveApproval={(approvalId, decision) =>
+                        resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
+                      }
                       sessionKey={sessionKey}
                     />
                   </div>
@@ -2643,7 +2635,9 @@ export function ChatView({
                     onPopoverOpenChange={(open) =>
                       setActivePopoverId(open ? message.messageId : null)
                     }
-                    onResolveApproval={handleResolveApproval}
+                    onResolveApproval={(approvalId, decision) =>
+                      resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
+                    }
                   />
                 ) : null}
                 {message.role === "user" && subagentAnchors.byTriggerUserId.get(message.messageId)?.length ? (

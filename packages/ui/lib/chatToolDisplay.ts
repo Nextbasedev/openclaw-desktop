@@ -55,74 +55,20 @@ export function mergeToolCallsForDisplay(
   return mergeToolCalls(base ?? [], filteredLive)
 }
 
-// Cache the terminal tool Map across calls so an SSE patch that only mutates
-// a *running* tool (or only adds a new running tool) returns the SAME Map
-// reference, letting downstream `applyTerminalToolState` callers cheap-out and
-// preserving array identity for `<ToolCallSteps>` memoization. The cache is
-// keyed off the live array reference and a stable scan of all terminal
-// entries, so a real terminal change still produces a new Map.
-let lastTerminalCache: {
-  messages: ChatMessage[]
-  live: InlineToolCall[] | undefined
-  signature: string
-  map: Map<string, InlineToolCall>
-} | null = null
-
-function collectTerminal(
-  messages: ChatMessage[],
-  live: InlineToolCall[] | undefined,
-  visit: (tool: InlineToolCall) => void,
-) {
-  for (const message of messages) {
-    if (message.role !== "assistant") continue
-    for (const tool of message.toolCalls ?? []) {
-      if (!tool.id) continue
-      if (tool.status !== "success" && tool.status !== "error") continue
-      visit(tool)
-    }
-  }
-  for (const tool of live ?? []) {
-    if (!tool.id) continue
-    if (tool.status !== "success" && tool.status !== "error") continue
-    visit(tool)
-  }
-}
-
-function terminalSignature(
-  messages: ChatMessage[],
-  live: InlineToolCall[] | undefined,
-) {
-  // Cheap signature of all terminal tool entries: id|status|resultLen|duration.
-  // We do NOT include the running-tool stream here — that's the whole point:
-  // a streaming patch that only grows a running tool's resultText must produce
-  // the same signature and reuse the cached Map.
-  let signature = ""
-  collectTerminal(messages, live, (tool) => {
-    signature += `${tool.id}|${tool.status}|${tool.resultText ? tool.resultText.length : 0}|${tool.duration ?? ""};`
-  })
-  return signature
-}
-
 export function terminalToolStateById(messages: ChatMessage[], live?: InlineToolCall[]) {
-  const signature = terminalSignature(messages, live)
-  if (
-    lastTerminalCache &&
-    lastTerminalCache.signature === signature
-  ) {
-    return lastTerminalCache.map
-  }
   const terminal = new Map<string, InlineToolCall>()
-  collectTerminal(messages, live, (tool) => {
+  const add = (tool: InlineToolCall) => {
+    if (!tool.id) return
+    if (tool.status !== "success" && tool.status !== "error") return
     const current = terminal.get(tool.id)
     terminal.set(tool.id, current ? { ...current, ...tool } : tool)
-  })
-  lastTerminalCache = { messages, live, signature, map: terminal }
+  }
+  for (const message of messages) {
+    if (message.role !== "assistant") continue
+    for (const tool of message.toolCalls ?? []) add(tool)
+  }
+  for (const tool of live ?? []) add(tool)
   return terminal
-}
-
-// Test-only escape hatch so vitest specs can reset state between tests.
-export function __resetTerminalToolStateCache() {
-  lastTerminalCache = null
 }
 
 export function applyTerminalToolState(
