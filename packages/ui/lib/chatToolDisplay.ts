@@ -78,18 +78,10 @@ export function applyTerminalToolState(
 ) {
   if (tools.length === 0) return tools
   if (terminalById.size === 0 && !options.finalizeStaleRunning) return tools
-  // Build the projected array, but only allocate a new outer array when at
-  // least one tool actually changed. Preserving the input array reference when
-  // nothing changed lets <ToolCallSteps>'s React.memo bail out on every SSE
-  // tool patch that does not touch this message's tools — which is the common
-  // case during streaming (each patch mutates one tool, while ChatView
-  // re-renders every row).
-  let mutated = false
-  const next = tools.map((tool) => {
+  return tools.map((tool) => {
     const terminal = terminalById.get(tool.id)
     if (!terminal) {
       if (!options.finalizeStaleRunning || (tool.status !== "running" && !tool.awaitingResult)) return tool
-      mutated = true
       return {
         ...tool,
         status: "success" as const,
@@ -97,7 +89,6 @@ export function applyTerminalToolState(
       }
     }
     if (tool.status !== "running" && !tool.awaitingResult) return tool
-    mutated = true
     return {
       ...tool,
       ...terminal,
@@ -108,7 +99,6 @@ export function applyTerminalToolState(
       awaitingResult: false,
     }
   })
-  return mutated ? next : tools
 }
 
 export function groupAssistantToolCallsByMessage(messages: ChatMessage[]) {
