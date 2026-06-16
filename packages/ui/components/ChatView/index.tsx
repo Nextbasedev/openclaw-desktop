@@ -32,6 +32,7 @@ import {
   terminalToolStateById,
 } from "@/lib/chatToolDisplay"
 import {
+  LuArrowDown,
   LuBrain,
   LuClock,
   LuFileCode,
@@ -568,6 +569,7 @@ export function ChatView({
   const [composerSeed, setComposerSeed] = useState<string | null>(null)
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const [windowState, setWindowState] = useState<WindowState>(INITIAL_WINDOW_STATE)
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   // Local sub-agent take-over state. When non-null, the chat surface renders
   // <SubagentFullChat/> instead of the normal message stream. Parent is
   // notified via onSubagentOpen so the inspector / agent breadcrumb stays in
@@ -1991,6 +1993,7 @@ export function ChatView({
   }, [sessionKey, windowState.hasNewer, windowState.isLoadingNewer, windowState.newestLoadedSeq, captureFirstVisibleRowAnchor])
 
   const resetToLiveTail = useCallback(async (): Promise<void> => {
+    setShowJumpToLatest(false)
     cursorRef.current = 0
     olderFetchSeqRef.current = 0
     newerFetchSeqRef.current = 0
@@ -2253,6 +2256,15 @@ export function ChatView({
     }
   }, [isBackgroundSession, sessionKey, resetToLiveTail])
 
+  const updateJumpToLatestVisibility = useCallback((element = scrollContainerRef.current) => {
+    const shouldShow = Boolean(
+      !stateLoadingRef.current &&
+      stateMessagesRef.current.length > 0 &&
+      (windowStateRef.current.hasNewer || (element && !isNearScrollBottom(element, 160)))
+    )
+    setShowJumpToLatest((current) => current === shouldShow ? current : shouldShow)
+  }, [])
+
   function handleScroll() {
     const element = scrollContainerRef.current
     if (!element) return
@@ -2261,11 +2273,23 @@ export function ChatView({
     // adjustment would re-enter handleScroll and refire the evaluators.
     if (isProgrammaticScrollRef.current) return
     shouldFollowScrollRef.current = isNearScrollBottom(element)
+    updateJumpToLatestVisibility(element)
     // Refractory is now direction-locked + scroll-distance-based inside the
     // evaluators themselves — no per-event re-arming here.
     evaluateOlderTrigger()
     evaluateNewerTrigger()
   }
+
+  const handleJumpToLatest = useCallback(() => {
+    shouldFollowScrollRef.current = true
+    setShowJumpToLatest(false)
+    if (windowStateRef.current.hasNewer) {
+      void resetToLiveTail()
+      return
+    }
+    const element = scrollContainerRef.current
+    if (element) scrollElementToBottom(element, "smooth")
+  }, [resetToLiveTail])
 
   // Unified scroll-anchor restoration for both older-page (prepend+evict-from-end)
   // and newer-page (append+evict-from-start) fetches. We pin the first row that was
@@ -2302,12 +2326,13 @@ export function ChatView({
   }, [state.messages])
 
   useLayoutEffect(() => {
+    updateJumpToLatestVisibility()
     if (state.loading) return
     const element = scrollContainerRef.current
     if (!element) return
     if (!shouldFollowScrollRef.current) return
     scrollElementToBottom(element)
-  }, [isGenerating, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText])
+  }, [isGenerating, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText, updateJumpToLatestVisibility, windowState.hasNewer])
 
   useEffect(() => {
     const container = scrollContainerRef.current
@@ -2626,6 +2651,25 @@ export function ChatView({
           </div>
         )}
       </div>
+
+      {showJumpToLatest && (
+        <button
+          type="button"
+          onClick={handleJumpToLatest}
+          className={cn(
+            "animate-chat-latest-bob absolute bottom-[92px] left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full",
+            "border border-white/15 bg-background/60 px-3.5 py-2 text-[13px] font-medium text-foreground shadow-[0_18px_50px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl backdrop-saturate-150",
+            "transition-[border-color,background-color,box-shadow,transform] duration-200 hover:-translate-x-1/2 hover:-translate-y-0.5 hover:border-white/25 hover:bg-background/75 hover:shadow-[0_22px_60px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.1)] active:-translate-x-1/2 active:translate-y-0"
+          )}
+          aria-label="Jump to latest message"
+          title="Jump to latest"
+        >
+          <span className="flex size-6 items-center justify-center rounded-full bg-foreground/10 text-foreground">
+            <LuArrowDown className="size-4" />
+          </span>
+          <span>Latest</span>
+        </button>
+      )}
 
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         <ChatBox
