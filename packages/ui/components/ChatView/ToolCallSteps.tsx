@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState, memo } from "react"
-import { motion } from "framer-motion"
+import { motion, useReducedMotion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight } from "react-icons/vsc"
 import { LuShieldCheck } from "react-icons/lu"
@@ -157,6 +157,7 @@ function sortToolsByCallOrder(tools: InlineToolCall[]) {
 
 function ToolRow({
   call,
+  staggerIndex,
   open,
   onOpenChange,
   onSelect,
@@ -165,6 +166,7 @@ function ToolRow({
   sessionKey,
 }: {
   call: InlineToolCall
+  staggerIndex: number
   open: boolean
   onOpenChange: (id: string, open: boolean) => void
   onSelect?: (id: string) => void
@@ -175,6 +177,7 @@ function ToolRow({
   ) => Promise<void> | void
   sessionKey?: string
 }) {
+  const prefersReducedMotion = useReducedMotion()
   const { inputText, outputText, fullOutputText, hasDetails } = getToolDetailState(call)
   const subject = toolSubject(call, inputText)
   const metrics = toolMetrics(fullOutputText ?? outputText, call)
@@ -194,12 +197,27 @@ function ToolRow({
     }
   }
 
+  const entryInitial = prefersReducedMotion
+    ? { opacity: 0 }
+    : { opacity: 0, y: 6, scale: 0.985 }
+  const entryAnimate = prefersReducedMotion
+    ? { opacity: 1 }
+    : { opacity: 1, y: 0, scale: 1 }
+  // Stagger only when several rows mount together. Cap delay tight so a row
+  // that lands at index 6+ doesn't sit visibly waiting before fading in.
+  const entryTransition = prefersReducedMotion
+    ? { duration: 0.12, ease: [0.22, 1, 0.36, 1] as const }
+    : {
+        duration: 0.22,
+        ease: [0.22, 1, 0.36, 1] as const,
+        delay: Math.min(staggerIndex * 0.035, 0.14),
+      }
+
   return (
     <motion.div
-      layout="position"
-      initial={{ opacity: 0, y: -6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
+      initial={entryInitial}
+      animate={entryAnimate}
+      transition={entryTransition}
       className={cn("relative pl-7 transition-colors duration-100", approval && "rounded-lg bg-amber-400/[0.035]")}
     >
       <StatusDot status={call.status} />
@@ -386,14 +404,14 @@ export const ToolCallSteps = memo(function ToolCallSteps({
         </span>
       </button>
       {stepsOpen && (
-        <motion.div
-          layout
+        <div
           className="relative z-0 space-y-1.5 overflow-visible before:absolute before:bottom-4 before:left-[6.5px] before:top-4 before:w-px before:origin-top before:animate-[toolTimelineGrow_260ms_ease-out] before:bg-[#d4d2cd] before:content-[''] dark:before:bg-[#444444]"
         >
-          {orderedTools.map((call) => (
+          {orderedTools.map((call, index) => (
             <ToolRow
               key={call.id}
               call={call}
+              staggerIndex={index}
               open={openToolId === call.id}
               onOpenChange={handleToolOpenChange}
               onSelect={onSelectTool}
@@ -402,7 +420,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
               sessionKey={sessionKey}
             />
           ))}
-        </motion.div>
+        </div>
       )}
     </div>
   )
