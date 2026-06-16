@@ -15,6 +15,36 @@ describe("warmBootstrapMessages", () => {
     expect(warm?.[0]).toMatchObject({ messageId: "a1", role: "assistant", text: "cached answer" })
   })
 
+  test("dedupes cached upload user echo after attached-file text is cleaned", () => {
+    const warm = warmBootstrapMessages(undefined, {
+      history: {
+        messages: [
+          {
+            role: "user",
+            text: "read once again",
+            attachments: [{ name: "hyy.md", mimeType: "text/markdown", content: "file body" }],
+            __openclaw: { id: "client-file-1", seq: 3, gatewaySeq: null },
+            timestamp: 1781584956222,
+          },
+          {
+            role: "user",
+            content: 'read once again\n\n<attached-file name="hyy.md" mime="text/markdown">\nfile body',
+            __openclaw: { id: "gateway-user-echo", seq: 4, gatewaySeq: 3 },
+            timestamp: 1781584957222,
+          },
+        ],
+      },
+    })
+
+    expect(warm).toHaveLength(1)
+    expect(warm?.[0]).toMatchObject({
+      messageId: "client-file-1",
+      role: "user",
+      text: "read once again",
+      attachments: [{ name: "hyy.md", mimeType: "text/markdown", content: "file body" }],
+    })
+  })
+
   test("returns undefined when there is no warm source", () => {
     expect(warmBootstrapMessages(undefined, null)).toBeUndefined()
   })

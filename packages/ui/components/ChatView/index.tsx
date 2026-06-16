@@ -19,6 +19,7 @@ import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import type { PatchFrame } from "@/lib/chat-engine-v2/types"
 import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParser"
+import { dedupeChatMessages } from "@/lib/chatMessageDedupe"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { frontendLog } from "@/lib/clientLogs"
 import { randomId } from "@/lib/id"
@@ -206,7 +207,7 @@ function orderedRawMessages(raw: unknown[]): RawHistoryMessage[] {
 function normalizeHistory(rawMessages: unknown[]): ChatMessage[] {
   const orderedRaw = orderedRawMessages(rawMessages)
   const parsed = parseChatHistory(orderedRaw)
-  return orderChatMessages(parsed.messages)
+  return orderChatMessages(dedupeChatMessages(parsed.messages))
 }
 
 function patchPayload(frame: PatchFrame): Record<string, unknown> | null {
@@ -1397,7 +1398,7 @@ export function ChatView({
   }
 
   const renderedMessages = useMemo(
-    () => orderChatMessages(state.messages),
+    () => orderChatMessages(dedupeChatMessages(state.messages)),
     [state.messages]
   )
 
