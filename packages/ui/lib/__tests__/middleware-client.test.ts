@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
 import {
   clearMiddlewareConnection,
+  clearMiddlewareManualDisconnect,
   getMiddlewareConnection,
   initMiddlewareConnectionCrossWindowSync,
   saveMiddlewareConnection,
@@ -8,6 +9,7 @@ import {
   claimMiddlewarePairing,
   detectLocalMiddleware,
   isOpenClawConnected,
+  wasMiddlewareManuallyDisconnected,
   MIDDLEWARE_CONNECTION_CHANGED_EVENT,
   MIDDLEWARE_DISCONNECTED_EVENT,
 } from "../middleware-client"
@@ -44,6 +46,26 @@ describe("middleware onboarding client", () => {
     expect(getMiddlewareConnection()).toEqual({ url: "http://server:8787", token: "abc" })
     clearMiddlewareConnection()
     expect(getMiddlewareConnection()).toBeNull()
+  })
+
+  it("tracks manual disconnect intent until explicit reconnect", () => {
+    saveMiddlewareConnection({ url: "http://server:8787/", token: "abc" })
+    expect(wasMiddlewareManuallyDisconnected()).toBe(false)
+
+    clearMiddlewareConnection()
+    expect(wasMiddlewareManuallyDisconnected()).toBe(true)
+
+    clearMiddlewareManualDisconnect()
+    expect(wasMiddlewareManuallyDisconnected()).toBe(false)
+  })
+
+  it("clears manual disconnect intent when saving a new connection", () => {
+    saveMiddlewareConnection({ url: "http://server:8787/", token: "abc" })
+    clearMiddlewareConnection()
+    expect(wasMiddlewareManuallyDisconnected()).toBe(true)
+
+    saveMiddlewareConnection({ url: "http://127.0.0.1:8787/", token: "" })
+    expect(wasMiddlewareManuallyDisconnected()).toBe(false)
   })
 
   it("keeps local middleware connection even when token is empty", () => {
