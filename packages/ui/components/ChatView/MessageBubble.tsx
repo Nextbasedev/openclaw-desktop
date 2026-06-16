@@ -29,6 +29,13 @@ import {
 } from "react-icons/lu"
 import { VscSend } from "react-icons/vsc"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -238,6 +245,23 @@ function attachmentLabel(attachment: MessageAttachment) {
   return parts.join(" • ")
 }
 
+function isTextAttachment(attachment: MessageAttachment) {
+  const mimeType = attachment.mimeType?.toLowerCase() ?? ""
+  return (
+    mimeType.startsWith("text/") ||
+    mimeType === "application/json" ||
+    mimeType === "application/xml" ||
+    mimeType === "application/yaml" ||
+    mimeType === "application/x-yaml" ||
+    /\.(md|markdown|txt|json|xml|ya?ml|csv|log)$/i.test(attachment.name)
+  )
+}
+
+function attachmentTextContent(attachment: MessageAttachment) {
+  if (!attachment.content || !isTextAttachment(attachment)) return null
+  return attachment.content
+}
+
 function AttachmentFileIcon({ kind }: { kind: "pdf" | "file" }) {
   if (kind === "pdf") return <LuFileText className="size-4" />
   return <LuFile className="size-4" />
@@ -247,25 +271,25 @@ function ImageAttachmentCard({
   attachment,
   href,
   isUser,
+  onOpen,
 }: {
   attachment: MessageAttachment
   href: string
   isUser: boolean
+  onOpen: () => void
 }) {
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
 
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      download={attachment.url ? undefined : attachment.name}
-      className="block max-w-full overflow-hidden rounded-xl"
-      aria-label={`Open attachment ${attachment.name}`}
+    <button
+      type="button"
+      onClick={onOpen}
+      className="block max-w-full cursor-pointer overflow-hidden rounded-xl text-left"
+      aria-label={`Preview attachment ${attachment.name}`}
     >
       <div className="relative flex min-h-32 max-h-80 w-full max-w-md items-center justify-center overflow-hidden rounded-xl bg-black/10">
-        {!loaded && !failed && (
+        {href && !loaded && !failed && (
           <div
             className={cn(
               "absolute inset-0 flex items-center justify-center gap-2 text-[12px]",
@@ -276,7 +300,7 @@ function ImageAttachmentCard({
             Loading image…
           </div>
         )}
-        {failed ? (
+        {failed || !href ? (
           <div
             className={cn(
               "flex min-h-32 w-full flex-col items-center justify-center gap-2 px-4 py-8 text-center text-[12px]",
@@ -302,7 +326,80 @@ function ImageAttachmentCard({
           />
         )}
       </div>
-    </a>
+    </button>
+  )
+}
+
+function AttachmentPreviewDialog({
+  attachment,
+  open,
+  onOpenChange,
+}: {
+  attachment: MessageAttachment | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  if (!attachment) return null
+
+  const href = chatAttachmentHref(attachment)
+  const mimeType = attachment.mimeType?.toLowerCase() ?? "application/octet-stream"
+  const textContent = attachmentTextContent(attachment)
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[86vh] gap-0 p-0 sm:max-w-4xl">
+        <DialogHeader className="border-b border-border/25 px-5 py-4 pr-14">
+          <DialogTitle className="truncate text-[15px] font-semibold">
+            {attachment.name}
+          </DialogTitle>
+          <DialogDescription className="text-[12px]">
+            {attachmentLabel(attachment)}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[calc(86vh-8rem)] min-h-48 overflow-auto p-5">
+          {mimeType.startsWith("image/") && href ? (
+            // eslint-disable-next-line @next/next/no-img-element -- Dialog previews authenticated middleware/data URLs directly.
+            <img src={href} alt={attachment.name} className="mx-auto max-h-[68vh] max-w-full rounded-xl object-contain" />
+          ) : mimeType.startsWith("video/") && href ? (
+            <video src={href} controls className="max-h-[68vh] w-full rounded-xl bg-black" />
+          ) : mimeType.startsWith("audio/") && href ? (
+            <div className="rounded-2xl border border-border/30 bg-foreground/[0.03] p-4">
+              <audio src={href} controls className="w-full" />
+            </div>
+          ) : mimeType === "application/pdf" && href ? (
+            <iframe src={href} title={attachment.name} className="h-[68vh] w-full rounded-xl border border-border/30 bg-background" />
+          ) : textContent !== null ? (
+            <pre className="max-h-[68vh] overflow-auto rounded-xl border border-border/30 bg-black/20 p-4 text-[12px] leading-relaxed whitespace-pre-wrap text-foreground">
+              {textContent || "No text content available."}
+            </pre>
+          ) : href ? (
+            <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-xl border border-border/30 bg-foreground/[0.03] text-center">
+              <LuFile className="size-10 text-muted-foreground" />
+              <p className="text-[13px] text-muted-foreground">
+                Preview is not available for this file type.
+              </p>
+              <a
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                download={attachment.url ? undefined : attachment.name}
+                className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-[13px] font-medium text-background transition-opacity hover:opacity-85"
+              >
+                <LuDownload className="size-4" />
+                Open file
+              </a>
+            </div>
+          ) : (
+            <div className="flex min-h-48 flex-col items-center justify-center gap-2 rounded-xl border border-border/30 bg-foreground/[0.03] text-center">
+              <LuFile className="size-10 text-muted-foreground" />
+              <p className="text-[13px] text-muted-foreground">
+                No preview content is available for this attachment.
+              </p>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -313,88 +410,87 @@ function MessageAttachments({
   attachments?: ChatMessage["attachments"]
   isUser: boolean
 }) {
+  const [selectedAttachment, setSelectedAttachment] = useState<MessageAttachment | null>(null)
   if (!attachments || attachments.length === 0) return null
 
   return (
-    <div
-      className={cn(
-        "space-y-2",
-        isUser ? "mb-2 text-white" : "mt-2 text-foreground"
-      )}
-    >
-      {attachments.map((attachment, index) => {
-        const href = chatAttachmentHref(attachment)
-        const kind = getChatAttachmentKind(attachment)
-        const key = `${attachment.name}-${index}`
+    <>
+      <div
+        className={cn(
+          "space-y-2",
+          isUser ? "mb-2 text-white" : "mt-2 text-foreground"
+        )}
+      >
+        {attachments.map((attachment, index) => {
+          const href = chatAttachmentHref(attachment)
+          const kind = getChatAttachmentKind(attachment)
+          const key = `${attachment.name}-${index}`
 
-        if (kind === "image") {
-          if (!href) return null
-          return (
-            <ImageAttachmentCard
-              key={key}
-              attachment={attachment}
-              href={href}
-              isUser={isUser}
-            />
-          )
-        }
+          if (kind === "image") {
+            return (
+              <ImageAttachmentCard
+                key={key}
+                attachment={attachment}
+                href={href ?? ""}
+                isUser={isUser}
+                onOpen={() => setSelectedAttachment(attachment)}
+              />
+            )
+          }
 
-        const fileKind = kind === "pdf" ? "pdf" : "file"
-        const card = (
-          <div
-            className={cn(
-              "flex max-w-full items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors",
-              isUser
-                ? "border-white/10 bg-black/15 text-white hover:border-white/20"
-                : "border-border/35 bg-foreground/[0.03] text-foreground hover:border-border/60"
-            )}
-          >
-            <div
+          const fileKind = kind === "pdf" ? "pdf" : "file"
+          const card = (
+            <button
+              type="button"
+              onClick={() => setSelectedAttachment(attachment)}
               className={cn(
-                "flex size-9 shrink-0 items-center justify-center rounded-lg",
-                kind === "pdf"
-                  ? "bg-red-400/12 text-red-200"
-                  : isUser
-                    ? "bg-white/10 text-white/75"
-                    : "bg-muted/45 text-muted-foreground"
+                "flex max-w-full cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
+                isUser
+                  ? "border-white/10 bg-black/15 text-white hover:border-white/20"
+                  : "border-border/35 bg-foreground/[0.03] text-foreground hover:border-border/60"
               )}
+              aria-label={`Preview attachment ${attachment.name}`}
             >
-              <AttachmentFileIcon kind={fileKind} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] leading-snug font-medium">
-                {attachment.name}
-              </p>
-              <p
+              <div
                 className={cn(
-                  "truncate text-[11px]",
-                  isUser ? "text-white/60" : "text-muted-foreground"
+                  "flex size-9 shrink-0 items-center justify-center rounded-lg",
+                  kind === "pdf"
+                    ? "bg-red-400/12 text-red-200"
+                    : isUser
+                      ? "bg-white/10 text-white/75"
+                      : "bg-muted/45 text-muted-foreground"
                 )}
               >
-                {attachmentLabel(attachment)}
-              </p>
-            </div>
-            {href && <LuDownload className="size-4 shrink-0 opacity-55" />}
-          </div>
-        )
+                <AttachmentFileIcon kind={fileKind} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] leading-snug font-medium">
+                  {attachment.name}
+                </p>
+                <p
+                  className={cn(
+                    "truncate text-[11px]",
+                    isUser ? "text-white/60" : "text-muted-foreground"
+                  )}
+                >
+                  {attachmentLabel(attachment)}
+                </p>
+              </div>
+              <LuChevronRight className="size-4 shrink-0 opacity-55" />
+            </button>
+          )
 
-        if (!href) return <div key={key}>{card}</div>
-
-        return (
-          <a
-            key={key}
-            href={href}
-            target="_blank"
-            rel="noreferrer"
-            download={attachment.url ? undefined : attachment.name}
-            className="block max-w-full"
-            aria-label={`Open attachment ${attachment.name}`}
-          >
-            {card}
-          </a>
-        )
-      })}
-    </div>
+          return <div key={key}>{card}</div>
+        })}
+      </div>
+      <AttachmentPreviewDialog
+        attachment={selectedAttachment}
+        open={Boolean(selectedAttachment)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedAttachment(null)
+        }}
+      />
+    </>
   )
 }
 
