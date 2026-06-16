@@ -2657,17 +2657,14 @@ export function ChatView({
           type="button"
           onClick={handleJumpToLatest}
           className={cn(
-            "animate-chat-latest-bob absolute bottom-[92px] left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full",
-            "border border-white/15 bg-background/60 px-3.5 py-2 text-[13px] font-medium text-foreground shadow-[0_18px_50px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl backdrop-saturate-150",
-            "transition-[border-color,background-color,box-shadow,transform] duration-200 hover:-translate-x-1/2 hover:-translate-y-0.5 hover:border-white/25 hover:bg-background/75 hover:shadow-[0_22px_60px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.1)] active:-translate-x-1/2 active:translate-y-0"
+            "animate-chat-latest-bob absolute bottom-[96px] left-1/2 z-40 flex size-10 -translate-x-1/2 items-center justify-center rounded-full",
+            "border border-white/20 bg-background/45 text-foreground shadow-[0_18px_46px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl backdrop-saturate-150",
+            "transition-[border-color,background-color,box-shadow,transform] duration-200 hover:-translate-x-1/2 hover:-translate-y-0.5 hover:border-white/35 hover:bg-background/65 hover:shadow-[0_22px_56px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.1)] active:-translate-x-1/2 active:translate-y-0"
           )}
           aria-label="Jump to latest message"
           title="Jump to latest"
         >
-          <span className="flex size-6 items-center justify-center rounded-full bg-foreground/10 text-foreground">
-            <LuArrowDown className="size-4" />
-          </span>
-          <span>Latest</span>
+          <LuArrowDown className="size-4" />
         </button>
       )}
 
