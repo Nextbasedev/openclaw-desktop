@@ -24,7 +24,7 @@ describe("dedupeChatMessages", () => {
 
     expect(messages).toHaveLength(1)
     expect(messages[0]).toMatchObject({
-      messageId: "gateway-user-echo",
+      messageId: "client-file-1",
       role: "user",
       text: "read this file",
       attachments: [{ name: "hyy.md", mimeType: "text/markdown", content: "# Private file body" }],
@@ -54,11 +54,39 @@ describe("dedupeChatMessages", () => {
 
     expect(messages).toHaveLength(1)
     expect(messages[0]).toMatchObject({
-      messageId: "gateway-user-echo",
+      messageId: "client-file-1",
       role: "user",
       text: "READ",
       attachments: [{ name: "hyy (2).md", mimeType: "text/markdown", content: "hyy\n\n02:37 pm" }],
       isOptimistic: false,
+    })
+  })
+
+  it("drops plain cleaned upload echo when attachment row is already visible", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "client-file-1",
+        role: "user",
+        text: "read once again",
+        createdAt: "2026-06-16T05:55:00.000Z",
+        gatewayIndex: 3,
+        attachments: [{ name: "hyy (1).md", mimeType: "text/markdown", content: "hyy\n\n02:37 pm" }],
+      },
+      {
+        messageId: "gateway-user-echo",
+        role: "user",
+        text: "read once again",
+        createdAt: "2026-06-16T05:55:03.000Z",
+        gatewayIndex: 4,
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({
+      messageId: "client-file-1",
+      role: "user",
+      text: "read once again",
+      attachments: [{ name: "hyy (1).md", mimeType: "text/markdown", content: "hyy\n\n02:37 pm" }],
     })
   })
 

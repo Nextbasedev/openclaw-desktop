@@ -187,6 +187,10 @@ function isOptimisticUserCandidate(message: ChatMessage) {
   return Boolean(message.isOptimistic || message.sendStatus)
 }
 
+function hasUserAttachments(message: ChatMessage) {
+  return Boolean(message.attachments?.length)
+}
+
 function parsedMessageTime(message: ChatMessage) {
   if (!message.createdAt) return null
   const parsed = Date.parse(message.createdAt)
@@ -239,12 +243,22 @@ function sameOptimisticUserTurn(a: ChatMessage, b: ChatMessage) {
   return false
 }
 
+function sameAttachmentUserEcho(a: ChatMessage, b: ChatMessage, aText: string, bText: string) {
+  if (!aText || aText !== bText) return false
+  if (hasUserAttachments(a) === hasUserAttachments(b)) return false
+  const aTime = parsedMessageTime(a)
+  const bTime = parsedMessageTime(b)
+  if (aTime !== null && bTime !== null && Math.abs(aTime - bTime) > 5 * 60 * 1000) return false
+  return true
+}
+
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
   const aText = normalizeUserTextForDedupe(a.text)
   const bText = normalizeUserTextForDedupe(b.text)
   if (hasSameGatewayIndex(a, b)) return true
   if (hasSameRunId(a, b) && aText && aText === bText) return true
+  if (sameAttachmentUserEcho(a, b, aText, bText)) return true
   const hasOptimisticCandidate = isOptimisticUserCandidate(a) || isOptimisticUserCandidate(b)
   // Optimistic client rows can carry synthetic/local gateway indexes that drift
   // from the canonical Gateway echo (especially image sends restored through
@@ -563,8 +577,13 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
       const preferIncoming =
         Boolean(existing.isOptimistic && !message.isOptimistic) ||
         Boolean(existing.sendStatus && !message.sendStatus)
-      const preferred = preferIncoming ? message : existing
-      const fallback = preferIncoming ? existing : message
+      const preferAttachmentRow = hasUserAttachments(message) && !hasUserAttachments(existing)
+        ? true
+        : hasUserAttachments(existing) && !hasUserAttachments(message)
+          ? false
+          : preferIncoming
+      const preferred = preferAttachmentRow ? message : existing
+      const fallback = preferAttachmentRow ? existing : message
       result[duplicateUserIndex] = {
         ...fallback,
         ...preferred,
