@@ -4,6 +4,7 @@ import { cleanUserMessageText } from "./chatHistoryParser"
 
 const ATTACHMENT_PLACEHOLDER_RE =
   /(?:^|\n)\s*\[Attached [^:\]]+: [^\]]+\]\s*/g
+const EMBEDDED_ATTACHED_FILE_RE = /(?:<attached-file\b[^>]*>[\s\S]*?<\/attached-file>|&lt;attached-file\b[\s\S]*?&lt;\/attached-file&gt;)\s*/gi
 
 function normalizedUserText(value: string | undefined | null) {
   if (!value || typeof value !== "string") return ""
@@ -15,11 +16,18 @@ function normalizedUserText(value: string | undefined | null) {
 
 function normalizeUserTextForDedupe(text: string | undefined | null) {
   if (!text || typeof text !== "string") return ""
-  return text
+  return cleanUserMessageText(text)
     .replace(/^\s*\[Attached images?:[^\]]+\]\s*/gim, "")
     .replace(/^\s*\[media attached:[\s\S]*?\]\s*/gim, "")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function cleanUserDisplayText(text: string | undefined | null) {
+  if (!text || typeof text !== "string") return ""
+  if (!EMBEDDED_ATTACHED_FILE_RE.test(text)) return text.trim()
+  EMBEDDED_ATTACHED_FILE_RE.lastIndex = 0
+  return cleanUserMessageText(text).trim()
 }
 
 function hasSameAttachments(a: ChatMessage, b: ChatMessage) {
@@ -479,9 +487,12 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
   // upstream feeds us a message whose text is undefined/null (can happen for
   // chunk-fetched rows whose .data payload is incomplete, evicted+restreamed
   // rows, or partial WS patches arriving before the text frame).
-  const normalizedInput = messages.map((m) => (
-    typeof m.text === "string" ? m : { ...m, text: "" }
-  ))
+  const normalizedInput = messages.map((m) => {
+    if (typeof m.text !== "string") return { ...m, text: "" }
+    if (m.role !== "user") return m
+    const cleanedText = cleanUserDisplayText(m.text)
+    return cleanedText === m.text ? m : { ...m, text: cleanedText }
+  })
   const result: ChatMessage[] = []
   const seenIds = new Set<string>()
 
@@ -562,7 +573,7 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
           fallback.optimisticMessageId ??
           preferred.optimisticMessageId ??
           (isOptimisticUserCandidate(fallback) ? fallback.messageId : undefined),
-        text: preferred.text.trim() ? preferred.text : fallback.text,
+        text: cleanUserDisplayText(preferred.text) || cleanUserDisplayText(fallback.text) || preferred.text || fallback.text,
         createdAt: fallback.createdAt || preferred.createdAt,
         attachments: mergeAttachments(fallback.attachments, preferred.attachments),
         replyTo: preferred.replyTo ?? fallback.replyTo,

@@ -292,6 +292,68 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("drops Gateway user echo that replays the attached-file prompt body", async () => {
+    const app = await createApp(config("text-attachment-user-echo"));
+    const context = contextOf(app);
+    let historyLoaded = false;
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "chat.send") {
+        return { runId: "r1", status: "done" };
+      }
+      if (method === "chat.history") {
+        historyLoaded = true;
+        return {
+          sessionKey: "s1",
+          messages: [
+            {
+              role: "user",
+              content: String(params?.message ?? "read this file\n\n<attached-file name=\"hyy.md\" mime=\"text/markdown\">\n# Private file body\n</attached-file>"),
+              __openclaw: { id: "gateway-user-echo", seq: 1 },
+            },
+            { role: "assistant", text: "I read it.", __openclaw: { id: "assistant-1", seq: 2 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: {
+        sessionKey: "s1",
+        text: "read this file",
+        idempotencyKey: "stable-key",
+        clientMessageId: "client-ui-1",
+        attachments: [
+          {
+            name: "hyy.md",
+            mimeType: "text/markdown",
+            content: "# Private file body",
+            encoding: "utf-8",
+            size: 19,
+          },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    await waitFor(() => historyLoaded);
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    const messages = bootstrap.json().messages as Array<{ role: string; text?: string; attachments?: unknown[] }>;
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({
+      role: "user",
+      text: "read this file",
+      attachments: [{ name: "hyy.md", mimeType: "text/markdown", content: "# Private file body", size: 19 }],
+    });
+    expect(messages[1]).toMatchObject({ role: "assistant", text: "I read it." });
+    expect(messages.map((message) => message.text ?? "").join("\n")).not.toContain("attached-file");
+    expect(messages.map((message) => message.text ?? "").join("\n")).not.toContain("Private file body");
+    await app.close();
+  });
+
   test("bootstrap keeps pending optimistic user when Gateway history is missing the user echo", async () => {
     const app = await createApp(config("bootstrap-optimistic-conflict"));
     const context = contextOf(app);

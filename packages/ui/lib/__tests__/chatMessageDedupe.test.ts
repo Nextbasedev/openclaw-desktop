@@ -2,6 +2,36 @@ import { describe, expect, it } from "vitest"
 import { dedupeChatMessages } from "../chatMessageDedupe"
 
 describe("dedupeChatMessages", () => {
+  it("merges optimistic file upload row with Gateway attached-file user echo", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "client-file-1",
+        role: "user",
+        text: "read this file",
+        createdAt: "2026-06-16T04:50:59.757Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+        attachments: [{ name: "hyy.md", mimeType: "text/markdown", content: "# Private file body" }],
+      },
+      {
+        messageId: "gateway-user-echo",
+        role: "user",
+        text: 'read this file\n\n<attached-file name="hyy.md" mime="text/markdown">\n# Private file body\n</attached-file>',
+        createdAt: "2026-06-16T04:50:59.767Z",
+        gatewayIndex: 3,
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({
+      messageId: "gateway-user-echo",
+      role: "user",
+      text: "read this file",
+      attachments: [{ name: "hyy.md", mimeType: "text/markdown", content: "# Private file body" }],
+      isOptimistic: false,
+    })
+  })
+
   it("merges duplicate assistant messages from cache and stream", () => {
     const messages = dedupeChatMessages([
       {
