@@ -398,6 +398,13 @@ function stableToolKey(tool: InlineToolCall): string {
   ].join(":")
 }
 
+function messageRowKey(message: ChatMessage): string {
+  if (message.role === "assistant" && message.runId?.trim()) {
+    return `assistant-run:${message.runId.trim()}`
+  }
+  return `${message.gatewayIndex ?? "no-seq"}:${message.messageId}`
+}
+
 function toolKeySet(tools: InlineToolCall[]) {
   return new Set(tools.map(stableToolKey))
 }
@@ -2552,7 +2559,7 @@ export function ChatView({
               })
               return (
               <div
-                key={`${message.gatewayIndex ?? "no-seq"}:${message.messageId}`}
+                key={messageRowKey(message)}
                 id={`message-${message.messageId}`}
                 data-chat-message-row="true"
                 data-message-id={message.messageId}
