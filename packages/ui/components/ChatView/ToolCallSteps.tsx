@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState, memo } from "react"
+import { useCallback, useEffect, useMemo, useState, memo } from "react"
 import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight } from "react-icons/vsc"
@@ -191,6 +191,15 @@ const ToolRow = memo(function ToolRow({
   const badge = useMemo(() => toolBadge(call.tool), [call.tool])
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
   const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
+  // Track whether this row's details panel has ever been opened. We only
+  // mount <ToolCallDetails> after the first open so the heavy per-row syntax
+  // highlighting and (for streaming tools) per-patch output re-render cost
+  // doesn't happen invisibly inside a collapsed grid. After the first open the
+  // details stay mounted so collapse remains animated.
+  const [detailsMounted, setDetailsMounted] = useState(open)
+  useEffect(() => {
+    if (open && !detailsMounted) setDetailsMounted(true)
+  }, [open, detailsMounted])
   const approval = call.approval
 
   async function resolve(decision: ApprovalDecision) {
@@ -206,7 +215,6 @@ const ToolRow = memo(function ToolRow({
 
   return (
     <motion.div
-      layout="position"
       initial={{ opacity: 0, y: -6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
@@ -275,7 +283,7 @@ const ToolRow = memo(function ToolRow({
         </span>
       </button>
 
-      {hasDetails && (
+      {hasDetails && detailsMounted && (
         <div
           className="grid transition-[grid-template-rows] duration-250 ease-out"
           style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
@@ -401,8 +409,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
         </span>
       </button>
       {stepsOpen && (
-        <motion.div
-          layout
+        <div
           className="relative z-0 space-y-1.5 overflow-visible before:absolute before:bottom-4 before:left-[6.5px] before:top-4 before:w-px before:origin-top before:animate-[toolTimelineGrow_260ms_ease-out] before:bg-[#d4d2cd] before:content-[''] dark:before:bg-[#444444]"
         >
           {orderedTools.map((call) => (
@@ -417,7 +424,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
               sessionKey={sessionKey}
             />
           ))}
-        </motion.div>
+        </div>
       )}
     </div>
   )

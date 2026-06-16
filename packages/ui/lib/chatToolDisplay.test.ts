@@ -1,6 +1,10 @@
-import { describe, expect, test } from "vitest"
-import { applyTerminalToolState, groupAssistantToolCallsByMessage, mergeToolCallsForDisplay, terminalToolStateById } from "./chatToolDisplay"
+import { beforeEach, describe, expect, test } from "vitest"
+import { applyTerminalToolState, groupAssistantToolCallsByMessage, mergeToolCallsForDisplay, terminalToolStateById, __resetTerminalToolStateCache } from "./chatToolDisplay"
 import type { ChatMessage, InlineToolCall } from "@/components/ChatView/types"
+
+beforeEach(() => {
+  __resetTerminalToolStateCache()
+})
 
 describe("ChatView tool display grouping", () => {
   test("keeps contiguous tool calls before assistant text in one steps block", () => {
@@ -222,6 +226,64 @@ describe("ChatView tool display grouping", () => {
 
     const result = applyTerminalToolState(stable, terminalById)
     expect(result).toBe(stable)
+  })
+
+  test("terminalToolStateById returns the same Map when only a running tool grew", () => {
+    // Regression for tool-call streaming jank: while one tool is `running` and
+    // its `resultText` grows with every SSE patch, downstream tool stacks must
+    // see the same terminal Map reference so applyTerminalToolState can keep
+    // returning the same array reference and <ToolCallSteps> memo can bail.
+    const terminalTool: InlineToolCall = {
+      id: "exec", tool: "exec", status: "success", duration: "0.3s", resultText: "ok",
+    }
+    const messagesV1: ChatMessage[] = [
+      {
+        messageId: "a-1", role: "assistant", text: "",
+        toolCalls: [
+          terminalTool,
+          { id: "run", tool: "exec", status: "running", resultText: "line 1\n" },
+        ],
+      },
+    ]
+    const mapV1 = terminalToolStateById(messagesV1)
+
+    const messagesV2: ChatMessage[] = [
+      {
+        messageId: "a-1", role: "assistant", text: "",
+        toolCalls: [
+          terminalTool,
+          // running tool grew — same id, different resultText
+          { id: "run", tool: "exec", status: "running", resultText: "line 1\nline 2\n" },
+        ],
+      },
+    ]
+    const mapV2 = terminalToolStateById(messagesV2)
+    expect(mapV2).toBe(mapV1)
+  })
+
+  test("terminalToolStateById rebuilds when a tool actually finishes", () => {
+    const messagesV1: ChatMessage[] = [
+      {
+        messageId: "a-1", role: "assistant", text: "",
+        toolCalls: [
+          { id: "run", tool: "exec", status: "running", resultText: "" },
+        ],
+      },
+    ]
+    const mapV1 = terminalToolStateById(messagesV1)
+    expect(mapV1.size).toBe(0)
+
+    const messagesV2: ChatMessage[] = [
+      {
+        messageId: "a-1", role: "assistant", text: "",
+        toolCalls: [
+          { id: "run", tool: "exec", status: "success", duration: "0.5s", resultText: "ok" },
+        ],
+      },
+    ]
+    const mapV2 = terminalToolStateById(messagesV2)
+    expect(mapV2).not.toBe(mapV1)
+    expect(mapV2.get("run")).toMatchObject({ status: "success", duration: "0.5s" })
   })
 
   test("preserves array identity when terminalById is non-empty but unrelated to the tools", () => {
