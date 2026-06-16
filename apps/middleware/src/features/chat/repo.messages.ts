@@ -534,8 +534,17 @@ export class MessageRepository {
           const existingData = fromJson(existing.data_json) as OpenClawMessage;
           const incomingData = message.data as OpenClawMessage;
           const shouldPreserveLocalDisplay = (existingData.__openclaw as Record<string, unknown> | undefined)?.preserveDisplayText === true;
-          if (shouldPreserveLocalDisplay && incomingData.attachments === undefined && existingData.attachments !== undefined) {
-            dataForStore = { ...incomingData, attachments: existingData.attachments };
+          if (shouldPreserveLocalDisplay) {
+            dataForStore = {
+              ...incomingData,
+              ...(typeof existingData.text === "string" ? { text: existingData.text } : {}),
+              ...(existingData.content !== undefined ? { content: existingData.content } : {}),
+              ...(incomingData.attachments === undefined && existingData.attachments !== undefined ? { attachments: existingData.attachments } : {}),
+              __openclaw: {
+                ...(incomingData.__openclaw ?? {}),
+                preserveDisplayText: true,
+              },
+            };
           }
         }
         const dataJson = toJson(dataForStore);

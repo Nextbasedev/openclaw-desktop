@@ -228,7 +228,17 @@ describe("chat send routes", () => {
       }
       if (method === "chat.history") {
         historyLoaded = true;
-        return { sessionKey: "s1", messages: [{ role: "user", text: gatewayMessage, __openclaw: { id: "gateway-user-1", seq: 1 } }] };
+        return {
+          sessionKey: "s1",
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: "please review this" },
+              { type: "document", name: "notes.md", mimeType: "text/markdown", text: "# Private file body\nDo not render inline." },
+            ],
+            __openclaw: { id: "gateway-user-1", seq: 1 },
+          }],
+        };
       }
       return { ok: true };
     });

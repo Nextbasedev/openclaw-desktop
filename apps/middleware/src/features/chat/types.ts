@@ -8,6 +8,7 @@ export type OpenClawMessage = Record<string, unknown> & {
     segmentId?: string | null;
     runId?: string | null;
     replacedLiveMessageId?: string | null;
+    preserveDisplayText?: boolean;
   };
 };
 

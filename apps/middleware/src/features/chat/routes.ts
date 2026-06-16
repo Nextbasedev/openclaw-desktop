@@ -274,16 +274,38 @@ async function archivedHistoryTranscriptFiles(params: { sessionKey: string; sess
   });
 }
 
+
+function isAttachmentLikeContentBlock(block: unknown) {
+  if (!block || typeof block !== "object" || Array.isArray(block)) return false;
+  const record = block as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type.toLowerCase() : "";
+  const mimeType = typeof record.mimeType === "string"
+    ? record.mimeType
+    : typeof record.mime_type === "string"
+      ? record.mime_type
+      : typeof record.media_type === "string"
+        ? record.media_type
+        : "";
+  if (["attachment", "file", "document", "input_file", "input_document"].includes(type)) return true;
+  if (mimeType && !mimeType.startsWith("text/plain-inline")) return true;
+  return Boolean(
+    (typeof record.name === "string" || typeof record.fileName === "string" || typeof record.filename === "string") &&
+    (typeof record.content === "string" || typeof record.data === "string" || typeof record.text === "string")
+  );
+}
+
 function cleanSerializedMessageData(data: Record<string, unknown>, role: string) {
   if (role !== "user") return data;
   const next = { ...data };
   if (typeof next.text === "string") next.text = cleanMessageDisplayText(next.text);
   if (typeof next.content === "string") next.content = cleanMessageDisplayText(next.content);
   if (Array.isArray(next.content)) {
-    next.content = next.content.map((block) => {
-      if (!block || typeof block !== "object" || Array.isArray(block) || typeof (block as Record<string, unknown>).text !== "string") return block;
-      return { ...block, text: cleanMessageDisplayText((block as Record<string, unknown>).text as string) };
-    });
+    next.content = next.content
+      .filter((block) => !isAttachmentLikeContentBlock(block))
+      .map((block) => {
+        if (!block || typeof block !== "object" || Array.isArray(block) || typeof (block as Record<string, unknown>).text !== "string") return block;
+        return { ...block, text: cleanMessageDisplayText((block as Record<string, unknown>).text as string) };
+      });
   }
   return next;
 }

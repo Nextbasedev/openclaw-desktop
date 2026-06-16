@@ -1,6 +1,17 @@
 import type { ChatMessage, ContentBlock } from "./types"
 import { isStandaloneChatErrorText } from "@/lib/chatErrorText"
 
+function isAttachmentLikeContentBlock(block: ContentBlock & { fileName?: unknown; filename?: unknown; data?: unknown; media_type?: unknown; mediaType?: unknown }) {
+  const type = typeof block.type === "string" ? block.type.toLowerCase() : ""
+  const mimeType = block.mimeType ?? block.mime_type ?? block.mediaType ?? block.media_type
+  if (["attachment", "file", "document", "input_file", "input_document"].includes(type)) return true
+  if (typeof mimeType === "string" && mimeType && !mimeType.startsWith("text/plain-inline")) return true
+  return Boolean(
+    (typeof block.name === "string" || typeof block.fileName === "string" || typeof block.filename === "string") &&
+    (typeof block.content === "string" || typeof block.data === "string" || typeof block.text === "string")
+  )
+}
+
 export function extractText(content?: unknown): string {
   if (!content) return ""
   if (typeof content === "string") return content
@@ -8,7 +19,8 @@ export function extractText(content?: unknown): string {
     return content
       .map((b) => {
         if (!b || typeof b !== "object") return ""
-        const block = b as ContentBlock & { content?: unknown; output?: unknown }
+        const block = b as ContentBlock & { content?: unknown; output?: unknown; fileName?: unknown; filename?: unknown; data?: unknown; media_type?: unknown; mediaType?: unknown }
+        if (isAttachmentLikeContentBlock(block)) return ""
         const value = block.text ?? block.content ?? block.output
         if (typeof value === "string") return value
         if (value !== undefined && value !== null) {

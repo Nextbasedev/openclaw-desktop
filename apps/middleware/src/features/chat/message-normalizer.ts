@@ -4,6 +4,24 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isAttachmentLikeContentBlock(block: unknown): boolean {
+  if (!isObject(block)) return false;
+  const type = typeof block.type === "string" ? block.type.toLowerCase() : "";
+  const mimeType = typeof block.mimeType === "string"
+    ? block.mimeType
+    : typeof block.mime_type === "string"
+      ? block.mime_type
+      : typeof block.media_type === "string"
+        ? block.media_type
+        : "";
+  if (["attachment", "file", "document", "input_file", "input_document"].includes(type)) return true;
+  if (mimeType && !mimeType.startsWith("text/plain-inline")) return true;
+  return Boolean(
+    (typeof block.name === "string" || typeof block.fileName === "string" || typeof block.filename === "string") &&
+    (typeof block.content === "string" || typeof block.data === "string" || typeof block.text === "string")
+  );
+}
+
 export function textFromMessage(message: OpenClawMessage): string {
   if (typeof message.text === "string") return message.text;
   const content = message.content;
@@ -11,6 +29,7 @@ export function textFromMessage(message: OpenClawMessage): string {
   if (Array.isArray(content)) {
     return content.map((block) => {
       if (typeof block === "string") return block;
+      if (isAttachmentLikeContentBlock(block)) return "";
       if (isObject(block) && typeof block.text === "string") return block.text;
       return "";
     }).join("");

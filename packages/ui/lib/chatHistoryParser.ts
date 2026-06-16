@@ -512,6 +512,7 @@ const MEDIA_ATTACHMENT_HEADER_RE = /^\[media attached:[\s\S]*?\]\s*/
 const MEDIA_ATTACHMENT_MARKER_RE = /\s*\[media attached:[^\]]+\]\s*/gim
 const MEDIA_ATTACHMENT_MARKER_CAPTURE_RE = /\[media attached:\s*([^\]]+)\]/gim
 const ATTACHED_FILE_MARKER_RE = /^\s*\[Attached (?:images?|audio(?: file)?|file):[^\]]+\]\s*/gim
+const EMBEDDED_ATTACHED_FILE_RE = /<attached-file\b[^>]*>[\s\S]*?<\/attached-file>\s*/gi
 const ATTACHED_FILE_MARKER_CAPTURE_RE = /\[Attached (images?|audio(?: file)?|file):([^\]]+)\]/gim
 const MEDIA_REPLY_INSTRUCTION_RE =
   /^To send an image back,[\s\S]*?Keep caption in the text body\.\s*/
@@ -592,6 +593,7 @@ export function stripGatewayPrefixes(text: string): string {
 export function cleanUserMessageText(text: string): string {
   return stripGatewayPrefixes(stripBootstrap(text))
     .replace(ATTACHED_FILE_MARKER_RE, "")
+    .replace(EMBEDDED_ATTACHED_FILE_RE, "")
     .trim()
 }
 

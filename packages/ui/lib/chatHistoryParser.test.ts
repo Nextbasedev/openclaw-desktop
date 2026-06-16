@@ -180,6 +180,24 @@ describe("cleanUserMessageText", () => {
     )
   })
 
+  it("removes embedded text attachment payloads from gateway echoes", () => {
+    assert.equal(
+      cleanUserMessageText(
+        'read this file\n\n<attached-file name="hyy.md" mime="text/markdown">\n# file body\nsecret transcript text\n</attached-file>',
+      ),
+      "read this file",
+    )
+  })
+
+  it("removes multiple embedded text attachment payloads from gateway echoes", () => {
+    assert.equal(
+      cleanUserMessageText(
+        'review\n\n<attached-file name="a.txt" mime="text/plain">a</attached-file>\n<attached-file name="b.md" mime="text/markdown">b</attached-file>',
+      ),
+      "review",
+    )
+  })
+
   it("keeps plain user text that only mentions sender metadata words", () => {
     const text =
       'Sender (untrusted metadata): please show this text literally without parsing'
