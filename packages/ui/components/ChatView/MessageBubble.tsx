@@ -344,6 +344,7 @@ function ImageAttachmentStack({
   const rotations = [-7, 4, -2, 6, -5]
   const offsets = visible.length <= 3 ? [0, 62, 124] : [0, 54, 108, 162, 216]
   const stackWidth = visible.length <= 3 ? 260 : 340
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
 
   return (
     <div className={cn("flex max-w-full", isUser ? "justify-end" : "justify-start")}>
@@ -354,20 +355,29 @@ function ImageAttachmentStack({
         {visible.map((attachment, index) => {
           const href = chatAttachmentHref(attachment)
           const isTop = index === visible.length - 1
+          const isHovered = hoveredIndex === index
+          const baseY = isTop ? -8 : index % 2 === 0 ? 8 : 0
 
           return (
             <button
               key={`${attachment.name}-${index}`}
               type="button"
               onClick={() => onOpen(attachment)}
+              onMouseEnter={() => setHoveredIndex(index)}
+              onMouseLeave={() => setHoveredIndex(null)}
+              onFocus={() => setHoveredIndex(index)}
+              onBlur={() => setHoveredIndex(null)}
               className={cn(
-                "absolute top-2 h-36 w-28 cursor-pointer overflow-hidden rounded-2xl border bg-black/20 text-left shadow-[0_18px_45px_rgba(0,0,0,0.28)] transition-transform duration-150 hover:-translate-y-2 hover:rotate-0 hover:scale-[1.03]",
+                "absolute top-2 h-36 w-28 cursor-pointer overflow-hidden rounded-2xl border bg-black/20 text-left shadow-[0_18px_45px_rgba(0,0,0,0.28)] transition-transform duration-200 ease-out will-change-transform",
+                isHovered && "shadow-[0_24px_60px_rgba(0,0,0,0.38)]",
                 isUser ? "border-white/15" : "border-border/35"
               )}
               style={{
                 left: offsets[index] ?? index * 54,
-                zIndex: 10 + index,
-                transform: `rotate(${rotations[index] ?? 0}deg) translateY(${isTop ? -8 : index % 2 === 0 ? 8 : 0}px)`,
+                zIndex: (isHovered ? 50 : 10) + index,
+                transform: isHovered
+                  ? `rotate(0deg) translateY(${baseY - 14}px) scale(1.14)`
+                  : `rotate(${rotations[index] ?? 0}deg) translateY(${baseY}px) scale(1)`,
               }}
               aria-label={`Preview attachment ${attachment.name}`}
             >
@@ -378,7 +388,10 @@ function ImageAttachmentStack({
                   alt={attachment.name}
                   loading="lazy"
                   decoding="async"
-                  className="h-full w-full object-cover"
+                  className={cn(
+                    "h-full w-full object-cover transition-transform duration-200 ease-out",
+                    isHovered && "scale-105"
+                  )}
                 />
               ) : (
                 <div
