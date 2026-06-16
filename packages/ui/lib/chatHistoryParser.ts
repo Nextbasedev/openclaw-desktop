@@ -513,7 +513,7 @@ const MEDIA_ATTACHMENT_HEADER_RE = /^\[media attached:[\s\S]*?\]\s*/
 const MEDIA_ATTACHMENT_MARKER_RE = /\s*\[media attached:[^\]]+\]\s*/gim
 const MEDIA_ATTACHMENT_MARKER_CAPTURE_RE = /\[media attached:\s*([^\]]+)\]/gim
 const ATTACHED_FILE_MARKER_RE = /^\s*\[Attached (?:images?|audio(?: file)?|file):[^\]]+\]\s*/gim
-const EMBEDDED_ATTACHED_FILE_RE = /(?:<attached-file\b[^>]*>[\s\S]*?<\/attached-file>|&lt;attached-file\b[\s\S]*?&lt;\/attached-file&gt;)\s*/gi
+const EMBEDDED_ATTACHED_FILE_RE = /(?:<attached-file\b[^>]*>[\s\S]*?(?:<\/attached-file>|$)|&lt;attached-file\b[\s\S]*?(?:&lt;\/attached-file&gt;|$))\s*/gi
 
 function containsEmbeddedAttachedFile(value: string): boolean {
   EMBEDDED_ATTACHED_FILE_RE.lastIndex = 0

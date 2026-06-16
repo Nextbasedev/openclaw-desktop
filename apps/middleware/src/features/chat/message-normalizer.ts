@@ -4,7 +4,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-const ATTACHED_FILE_BLOCK_RE = /(?:<attached-file\b[\s\S]*?<\/attached-file>|&lt;attached-file\b[\s\S]*?&lt;\/attached-file&gt;)/gi;
+const ATTACHED_FILE_BLOCK_RE = /(?:<attached-file\b[^>]*>[\s\S]*?(?:<\/attached-file>|$)|&lt;attached-file\b[\s\S]*?(?:&lt;\/attached-file&gt;|$))/gi;
 
 export function containsAttachedFileBlock(value: string): boolean {
   ATTACHED_FILE_BLOCK_RE.lastIndex = 0;

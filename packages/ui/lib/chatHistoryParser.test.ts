@@ -189,6 +189,15 @@ describe("cleanUserMessageText", () => {
     )
   })
 
+  it("removes partial embedded text attachment payloads while live echo is incomplete", () => {
+    assert.equal(
+      cleanUserMessageText(
+        'READ\n\n<attached-file name="hyy (2).md" mime="text/markdown">\nhyy\n\n02:37 pm\nHey. I just came online.',
+      ),
+      "READ",
+    )
+  })
+
   it("removes multiple embedded text attachment payloads from gateway echoes", () => {
     assert.equal(
       cleanUserMessageText(

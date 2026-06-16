@@ -32,6 +32,36 @@ describe("dedupeChatMessages", () => {
     })
   })
 
+  it("merges optimistic file upload row with partial Gateway attached-file user echo", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "client-file-1",
+        role: "user",
+        text: "READ",
+        createdAt: "2026-06-16T04:50:59.757Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+        attachments: [{ name: "hyy (2).md", mimeType: "text/markdown", content: "hyy\n\n02:37 pm" }],
+      },
+      {
+        messageId: "gateway-user-echo",
+        role: "user",
+        text: 'READ\n\n<attached-file name="hyy (2).md" mime="text/markdown">\nhyy\n\n02:37 pm\nHey. I just came online.',
+        createdAt: "2026-06-16T04:50:59.767Z",
+        gatewayIndex: 3,
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({
+      messageId: "gateway-user-echo",
+      role: "user",
+      text: "READ",
+      attachments: [{ name: "hyy (2).md", mimeType: "text/markdown", content: "hyy\n\n02:37 pm" }],
+      isOptimistic: false,
+    })
+  })
+
   it("merges duplicate assistant messages from cache and stream", () => {
     const messages = dedupeChatMessages([
       {

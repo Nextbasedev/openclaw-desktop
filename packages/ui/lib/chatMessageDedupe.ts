@@ -4,7 +4,7 @@ import { cleanUserMessageText } from "./chatHistoryParser"
 
 const ATTACHMENT_PLACEHOLDER_RE =
   /(?:^|\n)\s*\[Attached [^:\]]+: [^\]]+\]\s*/g
-const EMBEDDED_ATTACHED_FILE_RE = /(?:<attached-file\b[^>]*>[\s\S]*?<\/attached-file>|&lt;attached-file\b[\s\S]*?&lt;\/attached-file&gt;)\s*/gi
+const EMBEDDED_ATTACHED_FILE_RE = /(?:<attached-file\b[^>]*>[\s\S]*?(?:<\/attached-file>|$)|&lt;attached-file\b[\s\S]*?(?:&lt;\/attached-file&gt;|$))\s*/gi
 
 function normalizedUserText(value: string | undefined | null) {
   if (!value || typeof value !== "string") return ""
