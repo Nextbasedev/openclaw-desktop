@@ -230,14 +230,18 @@ describe("chat send routes", () => {
         historyLoaded = true;
         return {
           sessionKey: "s1",
-          messages: [{
-            role: "user",
-            content: [
-              { type: "text", text: "please review this" },
-              { type: "document", name: "notes.md", mimeType: "text/markdown", text: "# Private file body\nDo not render inline." },
-            ],
-            __openclaw: { id: "gateway-user-1", seq: 1 },
-          }],
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "please review this" },
+                { type: "document", name: "notes.md", mimeType: "text/markdown", text: "# Private file body\nDo not render inline." },
+              ],
+              __openclaw: { id: "gateway-user-1", seq: 1 },
+            },
+            { role: "assistant", text: gatewayMessage, __openclaw: { id: "echo-as-assistant", seq: 2 } },
+            { role: "assistant", text: "Reviewed it.", __openclaw: { id: "assistant-1", seq: 3 } },
+          ],
         };
       }
       return { ok: true };
@@ -274,10 +278,12 @@ describe("chat send routes", () => {
           text: "please review this",
           attachments: [{ name: "notes.md", mimeType: "text/markdown", content: "# Private file body\nDo not render inline.", size: 42 }],
         },
+        { role: "assistant", text: "Reviewed it." },
       ],
     });
-    expect(JSON.stringify(bootstrap.json().messages[0])).not.toContain("attached-file");
-    expect(bootstrap.json().messages[0].text).not.toContain("Private file body");
+    expect(bootstrap.json().messages).toHaveLength(2);
+    expect(bootstrap.json().messages.map((message: { text?: string }) => message.text ?? "").join("\n")).not.toContain("attached-file");
+    expect(bootstrap.json().messages.map((message: { text?: string }) => message.text ?? "").join("\n")).not.toContain("Private file body");
 
     expect(gatewayRequest).toHaveBeenCalledWith("chat.send", expect.objectContaining({
       sessionKey: "s1",

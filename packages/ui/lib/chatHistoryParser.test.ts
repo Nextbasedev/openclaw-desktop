@@ -198,6 +198,15 @@ describe("cleanUserMessageText", () => {
     )
   })
 
+  it("removes escaped embedded text attachment payloads from gateway echoes", () => {
+    assert.equal(
+      cleanUserMessageText(
+        'review\n\n&lt;attached-file name="a.txt" mime="text/plain"&gt;a&lt;/attached-file&gt;',
+      ),
+      "review",
+    )
+  })
+
   it("keeps plain user text that only mentions sender metadata words", () => {
     const text =
       'Sender (untrusted metadata): please show this text literally without parsing'
@@ -261,6 +270,19 @@ describe("isTransientSlashCommandHistory", () => {
 })
 
 describe("parseChatHistory", () => {
+  it("drops assistant-side attached-file prompt echoes instead of rendering them as responses", () => {
+    const parsed = parseChatHistory([
+      { role: "user", text: "read once again", attachments: [{ name: "hyy.md", mimeType: "text/markdown", content: "body" }] },
+      { role: "assistant", text: 'read once again\n\n<attached-file name="hyy.md" mime="text/markdown">\nfile body\n</attached-file>' },
+      { role: "assistant", text: "I read it again." },
+    ])
+
+    assert.deepEqual(
+      parsed.messages.map((message) => [message.role, message.text]),
+      [["user", "read once again"], ["assistant", "I read it again."]],
+    )
+  })
+
   it("renders assistant provider errors even when the assistant content is empty", () => {
     const parsed = parseChatHistory([
       { role: "user", content: [{ type: "text", text: "hii" }] },

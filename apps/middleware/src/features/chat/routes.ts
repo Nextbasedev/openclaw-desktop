@@ -10,7 +10,7 @@ import { z } from "zod";
 import type { AppContext } from "../../app.js";
 import { HttpError } from "../../lib/errors.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
-import { cleanMessageDisplayText, messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
+import { cleanMessageDisplayText, containsAttachedFileBlock, messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
 import { classifyGatewayMessageSemanticType, extractToolEventsFromMessage, isErrorToolResult, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
@@ -308,6 +308,12 @@ function cleanSerializedMessageData(data: Record<string, unknown>, role: string)
       });
   }
   return next;
+}
+
+
+function isNonUserAttachedFileEcho(message: ProjectedMessage) {
+  if (message.role === "user") return false;
+  return containsAttachedFileBlock(textFromMessage(message.data));
 }
 
 function serializeProjectedMessage(message: ProjectedMessage) {
@@ -1333,7 +1339,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, pruned: bootstrapPruned, lastSeq: bootstrapLastSeq });
 
     const rawProjected = context.messages.listAllMessages(sessionKey);
-    const projectedMessages = rawProjected.map(serializeProjectedMessage);
+    const projectedMessages = rawProjected
+      .filter((message) => !isNonUserAttachedFileEcho(message))
+      .map(serializeProjectedMessage);
     log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length });
     void context.chatLive.ensureSessionSubscribed(sessionKey).catch((error) => {
       log.warn("bootstrap.live-subscribe.background.fail", { sessionKey, error: errorMeta(error) });
@@ -1382,12 +1390,13 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       : context.messages.listAllMessages(parsed.data.sessionKey);
     // Chat screen rebuild: older-message remote refill is disabled with the old virtualized loader.
     const sessionCursor = context.messages.latestSessionCursor(parsed.data.sessionKey);
-    log.info("messages.read.end", { sessionKey: parsed.data.sessionKey, messageCount: messages.length, cursor: sessionCursor });
+    const visibleMessages = messages.filter((message) => !isNonUserAttachedFileEcho(message));
+    log.info("messages.read.end", { sessionKey: parsed.data.sessionKey, messageCount: visibleMessages.length, cursor: sessionCursor });
     return {
       ok: true,
       source: "middleware-projection",
       sessionKey: parsed.data.sessionKey,
-      messages: messages.map((message) => ({
+      messages: visibleMessages.map((message) => ({
         sessionKey: message.sessionKey,
         openclawSeq: message.openclawSeq,
         messageId: message.messageId,
@@ -1397,7 +1406,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         data: serializeProjectedMessage(message),
         updatedAtMs: message.updatedAtMs,
       })),
-      messageCount: messages.length,
+      messageCount: visibleMessages.length,
       cursor: sessionCursor,
     };
   });

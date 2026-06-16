@@ -4,6 +4,13 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+const ATTACHED_FILE_BLOCK_RE = /(?:<attached-file\b[\s\S]*?<\/attached-file>|&lt;attached-file\b[\s\S]*?&lt;\/attached-file&gt;)/gi;
+
+export function containsAttachedFileBlock(value: string): boolean {
+  ATTACHED_FILE_BLOCK_RE.lastIndex = 0;
+  return ATTACHED_FILE_BLOCK_RE.test(value);
+}
+
 function isAttachmentLikeContentBlock(block: unknown): boolean {
   if (!isObject(block)) return false;
   const type = typeof block.type === "string" ? block.type.toLowerCase() : "";
@@ -107,7 +114,7 @@ export function cleanMessageDisplayText(value: string): string {
     .replace(/^\[Attached images?:[^\]]+\]\s*/gim, "")
     .replace(/^\[Attached audio(?: file)?:[^\]]+\]\s*/gim, "")
     .replace(/^\[Attached file:[^\]]+\]\s*/gim, "")
-    .replace(/<attached-file\b[\s\S]*?<\/attached-file>/gi, "")
+    .replace(ATTACHED_FILE_BLOCK_RE, "")
     .trim();
 }
 
@@ -116,7 +123,7 @@ export function normalizeMessageText(value: string): string {
     .replace(/^\[Attached images?:[^\]]+\]\s*/gim, "")
     .replace(/^\[Attached audio(?: file)?:[^\]]+\]\s*/gim, "")
     .replace(/^\[Attached file:[^\]]+\]\s*/gim, "")
-    .replace(/<attached-file\b[\s\S]*?<\/attached-file>/gi, "")
+    .replace(ATTACHED_FILE_BLOCK_RE, "")
     .trim()
     .replace(/\s+/g, " ");
 }
@@ -262,7 +269,11 @@ function collapseImageFallbackAttempts(messages: OpenClawMessage[]) {
 export function normalizeHistoryMessages(sessionKey: string, messages: unknown[], nowMs = Date.now(), firstFallbackSeq = 1): ProjectedMessage[] {
   return collapseImageFallbackAttempts(messages
     .filter((message): message is OpenClawMessage => Boolean(message) && typeof message === "object" && !Array.isArray(message))
-    .filter((message) => !isInternalSubagentCompletionMessage(message)))
+    .filter((message) => !isInternalSubagentCompletionMessage(message))
+    .filter((message) => {
+      if (message.role === "user") return true;
+      return !containsAttachedFileBlock(textFromMessage(message));
+    }))
     .filter(hasVisibleAssistantSignal)
     .map((message, index) => ({
       sessionKey,
