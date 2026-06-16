@@ -236,6 +236,14 @@ function formatTokenCount(value?: number | null): string | null {
 }
 
 type MessageAttachment = NonNullable<ChatMessage["attachments"]>[number]
+type AttachmentPreviewSelection = {
+  attachment: MessageAttachment
+  origin: { x: number; y: number }
+}
+
+function previewOriginFromEvent(event: ReactMouseEvent<HTMLElement>) {
+  return { x: event.clientX, y: event.clientY }
+}
 
 function attachmentLabel(attachment: MessageAttachment) {
   const parts = [chatAttachmentTypeLabel(attachment)]
@@ -276,7 +284,7 @@ function ImageAttachmentCard({
   attachment: MessageAttachment
   href: string
   isUser: boolean
-  onOpen: () => void
+  onOpen: (event: ReactMouseEvent<HTMLButtonElement>) => void
 }) {
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -337,7 +345,7 @@ function ImageAttachmentStack({
 }: {
   attachments: MessageAttachment[]
   isUser: boolean
-  onOpen: (attachment: MessageAttachment) => void
+  onOpen: (attachment: MessageAttachment, event: ReactMouseEvent<HTMLButtonElement>) => void
 }) {
   const imageCount = attachments.length
   const cardWidth = imageCount <= 3 ? 112 : imageCount <= 5 ? 96 : imageCount <= 8 ? 82 : 70
@@ -367,7 +375,7 @@ function ImageAttachmentStack({
             <button
               key={`${attachment.name}-${index}`}
               type="button"
-              onClick={() => onOpen(attachment)}
+              onClick={(event) => onOpen(attachment, event)}
               onMouseEnter={() => setHoveredIndex(index)}
               onMouseLeave={() => setHoveredIndex(null)}
               onFocus={() => setHoveredIndex(index)}
@@ -420,23 +428,28 @@ function ImageAttachmentStack({
 }
 
 function AttachmentPreviewDialog({
-  attachment,
+  selection,
   open,
   onOpenChange,
 }: {
-  attachment: MessageAttachment | null
+  selection: AttachmentPreviewSelection | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  if (!attachment) return null
+  if (!selection) return null
 
+  const { attachment, origin } = selection
   const href = chatAttachmentHref(attachment)
   const mimeType = attachment.mimeType?.toLowerCase() ?? "application/octet-stream"
   const textContent = attachmentTextContent(attachment)
+  const transformOrigin = `calc(${origin.x}px - 50vw + 50%) calc(${origin.y}px - 50vh + 50%)`
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[86vh] gap-0 p-0 sm:max-w-4xl">
+      <DialogContent
+        className="max-h-[86vh] gap-0 p-0 sm:max-w-4xl data-open:zoom-in-90 data-closed:zoom-out-90"
+        style={{ transformOrigin }}
+      >
         <DialogHeader className="border-b border-border/25 px-5 py-4 pr-14">
           <DialogTitle className="truncate text-[15px] font-semibold">
             {attachment.name}
@@ -499,7 +512,7 @@ function MessageAttachments({
   attachments?: ChatMessage["attachments"]
   isUser: boolean
 }) {
-  const [selectedAttachment, setSelectedAttachment] = useState<MessageAttachment | null>(null)
+  const [selectedPreview, setSelectedPreview] = useState<AttachmentPreviewSelection | null>(null)
   if (!attachments || attachments.length === 0) return null
 
   const imageAttachments = attachments.filter((attachment) => getChatAttachmentKind(attachment) === "image")
@@ -518,14 +531,14 @@ function MessageAttachments({
             attachment={imageAttachments[0]}
             href={chatAttachmentHref(imageAttachments[0]) ?? ""}
             isUser={isUser}
-            onOpen={() => setSelectedAttachment(imageAttachments[0])}
+            onOpen={(event) => setSelectedPreview({ attachment: imageAttachments[0], origin: previewOriginFromEvent(event) })}
           />
         )}
         {imageAttachments.length > 1 && (
           <ImageAttachmentStack
             attachments={imageAttachments}
             isUser={isUser}
-            onOpen={setSelectedAttachment}
+            onOpen={(attachment, event) => setSelectedPreview({ attachment, origin: previewOriginFromEvent(event) })}
           />
         )}
         {otherAttachments.map((attachment, index) => {
@@ -535,7 +548,7 @@ function MessageAttachments({
           const card = (
             <button
               type="button"
-              onClick={() => setSelectedAttachment(attachment)}
+              onClick={(event) => setSelectedPreview({ attachment, origin: previewOriginFromEvent(event) })}
               className={cn(
                 "flex max-w-full cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
                 isUser
@@ -577,10 +590,10 @@ function MessageAttachments({
         })}
       </div>
       <AttachmentPreviewDialog
-        attachment={selectedAttachment}
-        open={Boolean(selectedAttachment)}
+        selection={selectedPreview}
+        open={Boolean(selectedPreview)}
         onOpenChange={(open) => {
-          if (!open) setSelectedAttachment(null)
+          if (!open) setSelectedPreview(null)
         }}
       />
     </>
