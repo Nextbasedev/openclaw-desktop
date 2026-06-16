@@ -318,8 +318,8 @@ function MessageAttachments({
   return (
     <div
       className={cn(
-        "mt-2 space-y-2",
-        isUser ? "text-white" : "text-foreground"
+        "space-y-2",
+        isUser ? "mb-2 text-white" : "mt-2 text-foreground"
       )}
     >
       {attachments.map((attachment, index) => {
