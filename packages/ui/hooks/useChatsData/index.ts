@@ -149,15 +149,22 @@ export function useChatsData(
         if (cachedChats?.length && isCurrentRequest()) applyChats(cachedChats)
       }
       if (showArchived) {
-        const result = await invoke<{ chats: Chat[] }>("middleware_chats_list", {
-          input: { archived: true, spaceId: requestSpaceId ?? undefined },
-        })
+        const [activeResult, archivedResult] = await Promise.all([
+          invoke<{ chats: Chat[] }>("middleware_chats_list", {
+            input: { archived: false, spaceId: requestSpaceId ?? undefined },
+          }),
+          invoke<{ chats: Chat[] }>("middleware_chats_list", {
+            input: { archived: true, spaceId: requestSpaceId ?? undefined },
+          }),
+        ])
         if (!isCurrentRequest()) return
-        applyChats((result.chats || []).filter((chat) => {
-          if (!chat.archived) return false
-          if (chat.isSubagent || chat.parentSessionKey || isSubagentSessionKey(chat.sessionKey)) return false
-          return !requestSpaceId || chat.spaceId === requestSpaceId
-        }))
+        const mergedById = new Map<string, Chat>()
+        for (const chat of [...(activeResult.chats || []), ...(archivedResult.chats || [])]) {
+          if (chat.isSubagent || chat.parentSessionKey || isSubagentSessionKey(chat.sessionKey)) continue
+          if (requestSpaceId && chat.spaceId !== requestSpaceId) continue
+          mergedById.set(chat.id, chat)
+        }
+        applyChats(Array.from(mergedById.values()))
         return
       }
 
@@ -421,11 +428,13 @@ export function useChatsData(
 
   const handleArchiveChat = useCallback(
     async (chatId: string) => {
+      const chat = chats.find((candidate) => candidate.id === chatId)
+      if (!chat) return
       try {
         invalidateMiddlewareStartupBootstrap()
         invalidateChatListCache(spaceId)
         await invoke("middleware_chats_archive", {
-          input: { chatId, archived: !showArchived },
+          input: { chatId, archived: !chat.archived },
         })
         invalidateChatListCache(spaceId)
         onChatClear(chatId)
@@ -435,7 +444,7 @@ export function useChatsData(
         console.error("archive chat failed", e)
       }
     },
-    [onChatClear, loadChats, spaceId],
+    [chats, onChatClear, loadChats, spaceId],
   )
 
   const openRename = useCallback((chat: Chat) => {

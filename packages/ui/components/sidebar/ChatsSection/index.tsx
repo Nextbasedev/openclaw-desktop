@@ -119,14 +119,16 @@ export function ChatsSection({
               {sectionLabel}
             </span>
           )}
-          <button
-            type="button"
-            onClick={onNewChat}
-            title="New chat"
-            className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/50 transition-colors hover:text-foreground"
-          >
-            <Icons.Plus size={13} strokeWidth={2} />
-          </button>
+          {!showArchived && (
+            <button
+              type="button"
+              onClick={onNewChat}
+              title="New chat"
+              className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/50 transition-colors hover:text-foreground"
+            >
+              <Icons.Plus size={13} strokeWidth={2} />
+            </button>
+          )}
         </div>
 
         <AnimatePresence initial={false}>
@@ -174,7 +176,7 @@ export function ChatsSection({
                         isPinned={pinnedChats.has(chatId)}
                         isRunning={Boolean(chat.sessionKey && runningSessionKeys.has(chat.sessionKey))}
                         onClick={() => {
-                          if (showArchived) return
+                          if (showArchived && chat.archived) return
                           onChatSelect({
                             id: chat.id,
                             name: chatDisplayName(chat),
@@ -196,7 +198,7 @@ export function ChatsSection({
                         onArchive={() =>
                           handleArchiveChat(chatId)
                         }
-                        archiveLabel={showArchived ? "Restore" : "Archive"}
+                        archiveLabel={chat.archived ? "Restore" : "Archive"}
                         onDelete={() =>
                           dialogActions.openDelete(chat)
                         }
