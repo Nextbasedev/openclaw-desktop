@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import { applyTerminalToolState, groupAssistantToolCallsByMessage, mergeToolCallsForDisplay, terminalToolStateById } from "./chatToolDisplay"
-import type { ChatMessage } from "@/components/ChatView/types"
+import type { ChatMessage, InlineToolCall } from "@/components/ChatView/types"
 
 describe("ChatView tool display grouping", () => {
   test("keeps contiguous tool calls before assistant text in one steps block", () => {
@@ -205,5 +205,43 @@ describe("ChatView tool display grouping", () => {
       status: "success",
       awaitingResult: false,
     })
+  })
+
+  test("preserves array identity when no tool actually changes (perf: lets ToolCallSteps memo bail)", () => {
+    // Regression for the "tool call stack lags my FPS on every SSE patch" bug:
+    // when a streaming patch updates some other tool/message, applyTerminalToolState
+    // must return the SAME array reference for unaffected tool stacks so the
+    // memoized <ToolCallSteps> can bail out on its `tools` prop shallow compare.
+    const stable: InlineToolCall[] = [
+      { id: "exec-1", tool: "exec", status: "success", duration: "0.3s", resultText: "ok" },
+      { id: "read-1", tool: "read", status: "success", duration: "0.1s", resultText: "file" },
+    ]
+    const terminalById = terminalToolStateById([
+      { messageId: "a-other", role: "assistant", text: "", toolCalls: stable },
+    ])
+
+    const result = applyTerminalToolState(stable, terminalById)
+    expect(result).toBe(stable)
+  })
+
+  test("preserves array identity when terminalById is non-empty but unrelated to the tools", () => {
+    const stable: InlineToolCall[] = [
+      { id: "running-1", tool: "exec", status: "running", awaitingResult: true },
+    ]
+    const terminalById = terminalToolStateById([
+      {
+        messageId: "a-other",
+        role: "assistant",
+        text: "",
+        toolCalls: [
+          { id: "unrelated", tool: "exec", status: "success", duration: "0.1s", resultText: "ok" },
+        ],
+      },
+    ])
+
+    // running tool stays running because no terminal entry for it and
+    // finalizeStaleRunning is not requested.
+    const result = applyTerminalToolState(stable, terminalById)
+    expect(result).toBe(stable)
   })
 })

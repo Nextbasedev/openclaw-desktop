@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, memo } from "react"
+import { useCallback, useMemo, useState, memo } from "react"
 import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight } from "react-icons/vsc"
@@ -155,7 +155,7 @@ function sortToolsByCallOrder(tools: InlineToolCall[]) {
     .map(({ tool }) => tool)
 }
 
-function ToolRow({
+const ToolRow = memo(function ToolRow({
   call,
   open,
   onOpenChange,
@@ -175,10 +175,20 @@ function ToolRow({
   ) => Promise<void> | void
   sessionKey?: string
 }) {
-  const { inputText, outputText, fullOutputText, hasDetails } = getToolDetailState(call)
-  const subject = toolSubject(call, inputText)
-  const metrics = toolMetrics(fullOutputText ?? outputText, call)
-  const badge = toolBadge(call.tool)
+  // Heavy per-row derivation (JSON.stringify of input + full resultText,
+  // tool-name parsing, byte/line counts) cached against the tool call ref.
+  // Because applyTerminalToolState preserves the array reference when nothing
+  // changed (see chatToolDisplay.ts) and ToolRow itself is memoized, each row
+  // re-runs this only when its own InlineToolCall actually changes — not on
+  // every SSE tool patch that touches some other tool in the stack.
+  const detailState = useMemo(() => getToolDetailState(call), [call])
+  const { inputText, outputText, fullOutputText, hasDetails } = detailState
+  const subject = useMemo(() => toolSubject(call, inputText), [call, inputText])
+  const metrics = useMemo(
+    () => toolMetrics(fullOutputText ?? outputText, call),
+    [call, fullOutputText, outputText]
+  )
+  const badge = useMemo(() => toolBadge(call.tool), [call.tool])
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
   const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
   const approval = call.approval
@@ -336,7 +346,7 @@ function ToolRow({
       )}
     </motion.div>
   )
-}
+})
 
 export const ToolCallSteps = memo(function ToolCallSteps({
   tools,
@@ -361,10 +371,15 @@ export const ToolCallSteps = memo(function ToolCallSteps({
   const [openToolId, setOpenToolId] = useState<string | null>(null)
   const [stepsOpen, setStepsOpen] = useState(defaultOpen)
 
-  function handleToolOpenChange(id: string, nextOpen: boolean) {
-    onInteract?.()
-    setOpenToolId(nextOpen ? id : null)
-  }
+  // Stable callback identity so memoized <ToolRow> doesn't invalidate on every
+  // parent re-render caused by SSE patches.
+  const handleToolOpenChange = useCallback(
+    (id: string, nextOpen: boolean) => {
+      onInteract?.()
+      setOpenToolId(nextOpen ? id : null)
+    },
+    [onInteract]
+  )
 
   if (!total) return null
 
