@@ -80,6 +80,7 @@ import {
 import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "./types"
 import { orderChatMessages } from "./orderChatMessages"
 import { decideBootstrapRecovery } from "./bootstrapRecoveryGuard"
+import { beginSendIfIdle, endSend } from "./sendInFlightGuard"
 
 type Props = {
   sessionKey: string
@@ -560,6 +561,7 @@ export function ChatView({
     }
   })
   const [sending, setSending] = useState(false)
+  const sendInFlightRef = useRef(false)
   const [streamCursor, setStreamCursor] = useState<number | null>(null)
   const [reactions, setReactions] = useState<Record<string, "up" | "down">>({})
   const [pinnedIds, setPinnedIds] = useState<string[]>([])
@@ -1197,54 +1199,63 @@ export function ChatView({
   async function handleSend(payload: ChatComposerSubmit) {
     const text = payload.text.trim()
     if (!text && !payload.attachments?.length) return
+    if (!beginSendIfIdle(sendInFlightRef)) {
+      frontendLog("chat", "chat-rebuild.send.duplicate-suppressed", {
+        origin: "chatview-handle-send",
+        sessionKey,
+      })
+      return
+    }
 
     const clickAt = Date.now()
     const hasExistingMessages = state.messages.length > 0
-    frontendLog("chat", "chat-rebuild.send.click", {
-      origin: "chatview-handle-send",
-      timestamp: clickAt,
-      sessionKey,
-      hasExistingMessages,
-      textLength: text.length,
-      attachmentCount: payload.attachments?.length ?? 0,
-    })
-
-    if (windowStateRef.current.hasNewer) {
-      await resetToLiveTail()
-    }
-
-    const optimisticId = randomId()
-    shouldFollowScrollRef.current = true
-    const optimisticMessage: ChatMessage = {
-      messageId: optimisticId,
-      role: "user",
-      text,
-      createdAt: new Date().toISOString(),
-      isOptimistic: true,
-      sendStatus: "sending",
-      attachments: composerAttachmentsToMessageAttachments(payload.attachments),
-    }
-
-    setSending(true)
-    setState((current) => ({
-      ...current,
-      composerError: null,
-      streamStatus: "thinking",
-      statusLabel: "Thinking",
-      messages: orderChatMessages([...current.messages, optimisticMessage]),
-    }))
-    frontendLog("chat", "chat-rebuild.send.optimistic-render", {
-      origin: "chatview-handle-send",
-      timestamp: Date.now(),
-      msSinceClick: Date.now() - clickAt,
-      sessionKey,
-      optimisticId,
-    })
-    onFirstMessageSent?.(text)
-    setReplyTo(null)
-    setComposerSeed(null)
+    let optimisticId: string | null = null
 
     try {
+      frontendLog("chat", "chat-rebuild.send.click", {
+        origin: "chatview-handle-send",
+        timestamp: clickAt,
+        sessionKey,
+        hasExistingMessages,
+        textLength: text.length,
+        attachmentCount: payload.attachments?.length ?? 0,
+      })
+
+      if (windowStateRef.current.hasNewer) {
+        await resetToLiveTail()
+      }
+
+      optimisticId = randomId()
+      shouldFollowScrollRef.current = true
+      const optimisticMessage: ChatMessage = {
+        messageId: optimisticId,
+        role: "user",
+        text,
+        createdAt: new Date().toISOString(),
+        isOptimistic: true,
+        sendStatus: "sending",
+        attachments: composerAttachmentsToMessageAttachments(payload.attachments),
+      }
+
+      setSending(true)
+      setState((current) => ({
+        ...current,
+        composerError: null,
+        streamStatus: "thinking",
+        statusLabel: "Thinking",
+        messages: orderChatMessages([...current.messages, optimisticMessage]),
+      }))
+      frontendLog("chat", "chat-rebuild.send.optimistic-render", {
+        origin: "chatview-handle-send",
+        timestamp: Date.now(),
+        msSinceClick: Date.now() - clickAt,
+        sessionKey,
+        optimisticId,
+      })
+      onFirstMessageSent?.(text)
+      setReplyTo(null)
+      setComposerSeed(null)
+
       frontendLog("chat", "chat-rebuild.send.request-fired", {
         origin: "chatview-handle-send",
         timestamp: Date.now(),
@@ -1269,23 +1280,26 @@ export function ChatView({
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : "Message failed to send."
-      setState((current) => ({
-        ...current,
-        composerError: message,
-        streamStatus: "error",
-        statusLabel: null,
-        messages: current.messages.map((item) =>
-          item.messageId === optimisticId
-            ? {
-                ...item,
-                sendStatus: "failed",
-                sendError: message,
-              }
-            : item
-        ),
-      }))
+      if (optimisticId) {
+        setState((current) => ({
+          ...current,
+          composerError: message,
+          streamStatus: "error",
+          statusLabel: null,
+          messages: current.messages.map((item) =>
+            item.messageId === optimisticId
+              ? {
+                  ...item,
+                  sendStatus: "failed",
+                  sendError: message,
+                }
+              : item
+          ),
+        }))
+      }
       throw error
     } finally {
+      endSend(sendInFlightRef)
       setSending(false)
     }
   }
@@ -2685,7 +2699,7 @@ export function ChatView({
           initialPrompt={composerSeed ?? initialPrompt}
           errorMessage={state.composerError}
           onSend={handleSend}
-          disabled={state.loading || sending}
+          disabled={state.loading}
           isGenerating={isGenerating}
           onAbort={handleAbort}
           replyTo={replyTo}
