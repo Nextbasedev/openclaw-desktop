@@ -250,11 +250,11 @@ function isActiveStreamStatus(status: StreamStatus) {
   return ACTIVE_STREAM_STATUSES.has(status)
 }
 
-function hasActiveAssistantAfterLastUser(messages: ChatMessage[]) {
+function hasAssistantAnswerAfterLastUser(messages: ChatMessage[]) {
   const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user")
   return messages.slice(lastUserIndex + 1).some((message) =>
     message.role === "assistant" &&
-    Boolean(message.text.trim() || message.reasoningText?.trim() || message.toolCalls?.length)
+    Boolean(message.text.trim() || message.reasoningText?.trim())
   )
 }
 
@@ -1621,7 +1621,7 @@ export function ChatView({
   const statusText = isGenerating
     ? generatingStatusText(state.streamStatus, state.statusLabel, liveTool)
     : null
-  const showThinkingState = isGenerating && !hasActiveAssistantAfterLastUser(renderedMessages)
+  const showThinkingState = isGenerating && !hasAssistantAnswerAfterLastUser(renderedMessages)
   const latestRenderedUserIndex = useMemo(() => {
     for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
       if (renderedMessages[index]?.role === "user") return index
