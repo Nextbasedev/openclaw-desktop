@@ -76,6 +76,7 @@ import {
   indexSpawnsByToolCallId,
 } from "./subagentDerive"
 import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "./types"
+import { orderChatMessages } from "./orderChatMessages"
 
 type Props = {
   sessionKey: string
@@ -171,12 +172,6 @@ function seqOf(raw: RawHistoryMessage): number | null {
   return typeof seq === "number" && Number.isFinite(seq) ? seq : null
 }
 
-function timestampOf(message: ChatMessage): number {
-  if (!message.createdAt) return Number.POSITIVE_INFINITY
-  const value = Date.parse(message.createdAt)
-  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY
-}
-
 function rawTimestampOf(raw: RawHistoryMessage): number {
   if (typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp)) {
     return raw.timestamp > 100_000_000 && raw.timestamp < 10_000_000_000
@@ -206,22 +201,6 @@ function orderedRawMessages(raw: unknown[]): RawHistoryMessage[] {
       return a.index - b.index
     })
     .map(({ item }) => item)
-}
-
-function orderChatMessages(messages: ChatMessage[]) {
-  return messages
-    .map((message, index) => ({ message, index }))
-    .sort((a, b) => {
-      const aSeq = a.message.gatewayIndex
-      const bSeq = b.message.gatewayIndex
-      if (typeof aSeq === "number" && typeof bSeq === "number" && aSeq !== bSeq) return aSeq - bSeq
-      if (typeof aSeq === "number" && typeof bSeq !== "number") return -1
-      if (typeof aSeq !== "number" && typeof bSeq === "number") return 1
-      const timeDelta = timestampOf(a.message) - timestampOf(b.message)
-      if (Number.isFinite(timeDelta) && timeDelta !== 0) return timeDelta
-      return a.index - b.index
-    })
-    .map(({ message }) => message)
 }
 
 function normalizeHistory(rawMessages: unknown[]): ChatMessage[] {

@@ -631,6 +631,131 @@ describe("applyChatPatch", () => {
     })
   })
 
+  test("keeps optimistic file user before assistant final that arrives before confirmation", () => {
+    let state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.created",
+          messageId: "client-file-1",
+          optimistic: true,
+          runId: "run-file-1",
+          message: {
+            role: "user",
+            text: "read once again",
+            attachments: [{ name: "hyy.md", mimeType: "text/markdown", content: "file body" }],
+            isOptimistic: true,
+            __clientOptimistic: true,
+            __openclaw: { id: "client-file-1", runId: "run-file-1" },
+          },
+        },
+        createdAtMs: 1_781_346_745_000,
+      },
+    })
+
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.final",
+          messageId: "assistant-file-1",
+          messageSeq: 2,
+          runId: "run-file-1",
+          message: {
+            role: "assistant",
+            text: "I read it again.",
+            __openclaw: { id: "assistant-file-1", seq: 2, runId: "run-file-1" },
+          },
+        },
+        createdAtMs: 1_781_346_746_000,
+      },
+    })
+
+    expect(state.messages.map((message) => [message.role, message.text])).toEqual([
+      ["user", "read once again"],
+      ["assistant", "I read it again."],
+    ])
+  })
+
+  test("ignores attached-file prompt echo patch while preserving the real assistant response", () => {
+    let state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.created",
+          messageId: "client-file-1",
+          optimistic: true,
+          runId: "run-file-1",
+          message: {
+            role: "user",
+            text: "read once again",
+            attachments: [{ name: "hyy.md", mimeType: "text/markdown", content: "file body" }],
+            isOptimistic: true,
+            __clientOptimistic: true,
+            __openclaw: { id: "client-file-1", runId: "run-file-1" },
+          },
+        },
+        createdAtMs: 1,
+      },
+    })
+
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.final",
+          messageId: "assistant-echo",
+          messageSeq: 2,
+          runId: "run-file-1",
+          message: {
+            role: "assistant",
+            text: 'read once again\n\n<attached-file name="hyy.md" mime="text/markdown">file body</attached-file>',
+            __openclaw: { id: "assistant-echo", seq: 2, runId: "run-file-1" },
+          },
+        },
+        createdAtMs: 2,
+      },
+    })
+
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.final",
+          messageId: "assistant-real",
+          messageSeq: 3,
+          runId: "run-file-1",
+          message: {
+            role: "assistant",
+            text: "I read it again.",
+            __openclaw: { id: "assistant-real", seq: 3, runId: "run-file-1" },
+          },
+        },
+        createdAtMs: 3,
+      },
+    })
+
+    expect(state.messages.map((message) => [message.role, message.text])).toEqual([
+      ["user", "read once again"],
+      ["assistant", "I read it again."],
+    ])
+  })
+
   test("merges optimistic image preview when confirmed patch has metadata-only attachment", () => {
     const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",
