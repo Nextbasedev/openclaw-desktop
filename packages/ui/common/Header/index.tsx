@@ -175,6 +175,7 @@ export function Header({
       .catch(() => {})
   }, [])
 
+  // changes comment
   const isMac = platform === "macos"
   const isWindows = platform === "windows" || platform === "linux"
   const showTrafficLights = isTauri && isMac && !useNativeWindowChrome
