@@ -114,7 +114,7 @@ describe("deriveSpawnedSubagents", () => {
     expect(spawns[0].sessionKey).toBe(CHILD_SESSION_KEY)
   })
 
-  test("marks completed on success", () => {
+  test("keeps linked child working when spawn succeeds without terminal marker", () => {
     const messages: ChatMessage[] = [
       mkMessage({
         messageId: "a1",
@@ -125,6 +125,25 @@ describe("deriveSpawnedSubagents", () => {
             tool: "sessions_spawn",
             status: "success",
             input: { task: "x", label: "W", sessionKey: CHILD_SESSION_KEY },
+          }),
+        ],
+      }),
+    ]
+    expect(deriveSpawnedSubagents(messages)[0].status).toBe("working")
+  })
+
+  test("marks linked child completed on explicit terminal marker", () => {
+    const messages: ChatMessage[] = [
+      mkMessage({
+        messageId: "a1",
+        role: "assistant",
+        toolCalls: [
+          mkTool({
+            id: "tc-1",
+            tool: "sessions_spawn",
+            status: "success",
+            input: { task: "x", label: "W", sessionKey: CHILD_SESSION_KEY },
+            resultText: `Task completed successfully for ${CHILD_SESSION_KEY}`,
           }),
         ],
       }),
@@ -194,7 +213,7 @@ describe("deriveSpawnedSubagents", () => {
     ]
     const spawns = deriveSpawnedSubagents(messages)
     expect(spawns).toHaveLength(1)
-    expect(spawns[0].status).toBe("completed")
+    expect(spawns[0].status).toBe("working")
   })
 })
 

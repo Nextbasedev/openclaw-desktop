@@ -865,6 +865,33 @@ it("merges same-run assistant duplicates even when backend sequences differ", ()
   expect(messages[0].text).toBe("Hi Dixit 👋 Good morning.")
 })
 
+it("merges same-run subagent progress chunks into one assistant response", () => {
+  const messages = dedupeChatMessages([
+    {
+      messageId: "subagent-progress-1",
+      role: "assistant",
+      text: "I'll audit the chat virtualization code paths. Let me start by reading the key files.",
+      createdAt: "2026-06-16T11:02:00.000Z",
+      gatewayIndex: 101,
+      runId: "subagent-run-1",
+    },
+    {
+      messageId: "subagent-progress-2",
+      role: "assistant",
+      text: "Now let me look at scroll handling, older/newer fetch effects, and rendering:",
+      createdAt: "2026-06-16T11:03:00.000Z",
+      gatewayIndex: 102,
+      runId: "subagent-run-1",
+    },
+  ])
+
+  expect(messages).toHaveLength(1)
+  expect(messages[0].text).toBe([
+    "I'll audit the chat virtualization code paths. Let me start by reading the key files.",
+    "Now let me look at scroll handling, older/newer fetch effects, and rendering:",
+  ].join("\n\n"))
+})
+
 it("merges duplicate assistant partial text without repeating the first word", () => {
     const messages = dedupeChatMessages([
       { messageId: "partial", role: "assistant", text: "NO_REPLY\n\nMerged" },
