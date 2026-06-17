@@ -72,19 +72,19 @@ export function GridSkeleton() {
       {Array.from({ length: 9 }).map((_, i) => (
         <div
           key={i}
-          className="min-h-[140px] rounded-md border border-white/[0.08] bg-white/[0.04] p-5 backdrop-blur-xl"
+          className="min-h-[140px] rounded-md border border-border/60 bg-card p-5 backdrop-blur-xl"
         >
           <div className="flex items-start gap-3.5">
-            <div className="size-10 animate-pulse rounded-lg bg-white/[0.08]" />
+            <div className="size-10 animate-pulse rounded-lg bg-foreground/[0.08]" />
             <div className="flex-1 space-y-2.5">
-              <div className="h-4 w-32 animate-pulse rounded-md bg-white/[0.08]" />
-              <div className="h-3 w-full animate-pulse rounded-md bg-white/[0.06]" />
-              <div className="h-3 w-3/4 animate-pulse rounded-md bg-white/[0.05]" />
+              <div className="h-4 w-32 animate-pulse rounded-md bg-foreground/[0.08]" />
+              <div className="h-3 w-full animate-pulse rounded-md bg-foreground/[0.06]" />
+              <div className="h-3 w-3/4 animate-pulse rounded-md bg-foreground/[0.05]" />
             </div>
-            <div className="size-8 animate-pulse rounded-full bg-white/[0.06]" />
+            <div className="size-8 animate-pulse rounded-full bg-foreground/[0.06]" />
           </div>
           <div className="mt-auto flex items-center gap-2 pt-6">
-            <div className="h-5 w-16 animate-pulse rounded-full bg-white/[0.06]" />
+            <div className="h-5 w-16 animate-pulse rounded-full bg-foreground/[0.06]" />
           </div>
         </div>
       ))}

@@ -24,9 +24,9 @@ export function SkillCard({
   return (
     <div
       className={cn(
-        "group relative flex min-h-[168px] cursor-pointer flex-col overflow-hidden rounded-2xl border border-white/5",
-        "bg-white/[0.03] p-5 backdrop-blur-2xl transition-all duration-300",
-        "hover:bg-white/[0.08] hover:border-white/10 hover:shadow-[0_8px_40px_-12px_rgba(0,0,0,0.5)]",
+        "group relative flex min-h-[168px] cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/70",
+        "bg-card p-5 backdrop-blur-2xl transition-all duration-300",
+        "hover:bg-foreground/[0.04] hover:border-border hover:shadow-[0_8px_40px_-12px_rgba(0,0,0,0.18)] dark:hover:shadow-[0_8px_40px_-12px_rgba(0,0,0,0.5)]",
         skill.installed && !skill.enabled && "opacity-60 grayscale-[0.5]",
       )}
       onClick={() => onClick(skill.slug)}
@@ -36,7 +36,7 @@ export function SkillCard({
         if (e.key === "Enter") onClick(skill.slug)
       }}
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+      <div className="absolute inset-0 bg-gradient-to-br from-foreground/[0.04] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
       <div className="relative flex items-start justify-between gap-4">
         <div className="flex flex-1 items-start gap-4 min-w-0">
@@ -59,15 +59,15 @@ export function SkillCard({
             <button
               type="button"
               onClick={() => onToggle(skill.slug)}
-              className="group/toggle flex h-6 w-10 cursor-pointer items-center rounded-full bg-white/5 p-1 ring-1 ring-white/10 transition-all hover:bg-white/10"
+              className="group/toggle flex h-6 w-10 cursor-pointer items-center rounded-full bg-foreground/10 p-1 ring-1 ring-border transition-all hover:bg-foreground/15"
               aria-label={`${skill.enabled ? "Disable" : "Enable"} ${skill.name}`}
             >
               <div
                 className={cn(
                   "h-4 w-4 rounded-full transition-all duration-300 shadow-sm",
                   skill.enabled
-                    ? "translate-x-4 bg-white shadow-white"
-                    : "translate-x-0 bg-zinc-500",
+                    ? "translate-x-4 bg-primary shadow-primary/40"
+                    : "translate-x-0 bg-muted-foreground/60",
                 )}
               />
             </button>
@@ -81,7 +81,7 @@ export function SkillCard({
               onClick={() => onInstall(skill.slug)}
               className={cn(
                 "flex size-8 cursor-pointer items-center justify-center rounded-full shadow-sm",
-                "bg-white/5 text-muted-foreground ring-1 ring-white/10 transition-all duration-300",
+                "bg-foreground/[0.05] text-muted-foreground ring-1 ring-border transition-all duration-300",
                 "hover:scale-110 hover:bg-primary hover:text-primary-foreground hover:ring-primary/20",
               )}
               aria-label={`Install ${skill.name}`}

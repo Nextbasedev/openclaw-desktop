@@ -39,13 +39,13 @@ export function StatItem({
   value: string | number
 }) {
   return (
-    <div className="flex flex-col items-center rounded-xl border border-white/5 bg-white/[0.03] px-4 py-5 backdrop-blur-xl shadow-sm transition-all hover:bg-white/[0.06]">
+    <div className="flex flex-col items-center rounded-xl border border-border/60 bg-card px-4 py-5 backdrop-blur-xl shadow-sm transition-all hover:bg-foreground/[0.04]">
       <span className="text-[18px] font-bold tracking-tight text-foreground/90">
         {typeof value === "number"
           ? value.toLocaleString()
           : value}
       </span>
-      <span className="mt-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40">
+      <span className="mt-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
         {label}
       </span>
     </div>
@@ -60,8 +60,8 @@ export function InfoRow({
   value: string
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.03] px-5 py-4 shadow-sm transition-all hover:bg-white/[0.06]">
-      <span className="text-[13px] font-medium text-muted-foreground/60">
+    <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card px-5 py-4 shadow-sm transition-all hover:bg-foreground/[0.04]">
+      <span className="text-[13px] font-medium text-muted-foreground">
         {label}
       </span>
       <span className="text-[13px] font-bold text-foreground/90 tabular-nums">
