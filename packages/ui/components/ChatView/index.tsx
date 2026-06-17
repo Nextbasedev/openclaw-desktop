@@ -21,6 +21,13 @@ import type { PatchFrame } from "@/lib/chat-engine-v2/types"
 import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParser"
 import { dedupeChatMessages } from "@/lib/chatMessageDedupe"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
+import {
+  deleteQueuedChatMessage,
+  editQueuedChatMessage,
+  enqueueChatMessage,
+  takeNextQueuedChatMessage,
+  type QueuedChatMessage,
+} from "@/lib/chatSendQueue"
 import { frontendLog } from "@/lib/clientLogs"
 import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
@@ -560,6 +567,7 @@ export function ChatView({
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const [windowState, setWindowState] = useState<WindowState>(INITIAL_WINDOW_STATE)
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
+  const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
   // Local sub-agent take-over state. When non-null, the chat surface renders
   // <SubagentFullChat/> instead of the normal message stream. Parent is
   // notified via onSubagentOpen so the inspector / agent breadcrumb stays in
@@ -571,12 +579,18 @@ export function ChatView({
   const shouldFollowScrollRef = useRef(true)
   const contextFetchSeqRef = useRef(0)
   const wasGeneratingRef = useRef(false)
+  const queuedMessagesRef = useRef<QueuedChatMessage[]>([])
+  const queueDrainInFlightRef = useRef(false)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pinButtonRef = useRef<HTMLButtonElement>(null)
   const pendingScrollAnchorRef = useRef<{
     anchorMessageId: string
     anchorOffsetFromContainerTop: number
   } | null>(null)
+
+  useEffect(() => {
+    queuedMessagesRef.current = queuedMessages
+  }, [queuedMessages])
   const olderFetchSeqRef = useRef(0)
   const newerFetchSeqRef = useRef(0)
   // Time-based refractory: wall-clock timestamp (ms since epoch) of the last
@@ -1186,6 +1200,27 @@ export function ChatView({
   async function handleSend(payload: ChatComposerSubmit) {
     const text = payload.text.trim()
     if (!text && !payload.attachments?.length) return
+    if (isGenerating && !payload.runWhileGenerating) {
+      const queued: QueuedChatMessage = {
+        id: randomId(),
+        payload: { ...payload, text },
+        createdAtMs: Date.now(),
+      }
+      setQueuedMessages((current) => {
+        const next = enqueueChatMessage(current, queued)
+        queuedMessagesRef.current = next
+        return next
+      })
+      setState((current) => ({ ...current, composerError: null }))
+      frontendLog("chat", "chat-rebuild.send.queued", {
+        sessionKey,
+        queueId: queued.id,
+        queueLength: queuedMessagesRef.current.length,
+        textLength: text.length,
+        attachmentCount: payload.attachments?.length ?? 0,
+      })
+      return
+    }
     if (!beginSendIfIdle(sendInFlightRef)) {
       frontendLog("chat", "chat-rebuild.send.duplicate-suppressed", {
         origin: "chatview-handle-send",
@@ -1567,11 +1602,31 @@ export function ChatView({
   const promptPreview = initialPrompt?.trim()
   const isGenerating = isActiveStreamStatus(state.streamStatus)
 
+  useEffect(() => {
+    if (isGenerating || sending || state.loading || queueDrainInFlightRef.current) return
+    const { next, rest } = takeNextQueuedChatMessage(queuedMessagesRef.current)
+    if (!next) return
+
+    queueDrainInFlightRef.current = true
+    queuedMessagesRef.current = rest
+    setQueuedMessages(rest)
+    frontendLog("chat", "chat-rebuild.send.queue-drain", {
+      sessionKey,
+      queueId: next.id,
+      remaining: rest.length,
+    })
+    void handleSend({ ...next.payload, runWhileGenerating: false }).finally(() => {
+      queueDrainInFlightRef.current = false
+    })
+  }, [isGenerating, queuedMessages.length, sending, sessionKey, state.loading])
+
   // Reset + initial fetch on session change
   useEffect(() => {
+    queuedMessagesRef.current = []
+    setQueuedMessages([])
     setSessionUsage(null)
     void refreshSessionUsage()
-  }, [refreshSessionUsage])
+  }, [refreshSessionUsage, sessionKey])
 
   // Refresh when a generation just finished (isGenerating true -> false)
   useEffect(() => {
@@ -2701,6 +2756,21 @@ export function ChatView({
           sessionUsage={sessionUsage}
           onCancelReply={handleCancelReply}
           draftKey={`chat:${sessionKey}`}
+          queuedMessages={queuedMessages}
+          onEditQueuedMessage={(id, text) => {
+            setQueuedMessages((current) => {
+              const next = editQueuedChatMessage(current, id, text)
+              queuedMessagesRef.current = next
+              return next
+            })
+          }}
+          onDeleteQueuedMessage={(id) => {
+            setQueuedMessages((current) => {
+              const next = deleteQueuedChatMessage(current, id)
+              queuedMessagesRef.current = next
+              return next
+            })
+          }}
         />
       </div>
     </div>
