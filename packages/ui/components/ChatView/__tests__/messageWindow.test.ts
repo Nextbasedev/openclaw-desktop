@@ -12,10 +12,12 @@ import {
   computeNewerPageEvictedFromStart,
   INITIAL_PAGE,
   INITIAL_WINDOW_STATE,
+  isFetchRefractory,
   liveTailQuery,
   MAX_BUFFER,
   MAX_LOADED,
   OLDER_PAGE,
+  REFRACTORY_MS,
   shouldDropPatchAsEvicted,
   shouldFetchNewer,
   shouldFetchOlder,
@@ -906,5 +908,375 @@ describe("BUG-2 Test D: buffer ceiling enforced", () => {
         maxBuffer: MAX_BUFFER,
       }),
     ).toBe(true)
+  })
+})
+
+describe("isFetchRefractory (E2E Wave 3 F-1 fix)", () => {
+  test("never resolved on either side → false", () => {
+    expect(
+      isFetchRefractory({
+        now: 10_000,
+        lastOlderResolvedAt: 0,
+        lastNewerResolvedAt: 0,
+      }),
+    ).toBe(false)
+  })
+
+  test("older just resolved → true (blocks both directions)", () => {
+    const T = 1_000
+    expect(
+      isFetchRefractory({
+        now: T,
+        lastOlderResolvedAt: T,
+        lastNewerResolvedAt: 0,
+      }),
+    ).toBe(true)
+    expect(
+      isFetchRefractory({
+        now: T + 100,
+        lastOlderResolvedAt: T,
+        lastNewerResolvedAt: 0,
+      }),
+    ).toBe(true)
+  })
+
+  test("newer just resolved → true (blocks both directions)", () => {
+    const T = 5_000
+    expect(
+      isFetchRefractory({
+        now: T,
+        lastOlderResolvedAt: 0,
+        lastNewerResolvedAt: T,
+      }),
+    ).toBe(true)
+    expect(
+      isFetchRefractory({
+        now: T + 200,
+        lastOlderResolvedAt: 0,
+        lastNewerResolvedAt: T,
+      }),
+    ).toBe(true)
+  })
+
+  test("both directions cooled down past REFRACTORY_MS → false", () => {
+    expect(
+      isFetchRefractory({
+        now: 10_000,
+        lastOlderResolvedAt: 10_000 - REFRACTORY_MS,
+        lastNewerResolvedAt: 10_000 - REFRACTORY_MS,
+      }),
+    ).toBe(false)
+    expect(
+      isFetchRefractory({
+        now: 10_000,
+        lastOlderResolvedAt: 10_000 - REFRACTORY_MS - 1,
+        lastNewerResolvedAt: 10_000 - REFRACTORY_MS - 1,
+      }),
+    ).toBe(false)
+  })
+
+  test("the alternation scenario from network.log: opposite-direction recent resolve still blocks", () => {
+    // Loop on the E2E rig: each fetch takes ~500 ms (network latency > REFRACTORY_MS=250).
+    // With per-direction refractory only, the loop sustained because by the time
+    // the current fetch resolved, the opposite direction's per-direction
+    // refractory had already expired.
+    //
+    // Bidirectional refractory should block the post-resolution opposite-
+    // direction trigger because the SAME-direction clock is fresh.
+    const FETCH_LATENCY_MS = 500
+
+    // T=500: older just resolved.
+    let now = FETCH_LATENCY_MS
+    expect(
+      isFetchRefractory({
+        now,
+        lastOlderResolvedAt: FETCH_LATENCY_MS,
+        lastNewerResolvedAt: 0,
+      }),
+    ).toBe(true)
+
+    // T=1000: newer just resolved (it fired immediately after older resolved
+    // under the old per-direction policy). Older's own clock is now 500 ms
+    // ago — per-direction policy would let older fire. Bidirectional should
+    // still block it because newer's clock just reset.
+    now = FETCH_LATENCY_MS * 2
+    expect(
+      isFetchRefractory({
+        now,
+        lastOlderResolvedAt: FETCH_LATENCY_MS,
+        lastNewerResolvedAt: FETCH_LATENCY_MS * 2,
+      }),
+    ).toBe(true)
+
+    // T=1000 + REFRACTORY_MS: both directions are unblocked again. Next fetch
+    // must come from a real scroll event, not from the post-resolution effect.
+    now = FETCH_LATENCY_MS * 2 + REFRACTORY_MS
+    expect(
+      isFetchRefractory({
+        now,
+        lastOlderResolvedAt: FETCH_LATENCY_MS,
+        lastNewerResolvedAt: FETCH_LATENCY_MS * 2,
+      }),
+    ).toBe(false)
+  })
+
+  test("respects custom refractoryMs", () => {
+    expect(
+      isFetchRefractory({
+        now: 1_000,
+        lastOlderResolvedAt: 950,
+        lastNewerResolvedAt: 0,
+        refractoryMs: 100,
+      }),
+    ).toBe(true)
+    expect(
+      isFetchRefractory({
+        now: 1_000,
+        lastOlderResolvedAt: 950,
+        lastNewerResolvedAt: 0,
+        refractoryMs: 25,
+      }),
+    ).toBe(false)
+  })
+})
+
+describe("loop convergence simulation (E2E Wave 3 F-1)", () => {
+  /**
+   * Drives the wired evaluator semantics across a sequence of post-
+   * resolution events. Mirrors the relevant guards in ChatView/index.tsx
+   * (`evaluateOlderTrigger` / `evaluateNewerTrigger`):
+   *   - skip if same-direction is loading
+   *   - skip if `isFetchRefractory` returns true
+   *   - skip if the shape predicate (`shouldFetchX`) returns false
+   *
+   * The scenario mirrors the network.log loop:
+   *   - the user has scrolled up; after anchor restoration, both
+   *     rowsAbove and rowsBelow sit below their respective triggers
+   *     (the buffer is bounded at 160 and the anchor lands near the
+   *     middle).
+   *   - each fetch takes FETCH_LATENCY_MS = 500 ms (network.log mean).
+   *   - eviction flips the opposite-direction `hasX` to true on every
+   *     resolution.
+   *
+   * With bidirectional refractory the loop must converge: a single round
+   * of (older or newer) before the post-resolution effect is silenced.
+   */
+  test("loop terminates within one round under bidirectional refractory", () => {
+    const FETCH_LATENCY_MS = 500
+    const ROWS_ABOVE = 30 // < TOP_TRIGGER (60)
+    const ROWS_BELOW = 30 // < BOTTOM_TRIGGER (60)
+
+    // Start at a time past the initial refractory window. In the live
+    // component, `lastOlderResolvedAtRef.current` starts at 0 and `Date.now()`
+    // is in the billions, so the first scroll-driven fire is always past
+    // refractory. We replicate that here.
+    let now = REFRACTORY_MS * 10
+    let lastOlderResolvedAt = 0
+    let lastNewerResolvedAt = 0
+    let state: WindowState = {
+      oldestLoadedSeq: 309,
+      newestLoadedSeq: 408,
+      hasOlder: true,
+      hasNewer: true,
+      isLoadingOlder: false,
+      isLoadingNewer: false,
+    }
+
+    const fired: string[] = []
+
+    function tryFireOlder(): void {
+      if (state.isLoadingOlder || state.isLoadingNewer) return
+      if (
+        isFetchRefractory({ now, lastOlderResolvedAt, lastNewerResolvedAt })
+      )
+        return
+      if (
+        !shouldFetchOlder({
+          rowsAboveViewport: ROWS_ABOVE,
+          hasOlder: state.hasOlder,
+          isLoadingOlder: state.isLoadingOlder,
+        })
+      )
+        return
+      state = { ...state, isLoadingOlder: true }
+      fired.push(`older@${now}`)
+    }
+    function tryFireNewer(): void {
+      if (state.isLoadingOlder || state.isLoadingNewer) return
+      if (
+        isFetchRefractory({ now, lastOlderResolvedAt, lastNewerResolvedAt })
+      )
+        return
+      if (
+        !shouldFetchNewer({
+          rowsBelowViewport: ROWS_BELOW,
+          hasNewer: state.hasNewer,
+          isLoadingNewer: state.isLoadingNewer,
+        })
+      )
+        return
+      state = { ...state, isLoadingNewer: true }
+      fired.push(`newer@${now}`)
+    }
+
+    // Round 0: a scroll event triggered older. The evaluator at index.tsx
+    // fires the older fetch (older clock is 0; refractory not engaged).
+    tryFireOlder()
+    expect(state.isLoadingOlder).toBe(true)
+
+    // Drive 10 iterations of the post-resolution effect. Each iteration:
+    //   - resolves whichever fetch is in flight after FETCH_LATENCY_MS
+    //   - fires the post-resolution evaluator (both directions)
+    // Without bidirectional refractory this loops indefinitely. With it,
+    // a single resolve immediately silences the opposite direction too,
+    // and the loop terminates.
+    for (let i = 0; i < 10; i++) {
+      if (state.isLoadingOlder) {
+        now += FETCH_LATENCY_MS
+        state = applyOlderPage({
+          prevState: state,
+          returnedCount: 0, // exhausted: same beforeSeq replayed
+          newOldestSeq: state.oldestLoadedSeq,
+          prevLoadedLength: 160,
+          evictedFromEnd: 0,
+          evictedNewestSeq: null,
+          serverHasOlder: true,
+        })
+        lastOlderResolvedAt = now
+      } else if (state.isLoadingNewer) {
+        now += FETCH_LATENCY_MS
+        state = applyNewerPage({
+          prevState: state,
+          returnedCount: 0,
+          newNewestSeq: state.newestLoadedSeq,
+          evictedFromStart: 0,
+          evictedOldestSeq: null,
+          serverHasNewer: true,
+        })
+        lastNewerResolvedAt = now
+      } else {
+        // No fetch in flight → no further post-resolution effect can fire.
+        break
+      }
+
+      // Post-resolution effect (mirrors index.tsx).
+      tryFireOlder()
+      tryFireNewer()
+    }
+
+    // Loop converged: at most one fetch per direction, no in-flight
+    // request lingering, and the bidirectional refractory shut down the
+    // post-resolution alternation before it could repeat.
+    expect(state.isLoadingOlder).toBe(false)
+    expect(state.isLoadingNewer).toBe(false)
+    const olderFires = fired.filter((s) => s.startsWith("older@")).length
+    const newerFires = fired.filter((s) => s.startsWith("newer@")).length
+    expect(olderFires).toBeLessThanOrEqual(1)
+    expect(newerFires).toBeLessThanOrEqual(1)
+  })
+
+  /**
+   * Control test: same simulation but with PER-DIRECTION refractory (the
+   * buggy pre-fix policy). Documents what the network.log captured:
+   * because each fetch takes longer than REFRACTORY_MS, the opposite
+   * direction's clock has always expired by the time the current fetch
+   * resolves, so the post-resolution effect alternates forever.
+   *
+   * If a future refactor regresses to per-direction refractory, this
+   * test will start passing the inner loop count and the bidirectional
+   * test above will start failing — surfacing the regression.
+   */
+  test("control: per-direction refractory loops indefinitely under same scenario", () => {
+    const FETCH_LATENCY_MS = 500
+    const ROWS_ABOVE = 30
+    const ROWS_BELOW = 30
+
+    let now = REFRACTORY_MS * 10
+    let lastOlderResolvedAt = 0
+    let lastNewerResolvedAt = 0
+    let state: WindowState = {
+      oldestLoadedSeq: 309,
+      newestLoadedSeq: 408,
+      hasOlder: true,
+      hasNewer: true,
+      isLoadingOlder: false,
+      isLoadingNewer: false,
+    }
+    let olderFires = 0
+    let newerFires = 0
+
+    function perDirectionRefractoryOlder(): boolean {
+      return now - lastOlderResolvedAt < REFRACTORY_MS
+    }
+    function perDirectionRefractoryNewer(): boolean {
+      return now - lastNewerResolvedAt < REFRACTORY_MS
+    }
+
+    function tryFireOlder(): void {
+      if (state.isLoadingOlder) return
+      if (perDirectionRefractoryOlder()) return
+      if (
+        !shouldFetchOlder({
+          rowsAboveViewport: ROWS_ABOVE,
+          hasOlder: state.hasOlder,
+          isLoadingOlder: state.isLoadingOlder,
+        })
+      )
+        return
+      state = { ...state, isLoadingOlder: true }
+      olderFires += 1
+    }
+    function tryFireNewer(): void {
+      if (state.isLoadingNewer) return
+      if (perDirectionRefractoryNewer()) return
+      if (
+        !shouldFetchNewer({
+          rowsBelowViewport: ROWS_BELOW,
+          hasNewer: state.hasNewer,
+          isLoadingNewer: state.isLoadingNewer,
+        })
+      )
+        return
+      state = { ...state, isLoadingNewer: true }
+      newerFires += 1
+    }
+
+    tryFireOlder()
+    expect(state.isLoadingOlder).toBe(true)
+
+    for (let i = 0; i < 10; i++) {
+      if (state.isLoadingOlder) {
+        now += FETCH_LATENCY_MS
+        state = applyOlderPage({
+          prevState: state,
+          returnedCount: 0,
+          newOldestSeq: state.oldestLoadedSeq,
+          prevLoadedLength: 160,
+          evictedFromEnd: 0,
+          evictedNewestSeq: null,
+          serverHasOlder: true,
+        })
+        lastOlderResolvedAt = now
+      } else if (state.isLoadingNewer) {
+        now += FETCH_LATENCY_MS
+        state = applyNewerPage({
+          prevState: state,
+          returnedCount: 0,
+          newNewestSeq: state.newestLoadedSeq,
+          evictedFromStart: 0,
+          evictedOldestSeq: null,
+          serverHasNewer: true,
+        })
+        lastNewerResolvedAt = now
+      } else {
+        break
+      }
+      tryFireOlder()
+      tryFireNewer()
+    }
+
+    // The buggy per-direction policy fires both directions many times.
+    // Mirrors the 20+ alternating fetches in the E2E network.log.
+    expect(olderFires + newerFires).toBeGreaterThanOrEqual(10)
   })
 })

@@ -153,6 +153,50 @@ export function computeEvictedAfterAppend(
 }
 
 /**
+ * E2E Wave 3 finding F-1 (docs/audit/e2e-wave3-2026-06-17.md).
+ *
+ * Bidirectional fetch refractory. Returns true when EITHER the older-page
+ * fetch or the newer-page fetch resolved less than `refractoryMs` ago.
+ *
+ * The previous per-direction refractory (older blocks only older; newer
+ * blocks only newer) failed to break the older/newer alternation loop:
+ *   - older fetch resolves at T → post-resolution evaluator fires both
+ *     directions. Older is in refractory (just set). Newer is not in
+ *     refractory (its clock is independent) → newer fires.
+ *   - newer fetch resolves at T+Δ (network latency Δ ≈ 500 ms on the
+ *     E2E rig). Older's per-direction refractory (250 ms) has expired
+ *     by now → post-resolution evaluator fires older. Loop sustains
+ *     itself at roughly 2 fetches/direction/second indefinitely
+ *     because Δ > REFRACTORY_MS.
+ *
+ * The bidirectional check breaks the alternation: after any direction
+ * resolves, both directions cool down together for `refractoryMs`. The
+ * post-resolution evaluator becomes a no-op for that window, and the
+ * next scroll event picks the appropriate direction based on the
+ * user's actual viewport position.
+ *
+ * Edge case intentionally regressed: when an older-page resolution
+ * evicts from the end and flips `hasNewer` to true while the user
+ * happens to sit at the new bottom, the automatic newer trigger no
+ * longer fires from the post-resolution effect — the user must nudge
+ * the scroll to re-arm. That nudge is preferable to the infinite-loop
+ * alternative; the case requires the user to sit at the bottom of the
+ * buffer immediately after an older fetch they themselves triggered
+ * from the top, which is contrived in practice.
+ */
+export function isFetchRefractory(input: {
+  now: number
+  lastOlderResolvedAt: number
+  lastNewerResolvedAt: number
+  refractoryMs?: number
+}): boolean {
+  const ms = input.refractoryMs ?? REFRACTORY_MS
+  if (input.now - input.lastOlderResolvedAt < ms) return true
+  if (input.now - input.lastNewerResolvedAt < ms) return true
+  return false
+}
+
+/**
  * Returns true when an older-page fetch should be triggered: there's older
  * data, we're not already loading, and the viewport is near the top.
  */

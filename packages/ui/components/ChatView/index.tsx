@@ -72,6 +72,7 @@ import {
   computeEvictedAfterPrepend,
   computeNewerPageEvictedFromStart,
   firstSeqfulGatewayIndex,
+  isFetchRefractory,
   lastSeqfulGatewayIndex,
   liveTailQuery,
   shouldCaptureAnchorOnLiveAppend,
@@ -2102,13 +2103,33 @@ export function ChatView({
     if (state.loading) return
     if (windowState.isLoadingOlder) return
     if (!windowState.hasOlder) return
-    // Time-based refractory: REFRACTORY_MS must elapse since the previous
-    // older fetch resolved. Prevents alternation loop with newer (whose
-    // eviction-from-end can flip rowsAbove below threshold) and prevents
-    // rapid re-fire during fast scroll bursts.
-    const elapsedSinceOlder = Date.now() - lastOlderResolvedAtRef.current
-    if (elapsedSinceOlder < REFRACTORY_MS) {
-      frontendLog("chat", "chat-rebuild.window.older-trigger-skip", { sessionKey, reason: "refractory", elapsedMs: elapsedSinceOlder, refractoryMs: REFRACTORY_MS }, "debug")
+    // E2E Wave 3 F-1: bidirectional refractory. Either direction's recent
+    // resolve blocks both triggers for REFRACTORY_MS. Per-direction
+    // refractory failed to stop the older/newer alternation loop because
+    // fetch latency on the E2E rig exceeded REFRACTORY_MS, so by the time
+    // the current fetch resolved the opposite direction had always cooled
+    // down and the post-resolution effect fired it again. See
+    // `isFetchRefractory` in messageWindow.ts.
+    const now = Date.now()
+    if (
+      isFetchRefractory({
+        now,
+        lastOlderResolvedAt: lastOlderResolvedAtRef.current,
+        lastNewerResolvedAt: lastNewerResolvedAtRef.current,
+      })
+    ) {
+      frontendLog(
+        "chat",
+        "chat-rebuild.window.older-trigger-skip",
+        {
+          sessionKey,
+          reason: "refractory",
+          elapsedSinceOlderMs: now - lastOlderResolvedAtRef.current,
+          elapsedSinceNewerMs: now - lastNewerResolvedAtRef.current,
+          refractoryMs: REFRACTORY_MS,
+        },
+        "debug",
+      )
       return
     }
     const rowsAboveViewport = measureRowsAboveViewport()
@@ -2402,15 +2423,27 @@ export function ChatView({
       frontendLog("chat", "chat-rebuild.window.newer-trigger-skip", { sessionKey, reason: "hasNewer=false", newestLoadedSeq: windowState.newestLoadedSeq }, "debug")
       return
     }
-    // Time-based refractory: REFRACTORY_MS must elapse since the previous
-    // newer fetch resolved.
-    const elapsedSinceNewer = Date.now() - lastNewerResolvedAtRef.current
-    if (elapsedSinceNewer < REFRACTORY_MS) {
+    // E2E Wave 3 F-1: bidirectional refractory. See evaluateOlderTrigger
+    // above and `isFetchRefractory` in messageWindow.ts for rationale.
+    const now = Date.now()
+    if (
+      isFetchRefractory({
+        now,
+        lastOlderResolvedAt: lastOlderResolvedAtRef.current,
+        lastNewerResolvedAt: lastNewerResolvedAtRef.current,
+      })
+    ) {
       frontendLog(
         "chat",
         "chat-rebuild.window.newer-trigger-skip",
-        { sessionKey, reason: "refractory", elapsedMs: elapsedSinceNewer, refractoryMs: REFRACTORY_MS },
-        "debug"
+        {
+          sessionKey,
+          reason: "refractory",
+          elapsedSinceOlderMs: now - lastOlderResolvedAtRef.current,
+          elapsedSinceNewerMs: now - lastNewerResolvedAtRef.current,
+          refractoryMs: REFRACTORY_MS,
+        },
+        "debug",
       )
       return
     }
