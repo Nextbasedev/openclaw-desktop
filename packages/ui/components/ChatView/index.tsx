@@ -1333,6 +1333,50 @@ export function ChatView({
     setComposerSeed(null)
 
     try {
+      frontendLog("chat", "chat-rebuild.send.click", {
+        origin: "chatview-handle-send",
+        timestamp: clickAt,
+        sessionKey,
+        hasExistingMessages,
+        textLength: text.length,
+        attachmentCount: payload.attachments?.length ?? 0,
+      })
+
+      if (windowStateRef.current.hasNewer) {
+        await resetToLiveTail()
+      }
+ let optimisticId: string | null = null
+      optimisticId = randomId()
+      shouldFollowScrollRef.current = true
+      const optimisticMessage: ChatMessage = {
+        messageId: optimisticId,
+        role: "user",
+        text,
+        createdAt: new Date().toISOString(),
+        isOptimistic: true,
+        sendStatus: "sending",
+        attachments: composerAttachmentsToMessageAttachments(payload.attachments),
+      }
+
+      setSending(true)
+      setState((current) => ({
+        ...current,
+        composerError: null,
+        streamStatus: "thinking",
+        statusLabel: "Thinking",
+        messages: orderChatMessages([...current.messages, optimisticMessage]),
+      }))
+      frontendLog("chat", "chat-rebuild.send.optimistic-render", {
+        origin: "chatview-handle-send",
+        timestamp: Date.now(),
+        msSinceClick: Date.now() - clickAt,
+        sessionKey,
+        optimisticId,
+      })
+      onFirstMessageSent?.(text)
+      setReplyTo(null)
+      setComposerSeed(null)
+
       frontendLog("chat", "chat-rebuild.send.request-fired", {
         origin: "chatview-handle-send",
         timestamp: Date.now(),
