@@ -826,6 +826,23 @@ describe("middleware app", () => {
       expect.objectContaining({ id: defaultChat.json().chat.id }),
       expect.objectContaining({ id: activeChat.json().chat.id }),
     ]));
+
+    await app.inject({ method: "POST", url: `/api/chats/${defaultChat.json().chat.id}/archive`, payload: { archived: true } });
+    await app.inject({ method: "POST", url: `/api/chats/${activeChat.json().chat.id}/archive`, payload: { archived: true } });
+
+    const activeArchivedChats = await app.inject({ method: "GET", url: "/api/chats?archived=true" });
+    expect(activeArchivedChats.json().chats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: activeChat.json().chat.id, spaceId: activeSpaceId }),
+    ]));
+    expect(activeArchivedChats.json().chats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: defaultChat.json().chat.id }),
+    ]));
+
+    const allArchivedChats = await app.inject({ method: "GET", url: "/api/chats?archived=true&all=true" });
+    expect(allArchivedChats.json().chats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: defaultChat.json().chat.id, spaceId: "space_default" }),
+      expect.objectContaining({ id: activeChat.json().chat.id, spaceId: activeSpaceId }),
+    ]));
     await app.close();
   });
 

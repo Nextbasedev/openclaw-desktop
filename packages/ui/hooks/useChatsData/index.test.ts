@@ -139,7 +139,7 @@ describe("useChatsData", () => {
     await data.loadChats()
 
     expect(mocks.invoke).toHaveBeenCalledWith("middleware_chats_list", {
-      input: { archived: true },
+      input: { archived: true, all: true },
     })
     expect(mocks.stateSets[0]).toContainEqual([archivedChat])
   })

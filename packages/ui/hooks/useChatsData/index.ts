@@ -150,7 +150,7 @@ export function useChatsData(
       }
       if (showArchived) {
         const result = await invoke<{ chats: Chat[] }>("middleware_chats_list", {
-          input: { archived: true },
+          input: { archived: true, all: true },
         })
         if (!isCurrentRequest()) return
         applyChats((result.chats || []).filter((chat) => {

@@ -91,6 +91,23 @@ describe("new backend IPC routing", () => {
     )
   })
 
+  it("routes global archived chats with all=true instead of active-space fallback", async () => {
+    mockStorage({
+      "openclaw.middleware.url": "http://middleware.test/",
+      "openclaw.middleware.token": "tok",
+    })
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ chats: [] }), { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { invoke } = await import("../ipc")
+    await invoke("middleware_chats_list", { input: { archived: true, all: true } })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://middleware.test/api/chats?archived=true&all=true",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer tok" }) }),
+    )
+  })
+
   it("falls back to legacy command endpoint when spaces REST routes are unavailable", async () => {
     mockStorage({
       "openclaw.middleware.url": "http://middleware.test/",
