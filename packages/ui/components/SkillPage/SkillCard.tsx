@@ -24,9 +24,10 @@ export function SkillCard({
   return (
     <div
       className={cn(
-        "group relative flex min-h-[168px] cursor-pointer flex-col overflow-hidden rounded-2xl border border-white/5",
-        "bg-white/[0.03] p-5 backdrop-blur-2xl transition-all duration-300",
-        "hover:bg-white/[0.08] hover:border-white/10 hover:shadow-[0_8px_40px_-12px_rgba(0,0,0,0.5)]",
+        "group relative flex min-h-[168px] cursor-pointer flex-col overflow-hidden rounded-2xl border border-zinc-200/80",
+        "bg-white p-5 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.45)] transition-all duration-300",
+        "hover:border-zinc-300 hover:bg-zinc-50/80 hover:shadow-[0_16px_38px_-24px_rgba(15,23,42,0.5)]",
+        "dark:border-white/5 dark:bg-white/[0.03] dark:backdrop-blur-2xl dark:hover:border-white/10 dark:hover:bg-white/[0.08] dark:hover:shadow-[0_8px_40px_-12px_rgba(0,0,0,0.5)]",
         skill.installed && !skill.enabled && "opacity-60 grayscale-[0.5]",
       )}
       onClick={() => onClick(skill.slug)}
@@ -36,7 +37,7 @@ export function SkillCard({
         if (e.key === "Enter") onClick(skill.slug)
       }}
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+      <div className="absolute inset-0 hidden bg-gradient-to-br from-white/5 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100 dark:block" />
 
       <div className="relative flex items-start justify-between gap-4">
         <div className="flex flex-1 items-start gap-4 min-w-0">
@@ -59,15 +60,15 @@ export function SkillCard({
             <button
               type="button"
               onClick={() => onToggle(skill.slug)}
-              className="group/toggle flex h-6 w-10 cursor-pointer items-center rounded-full bg-white/5 p-1 ring-1 ring-white/10 transition-all hover:bg-white/10"
+              className="group/toggle flex h-6 w-10 cursor-pointer items-center rounded-full bg-zinc-100 p-1 ring-1 ring-zinc-200 transition-all hover:bg-zinc-200 dark:bg-white/5 dark:ring-white/10 dark:hover:bg-white/10"
               aria-label={`${skill.enabled ? "Disable" : "Enable"} ${skill.name}`}
             >
               <div
                 className={cn(
                   "h-4 w-4 rounded-full transition-all duration-300 shadow-sm",
                   skill.enabled
-                    ? "translate-x-4 bg-white shadow-white"
-                    : "translate-x-0 bg-zinc-500",
+                    ? "translate-x-4 bg-zinc-900 shadow-zinc-300 dark:bg-white dark:shadow-white"
+                    : "translate-x-0 bg-zinc-400 dark:bg-zinc-500",
                 )}
               />
             </button>
@@ -81,8 +82,9 @@ export function SkillCard({
               onClick={() => onInstall(skill.slug)}
               className={cn(
                 "flex size-8 cursor-pointer items-center justify-center rounded-full shadow-sm",
-                "bg-white/5 text-muted-foreground ring-1 ring-white/10 transition-all duration-300",
-                "hover:scale-110 hover:bg-primary hover:text-primary-foreground hover:ring-primary/20",
+                "bg-white text-zinc-600 ring-1 ring-zinc-200 transition-all duration-300",
+                "hover:scale-110 hover:bg-zinc-950 hover:text-white hover:ring-zinc-950/20",
+                "dark:bg-white/5 dark:text-muted-foreground dark:ring-white/10 dark:hover:bg-primary dark:hover:text-primary-foreground dark:hover:ring-primary/20",
               )}
               aria-label={`Install ${skill.name}`}
             >
@@ -113,7 +115,7 @@ export function SkillCard({
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 text-[11px] font-bold tracking-tight text-muted-foreground/40 transition-all duration-300 group-hover:translate-x-1 group-hover:text-primary">
+        <div className="flex items-center gap-1.5 text-[11px] font-bold tracking-tight text-muted-foreground/60 transition-all duration-300 group-hover:translate-x-1 group-hover:text-zinc-900 dark:text-muted-foreground/40 dark:group-hover:text-primary">
           <span className="uppercase opacity-0 group-hover:opacity-100 transition-opacity">Details</span>
           <LuArrowRight size={14} className="opacity-40 group-hover:opacity-100 transition-opacity" />
         </div>

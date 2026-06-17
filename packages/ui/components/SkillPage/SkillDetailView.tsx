@@ -203,22 +203,22 @@ export function SkillDetailView({
         )}
 
         {(statItems.length > 0 || infoItems.length > 0) && (
-          <div className="mt-6 rounded-sm shadow-[0_10px_40px_-24px_rgba(0,0,0,0.75)] backdrop-blur-2xl">
+          <div className="mt-6 overflow-hidden rounded-lg border border-zinc-200/80 bg-white shadow-[0_16px_40px_-28px_rgba(15,23,42,0.45)] dark:rounded-sm dark:border-0 dark:bg-transparent dark:shadow-[0_10px_40px_-24px_rgba(0,0,0,0.75)] dark:backdrop-blur-2xl">
             {statItems.length > 0 && (
-              <div className="grid grid-cols-2 rounded-sm border md:grid-cols-4">
+              <div className="grid grid-cols-2 border-b border-zinc-200/80 bg-white md:grid-cols-4 dark:rounded-sm dark:border dark:border-white/8 dark:bg-transparent">
                 {statItems.map((item, index) => (
                   <div
                     key={item.label}
                     className={cn(
                       "px-4 py-5 text-center",
                       index !== statItems.length - 1 &&
-                        "border-r border-white/8"
+                        "border-r border-zinc-200/80 dark:border-white/8"
                     )}
                   >
                     <div className="text-[18px] font-bold tracking-tight text-foreground/90">
                       {item.value}
                     </div>
-                    <div className="mt-1 text-[10px] font-bold tracking-[0.22em] text-muted-foreground/40 uppercase">
+                    <div className="mt-1 text-[10px] font-bold tracking-[0.22em] text-muted-foreground/70 uppercase dark:text-muted-foreground/40">
                       {item.label}
                     </div>
                   </div>
@@ -227,13 +227,13 @@ export function SkillDetailView({
             )}
 
             {infoItems.length > 0 && (
-              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-0 md:grid-cols-2 dark:mt-2 dark:gap-2">
                 {infoItems.map((item) => (
                   <div
                     key={item.label}
-                    className="flex items-center justify-between rounded-sm border border-white/8 bg-white/[0.035] px-5 py-4"
+                    className="flex items-center justify-between border-b border-zinc-200/70 bg-white px-5 py-4 last:border-b-0 md:odd:border-r dark:rounded-sm dark:border dark:border-white/8 dark:bg-white/[0.035]"
                   >
-                    <span className="text-[13px] font-medium text-muted-foreground/60">
+                    <span className="text-[13px] font-medium text-muted-foreground/80 dark:text-muted-foreground/60">
                       {item.label}
                     </span>
                     <span className="text-[13px] font-bold text-foreground/90 tabular-nums">
@@ -251,7 +251,7 @@ export function SkillDetailView({
             <h3 className="mb-4 text-[14px] font-medium text-foreground">
               Skill Instructions
             </h3>
-            <div className="rounded-lg border border-border/40 bg-muted/10 p-4 text-[13px] leading-relaxed whitespace-pre-wrap text-foreground/80">
+            <div className="rounded-lg border border-zinc-200/80 bg-white p-4 text-[13px] leading-relaxed whitespace-pre-wrap text-foreground/80 shadow-[0_12px_32px_-28px_rgba(15,23,42,0.45)] dark:border-border/40 dark:bg-muted/10 dark:shadow-none">
               {detail.localContent}
             </div>
           </div>
@@ -259,7 +259,7 @@ export function SkillDetailView({
 
         {latestVersion?.changelog && (
           <div className="mt-8">
-            <div className="rounded-sm border border-white/8 bg-white/[0.04] p-3 shadow-[0_10px_40px_-24px_rgba(0,0,0,0.75)] backdrop-blur-2xl">
+            <div className="rounded-lg border border-zinc-200/80 bg-white p-3 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.45)] dark:rounded-sm dark:border-white/8 dark:bg-white/[0.04] dark:shadow-[0_10px_40px_-24px_rgba(0,0,0,0.75)] dark:backdrop-blur-2xl">
               <div className="mb-1 px-2 py-3">
                 <h3 className="text-[14px] font-medium text-foreground">
                   Changelog
@@ -280,14 +280,14 @@ export function SkillDetailView({
                   Version History
                 </h3>
               </div>
-              <div className="overflow-hidden rounded-sm border border-white/8 bg-white/[0.025]">
+              <div className="overflow-hidden rounded-lg border border-zinc-200/80 bg-white shadow-[0_12px_32px_-28px_rgba(15,23,42,0.45)] dark:rounded-sm dark:border-white/8 dark:bg-white/[0.025] dark:shadow-none">
                 <table className="w-full border-collapse text-left">
                   <thead>
-                    <tr className="border-b border-white/8 bg-white/[0.03]">
-                      <th className="border-r border-white/8 px-4 py-3 text-[11px] font-semibold tracking-[0.18em] text-white uppercase">
+                    <tr className="border-b border-zinc-200/80 bg-zinc-50 dark:border-white/8 dark:bg-white/[0.03]">
+                      <th className="border-r border-zinc-200/80 px-4 py-3 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase dark:border-white/8 dark:text-white">
                         Version
                       </th>
-                      <th className="px-4 py-3 text-right text-[11px] font-semibold tracking-[0.18em] text-white uppercase">
+                      <th className="px-4 py-3 text-right text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase dark:text-white">
                         Date
                       </th>
                     </tr>
@@ -298,10 +298,10 @@ export function SkillDetailView({
                         key={version.version}
                         className={cn(
                           index !== versions.items.length - 1 &&
-                            "border-b border-white/6"
+                            "border-b border-zinc-200/70 dark:border-white/6"
                         )}
                       >
-                        <td className="border-r border-white/8 px-4 py-3 text-[13px] font-medium text-foreground">
+                        <td className="border-r border-zinc-200/80 px-4 py-3 text-[13px] font-medium text-foreground dark:border-white/8">
                           v{version.version}
                         </td>
                         <td className="px-4 py-3 text-right text-[12px] text-muted-foreground">
