@@ -193,9 +193,10 @@ export function ChatBox({
   const showSendWhileGenerating = Boolean(
     isGenerating && (input.trim().length > 0 || attachments.length > 0)
   )
-  const canSendWithoutInterruptingGeneration = Boolean(
+  const canRunImmediatelyWhileGenerating = Boolean(
     showSendWhileGenerating &&
-    (!input.trim().startsWith("/") || canRunSlashCommandWhileGenerating(input, commands))
+    input.trim().startsWith("/") &&
+    canRunSlashCommandWhileGenerating(input, commands)
   )
   const {
     state: voiceState,
@@ -591,7 +592,7 @@ export function ChatBox({
         attachments.length > 0
           ? attachments.map(stripComposerAttachment)
           : undefined,
-      runWhileGenerating: canSendWithoutInterruptingGeneration,
+      runWhileGenerating: canRunImmediatelyWhileGenerating,
       replyTo: replyTo ?? undefined,
       autonomyMode: "manual",
       execPolicy: execPolicyForAutonomyMode("manual"),
