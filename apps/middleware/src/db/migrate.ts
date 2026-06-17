@@ -74,6 +74,15 @@ CREATE TABLE IF NOT EXISTS v2_projection_events (cursor INTEGER PRIMARY KEY AUTO
 CREATE INDEX IF NOT EXISTS idx_v2_projection_events_cursor ON v2_projection_events(cursor);
 CREATE TABLE IF NOT EXISTS v2_gateway_offsets (session_key TEXT PRIMARY KEY, last_openclaw_seq INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS v2_compat_state (key TEXT PRIMARY KEY, data_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL);
+-- Audit Bug 5 (docs/audit/middleware-window-audit-2026-06-17.md): openclaw_seq
+-- is mutable per session (resequence / collision-shift / deletes). Per-session
+-- seq_epoch is bumped on every seq mutation so frontends can detect when a
+-- previously cached cursor refers to a different message.
+CREATE TABLE IF NOT EXISTS v2_session_seq_epochs (
+  session_key TEXT PRIMARY KEY,
+  seq_epoch TEXT NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
 `;
 
 function addColumnIfMissing(db: Database.Database, table: string, column: string, definition: string) {

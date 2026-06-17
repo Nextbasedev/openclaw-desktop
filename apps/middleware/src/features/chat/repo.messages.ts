@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type Database from "better-sqlite3";
 import { fromJson, toJson } from "../../db/json.js";
 import { isInternalSubagentCompletionMessage, isVisibleMessage as defaultIsVisibleMessage, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
@@ -163,8 +164,17 @@ export class MessageRepository {
   }
 
   deleteMessagesForSegment(segmentId: string) {
+    // Audit Bug 5: bump every affected session's seq epoch BEFORE the delete
+    // so callers reading the epoch after the call always see the new value.
+    const sessionKeys = this.db.prepare(`
+      SELECT DISTINCT session_key FROM v2_messages WHERE segment_id = @segmentId
+    `).all({ segmentId }) as Array<{ session_key: string }>;
     const result = this.db.prepare(`DELETE FROM v2_messages WHERE segment_id = @segmentId`).run({ segmentId });
-    return Number(result.changes ?? 0);
+    const changed = Number(result.changes ?? 0);
+    if (changed > 0) {
+      for (const row of sessionKeys) this.bumpSessionSeqEpoch(row.session_key);
+    }
+    return changed;
   }
 
   ensureActiveSegment(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; resetReason?: string | null }) {
@@ -352,6 +362,9 @@ export class MessageRepository {
     const tx = this.db.transaction((rows: ProjectedMessage[]) => {
       let lastSeq = 0;
       const changedMessages: ProjectedMessage[] = [];
+      // Audit Bug 5: track whether the late-echo collision shift fires so we
+      // can bump the per-session seq epoch after the transaction commits.
+      const seqShiftedSessionKeys = new Set<string>();
       const activeSegment = opts.segmentId
         ? this.getActiveSegment(rows[0]!.sessionKey)
         : this.ensureActiveSegment({ sessionKey: rows[0]!.sessionKey, sessionId: opts.sessionId ?? rows[0]!.sessionId ?? null });
@@ -482,6 +495,7 @@ export class MessageRepository {
               sessionKey: message.sessionKey,
               segmentId,
             });
+            seqShiftedSessionKeys.add(message.sessionKey);
             const shiftedRows = readShiftedRows.all({
               sessionKey: message.sessionKey,
               segmentId,
@@ -568,9 +582,12 @@ export class MessageRepository {
         lastSeq = Math.max(lastSeq, openclawSeq);
       }
       offset.run({ sessionKey: rows[0]?.sessionKey, lastSeq, updatedAtMs: Date.now() });
-      return { lastSeq, changedMessages };
+      return { lastSeq, changedMessages, seqShiftedSessionKeys: [...seqShiftedSessionKeys] };
     });
-    const result = tx(messages) as { lastSeq: number; changedMessages: ProjectedMessage[] };
+    const result = tx(messages) as { lastSeq: number; changedMessages: ProjectedMessage[]; seqShiftedSessionKeys: string[] };
+    // Audit Bug 5: a collision shift rewrote openclaw_seq for one or more rows
+    // in this session; cursors derived from the old seq are now stale.
+    for (const sessionKey of result.seqShiftedSessionKeys) this.bumpSessionSeqEpoch(sessionKey);
     return { upserted: result.changedMessages.length, lastSeq: result.lastSeq, changedMessages: result.changedMessages };
   }
 
@@ -621,7 +638,11 @@ export class MessageRepository {
       }
       return pruned;
     });
-    return tx() as number;
+    const pruned = tx() as number;
+    // Audit Bug 5: pruning deletes seq-bearing rows; bump the epoch so clients
+    // that already paged in those rows detect the invalidation.
+    if (pruned > 0) this.bumpSessionSeqEpoch(params.sessionKey);
+    return pruned;
   }
 
   resequenceSessionMessages(sessionKey: string) {
@@ -684,7 +705,13 @@ export class MessageRepository {
       segments.forEach((segment, index) => updateSegmentFinal.run({ segmentId: segment.segment_id, segmentIndex: index, now }));
       return { changedMessages, changedSegments };
     });
-    return tx() as { changedMessages: number; changedSegments: number };
+    const result = tx() as { changedMessages: number; changedSegments: number };
+    // Audit Bug 5: bump epoch unconditionally — resequence rewrites the seq
+    // assignment for every row in the session even when the SQL `UPDATE`
+    // happens to land on the same value (the cursor contract is that any call
+    // to this function invalidates externally cached seqs).
+    this.bumpSessionSeqEpoch(sessionKey);
+    return result;
   }
 
   searchMessages(sessionKey: string, query: string, limit = 50): Array<{ openclawSeq: number; messageId: string | null; role: string | null; snippet: string }> {
@@ -865,10 +892,13 @@ export class MessageRepository {
   }
 
   deleteMessageById(sessionKey: string, messageId: string) {
-    return this.db.prepare(`
+    const changes = Number(this.db.prepare(`
       DELETE FROM v2_messages
       WHERE session_key = @sessionKey AND message_id = @messageId
-    `).run({ sessionKey, messageId }).changes;
+    `).run({ sessionKey, messageId }).changes ?? 0);
+    // Audit Bug 5: any deletion of a seq-bearing row invalidates cursors.
+    if (changes > 0) this.bumpSessionSeqEpoch(sessionKey);
+    return changes;
   }
 
   findLatestLiveAssistantByText(sessionKey: string, text: string): ProjectedMessage | null {
@@ -969,13 +999,41 @@ export class MessageRepository {
    * mutated (resequence / late-echo collisions / deletions) so the frontend
    * can detect stale seq references mid-stream.
    *
-   * Commit 1 wires the envelope field with a deterministic stub. Commit 4
-   * replaces the body with a real persisted-and-bumped value.
+   * Persisted in v2_session_seq_epochs; lazily initialised on first read.
    */
   getSessionSeqEpoch(sessionKey: string): string {
-    // Stub: stable per session until Commit 4 introduces real bump tracking.
-    void sessionKey;
-    return "v0";
+    const existing = this.db.prepare(`
+      SELECT seq_epoch FROM v2_session_seq_epochs WHERE session_key = @sessionKey
+    `).get({ sessionKey }) as { seq_epoch?: string } | undefined;
+    if (existing?.seq_epoch) return existing.seq_epoch;
+    const fresh = crypto.randomUUID();
+    this.db.prepare(`
+      INSERT INTO v2_session_seq_epochs(session_key, seq_epoch, updated_at_ms)
+      VALUES (@sessionKey, @epoch, @updatedAtMs)
+      ON CONFLICT(session_key) DO NOTHING
+    `).run({ sessionKey, epoch: fresh, updatedAtMs: Date.now() });
+    const row = this.db.prepare(`
+      SELECT seq_epoch FROM v2_session_seq_epochs WHERE session_key = @sessionKey
+    `).get({ sessionKey }) as { seq_epoch?: string } | undefined;
+    return row?.seq_epoch ?? fresh;
+  }
+
+  /**
+   * Bump the session seq epoch. Called from every code path that mutates
+   * `openclaw_seq` (resequence, late-echo collision shift, delete-by-id,
+   * delete-by-segment, prune-to-canonical). Idempotent and side-effect-free
+   * for callers other than the epoch field itself.
+   */
+  bumpSessionSeqEpoch(sessionKey: string): string {
+    const fresh = crypto.randomUUID();
+    this.db.prepare(`
+      INSERT INTO v2_session_seq_epochs(session_key, seq_epoch, updated_at_ms)
+      VALUES (@sessionKey, @epoch, @updatedAtMs)
+      ON CONFLICT(session_key) DO UPDATE SET
+        seq_epoch = excluded.seq_epoch,
+        updated_at_ms = excluded.updated_at_ms
+    `).run({ sessionKey, epoch: fresh, updatedAtMs: Date.now() });
+    return fresh;
   }
 
   appendProjectionEvent(params: { sessionKey?: string | null; eventType: string; payload: unknown; createdAtMs?: number }): ProjectionEvent {

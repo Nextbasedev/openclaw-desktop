@@ -907,6 +907,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         semanticType: "chat.user.created",
         run: optimisticRun,
         messageId: clientMessage.__openclaw.id,
+        epoch: context.messages.getSessionSeqEpoch(input.sessionKey),
         payload: {
           sessionKey: input.sessionKey,
           message: clientMessage,
@@ -1090,6 +1091,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                     semanticType: "chat.user.confirmed",
                     run: context.runs.getRun(runId),
                     messageId: confirmedUser.messageId,
+                    epoch: context.messages.getSessionSeqEpoch(input.sessionKey),
                     payload: {
                       sessionKey: input.sessionKey,
                       message: confirmedUser.data,
@@ -1129,6 +1131,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                     semanticType,
                     run: context.runs.getRun(runId),
                     messageId: projected.messageId,
+                    epoch: context.messages.getSessionSeqEpoch(input.sessionKey),
                     payload: {
                       sessionKey: input.sessionKey,
                       message: projected.data,

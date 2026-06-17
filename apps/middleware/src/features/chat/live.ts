@@ -380,6 +380,7 @@ export class ChatLiveIngest {
             : gatewayProjection.semanticType,
           run: runForPatch,
           messageId: confirmed?.messageId ?? projectedMessage.messageId,
+          epoch: this.context.messages.getSessionSeqEpoch(sessionKey),
           payload: {
             sessionKey,
             message: emittedMessage,
@@ -946,6 +947,7 @@ export class ChatLiveIngest {
             semanticType,
             run,
             messageId: projected.messageId,
+            epoch: this.context.messages.getSessionSeqEpoch(sessionKey),
             payload: {
               sessionKey,
               message: projected.data,
@@ -1089,6 +1091,7 @@ export class ChatLiveIngest {
         semanticType: "chat.assistant.delta",
         run,
         messageId,
+        epoch: this.context.messages.getSessionSeqEpoch(sessionKey),
         payload: {
           sessionKey,
           runId: run.runId,

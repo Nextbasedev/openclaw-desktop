@@ -82,6 +82,7 @@ export function canonicalPatchPayload(params: {
   messageId?: string | null;
   legacyStatus?: unknown;
   legacyStatusLabel?: unknown;
+  epoch?: string;
 }) {
   const status = params.run?.status ?? canonicalRunStatusFromLegacy(params.legacyStatus);
   const semanticType = normalizePatchSemanticType(params.semanticType, params.payload);
@@ -89,6 +90,12 @@ export function canonicalPatchPayload(params: {
     projectionVersion: CHAT_PROJECTION_VERSION,
     semanticType,
     sessionKey: params.sessionKey,
+    // Audit Bug 5: include the per-session seq epoch in every patch so the
+    // frontend can detect when openclaw_seq has been mutated (resequence,
+    // late-echo collision, delete-by-id). Optional because some legacy
+    // patches are built outside the chat-route context; the routes that
+    // know the epoch pass it in.
+    ...(params.epoch ? { epoch: params.epoch } : {}),
     ...(params.run ? {
       runId: params.run.runId,
       gatewayRunId: params.run.gatewayRunId,
@@ -120,6 +127,12 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
   projection: { upserted: number; lastSeq: number; liveSubscribed: boolean };
   historyMeta?: { thinkingLevel?: unknown; fastMode?: unknown; verboseLevel?: unknown };
 }) {
+  // Audit Bug 5: per-session seq epoch. Surfaced on bootstrap so the frontend
+  // knows the starting epoch; every /api/chat/messages response and the
+  // patch envelope carry the same field. A mid-stream mismatch tells the
+  // frontend that openclaw_seq values were resequenced (or otherwise mutated)
+  // and any cached seq references are now stale.
+  const epoch = context.messages.getSessionSeqEpoch(params.sessionKey);
   const activeRun = context.runs.findLatestPendingRun(params.sessionKey);
   const latestRun = activeRun ?? context.runs.latestRun(params.sessionKey);
   const runStatus = latestRun?.status ?? canonicalRunStatusFromLegacy(params.sessionData.status);
@@ -148,6 +161,11 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
     hasOlder: false,
     knownTotalMessages: params.messageCount,
     oldestLoadedSeq: null,
+    // Audit Bug 5 alias — the top-level `epoch` field (below) and `seqEpoch`
+    // are the same value; the alias is exposed so frontends that wire up to
+    // the documented audit field name (seqEpoch) and frontends that wired up
+    // to the original envelope name (epoch) both read a stable identifier.
+    seqEpoch: epoch,
     messages: params.messages,
     messageCount: params.messageCount,
     tools,
@@ -165,5 +183,6 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
       cursor: params.cursor,
       liveSubscribed: params.projection.liveSubscribed,
     },
+    epoch,
   };
 }
