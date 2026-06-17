@@ -561,7 +561,6 @@ export function ChatBox({
     )
       return
     if (
-      isGenerating &&
       attachments.length === 0 &&
       !replyTo &&
       isStopSlashCommand(text)

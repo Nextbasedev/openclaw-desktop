@@ -29,6 +29,7 @@ import {
   takeNextQueuedChatMessage,
   type QueuedChatMessage,
 } from "@/lib/chatSendQueue"
+import { isStopSlashCommand } from "@/lib/controlSlashCommands"
 import { frontendLog } from "@/lib/clientLogs"
 import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
@@ -1301,6 +1302,15 @@ export function ChatView({
   async function handleSend(payload: ChatComposerSubmit) {
     const text = payload.text.trim()
     if (!text && !payload.attachments?.length) return
+    if (!payload.attachments?.length && !payload.replyTo && isStopSlashCommand(text)) {
+      frontendLog("chat", "chat-rebuild.stop-command.intercept", {
+        sessionKey,
+        isGenerating,
+        streamStatus: state.streamStatus,
+      }, "info")
+      await handleAbort()
+      return
+    }
     if (isGenerating && !payload.runWhileGenerating) {
       const queued: QueuedChatMessage = {
         id: randomId(),
