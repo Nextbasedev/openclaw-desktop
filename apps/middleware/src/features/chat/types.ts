@@ -9,6 +9,12 @@ export type OpenClawMessage = Record<string, unknown> & {
     runId?: string | null;
     replacedLiveMessageId?: string | null;
     preserveDisplayText?: boolean;
+    // Audit Bug 4 (window-stabilize 2026-06-17): set when the live SSE handler
+    // persists a `live:<runId>:assistant` placeholder row so that
+    // isVisibleMessage and the canonical read-path filters drop it from
+    // bootstrap / /api/chat/messages snapshots. Real assistant messages omit
+    // this flag.
+    placeholder?: boolean;
   };
 };
 
@@ -31,3 +37,5 @@ export type ProjectionEvent = {
   payload: unknown;
   createdAtMs: number;
 };
+
+export type OCPlatformMessage = OpenClawMessage;
