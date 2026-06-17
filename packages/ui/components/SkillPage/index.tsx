@@ -143,56 +143,58 @@ export function SkillPage() {
   }
 
   return (
-    <div className="h-full w-full overflow-y-auto">
-      <div className="mx-auto w-full max-w-5xl px-7 py-10">
-        <div className="mb-7 text-center">
-          <h1 className="text-[28px] font-medium tracking-tight text-foreground">
-            Discover Skills
-          </h1>
-          <p className="mt-1 text-[14px] text-muted-foreground">
-            Browse and install skills from ClawHub
-          </p>
-        </div>
-        <div className="mb-5 flex items-center gap-2.5">
-          <div className="flex items-center gap-1.5">
-            <TabButton
-              active={activeTab === "all"}
-              onClick={() => setActiveTab("all")}
-              label="All"
-            />
-            <TabButton
-              active={activeTab === "installed"}
-              onClick={() => setActiveTab("installed")}
-              label="Installed"
-              count={installedCount}
-            />
-            {activeTab === "all" && (
-              <SortDropdown
-                value={sort}
-                onChange={onSortChange}
+    <div className="h-full w-full overflow-y-auto scrollbar-hide">
+      <div className="mx-auto w-full max-w-5xl px-7 pb-10">
+        <div className="sticky top-0 z-20 -mx-7 mb-5 border-b border-border/60 bg-background/95 px-7 pb-5 pt-10 backdrop-blur-xl">
+          <div className="mb-7 text-center">
+            <h1 className="text-[28px] font-medium tracking-tight text-foreground">
+              Discover Skills
+            </h1>
+            <p className="mt-1 text-[14px] text-muted-foreground">
+              Browse and install skills from ClawHub
+            </p>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-1.5">
+              <TabButton
+                active={activeTab === "all"}
+                onClick={() => setActiveTab("all")}
+                label="All"
               />
+              <TabButton
+                active={activeTab === "installed"}
+                onClick={() => setActiveTab("installed")}
+                label="Installed"
+                count={installedCount}
+              />
+              {activeTab === "all" && (
+                <SortDropdown
+                  value={sort}
+                  onChange={onSortChange}
+                />
+              )}
+            </div>
+
+            {activeTab === "all" && (
+              <div className="relative ml-auto w-56">
+                <Icons.Search
+                  size={14}
+                  strokeWidth={1.6}
+                  className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
+                <input
+                  value={query}
+                  onChange={(e) => onQueryChange(e.target.value)}
+                  placeholder="Search skills..."
+                  className={cn(
+                    "h-9 w-full rounded-lg border border-border/60 bg-card pl-10 pr-3",
+                    "text-[13px] text-foreground outline-none transition-colors",
+                    "placeholder:text-muted-foreground/80 focus:border-foreground/20",
+                  )}
+                />
+              </div>
             )}
           </div>
-
-          {activeTab === "all" && (
-            <div className="relative ml-auto w-56">
-              <Icons.Search
-                size={14}
-                strokeWidth={1.6}
-                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <input
-                value={query}
-                onChange={(e) => onQueryChange(e.target.value)}
-                placeholder="Search skills..."
-                className={cn(
-                  "h-9 w-full rounded-lg border border-border/60 bg-card pl-10 pr-3",
-                  "text-[13px] text-foreground outline-none transition-colors",
-                  "placeholder:text-muted-foreground/80 focus:border-foreground/20",
-                )}
-              />
-            </div>
-          )}
         </div>
         {actionError && (
           <div className="mb-4 rounded-lg border border-red-400/20 bg-red-400/5 px-4 py-2.5 text-center text-[13px] text-red-400">

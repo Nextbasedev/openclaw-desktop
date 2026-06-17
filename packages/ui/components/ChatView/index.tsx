@@ -127,6 +127,9 @@ type Props = {
   isBackgroundSession?: boolean
 }
 
+const MAX_QUEUED_MESSAGES = 5
+const QUEUE_LIMIT_MESSAGE = `Queue limit reached. You can keep up to ${MAX_QUEUED_MESSAGES} messages queued at a time. Please wait for one queued message to send before adding another.`
+
 type HistoryState = {
   loading: boolean
   error: string | null
@@ -669,6 +672,15 @@ export function ChatView({
     anchorMessageId: string
     anchorOffsetFromContainerTop: number
   } | null>(null)
+
+  const composerHistoryMessages = useMemo(
+    () =>
+      state.messages
+        .filter((message) => message.role === "user")
+        .map((message) => message.text.trim())
+        .filter(Boolean),
+    [state.messages],
+  )
 
   useEffect(() => {
     queuedMessagesRef.current = queuedMessages
@@ -1304,6 +1316,19 @@ export function ChatView({
     if (!text && !payload.attachments?.length) return
     const isStopCommand = !payload.attachments?.length && !payload.replyTo && isStopSlashCommand(text)
     if (isGenerating && !payload.runWhileGenerating && !isStopCommand) {
+      if (queuedMessagesRef.current.length >= MAX_QUEUED_MESSAGES) {
+        setState((current) => ({
+          ...current,
+          composerError: QUEUE_LIMIT_MESSAGE,
+        }))
+        frontendLog("chat", "chat-rebuild.send.queue-limit", {
+          sessionKey,
+          queueLength: queuedMessagesRef.current.length,
+          maxQueuedMessages: MAX_QUEUED_MESSAGES,
+        })
+        throw new Error(QUEUE_LIMIT_MESSAGE)
+      }
+
       const queued: QueuedChatMessage = {
         id: randomId(),
         payload: { ...payload, text },
@@ -1334,7 +1359,57 @@ export function ChatView({
 
     const clickAt = Date.now()
     const hasExistingMessages = state.messages.length > 0
-    let optimisticId: string | null = null
+    frontendLog("chat", "chat-rebuild.send.click", {
+      origin: "chatview-handle-send",
+      timestamp: clickAt,
+      sessionKey,
+      hasExistingMessages,
+      textLength: text.length,
+      attachmentCount: payload.attachments?.length ?? 0,
+    })
+
+    if (windowStateRef.current.hasNewer) {
+      await resetToLiveTail()
+    }
+
+    const optimisticId = randomId()
+    const replyTo = payload.replyTo ?? undefined
+    const replySnippet = replyTo
+      ? replyTo.text.slice(0, 150) + (replyTo.text.length > 150 ? "…" : "")
+      : undefined
+    const gatewayText = replySnippet
+      ? `> ${replySnippet.split("\n").join("\n> ")}\n\n${text}`
+      : text
+    shouldFollowScrollRef.current = true
+    const optimisticMessage: ChatMessage = {
+      messageId: optimisticId,
+      role: "user",
+      text,
+      createdAt: new Date().toISOString(),
+      isOptimistic: true,
+      sendStatus: "sending",
+      replyTo,
+      attachments: composerAttachmentsToMessageAttachments(payload.attachments),
+    }
+
+    setSending(true)
+    setState((current) => ({
+      ...current,
+      composerError: null,
+      streamStatus: "thinking",
+      statusLabel: "Thinking",
+      messages: orderChatMessages([...current.messages, optimisticMessage]),
+    }))
+    frontendLog("chat", "chat-rebuild.send.optimistic-render", {
+      origin: "chatview-handle-send",
+      timestamp: Date.now(),
+      msSinceClick: Date.now() - clickAt,
+      sessionKey,
+      optimisticId,
+    })
+    onFirstMessageSent?.(text)
+    setReplyTo(null)
+    setComposerSeed(null)
 
     try {
       frontendLog("chat", "chat-rebuild.send.click", {
@@ -1349,7 +1424,7 @@ export function ChatView({
       if (windowStateRef.current.hasNewer) {
         await resetToLiveTail()
       }
-
+ let optimisticId: string | null = null
       optimisticId = randomId()
       shouldFollowScrollRef.current = true
       const optimisticMessage: ChatMessage = {
@@ -1390,14 +1465,14 @@ export function ChatView({
       })
       await sendChatV2({
         sessionKey,
-        text,
+        text: gatewayText,
         attachments: payload.attachments,
         idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
         clientMessageId: optimisticId,
-        replyTo: payload.replyTo
+        replyTo: replyTo
           ? {
-              messageId: payload.replyTo.messageId,
-              snippet: payload.replyTo.text.slice(0, 500),
+              messageId: replyTo.messageId,
+              snippet: replySnippet!,
             }
           : undefined,
         autonomyMode: payload.autonomyMode ?? null,
@@ -2978,6 +3053,7 @@ export function ChatView({
           isGenerating={isGenerating}
           onAbort={handleAbort}
           replyTo={replyTo}
+          historyMessages={composerHistoryMessages}
           sessionUsage={sessionUsage}
           onCancelReply={handleCancelReply}
           draftKey={`chat:${sessionKey}`}
