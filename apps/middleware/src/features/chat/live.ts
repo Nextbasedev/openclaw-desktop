@@ -1061,6 +1061,13 @@ export class ChatLiveIngest {
     this.liveAssistantText.set(run.runId, next);
     const messageId = `live:${run.runId}:assistant`;
     const projectedSeq = this.context.messages.nextMessageSeq(sessionKey);
+    // Audit Bug 4: live-assistant placeholders previously persisted via
+    // upsertMessages WITHOUT going through normalizeHistoryMessages, so they
+    // surfaced through /api/chat/messages and bootstrap until the final
+    // canonical message overwrote them. Mark explicitly with placeholder=true
+    // so the canonical hidden-row predicate (`isVisibleMessage`) drops them
+    // from every read path. Streaming patches still emit (see below) so the
+    // frontend can render the live delta.
     this.context.messages.upsertMessages([{
       sessionKey,
       openclawSeq: projectedSeq,
@@ -1070,7 +1077,7 @@ export class ChatLiveIngest {
         id: messageId,
         role: "assistant",
         text: next,
-        __openclaw: { id: messageId, runId: run.runId },
+        __openclaw: { id: messageId, runId: run.runId, placeholder: true },
       },
       updatedAtMs: Date.now(),
     }]);
@@ -1090,7 +1097,9 @@ export class ChatLiveIngest {
             id: messageId,
             role: "assistant",
             text: next,
-            __openclaw: { id: messageId, runId: run.runId },
+            // Mirror the placeholder marker into the broadcast payload so any
+            // downstream consumer (telemetry, replay) can identify the source.
+            __openclaw: { id: messageId, runId: run.runId, placeholder: true },
           },
         },
       }),
