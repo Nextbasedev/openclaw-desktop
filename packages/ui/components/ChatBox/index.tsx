@@ -750,7 +750,7 @@ export function ChatBox({
         <AnimatePresence initial={false}>
           {queuedMessages.length > 0 && (
             <motion.div
-              initial={{ opacity: 0, scaleY: 0.86, y: 6 }}
+              initial={{ opacity: 0, scaleY: 0.96, y: -4 }}
               animate={{
                 opacity: 1,
                 scaleY: 1,
@@ -764,11 +764,11 @@ export function ChatBox({
               }}
               exit={{
                 opacity: 0,
-                scaleY: 0.92,
-                y: 4,
+                scaleY: 0.96,
+                y: -4,
                 transition: { duration: 0.16, ease: "easeInOut" },
               }}
-              className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-full origin-bottom overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg"
+              className="mx-2 mt-2 max-h-52 origin-top overflow-y-auto rounded-2xl border border-border/70 bg-popover/95 p-1 shadow-sm"
             >
               <div className="py-1">
                 <div className="flex items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
