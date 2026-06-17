@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest"
 import {
+  abortSessionKeysForActiveRun,
   buildSubagentAnchorMaps,
   deriveSpawnedSubagents,
   indexSpawnsByToolCallId,
@@ -343,5 +344,37 @@ describe("buildSubagentAnchorMaps", () => {
     const { byTriggerUserId } = buildSubagentAnchorMaps(messages, index)
     expect(byTriggerUserId.get("u1")).toHaveLength(1)
     expect(byTriggerUserId.get("u2")).toHaveLength(1)
+  })
+})
+
+describe("abortSessionKeysForActiveRun", () => {
+  test("includes parent and active linked subagent sessions", () => {
+    expect(abortSessionKeysForActiveRun("parent", [
+      {
+        id: "spawn:1",
+        label: "Worker 1",
+        status: "working",
+        toolCallId: "tc-1",
+        sessionKey: "agent:main:subagent:child-1",
+      },
+      {
+        id: "spawn:2",
+        label: "Worker 2",
+        status: "completed",
+        toolCallId: "tc-2",
+        sessionKey: "agent:main:subagent:child-2",
+      },
+      {
+        id: "spawn:3",
+        label: "Worker 3",
+        status: "linking",
+        toolCallId: "tc-3",
+        sessionKey: "agent:main:subagent:child-3",
+      },
+    ])).toEqual([
+      "parent",
+      "agent:main:subagent:child-1",
+      "agent:main:subagent:child-3",
+    ])
   })
 })

@@ -91,6 +91,7 @@ import { SubagentBar } from "./SubagentBar"
 import { SubagentCard } from "./SubagentCard"
 import { SubagentFullChat } from "./SubagentFullChat"
 import {
+  abortSessionKeysForActiveRun,
   buildSubagentAnchorMaps,
   deriveSpawnedSubagents,
   indexSpawnsByToolCallId,
@@ -1531,12 +1532,31 @@ export function ChatView({
   }
 
   async function handleAbort() {
+    const abortSessionKeys = abortSessionKeysForActiveRun(sessionKey, spawnedSubagents)
     setState((current) => ({
       ...current,
       streamStatus: "stopping",
       statusLabel: "Stopping",
     }))
-    await abortChatV2({ sessionKey })
+    frontendLog("chat", "chat-rebuild.abort.start", {
+      sessionKey,
+      abortSessionKeys,
+      spawnedSubagentCount: spawnedSubagents.length,
+    }, "info")
+    const results = await Promise.allSettled(
+      abortSessionKeys.map((key) => abortChatV2({ sessionKey: key }))
+    )
+    const rejectedCount = results.filter((result) => result.status === "rejected").length
+    frontendLog("chat", "chat-rebuild.abort.done", {
+      sessionKey,
+      abortSessionKeys,
+      rejectedCount,
+    }, rejectedCount > 0 ? "warn" : "info")
+    setState((current) => ({
+      ...current,
+      streamStatus: "idle",
+      statusLabel: null,
+    }))
   }
 
   function handleTextAnimationComplete(messageId: string) {

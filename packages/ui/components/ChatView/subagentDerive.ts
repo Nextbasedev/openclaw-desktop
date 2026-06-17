@@ -17,7 +17,7 @@ import {
   extractSubagentSessionKey,
   extractSubagentSessionKeys,
 } from "@/lib/subagentSession"
-import type { SubagentLifecycleStatus } from "@/lib/subagentLifecycle"
+import { isActiveSubagent, type SubagentLifecycleStatus } from "@/lib/subagentLifecycle"
 
 const SPAWN_TOOL = "sessions_spawn"
 
@@ -213,6 +213,20 @@ export function indexSpawnsByToolCallId(
     map.set(spawn.toolCallId, spawn)
   }
   return map
+}
+
+export function abortSessionKeysForActiveRun(
+  parentSessionKey: string,
+  spawns: SpawnedSubagent[],
+): string[] {
+  const keys = new Set<string>([parentSessionKey])
+  for (const spawn of spawns) {
+    if (!spawn.sessionKey) continue
+    if (!isActiveSubagent(spawn.status)) continue
+    if (spawn.sessionKey === parentSessionKey) continue
+    keys.add(spawn.sessionKey)
+  }
+  return Array.from(keys)
 }
 
 // Exposed for the unused-but-historic terminal harvest helper.
