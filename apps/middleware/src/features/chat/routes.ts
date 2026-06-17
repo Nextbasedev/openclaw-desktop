@@ -660,6 +660,10 @@ const execPolicyBody = z.union([
   }).strict(),
 ]);
 
+function isStopCommandText(text: string) {
+  return /^\/stop(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(text.trim());
+}
+
 const sendBody = z.object({
   sessionKey: z.string().min(1),
   text: z.string().optional(),
@@ -970,6 +974,99 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
     log.info("status.broadcast", { sessionKey: input.sessionKey, type: statusEvent.eventType, cursor: statusEvent.cursor, status: "thinking", idempotencyKey: input.idempotencyKey });
 
+    if (isStopCommandText(rawMessage)) {
+      log.info("send.stop-command.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, runId });
+      void context.gateway.request<Record<string, unknown>>("chat.abort", { sessionKey: input.sessionKey, runId }, 30_000).catch((error) => {
+        log.warn("send.stop-command.gateway-chat-abort.fail", { sessionKey: input.sessionKey, runId, ...errorMeta(error) });
+      });
+      void context.gateway.request<Record<string, unknown>>("sessions.abort", { key: input.sessionKey }, 30_000).catch((error) => {
+        log.warn("send.stop-command.gateway-session-abort.fail", { sessionKey: input.sessionKey, runId, ...errorMeta(error) });
+      });
+
+      context.runs.updateRunStatus(runId, "aborted", { statusLabel: null });
+      const completedTools = context.runs.completeRunningTools(input.sessionKey, runId, { status: "error", resultMeta: { reason: "aborted" }, updatedAtMs: nowMs() });
+      const abortedRun = context.runs.getRun(runId);
+      const abortMessageId = `${clientMessageId}:abort-confirmation`;
+      const abortMessageSeq = context.messages.nextMessageSeq(input.sessionKey);
+      const abortCreatedAtMs = Date.now();
+      const abortMessage = {
+        role: "assistant",
+        text: "⚙️ Agent was aborted.",
+        createdAt: new Date(abortCreatedAtMs).toISOString(),
+        __openclaw: {
+          id: abortMessageId,
+          seq: abortMessageSeq,
+          runId,
+          preserveDisplayText: true,
+        },
+      };
+      context.messages.insertOptimisticMessage({
+        sessionKey: input.sessionKey,
+        openclawSeq: abortMessageSeq,
+        messageId: abortMessageId,
+        role: "assistant",
+        data: abortMessage,
+        updatedAtMs: abortCreatedAtMs,
+      });
+      const abortMessageEvent = context.messages.appendProjectionEvent({
+        sessionKey: input.sessionKey,
+        eventType: "chat.message.upsert",
+        payload: canonicalPatchPayload({
+          sessionKey: input.sessionKey,
+          semanticType: "chat.assistant.final",
+          run: abortedRun,
+          messageId: abortMessageId,
+          payload: {
+            sessionKey: input.sessionKey,
+            message: abortMessage,
+            messageSeq: abortMessageSeq,
+            runId,
+          },
+        }),
+      });
+      context.patchBus.broadcast({
+        cursor: abortMessageEvent.cursor,
+        type: abortMessageEvent.eventType,
+        sessionKey: abortMessageEvent.sessionKey,
+        payload: abortMessageEvent.payload,
+        createdAtMs: abortMessageEvent.createdAtMs,
+      });
+      const stopSession = context.messages.getSession(input.sessionKey);
+      context.messages.upsertSession({
+        sessionKey: input.sessionKey,
+        sessionId: stopSession?.sessionId ?? null,
+        data: {
+          ...objectData(stopSession?.data),
+          sessionKey: input.sessionKey,
+          sessionId: stopSession?.sessionId ?? null,
+          status: "aborted",
+          statusLabel: null,
+          lastActiveAt: nowIso,
+          lastMessageAt: nowIso,
+          lastMessageText: abortMessage.text,
+        },
+        updatedAtMs: abortCreatedAtMs,
+      });
+      const abortStatusEvent = context.messages.appendProjectionEvent({
+        sessionKey: input.sessionKey,
+        eventType: "chat.status",
+        payload: canonicalPatchPayload({
+          sessionKey: input.sessionKey,
+          semanticType: "chat.run.aborted",
+          run: abortedRun,
+          payload: { completedTools, runId },
+        }),
+      });
+      context.patchBus.broadcast({
+        cursor: abortStatusEvent.cursor,
+        type: abortStatusEvent.eventType,
+        sessionKey: abortStatusEvent.sessionKey,
+        payload: abortStatusEvent.payload,
+        createdAtMs: abortStatusEvent.createdAtMs,
+      });
+      log.info("send.stop-command.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, runId, completedTools, abortMessageId });
+      return { ok: true, accepted: true, stopped: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, clientMessageId, runId };
+    }
 
     void context.sendQueue.run(input.sessionKey, async () => {
       log.info("send.queue.enter", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), accepted: true });

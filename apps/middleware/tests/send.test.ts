@@ -1029,4 +1029,46 @@ describe("chat send routes", () => {
     expect(request).toHaveBeenCalledWith("chat.abort", { sessionKey: "s1", runId: "r1" }, 30_000);
     await app.close();
   });
+
+  test("stop command bypasses send queue and persists abort confirmation", async () => {
+    const app = await createApp(config("stop-command"));
+    const context = contextOf(app);
+    const request = vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return { ok: true };
+      }
+      if (method === "chat.history") return { sessionKey: "s1", status: "aborted", messages: [] };
+      return { aborted: true };
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "/stop", idempotencyKey: "stop-one", clientMessageId: "client-stop" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, accepted: true, stopped: true });
+    expect(request).not.toHaveBeenCalledWith("chat.send", expect.anything(), expect.anything());
+    await waitFor(() => request.mock.calls.some(([method]) => method === "chat.abort"));
+    expect(request).toHaveBeenCalledWith("chat.abort", expect.objectContaining({ sessionKey: "s1" }), 30_000);
+    expect(request).toHaveBeenCalledWith("sessions.abort", { key: "s1" }, 30_000);
+
+    const messages = context.messages.listMessages("s1");
+    expect(messages.map((message) => ({ role: message.role, text: (message.data as { text?: string }).text }))).toEqual([
+      { role: "user", text: "/stop" },
+      { role: "assistant", text: "⚙️ Agent was aborted." },
+    ]);
+    expect(context.messages.latestProjectionEvent("s1")?.eventType).toBe("chat.status");
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    const bootstrapMessages = bootstrap.json().messages as Array<{ role?: string; text?: string; content?: string }>;
+    expect(bootstrapMessages.map((message) => ({ role: message.role, text: message.text ?? message.content }))).toEqual([
+      { role: "user", text: "/stop" },
+      { role: "assistant", text: "⚙️ Agent was aborted." },
+    ]);
+    await app.close();
+  });
 });

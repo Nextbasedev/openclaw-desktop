@@ -1303,14 +1303,6 @@ export function ChatView({
     const text = payload.text.trim()
     if (!text && !payload.attachments?.length) return
     const isStopCommand = !payload.attachments?.length && !payload.replyTo && isStopSlashCommand(text)
-    if (isStopCommand) {
-      frontendLog("chat", "chat-rebuild.stop-command.abort-before-send", {
-        sessionKey,
-        isGenerating,
-        streamStatus: state.streamStatus,
-      }, "info")
-      await handleAbort({ settleIdle: false })
-    }
     if (isGenerating && !payload.runWhileGenerating && !isStopCommand) {
       const queued: QueuedChatMessage = {
         id: randomId(),

@@ -603,6 +603,7 @@ export class MessageRepository {
       for (const row of rows) {
         const data = fromJson(row.data_json) as OpenClawMessage;
         if (isOptimisticData(data)) continue;
+        if ((data.__openclaw as Record<string, unknown> | undefined)?.preserveDisplayText === true) continue;
         const gatewayId = data.__openclaw?.gatewayId;
         const gatewaySeq = data.__openclaw?.gatewaySeq;
         const strippedReplayRepresented =
