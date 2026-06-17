@@ -249,6 +249,24 @@ function hasAssistantAnswerAfterLastUser(messages: ChatMessage[]) {
   )
 }
 
+function isTerminalStatus(status: StreamStatus) {
+  return status === "done" || status === "idle" || status === "connected"
+}
+
+function shouldSuppressTerminalStatusDuringPendingUser({
+  currentStatus,
+  nextStatus,
+  messages,
+}: {
+  currentStatus: StreamStatus
+  nextStatus: StreamStatus | null
+  messages: ChatMessage[]
+}) {
+  if (!nextStatus || !isTerminalStatus(nextStatus)) return false
+  if (!isActiveStreamStatus(currentStatus)) return false
+  return !hasAssistantAnswerAfterLastUser(messages)
+}
+
 function summarizeToolInput(tool: InlineToolCall) {
   const input = tool.input
   if (!input || typeof input !== "object") {
@@ -1088,9 +1106,29 @@ export function ChatView({
             "debug"
           )
         }
-        const nextStatus = patchStatus?.status ??
-          (patchImpliesActiveRun(frame) ? "thinking" : current.streamStatus)
-        const nextStatusLabel = patchStatus?.label ?? current.statusLabel
+        const rawNextStatus = patchStatus?.status ??
+          (patchImpliesActiveRun(frame) ? "thinking" : null)
+        const suppressTerminalStatus = shouldSuppressTerminalStatusDuringPendingUser({
+          currentStatus: current.streamStatus,
+          nextStatus: rawNextStatus,
+          messages: orderedMessages,
+        })
+        if (suppressTerminalStatus) {
+          frontendLog("chat", "chat-rebuild.status.suppress-stale-terminal", {
+            sessionKey,
+            cursor: frame.patch.cursor,
+            patchType: frame.patch.type,
+            semanticType,
+            currentStatus: current.streamStatus,
+            patchStatus: rawNextStatus,
+          }, "debug")
+        }
+        const nextStatus = suppressTerminalStatus
+          ? current.streamStatus
+          : rawNextStatus ?? current.streamStatus
+        const nextStatusLabel = suppressTerminalStatus
+          ? current.statusLabel
+          : patchStatus?.label ?? current.statusLabel
 
         // Detect if a NEW message was appended (length grew at the tail).
         const previousLength = current.messages.length
