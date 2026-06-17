@@ -614,6 +614,79 @@ function normalizePatchStatus(value: unknown): StreamStatus | null {
   return value as StreamStatus
 }
 
+/**
+ * BUG-1 (docs/audit/frontend-window-audit-2026-06-17.md).
+ *
+ * Returns the per-session message seq (`gatewayIndex` number space) that a
+ * patch targets, or `undefined` if no anchor is derivable.
+ *
+ * This is the value callers should compare against `windowState.newestLoadedSeq`
+ * (also a per-session gatewayIndex) when deciding whether a live patch is for
+ * a row that has been evicted from the tail.
+ *
+ * The previous call sites passed `frame.patch.cursor` (the GLOBAL
+ * cross-session projection event ordinal) instead — see `store.ts` comment
+ * `// The websocket cursor is global across all sessions.` — which once any
+ * cross-session activity ran for a few minutes always dwarfed any per-session
+ * seq, so `cursor > newestLoadedSeq` was true forever after `hasNewer=true`
+ * and every live patch was silently dropped.
+ *
+ * Resolution order:
+ *   1. Payload `messageSeq` / `gatewayIndex` (the canonical per-session seq).
+ *   2. `__openclaw.seq` on the inline message body.
+ *   3. The `gatewayIndex` of the in-window message the patch references by id.
+ *   4. For tool patches, the `gatewayIndex` of the run's parent user message.
+ *   5. Otherwise `undefined`, which the caller treats as "do not drop".
+ */
+export function derivePatchTargetSeq(
+  frame: PatchFrame,
+  messages: ChatMessage[],
+): number | undefined {
+  const direct = patchMessageSeq(frame)
+  if (typeof direct === "number") return direct
+
+  const messageBody = patchMessage(frame)
+  if (messageBody && typeof messageBody === "object" && !Array.isArray(messageBody)) {
+    const rawId = (messageBody as { id?: unknown; messageId?: unknown }).id
+      ?? (messageBody as { messageId?: unknown }).messageId
+    const targetId = typeof rawId === "string" && rawId.trim() ? rawId : null
+    const payloadId = patchPayload(frame)?.messageId
+    const id = targetId ?? (typeof payloadId === "string" && payloadId.trim() ? payloadId : null)
+    if (id) {
+      const existing = messages.find((m) => m.messageId === id)
+      if (existing && typeof existing.gatewayIndex === "number" && Number.isFinite(existing.gatewayIndex)) {
+        return existing.gatewayIndex
+      }
+    }
+  } else {
+    const payloadId = patchPayload(frame)?.messageId
+    if (typeof payloadId === "string" && payloadId.trim()) {
+      const existing = messages.find((m) => m.messageId === payloadId)
+      if (existing && typeof existing.gatewayIndex === "number" && Number.isFinite(existing.gatewayIndex)) {
+        return existing.gatewayIndex
+      }
+    }
+  }
+
+  if (isToolPatchType(frame)) {
+    const inline = toolPatchInline(frame)
+    const runId = inline?.runId ?? patchRunId(frame)
+    if (runId) {
+      const parent = [...messages].reverse().find(
+        (m) => m.runId === runId && typeof m.gatewayIndex === "number" && Number.isFinite(m.gatewayIndex),
+      )
+      if (parent && typeof parent.gatewayIndex === "number") {
+        // Assistant/tool rows live AT or just after the parent user seq;
+        // for the eviction check we want to know whether the parent is still
+        // in the buffer, so the parent seq is the right anchor.
+        return parent.gatewayIndex
+      }
+    }
+  }
+
+  return undefined
+}
+
 export function statusFromPatch(frame: PatchFrame): { status: StreamStatus; label: string | null } | null {
   const payload = patchPayload(frame)
   const semanticType = patchSemanticType(frame)

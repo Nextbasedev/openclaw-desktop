@@ -612,34 +612,34 @@ describe("shouldDropPatchAsEvicted", () => {
   test("hasNewer=false → false (accept all patches at live tail)", () => {
     expect(
       shouldDropPatchAsEvicted({
-        patchSessionCursor: 1000,
+        patchTargetSeq: 1000,
         newestLoadedSeq: 500,
         hasNewer: false,
       }),
     ).toBe(false)
   })
 
-  test("hasNewer=true and patchCursor > newestLoadedSeq → true (drop)", () => {
+  test("hasNewer=true and targetSeq > newestLoadedSeq → true (drop)", () => {
     expect(
       shouldDropPatchAsEvicted({
-        patchSessionCursor: 501,
+        patchTargetSeq: 501,
         newestLoadedSeq: 500,
         hasNewer: true,
       }),
     ).toBe(true)
   })
 
-  test("hasNewer=true and patchCursor <= newestLoadedSeq → false (apply)", () => {
+  test("hasNewer=true and targetSeq <= newestLoadedSeq → false (apply)", () => {
     expect(
       shouldDropPatchAsEvicted({
-        patchSessionCursor: 500,
+        patchTargetSeq: 500,
         newestLoadedSeq: 500,
         hasNewer: true,
       }),
     ).toBe(false)
     expect(
       shouldDropPatchAsEvicted({
-        patchSessionCursor: 499,
+        patchTargetSeq: 499,
         newestLoadedSeq: 500,
         hasNewer: true,
       }),
@@ -649,8 +649,18 @@ describe("shouldDropPatchAsEvicted", () => {
   test("newestLoadedSeq=null → false (no anchor, accept)", () => {
     expect(
       shouldDropPatchAsEvicted({
-        patchSessionCursor: 1000,
+        patchTargetSeq: 1000,
         newestLoadedSeq: null,
+        hasNewer: true,
+      }),
+    ).toBe(false)
+  })
+
+  test("patchTargetSeq=undefined → false (no derivable seq, apply patch — BUG-1 safety)", () => {
+    expect(
+      shouldDropPatchAsEvicted({
+        patchTargetSeq: undefined,
+        newestLoadedSeq: 500,
         hasNewer: true,
       }),
     ).toBe(false)

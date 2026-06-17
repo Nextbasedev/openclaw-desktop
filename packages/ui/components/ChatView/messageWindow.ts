@@ -264,13 +264,23 @@ export function liveTailQuery(
 /**
  * Returns true when a live patch should be dropped because its target row was
  * evicted from the tail (user scrolled up and we no longer hold the tail).
+ *
+ * `patchTargetSeq` MUST be the patch's per-session gatewayIndex —
+ * see `derivePatchTargetSeq` in `applyPatches.ts`. It is NOT the global
+ * `frame.patch.cursor` (BUG-1 in the 2026-06-17 frontend window audit:
+ * passing the global cursor here meant once `hasNewer=true` every patch
+ * dropped because the global cursor always exceeds per-session seq).
+ *
+ * If the caller cannot derive a per-session seq for the patch
+ * (`patchTargetSeq === undefined`), the patch is applied (safe fallback).
  */
 export function shouldDropPatchAsEvicted(input: {
-  patchSessionCursor: number
+  patchTargetSeq: number | undefined
   newestLoadedSeq: number | null
   hasNewer: boolean
 }): boolean {
   if (!input.hasNewer) return false
   if (input.newestLoadedSeq === null) return false
-  return input.patchSessionCursor > input.newestLoadedSeq
+  if (typeof input.patchTargetSeq !== "number") return false
+  return input.patchTargetSeq > input.newestLoadedSeq
 }

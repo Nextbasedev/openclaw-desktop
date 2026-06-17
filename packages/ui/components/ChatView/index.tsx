@@ -14,7 +14,7 @@ import {
   resolveExecApprovalV2,
   sendChatV2,
 } from "@/lib/chat-engine-v2/client"
-import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "@/lib/chat-engine-v2/applyPatches"
+import { applyChatPatch, derivePatchTargetSeq, patchImpliesActiveRun, statusFromPatch } from "@/lib/chat-engine-v2/applyPatches"
 import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import type { PatchFrame } from "@/lib/chat-engine-v2/types"
@@ -1021,9 +1021,15 @@ export function ChatView({
           "debug"
         )
       }
+      // BUG-1 (docs/audit/frontend-window-audit-2026-06-17.md): pass the
+      // patch's per-session target seq, NOT the global `frame.patch.cursor`,
+      // to the eviction gate. Comparing a global event ordinal to a
+      // per-session gatewayIndex caused every patch to drop after the user
+      // scrolled once (hasNewer=true).
+      const patchTargetSeq = derivePatchTargetSeq(frame, stateMessagesRef.current)
       if (
         shouldDropPatchAsEvicted({
-          patchSessionCursor: frame.patch.cursor,
+          patchTargetSeq,
           newestLoadedSeq: windowStateRef.current.newestLoadedSeq,
           hasNewer: windowStateRef.current.hasNewer,
         })
@@ -1035,6 +1041,7 @@ export function ChatView({
           {
             sessionKey,
             patchCursor: frame.patch.cursor,
+            patchTargetSeq,
             newestLoadedSeq: windowStateRef.current.newestLoadedSeq,
           },
           "debug"
