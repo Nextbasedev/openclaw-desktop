@@ -341,6 +341,51 @@ export function canEvictOnLiveAppend(input: {
 }
 
 /**
+ * Deep-verification item 3 (docs/audit/deep-verification-2026-06-17.md).
+ *
+ * Predicate: does this live-append eviction branch need to capture the
+ * scroll anchor (`captureFirstVisibleRowAnchor`) before mutating state?
+ *
+ * Background:
+ *   The live-append handler in `ChatView/index.tsx` has three sub-branches
+ *   after a patch grows the window past `MAX_LOADED`:
+ *     a. proximity-evict   — user at bottom, strict evict to MAX_LOADED.
+ *     b. ceiling-evict     — user scrolled up, but buffer crossed
+ *                            MAX_BUFFER; force-evict to MAX_BUFFER even
+ *                            though proximity guard would defer.
+ *     c. defer             — user scrolled up, buffer still under
+ *                            MAX_BUFFER; no eviction.
+ *
+ *   Branch (a) is invisible: the user is at the tail, mutating the head
+ *   does not move the visible viewport. Branch (c) does not mutate. Branch
+ *   (b) DOES mutate the head while the user's viewport is anchored away
+ *   from the tail — React reconciles, the DOM rows above the viewport
+ *   disappear, and `scrollTop` is now off by the evicted height. Without
+ *   anchor capture+restore (the same path the newer-page FETCH uses), the
+ *   user gets jolted backward.
+ *
+ * Contract:
+ *   - Returns `true` ONLY for branch (b): `isCeilingEvict=true` and
+ *     `atBottom=false`.
+ *   - Returns `false` for branch (a) (at-bottom + evict): the at-bottom
+ *     mutation is invisible; capturing would just add useless work.
+ *   - Returns `false` for branch (c) (no evict): nothing to anchor.
+ *
+ * Defensive note: in current branching, `isCeilingEvict=true && atBottom=true`
+ * cannot occur — the at-bottom path picks proximity-evict first. The
+ * predicate still returns `false` for that combo so future re-ordering
+ * does not regress to spurious captures.
+ */
+export function shouldCaptureAnchorOnLiveAppend(input: {
+  atBottom: boolean
+  isCeilingEvict: boolean
+}): boolean {
+  if (!input.isCeilingEvict) return false
+  if (input.atBottom) return false
+  return true
+}
+
+/**
  * Returns the new `WindowState` after a newer-page fetch resolves and any
  * head eviction has been applied to the buffer.
  */

@@ -74,6 +74,7 @@ import {
   firstSeqfulGatewayIndex,
   lastSeqfulGatewayIndex,
   liveTailQuery,
+  shouldCaptureAnchorOnLiveAppend,
   // (assertWindowInvariant lives in its own module — imported below.)
   shouldDropPatchAsEvicted,
   shouldFetchNewer,
@@ -1263,6 +1264,23 @@ export function ChatView({
           }
 
           if (evict > 0) {
+            // Deep-verification item 3 (docs/audit/deep-verification-2026-06-17.md).
+            // The newer-page FETCH path captures anchor before eviction so
+            // the useLayoutEffect on pendingScrollAnchorRef can restore
+            // scrollTop after React reconciles. The live-append ceiling-evict
+            // branch needs the same treatment: we are about to slice rows
+            // off the head of the array while the user's viewport is
+            // anchored away from the tail (otherwise the proximity branch
+            // would have fired first). Skip the capture for proximity
+            // eviction (at-bottom, invisible).
+            if (
+              shouldCaptureAnchorOnLiveAppend({
+                atBottom: shouldFollowScrollRef.current,
+                isCeilingEvict: evictReason === "ceiling",
+              })
+            ) {
+              captureFirstVisibleRowAnchor()
+            }
             const finalMessages = orderedMessages.slice(evict)
             // BUG-4: synthetic live tool rows can carry no gatewayIndex; walk
             // to the nearest seqful row so the derived cursor doesn't go null.
