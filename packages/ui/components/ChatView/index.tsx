@@ -1189,6 +1189,12 @@ export function ChatView({
 
     const optimisticId = randomId()
     const replyTo = payload.replyTo ?? undefined
+    const replySnippet = replyTo
+      ? replyTo.text.slice(0, 150) + (replyTo.text.length > 150 ? "…" : "")
+      : undefined
+    const gatewayText = replySnippet
+      ? `> ${replySnippet.split("\n").join("\n> ")}\n\n${text}`
+      : text
     shouldFollowScrollRef.current = true
     const optimisticMessage: ChatMessage = {
       messageId: optimisticId,
@@ -1230,14 +1236,14 @@ export function ChatView({
       })
       await sendChatV2({
         sessionKey,
-        text,
+        text: gatewayText,
         attachments: payload.attachments,
         idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
         clientMessageId: optimisticId,
         replyTo: replyTo
           ? {
               messageId: replyTo.messageId,
-              snippet: replyTo.text.slice(0, 500),
+              snippet: replySnippet!,
             }
           : undefined,
         autonomyMode: payload.autonomyMode ?? null,
