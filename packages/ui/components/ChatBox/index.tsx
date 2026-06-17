@@ -30,10 +30,7 @@ import type { ReplyTo } from "@/components/ChatView/types"
 import type { Space } from "@/types/space"
 import { composerReducer, initialComposerState } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
-import {
-  canRunSlashCommandWhileGenerating,
-  isStopSlashCommand,
-} from "@/lib/controlSlashCommands"
+import { canRunSlashCommandWhileGenerating } from "@/lib/controlSlashCommands"
 
 type VoiceSettingsPayload = {
   settings?: {
@@ -560,33 +557,6 @@ export function ChatBox({
       isPreparingAttachments
     )
       return
-    if (
-      attachments.length === 0 &&
-      !replyTo &&
-      isStopSlashCommand(text)
-    ) {
-      setInput("")
-      clearPersistedDraft()
-      setHistoryIndex(null)
-      draftBeforeHistoryRef.current = ""
-      if (textareaRef.current) textareaRef.current.style.height = "auto"
-      setSlashMenuOpen(false)
-      frontendLog("composer", "composer.stop.start", {})
-      dispatchComposer({ type: "stop_start" })
-      try {
-        await onAbort?.()
-        frontendLog("composer", "composer.stop.done", {})
-        dispatchComposer({ type: "stop_done" })
-      } catch {
-        frontendLog("composer", "composer.stop.fail", {}, "error")
-        dispatchComposer({
-          type: "send_failed",
-          error: "Could not stop generation. Try again.",
-        })
-        setAttachmentError("Could not stop generation. Try again.")
-      }
-      return
-    }
     const payload: ChatComposerSubmit = {
       text: text || "Please transcribe and respond to the attached audio.",
       attachments:

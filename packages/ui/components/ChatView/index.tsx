@@ -1302,16 +1302,16 @@ export function ChatView({
   async function handleSend(payload: ChatComposerSubmit) {
     const text = payload.text.trim()
     if (!text && !payload.attachments?.length) return
-    if (!payload.attachments?.length && !payload.replyTo && isStopSlashCommand(text)) {
-      frontendLog("chat", "chat-rebuild.stop-command.intercept", {
+    const isStopCommand = !payload.attachments?.length && !payload.replyTo && isStopSlashCommand(text)
+    if (isStopCommand) {
+      frontendLog("chat", "chat-rebuild.stop-command.abort-before-send", {
         sessionKey,
         isGenerating,
         streamStatus: state.streamStatus,
       }, "info")
-      await handleAbort()
-      return
+      await handleAbort({ settleIdle: false })
     }
-    if (isGenerating && !payload.runWhileGenerating) {
+    if (isGenerating && !payload.runWhileGenerating && !isStopCommand) {
       const queued: QueuedChatMessage = {
         id: randomId(),
         payload: { ...payload, text },
@@ -1437,7 +1437,8 @@ export function ChatView({
     }
   }
 
-  async function handleAbort() {
+  async function handleAbort(options?: { settleIdle?: boolean }) {
+    const settleIdle = options?.settleIdle ?? true
     const abortSessionKeys = abortSessionKeysForActiveRun(sessionKey, spawnedSubagents)
     setState((current) => ({
       ...current,
@@ -1458,11 +1459,13 @@ export function ChatView({
       abortSessionKeys,
       rejectedCount,
     }, rejectedCount > 0 ? "warn" : "info")
-    setState((current) => ({
-      ...current,
-      streamStatus: "idle",
-      statusLabel: null,
-    }))
+    if (settleIdle) {
+      setState((current) => ({
+        ...current,
+        streamStatus: "idle",
+        statusLabel: null,
+      }))
+    }
   }
 
   function handleTextAnimationComplete(messageId: string) {
