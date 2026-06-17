@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type Database from "better-sqlite3";
 import { fromJson, toJson } from "../../db/json.js";
 import { isInternalSubagentCompletionMessage, isVisibleMessage as defaultIsVisibleMessage, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
-import type { OpenClawMessage, ProjectedMessage, ProjectionEvent } from "./types.js";
+import type { OpenClawMessage, OCPlatformMessage, ProjectedMessage, ProjectionEvent } from "./types.js";
 
 function textOf(data: unknown): string {
   if (!data || typeof data !== "object" || Array.isArray(data)) return "";

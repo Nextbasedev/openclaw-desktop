@@ -1,4 +1,4 @@
-import type { OpenClawMessage, ProjectedMessage } from "./types.js";
+import type { OpenClawMessage, OCPlatformMessage, ProjectedMessage } from "./types.js";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);

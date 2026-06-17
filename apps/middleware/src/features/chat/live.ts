@@ -3,7 +3,7 @@ import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
 import { isVisibleMessage, messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import { classifyGatewayMessageSemanticType, messageHasAssistantAnswerText, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
-import type { OpenClawMessage, ProjectedMessage } from "./types.js";
+import type { OpenClawMessage, OCPlatformMessage, ProjectedMessage } from "./types.js";
 import type { ProjectedRun } from "./repo.runs.js";
 import { canonicalPatchPayload } from "./projection.js";
 import { SubagentCorrelation, type SpawnLink } from "./subagent-correlation.js";

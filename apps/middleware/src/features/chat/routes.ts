@@ -15,7 +15,7 @@ import { classifyGatewayMessageSemanticType, extractToolEventsFromMessage, isErr
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
-import type { OpenClawMessage, ProjectedMessage } from "./types.js";
+import type { OpenClawMessage, OCPlatformMessage, ProjectedMessage } from "./types.js";
 
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
