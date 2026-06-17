@@ -1,18 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import type { DownloadEvent } from "@tauri-apps/plugin-updater"
+import { checkForAppUpdate, installAppUpdate, isTauriRuntime, updateErrorMessage } from "@/lib/appUpdater"
 
 type MaintenanceTabProps = {
   onSignOut?: () => void
   onDeleteAccount?: () => void
-}
-
-function isTauriRuntime(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    Boolean((window as unknown as Record<string, unknown>).__TAURI_INTERNALS__)
-  )
 }
 
 export function MaintenanceTab({ onSignOut, onDeleteAccount }: MaintenanceTabProps) {
@@ -30,33 +23,15 @@ export function MaintenanceTab({ onSignOut, onDeleteAccount }: MaintenanceTabPro
     setCheckingUpdate(true)
     setUpdateStatus("Checking for updates...")
     try {
-      const [{ check }, { relaunch }] = await Promise.all([
-        import("@tauri-apps/plugin-updater"),
-        import("@tauri-apps/plugin-process"),
-      ])
-      const update = await check()
+      const update = await checkForAppUpdate()
       if (!update) {
         setUpdateStatus("You're already on the latest version.")
         return
       }
 
-      let downloaded = 0
-      setUpdateStatus(`Downloading OpenClaw ${update.version}...`)
-      await update.downloadAndInstall((event: DownloadEvent) => {
-        if (event.event === "Started") {
-          downloaded = 0
-          setUpdateStatus(`Downloading OpenClaw ${update.version}...`)
-        } else if (event.event === "Progress") {
-          downloaded += event.data.chunkLength
-          setUpdateStatus(`Downloading OpenClaw ${update.version} (${Math.round(downloaded / 1024 / 1024)} MB)...`)
-        } else if (event.event === "Finished") {
-          setUpdateStatus("Installing update...")
-        }
-      })
-      setUpdateStatus("Update installed. Restarting OpenClaw...")
-      await relaunch()
+      await installAppUpdate(update, (state) => setUpdateStatus(state.message))
     } catch (error) {
-      setUpdateStatus(error instanceof Error ? error.message : "Update check failed")
+      setUpdateStatus(updateErrorMessage(error))
     } finally {
       setCheckingUpdate(false)
     }

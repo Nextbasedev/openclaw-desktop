@@ -25,6 +25,7 @@ import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import type { ActiveChat } from "@/types/chat"
 import type { EditorTab, EditorGroupsState } from "@/lib/editorGroups"
 import { ChatActionsMenuContent } from "@/components/sidebar/ChatsSection/ChatActionsMenuContent"
+import { checkForAppUpdate, installAppUpdate, updateErrorMessage, type AppUpdateState } from "@/lib/appUpdater"
 
 type VersionInfo = {
   version: string
@@ -141,6 +142,8 @@ export function Header({
   const [isTauri, setIsTauri] = useState(false)
   const [openClawVersion, setOpenClawVersion] = useState<string | null>(null)
   const [nodeVersion, setNodeVersion] = useState<string | null>(null)
+  const [appUpdateState, setAppUpdateState] = useState<AppUpdateState>({ status: "idle", message: null })
+  const updateCheckInFlightRef = useRef(false)
   const rightClusterRef = useRef<HTMLDivElement>(null)
   const [rightClusterWidth, setRightClusterWidth] = useState(0)
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
@@ -175,6 +178,49 @@ export function Header({
       .catch(() => {})
   }, [])
 
+  const checkForHeaderUpdate = useCallback(async () => {
+    if (!isTauri || updateCheckInFlightRef.current) return
+    updateCheckInFlightRef.current = true
+    try {
+      const update = await checkForAppUpdate()
+      setAppUpdateState((prev) => {
+        if (["downloading", "installing", "restarting"].includes(prev.status)) return prev
+        if (!update) return { status: "idle", message: null }
+        return {
+          status: "available",
+          version: update.version,
+          update,
+          message: `OpenClaw ${update.version} is available`,
+        }
+      })
+    } catch (error) {
+      console.warn("OpenClaw update check failed", error)
+    } finally {
+      updateCheckInFlightRef.current = false
+    }
+  }, [isTauri])
+
+  useEffect(() => {
+    if (!isTauri) return
+    void checkForHeaderUpdate()
+    const interval = window.setInterval(() => void checkForHeaderUpdate(), 30 * 60 * 1000)
+    const onFocus = () => void checkForHeaderUpdate()
+    window.addEventListener("focus", onFocus)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener("focus", onFocus)
+    }
+  }, [isTauri, checkForHeaderUpdate])
+
+  const handleInstallHeaderUpdate = useCallback(async () => {
+    if (appUpdateState.status !== "available") return
+    try {
+      await installAppUpdate(appUpdateState.update, setAppUpdateState)
+    } catch (error) {
+      setAppUpdateState({ status: "error", message: updateErrorMessage(error) })
+    }
+  }, [appUpdateState])
+
   // changes comment
   const isMac = platform === "macos"
   const isWindows = platform === "windows" || platform === "linux"
@@ -194,6 +240,17 @@ export function Header({
   const hasVisibleTabs = Boolean(editorGroups?.groups.some((g) => g.tabs.length > 0))
   const isSplitTabs = (editorGroups?.groups.length ?? 0) > 1
   const displayOpenClawVersion = openClawVersion?.replace(/^v/i, "") ?? null
+  const showUpdateButton = ["available", "downloading", "installing", "restarting", "error"].includes(appUpdateState.status)
+  const updateButtonDisabled = appUpdateState.status !== "available"
+  const updateButtonLabel = appUpdateState.status === "error"
+    ? "Update failed"
+    : appUpdateState.status === "available"
+      ? "Update"
+      : appUpdateState.status === "downloading"
+        ? "Downloading"
+        : appUpdateState.status === "installing"
+          ? "Installing"
+          : "Restarting"
 
   useEffect(() => {
     if (!draggingTabId) return
@@ -526,6 +583,36 @@ export function Header({
                 <VscTerminal className="size-4" />
               </button>
             </HeaderActionTooltip>
+
+            {showUpdateButton && (
+              <HeaderActionTooltip label={appUpdateState.message ?? "Install OpenClaw update"}>
+                <button
+                  type="button"
+                  aria-label={appUpdateState.message ?? "Install OpenClaw update"}
+                  onClick={handleInstallHeaderUpdate}
+                  disabled={updateButtonDisabled}
+                  className={cn(
+                    "mx-1 flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium",
+                    "transition-colors",
+                    updateButtonDisabled
+                      ? "cursor-default border-border/35 bg-foreground/[0.035] text-muted-foreground"
+                      : "cursor-pointer border-emerald-400/30 bg-emerald-400/10 text-emerald-500 hover:bg-emerald-400/15 hover:text-emerald-400",
+                    appUpdateState.status === "error" && "border-red-400/30 bg-red-400/10 text-red-400",
+                  )}
+                >
+                  <span className="relative flex size-2">
+                    {appUpdateState.status === "available" && (
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                    )}
+                    <span className={cn(
+                      "relative inline-flex size-2 rounded-full",
+                      appUpdateState.status === "error" ? "bg-red-400" : "bg-emerald-400",
+                    )} />
+                  </span>
+                  {updateButtonLabel}
+                </button>
+              </HeaderActionTooltip>
+            )}
 
             <HeaderActionTooltip label="Open logs">
               <button
