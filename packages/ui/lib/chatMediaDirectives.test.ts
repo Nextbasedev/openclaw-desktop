@@ -44,4 +44,13 @@ describe("chatMediaDirectives", () => {
       [{ name: "a.png", mimeType: "image/png", url: "https://x/a.png" }],
     )).toHaveLength(1)
   })
+
+  it("prefers MEDIA directive attachments when existing metadata lacks a preview URL", () => {
+    expect(mergeChatAttachments(
+      [{ name: "a.png", mimeType: "image/png" }],
+      [{ name: "a.png", mimeType: "image/png", url: "https://x/a.png" }],
+    )).toEqual([
+      { name: "a.png", mimeType: "image/png", url: "https://x/a.png" },
+    ])
+  })
 })

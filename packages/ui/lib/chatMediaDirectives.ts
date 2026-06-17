@@ -74,6 +74,10 @@ export function parseChatMediaDirectives(text: string): {
   return { text: stripped, attachments }
 }
 
+function attachmentHasPreview(attachment: NonNullable<ChatMessage["attachments"]>[number]): boolean {
+  return Boolean(attachment.url || attachment.content)
+}
+
 export function mergeChatAttachments(
   existing: ChatMessage["attachments"],
   extra: ChatMessage["attachments"],
@@ -82,11 +86,19 @@ export function mergeChatAttachments(
   if (!existing?.length) return extra
   const merged = [...existing]
   for (const attachment of extra) {
-    const duplicate = merged.some((item) =>
+    const duplicateIndex = merged.findIndex((item) =>
       (!!item.url && item.url === attachment.url) ||
       (item.name === attachment.name && item.mimeType === attachment.mimeType)
     )
-    if (!duplicate) merged.push(attachment)
+    if (duplicateIndex === -1) {
+      merged.push(attachment)
+      continue
+    }
+
+    const existingAttachment = merged[duplicateIndex]
+    if (!attachmentHasPreview(existingAttachment) && attachmentHasPreview(attachment)) {
+      merged[duplicateIndex] = { ...existingAttachment, ...attachment }
+    }
   }
   return merged
 }
