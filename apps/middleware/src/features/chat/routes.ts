@@ -695,6 +695,7 @@ function isMissingApprovalError(error: unknown) {
 }
 
 const OPENCLAW_MEDIA_ROOT = path.resolve(os.homedir(), ".openclaw", "media");
+const OPENCLAW_WORKSPACE_ROOT = path.resolve(process.env.WORKSPACE_ROOT || path.join(os.homedir(), ".openclaw", "workspace"));
 
 const MEDIA_MIME_TYPES: Record<string, string> = {
   ".avi": "video/x-msvideo",
@@ -718,16 +719,36 @@ function mediaMimeType(filePath: string) {
   return MEDIA_MIME_TYPES[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
 }
 
+function allowedLocalMediaRoots() {
+  return [OPENCLAW_MEDIA_ROOT, OPENCLAW_WORKSPACE_ROOT];
+}
+
+function isPathInsideRoot(candidate: string, root: string) {
+  const rootWithSeparator = `${root}${path.sep}`;
+  return candidate === root || candidate.startsWith(rootWithSeparator);
+}
+
 function resolveOpenClawMediaPath(rawPath: string) {
   const trimmed = rawPath.trim();
   const candidate = path.isAbsolute(trimmed)
     ? path.resolve(trimmed)
     : path.resolve(OPENCLAW_MEDIA_ROOT, trimmed.replace(/^\.\//, ""));
-  const rootWithSeparator = `${OPENCLAW_MEDIA_ROOT}${path.sep}`;
-  if (candidate !== OPENCLAW_MEDIA_ROOT && !candidate.startsWith(rootWithSeparator)) {
-    throw new HttpError(403, "Media path is outside the OpenClaw media directory", "MEDIA_PATH_FORBIDDEN");
+  if (!allowedLocalMediaRoots().some((root) => isPathInsideRoot(candidate, root))) {
+    throw new HttpError(403, "Media path is outside allowed OpenClaw media/workspace directories", "MEDIA_PATH_FORBIDDEN");
   }
   return candidate;
+}
+
+async function assertResolvedMediaPathAllowed(realFile: string) {
+  for (const root of allowedLocalMediaRoots()) {
+    try {
+      const realRoot = await fs.promises.realpath(root);
+      if (isPathInsideRoot(realFile, realRoot)) return;
+    } catch {
+      // A missing optional root should not make files from other allowed roots fail.
+    }
+  }
+  throw new HttpError(403, "Media path is outside allowed OpenClaw media/workspace directories", "MEDIA_PATH_FORBIDDEN");
 }
 
 /**
@@ -799,18 +820,13 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }
 
     const requestedPath = resolveOpenClawMediaPath(parsed.data.path);
-    let realRoot = OPENCLAW_MEDIA_ROOT;
     let realFile = requestedPath;
     try {
-      realRoot = await fs.promises.realpath(OPENCLAW_MEDIA_ROOT);
       realFile = await fs.promises.realpath(requestedPath);
     } catch {
       throw new HttpError(404, "Media file not found", "MEDIA_NOT_FOUND");
     }
-    const rootWithSeparator = `${realRoot}${path.sep}`;
-    if (realFile !== realRoot && !realFile.startsWith(rootWithSeparator)) {
-      throw new HttpError(403, "Media path is outside the OpenClaw media directory", "MEDIA_PATH_FORBIDDEN");
-    }
+    await assertResolvedMediaPathAllowed(realFile);
     const stat = await fs.promises.stat(realFile);
     if (!stat.isFile()) {
       throw new HttpError(404, "Media file not found", "MEDIA_NOT_FOUND");

@@ -44,7 +44,27 @@ describe("chat media routes", () => {
     await app.close();
   });
 
-  test("rejects paths outside OpenClaw media", async () => {
+  test("serves workspace media files inline", async () => {
+    const app = await createApp(config("workspace-media"));
+    const mediaDir = path.join(os.homedir(), ".openclaw", "workspace", "test-media-route");
+    fs.mkdirSync(mediaDir, { recursive: true });
+    const file = path.join(mediaDir, `sample-${Date.now()}.webp`);
+    fs.writeFileSync(file, Buffer.from([0x52, 0x49, 0x46, 0x46]));
+    createdFiles.push(file);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/chat/media/local?path=${encodeURIComponent(file)}`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("image/webp");
+    expect(res.headers["content-disposition"]).toContain("inline");
+    expect(res.rawPayload).toEqual(Buffer.from([0x52, 0x49, 0x46, 0x46]));
+    await app.close();
+  });
+
+  test("rejects paths outside OpenClaw media/workspace roots", async () => {
     const app = await createApp(config("local-media-forbidden"));
 
     const res = await app.inject({

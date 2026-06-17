@@ -20,6 +20,18 @@ describe("chatMediaDirectives", () => {
     ])
   })
 
+  it("uses the media API for workspace file references", () => {
+    const result = parseChatMediaDirectives("MEDIA:/root/.openclaw/workspace/out.png")
+
+    expect(result.attachments).toEqual([
+      {
+        name: "out.png",
+        mimeType: "image/png",
+        url: "https://middleware.example.com/api/chat/media/local?path=%2Froot%2F.openclaw%2Fworkspace%2Fout.png",
+      },
+    ])
+  })
+
   it("supports quoted external URLs with spaces", () => {
     const result = parseChatMediaDirectives('Here\nMEDIA:"https://example.com/My Image.webp?x=1"')
 
