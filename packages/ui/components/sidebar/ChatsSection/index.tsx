@@ -6,8 +6,10 @@ import { Icons } from "@/components/icons"
 import { useChatsData } from "@/hooks/useChatsData"
 import { ChatRow } from "./ChatRow"
 import { ChatDialogs } from "./ChatDialogs"
+import { ArchivedChatsSection } from "./ArchivedChatsSection"
 import { chatDisplayName } from "@/utils/chatDisplayName"
 import type { ActiveChat } from "@/types/chat"
+import type { Space } from "@/types/space"
 
 export type { ActiveChat }
 
@@ -22,6 +24,7 @@ type Props = {
   onNewChat: () => void
   refreshTrigger?: number
   spaceId?: string | null
+  spaces?: Space[]
 }
 
 const CHATS_PER_PAGE = 25
@@ -36,6 +39,7 @@ export function ChatsSection({
   onNewChat,
   refreshTrigger = 0,
   spaceId,
+  spaces = [],
 }: Props) {
   const [isOpen, setIsOpen] = useState(true)
   const [currentPage, setCurrentPage] = useState(0)
@@ -51,7 +55,7 @@ export function ChatsSection({
     handleArchiveChat,
     dialogState,
     dialogActions,
-  } = useChatsData(activeChat, onChatClear, refreshTrigger, spaceId, showArchived)
+  } = useChatsData(activeChat, onChatClear, refreshTrigger, spaceId, false)
   const chatsById = useMemo(
     () => new Map(chats.map((chat) => [chat.id, chat])),
     [chats],
@@ -84,6 +88,27 @@ export function ChatsSection({
   useEffect(() => {
     setShowArchived(false)
   }, [spaceId])
+
+  const closeArchive = () => {
+    setShowArchived(false)
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("openclaw:show-active-chats"))
+    }
+  }
+
+  if (showArchived) {
+    return (
+      <ArchivedChatsSection
+        sectionLabel="Archived"
+        activeSpaceId={spaceId}
+        spaces={spaces}
+        onClose={closeArchive}
+        onChatSelect={onChatSelect}
+        onChatOpenInNewWindow={onChatOpenInNewWindow}
+        refreshTrigger={refreshTrigger}
+      />
+    )
+  }
 
   useEffect(() => {
     if (currentPage > totalPages - 1) {
@@ -142,11 +167,11 @@ export function ChatsSection({
                 {chats.length === 0 && (
                   <button
                     type="button"
-                    onClick={showArchived ? () => setShowArchived(false) : onNewChat}
+                    onClick={onNewChat}
                     className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border/30 px-2.5 py-2 text-left text-[12px] text-muted-foreground/40 transition-colors hover:border-border/50 hover:text-muted-foreground"
                   >
-                    {showArchived ? <Icons.Archive size={12} strokeWidth={1.5} /> : <Icons.Plus size={12} strokeWidth={1.5} />}
-                    <span className="whitespace-nowrap">{showArchived ? "No archived chats" : "Start your first chat"}</span>
+                    <Icons.Plus size={12} strokeWidth={1.5} />
+                    <span className="whitespace-nowrap">Start your first chat</span>
                   </button>
                 )}
 
@@ -174,7 +199,6 @@ export function ChatsSection({
                         isPinned={pinnedChats.has(chatId)}
                         isRunning={Boolean(chat.sessionKey && runningSessionKeys.has(chat.sessionKey))}
                         onClick={() => {
-                          if (showArchived) return
                           onChatSelect({
                             id: chat.id,
                             name: chatDisplayName(chat),
@@ -196,7 +220,7 @@ export function ChatsSection({
                         onArchive={() =>
                           handleArchiveChat(chatId)
                         }
-                        archiveLabel={showArchived ? "Restore" : "Archive"}
+                        archiveLabel="Archive"
                         onDelete={() =>
                           dialogActions.openDelete(chat)
                         }

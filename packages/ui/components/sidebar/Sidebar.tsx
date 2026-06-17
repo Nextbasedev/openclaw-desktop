@@ -256,6 +256,7 @@ export function Sidebar({
                 onNewChat={onNewChat}
                 refreshTrigger={chatRefreshTrigger}
                 spaceId={effectiveSpaceId}
+                spaces={spaces}
               />
             </div>
           </div>
