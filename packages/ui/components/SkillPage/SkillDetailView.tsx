@@ -119,88 +119,90 @@ export function SkillDetailView({
 
   return (
     <div className="h-full w-full overflow-y-auto scrollbar-hide">
-      <div className="mx-auto max-w-3xl px-7 py-10">
-        <BackButton onClick={onBack} />
+      <div className="mx-auto max-w-3xl px-7 pb-10">
+        <div className="sticky top-0 z-20 -mx-7 mb-6 border-b border-border/60 bg-background/95 px-7 pb-6 pt-10 backdrop-blur-xl">
+          <BackButton onClick={onBack} />
 
-        <div className="mt-6 flex items-start gap-5">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-[22px] font-semibold text-foreground">
-              {skill.displayName}
-            </h1>
-            {owner?.handle && (
-              <p className="mt-0.5 flex items-center gap-2 text-[13px] text-muted-foreground">
-                {owner.image && (
-                  <img
-                    src={owner.image}
-                    alt=""
-                    className="size-5 rounded-full"
-                  />
-                )}
-                {owner.displayName ?? owner.handle}
+          <div className="mt-6 flex items-start gap-5">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-[22px] font-semibold text-foreground">
+                {skill.displayName}
+              </h1>
+              {owner?.handle && (
+                <p className="mt-0.5 flex items-center gap-2 text-[13px] text-muted-foreground">
+                  {owner.image && (
+                    <img
+                      src={owner.image}
+                      alt=""
+                      className="size-5 rounded-full"
+                    />
+                  )}
+                  {owner.displayName ?? owner.handle}
+                </p>
+              )}
+              <p className="mt-4 text-[14px] leading-relaxed text-foreground/80">
+                {skill.summary ?? "No description."}
               </p>
-            )}
-            <p className="mt-4 text-[14px] leading-relaxed text-foreground/80">
-              {skill.summary ?? "No description."}
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              {detail.package && <TrustBadge pkg={detail.package} />}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {detail.package && <TrustBadge pkg={detail.package} />}
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2">
+              {detail.installed ? (
+                <>
+                  <span className="rounded-md bg-emerald-500/10 px-4 py-2 text-[13px] font-medium text-emerald-400">
+                    Installed
+                  </span>
+                  <button
+                    type="button"
+                    disabled={uninstalling}
+                    onClick={handleUninstall}
+                    className={cn(
+                      "flex size-9 cursor-pointer items-center justify-center rounded-md",
+                      "text-muted-foreground/50 transition-all duration-200",
+                      "hover:bg-red-500/10 hover:text-red-400",
+                      "disabled:cursor-not-allowed disabled:opacity-50"
+                    )}
+                    aria-label="Uninstall skill"
+                  >
+                    {uninstalling ? (
+                      <div className="size-4 animate-spin rounded-full border-2 border-red-400/20 border-t-red-400" />
+                    ) : (
+                      <LuTrash2 size={16} />
+                    )}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  disabled={installing}
+                  onClick={handleInstall}
+                  className={cn(
+                    "cursor-pointer rounded-md bg-foreground px-5 py-2 text-[13px] font-medium",
+                    "text-background transition-opacity hover:opacity-90",
+                    "disabled:cursor-not-allowed disabled:opacity-50"
+                  )}
+                >
+                  {installing ? "Installing..." : "Install"}
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
-            {detail.installed ? (
-              <>
-                <span className="rounded-md bg-emerald-500/10 px-4 py-2 text-[13px] font-medium text-emerald-400">
-                  Installed
-                </span>
-                <button
-                  type="button"
-                  disabled={uninstalling}
-                  onClick={handleUninstall}
-                  className={cn(
-                    "flex size-9 cursor-pointer items-center justify-center rounded-md",
-                    "text-muted-foreground/50 transition-all duration-200",
-                    "hover:bg-red-500/10 hover:text-red-400",
-                    "disabled:cursor-not-allowed disabled:opacity-50"
-                  )}
-                  aria-label="Uninstall skill"
-                >
-                  {uninstalling ? (
-                    <div className="size-4 animate-spin rounded-full border-2 border-red-400/20 border-t-red-400" />
-                  ) : (
-                    <LuTrash2 size={16} />
-                  )}
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                disabled={installing}
-                onClick={handleInstall}
-                className={cn(
-                  "cursor-pointer rounded-md bg-foreground px-5 py-2 text-[13px] font-medium",
-                  "text-background transition-opacity hover:opacity-90",
-                  "disabled:opacity-50"
-                )}
-              >
-                {installing ? "Installing..." : "Install"}
-              </button>
-            )}
-          </div>
+          {installMsg && (
+            <div
+              className={cn(
+                "mt-4 rounded-lg border px-4 py-2.5 text-[13px]",
+                installMsg.includes("fail") || installMsg.includes("Error")
+                  ? "border-red-400/20 bg-red-400/5 text-red-400"
+                  : "border-emerald-400/20 bg-emerald-400/5 text-emerald-400"
+              )}
+            >
+              {installMsg}
+            </div>
+          )}
         </div>
-
-        {installMsg && (
-          <div
-            className={cn(
-              "mt-4 rounded-lg border px-4 py-2.5 text-[13px]",
-              installMsg.includes("fail") || installMsg.includes("Error")
-                ? "border-red-400/20 bg-red-400/5 text-red-400"
-                : "border-emerald-400/20 bg-emerald-400/5 text-emerald-400"
-            )}
-          >
-            {installMsg}
-          </div>
-        )}
 
         {(statItems.length > 0 || infoItems.length > 0) && (
           <div className="mt-6 overflow-hidden rounded-lg border border-zinc-200/80 bg-white shadow-[0_16px_40px_-28px_rgba(15,23,42,0.45)] dark:rounded-sm dark:border-0 dark:bg-transparent dark:shadow-[0_10px_40px_-24px_rgba(0,0,0,0.75)] dark:backdrop-blur-2xl">
