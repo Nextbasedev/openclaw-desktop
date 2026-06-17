@@ -182,7 +182,21 @@ export type ChatMessagesPageV2 = {
   hasNewer?: boolean
   oldestSeq?: number | null
   newestSeq?: number | null
+  /**
+   * Legacy global-cursor epoch (numeric, projection-event ordinal). Kept for
+   * backwards compatibility; do NOT use as the per-session seq invalidation
+   * signal — that's `seqEpoch` below.
+   */
   epoch?: number
+  /**
+   * BUG-5 (docs/audit/deep-verification-2026-06-17.md item 1).
+   * Per-session seq epoch — UUID string bumped by middleware whenever
+   * `openclaw_seq` is mutated (resequence, prune, late-echo collision shift).
+   * Frontend caches the bootstrap value and compares every subsequent
+   * envelope/patch frame; on mismatch the only safe recovery is
+   * `resetToLiveTail()`. See `seqEpoch.ts` for the comparison primitive.
+   */
+  seqEpoch?: string
 }
 
 export async function fetchChatMessagesV2(input: {

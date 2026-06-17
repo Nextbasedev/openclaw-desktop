@@ -17,7 +17,8 @@ import {
 import { applyChatPatch, derivePatchTargetSeq, patchImpliesActiveRun, statusFromPatch } from "@/lib/chat-engine-v2/applyPatches"
 import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
-import type { PatchFrame } from "@/lib/chat-engine-v2/types"
+import { shouldRebuildForEpochMismatch } from "@/lib/chat-engine-v2/seqEpoch"
+import type { PatchFrame, PatchPayloadV2 } from "@/lib/chat-engine-v2/types"
 import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParser"
 import { dedupeChatMessages } from "@/lib/chatMessageDedupe"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
@@ -649,6 +650,50 @@ export function ChatView({
   // Used by chat-rebuild.send.first-patch-received diagnostics so we measure
   // click → first-frame latency for the new-session send path.
   const firstPatchLoggedRef = useRef<boolean>(false)
+  // BUG-5 (docs/audit/deep-verification-2026-06-17.md item 1).
+  // Cached per-session seq epoch. Adopted from the FIRST envelope/patch that
+  // carries a non-empty `seqEpoch` (cold bootstrap or registry reconcile),
+  // then compared on every subsequent envelope/patch. Mismatch →
+  // `resetToLiveTail()` + chat-rebuild.epoch.mismatch log. See
+  // `lib/chat-engine-v2/seqEpoch.ts` for the comparison primitive.
+  const seqEpochRef = useRef<string | null>(null)
+  // BUG-5: forward-reference to resetToLiveTail. The seq-epoch resolver runs
+  // at fetch/patch resolution time (post-mount) and is declared before
+  // resetToLiveTail in source order; routing through a ref keeps the
+  // useCallback dep list short and side-steps TDZ on the dep array.
+  const resetToLiveTailRef = useRef<(() => Promise<void> | void) | null>(null)
+
+  // BUG-5: resolver — compare an incoming seqEpoch against the cached value;
+  // mismatch triggers `resetToLiveTail`. Returns `true` when the caller
+  // should bail (a reset is in flight; further mutation would race it).
+  const resolveIncomingSeqEpoch = useCallback(
+    (incoming: string | null | undefined, source: string): boolean => {
+      if (!incoming) return false
+      if (
+        shouldRebuildForEpochMismatch({
+          cachedEpoch: seqEpochRef.current,
+          incomingEpoch: incoming,
+        })
+      ) {
+        const cached = seqEpochRef.current
+        seqEpochRef.current = incoming
+        frontendLog(
+          "chat",
+          "chat-rebuild.epoch.mismatch",
+          { sessionKey, source, cachedEpoch: cached, incomingEpoch: incoming },
+          "warn",
+        )
+        void resetToLiveTailRef.current?.()
+        return true
+      }
+      // First arrival adopts — next comparison will key on this value.
+      if (!seqEpochRef.current) {
+        seqEpochRef.current = incoming
+      }
+      return false
+    },
+    [sessionKey],
+  )
 
   const refreshSessionUsage = useCallback(async () => {
     const seq = ++contextFetchSeqRef.current
@@ -674,6 +719,7 @@ export function ChatView({
     lastBootstrapRecoveryAtRef.current = 0
     lastBootstrapCompletedAtRef.current = 0
     firstPatchLoggedRef.current = false
+    seqEpochRef.current = null
     setReactions({})
     setPinnedIds([])
     setPinnedPanelOpen(false)
@@ -786,6 +832,12 @@ export function ChatView({
         .then((history) => {
           if (cancelled) return
           if (history.sessionKey && history.sessionKey !== sessionKey) return
+          // BUG-5: detect mid-session seq resequence on the reconcile path.
+          // Reconcile is potentially the FIRST envelope this view sees
+          // (registry-hydrate skipped the cold fetch), so the resolver may
+          // either adopt this epoch or, if a prior session view already
+          // cached a value mid-tab-switch, detect a mismatch and re-bootstrap.
+          if (resolveIncomingSeqEpoch(history.seqEpoch, "reconcile")) return
           const freshMessages = normalizeHistory(
             history.messages.map((message) => message.data),
           )
@@ -892,6 +944,9 @@ export function ChatView({
       .then((history) => {
         if (cancelled) return
         if (history.sessionKey && history.sessionKey !== sessionKey) return
+        // BUG-5: cold bootstrap is the first arrival — resolver adopts the
+        // epoch into the cache (cachedEpoch=null → returns false, sets ref).
+        if (resolveIncomingSeqEpoch(history.seqEpoch, "cold-bootstrap")) return
         const messages = normalizeHistory(
           history.messages.map((message) => message.data)
         )
@@ -1028,6 +1083,18 @@ export function ChatView({
       const previousCursor = cursorRef.current
       if (frame.patch.cursor <= previousCursor) return
       cursorRef.current = Math.max(cursorRef.current, frame.patch.cursor)
+      // BUG-5 (docs/audit/deep-verification-2026-06-17.md item 1).
+      // Every patch payload carries `seqEpoch`; if it disagrees with the
+      // cached value, the seq space has shifted and any stale
+      // newestLoadedSeq/oldestLoadedSeq will silently page the wrong window.
+      const patchPayloadRecord = isRecord(frame.patch.payload)
+        ? (frame.patch.payload as PatchPayloadV2)
+        : null
+      const patchSeqEpoch =
+        patchPayloadRecord && typeof patchPayloadRecord.seqEpoch === "string"
+          ? patchPayloadRecord.seqEpoch
+          : undefined
+      if (resolveIncomingSeqEpoch(patchSeqEpoch, "patch")) return
       if (!firstPatchLoggedRef.current) {
         firstPatchLoggedRef.current = true
         frontendLog(
@@ -1293,7 +1360,7 @@ export function ChatView({
         }
       })
     })
-  }, [isBackgroundSession, sessionKey, streamCursor])
+  }, [isBackgroundSession, sessionKey, streamCursor, resolveIncomingSeqEpoch])
 
   async function handleSend(payload: ChatComposerSubmit) {
     const text = payload.text.trim()
@@ -1908,6 +1975,12 @@ export function ChatView({
       })
       if (seq !== olderFetchSeqRef.current) return // stale
       if (response.sessionKey && response.sessionKey !== sessionKey) return
+      // BUG-5: stale `oldestSeq` against a new seq space would silently page
+      // the wrong window. Detect & re-bootstrap before mutating state.
+      if (resolveIncomingSeqEpoch(response.seqEpoch, "older-page")) {
+        setWindowState((s) => ({ ...s, isLoadingOlder: false }))
+        return
+      }
 
       const olderMessages = normalizeHistory(
         response.messages.map((m) => m.data)
@@ -2005,7 +2078,7 @@ export function ChatView({
         "warn"
       )
     }
-  }, [sessionKey, windowState.hasOlder, windowState.isLoadingOlder, windowState.oldestLoadedSeq, captureFirstVisibleRowAnchor])
+  }, [sessionKey, windowState.hasOlder, windowState.isLoadingOlder, windowState.oldestLoadedSeq, captureFirstVisibleRowAnchor, resolveIncomingSeqEpoch])
 
   const evaluateOlderTrigger = useCallback(() => {
     if (state.loading) return
@@ -2072,6 +2145,12 @@ export function ChatView({
       })
       if (seq !== newerFetchSeqRef.current) return // stale
       if (response.sessionKey && response.sessionKey !== sessionKey) return
+      // BUG-5: stale `newestSeq` against a new seq space would silently page
+      // the wrong window. Detect & re-bootstrap before mutating state.
+      if (resolveIncomingSeqEpoch(response.seqEpoch, "newer-page")) {
+        setWindowState((s) => ({ ...s, isLoadingNewer: false }))
+        return
+      }
 
       const newerMessages = normalizeHistory(
         response.messages.map((m) => m.data)
@@ -2174,7 +2253,7 @@ export function ChatView({
         "warn"
       )
     }
-  }, [sessionKey, windowState.hasNewer, windowState.isLoadingNewer, windowState.newestLoadedSeq, captureFirstVisibleRowAnchor])
+  }, [sessionKey, windowState.hasNewer, windowState.isLoadingNewer, windowState.newestLoadedSeq, captureFirstVisibleRowAnchor, resolveIncomingSeqEpoch])
 
   const resetToLiveTail = useCallback(async (): Promise<void> => {
     setShowJumpToLatest(false)
@@ -2189,6 +2268,10 @@ export function ChatView({
     setReplyTo(null)
     setActivePopoverId(null)
     setComposerSeed(null)
+    // BUG-5: any cached epoch belonged to the seq space we're abandoning.
+    // Clear so the next fetch's epoch is adopted as the new baseline
+    // without spuriously triggering another mismatch-driven reset.
+    seqEpochRef.current = null
     setWindowState(INITIAL_WINDOW_STATE)
     setState({
       loading: true,
@@ -2207,6 +2290,10 @@ export function ChatView({
         limit: q.limit,
       })
       if (history.sessionKey && history.sessionKey !== sessionKey) return
+      // BUG-5: adopt the post-reset epoch as the new baseline.
+      if (typeof history.seqEpoch === "string" && history.seqEpoch) {
+        seqEpochRef.current = history.seqEpoch
+      }
 
       const messages = normalizeHistory(history.messages.map((m) => m.data))
       const cursor = typeof history.cursor === "number" ? history.cursor : 0
@@ -2275,6 +2362,14 @@ export function ChatView({
       )
     }
   }, [sessionKey])
+
+  // BUG-5 (docs/audit/deep-verification-2026-06-17.md item 1).
+  // Keep the resetToLiveTailRef in sync so the seq-epoch resolver (declared
+  // earlier in the component body, before resetToLiveTail itself is hoisted
+  // in TDZ terms) can trigger a re-bootstrap without closure ordering games.
+  useEffect(() => {
+    resetToLiveTailRef.current = resetToLiveTail
+  }, [resetToLiveTail])
 
   const evaluateNewerTrigger = useCallback(() => {
     if (state.loading) {

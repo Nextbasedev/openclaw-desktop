@@ -57,6 +57,15 @@ export type ChatBootstrapV2 = {
   projection?: { cursor?: number; lastSeq?: number; liveSubscribed?: boolean; version?: number }
   /** Compatibility only for old consumers. Prefer canonical runStatus/statusLabel. */
   sessionStatus?: string | null
+  /**
+   * BUG-5 (docs/audit/deep-verification-2026-06-17.md item 1).
+   * Per-session seq epoch — UUID string bumped by middleware whenever
+   * `openclaw_seq` is mutated (resequence, prune, late-echo collision shift).
+   * Frontend caches this from the bootstrap response and compares every
+   * subsequent envelope/patch frame. See `seqEpoch.ts` for the comparison
+   * primitive. Optional: middleware versions predating Bug-5 omit it.
+   */
+  seqEpoch?: string
 }
 
 export type PatchPayloadV2 = {
@@ -85,6 +94,13 @@ export type PatchPayloadV2 = {
   toolCall?: ToolCallProjectionV2
   text?: string | null
   delta?: string | null
+  /**
+   * BUG-5 (docs/audit/deep-verification-2026-06-17.md item 1).
+   * Per-session seq epoch attached to every patch payload by middleware
+   * `projection.ts:appendProjectionEvent`. Frontend compares this against
+   * the cached bootstrap epoch; mismatch → `resetToLiveTail()`.
+   */
+  seqEpoch?: string
   [key: string]: unknown
 }
 
@@ -113,6 +129,15 @@ export type HelloFrame = {
   // redeploy on the same URL): if this is below the client's persisted global
   // cursor, the stored cursor belongs to a dead epoch and must be reset.
   latestCursor?: number
+  /**
+   * BUG-5 (docs/audit/deep-verification-2026-06-17.md item 1).
+   * Per-session seq epoch carried on the hello frame when the SSE connect
+   * is scoped to a single session. Optional and best-effort: most hello
+   * frames are session-agnostic, so the canonical comparison happens on
+   * envelope (`ChatBootstrapV2.seqEpoch`, `ChatMessagesPageV2.seqEpoch`)
+   * and patch payload (`PatchPayloadV2.seqEpoch`).
+   */
+  seqEpoch?: string
 }
 
 export type StreamFrame = PatchFrame | HelloFrame
