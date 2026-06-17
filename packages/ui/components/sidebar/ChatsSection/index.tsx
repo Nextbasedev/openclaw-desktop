@@ -42,6 +42,7 @@ export function ChatsSection({
   const [isOpen, setIsOpen] = useState(true)
   const [currentPage, setCurrentPage] = useState(0)
   const [showArchived, setShowArchived] = useState(false)
+  const [archiveGroupOpen, setArchiveGroupOpen] = useState<Record<string, boolean>>({})
   const [spacesById, setSpacesById] = useState<Map<string, Space>>(new Map())
   const showList = !collapsible || isOpen
   const activeSectionLabel = showArchived ? "Archive" : sectionLabel
@@ -92,10 +93,12 @@ export function ChatsSection({
     function showArchivedChats() {
       setShowArchived(true)
       setCurrentPage(0)
+      setArchiveGroupOpen({})
     }
     function showActiveChats() {
       setShowArchived(false)
       setCurrentPage(0)
+      setArchiveGroupOpen({})
     }
 
     window.addEventListener("openclaw:show-archived-chats", showArchivedChats)
@@ -111,6 +114,22 @@ export function ChatsSection({
       setCurrentPage(Math.max(0, totalPages - 1))
     }
   }, [currentPage, totalPages])
+
+  useEffect(() => {
+    if (!showArchived) return
+    setArchiveGroupOpen((prev) => {
+      if (groupedVisibleChatIds.length === 0) return {}
+      const next: Record<string, boolean> = {}
+      let changed = false
+      for (const [index, group] of groupedVisibleChatIds.entries()) {
+        const hasExisting = Object.prototype.hasOwnProperty.call(prev, group.id)
+        next[group.id] = hasExisting ? prev[group.id] : index === 0
+        if (prev[group.id] !== next[group.id]) changed = true
+      }
+      if (Object.keys(prev).length !== groupedVisibleChatIds.length) changed = true
+      return changed ? next : prev
+    })
+  }, [groupedVisibleChatIds, showArchived])
 
   useEffect(() => {
     if (!showArchived) return
@@ -191,55 +210,91 @@ export function ChatsSection({
 
                 {showArchived ? (
                   <div className="flex flex-col gap-2">
-                    {groupedVisibleChatIds.map((group) => (
-                      <div key={group.id} className="flex flex-col gap-0.5">
-                        <div className="px-2 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/55">
-                          {group.label}
-                        </div>
-                        {group.chatIds.map((chatId) => {
-                          const chat = chatsById.get(chatId)
-                          if (!chat) return null
+                    {groupedVisibleChatIds.map((group, index) => {
+                      const defaultOpen = index === 0
+                      const groupOpen = archiveGroupOpen[group.id] ?? defaultOpen
 
-                          return (
-                            <ChatRow
-                              key={chatId}
-                              chatId={chatId}
-                              chat={chat}
-                              isActive={activeChat?.id === chatId}
-                              isPinned={pinnedChats.has(chatId)}
-                              isRunning={Boolean(chat.sessionKey && runningSessionKeys.has(chat.sessionKey))}
-                              disableReorder
-                              onClick={() => {
-                                onChatSelect({
-                                  id: chat.id,
-                                  name: chatDisplayName(chat),
-                                  sessionKey: chat.sessionKey,
-                                  spaceId: chat.spaceId,
-                                })
-                              }}
-                              onPin={() => togglePinChat(chatId)}
-                              onOpenInNewWindow={chat.sessionKey ? () =>
-                                onChatOpenInNewWindow?.({
-                                  id: chat.id,
-                                  name: chatDisplayName(chat),
-                                  sessionKey: chat.sessionKey,
-                                  spaceId: chat.spaceId,
-                                }) : undefined}
-                              onRename={() =>
-                                dialogActions.openRename(chat)
-                              }
-                              onArchive={() =>
-                                handleArchiveChat(chatId)
-                              }
-                              archiveLabel="Restore"
-                              onDelete={() =>
-                                dialogActions.openDelete(chat)
-                              }
-                            />
-                          )
-                        })}
-                      </div>
-                    ))}
+                      return (
+                        <div key={group.id} className="flex flex-col gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setArchiveGroupOpen((prev) => ({
+                                ...prev,
+                                [group.id]: !(prev[group.id] ?? defaultOpen),
+                              }))
+                            }
+                            className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 pt-1 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground/55 transition-colors hover:text-muted-foreground"
+                            aria-expanded={groupOpen}
+                          >
+                            <motion.span
+                              animate={{ rotate: groupOpen ? 0 : -90 }}
+                              transition={{ duration: 0.16, ease: "easeInOut" }}
+                              className="inline-flex shrink-0 items-center justify-center"
+                            >
+                              <Icons.ChevronDown size={10} strokeWidth={2} />
+                            </motion.span>
+                            <span className="min-w-0 truncate">{group.label}</span>
+                          </button>
+                          <AnimatePresence initial={false}>
+                            {groupOpen && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.18, ease: "easeInOut" }}
+                                className="overflow-hidden"
+                              >
+                                <div className="flex flex-col gap-0.5">
+                                  {group.chatIds.map((chatId) => {
+                                    const chat = chatsById.get(chatId)
+                                    if (!chat) return null
+
+                                    return (
+                                      <ChatRow
+                                        key={chatId}
+                                        chatId={chatId}
+                                        chat={chat}
+                                        isActive={activeChat?.id === chatId}
+                                        isPinned={pinnedChats.has(chatId)}
+                                        isRunning={Boolean(chat.sessionKey && runningSessionKeys.has(chat.sessionKey))}
+                                        disableReorder
+                                        onClick={() => {
+                                          onChatSelect({
+                                            id: chat.id,
+                                            name: chatDisplayName(chat),
+                                            sessionKey: chat.sessionKey,
+                                            spaceId: chat.spaceId,
+                                          })
+                                        }}
+                                        onPin={() => togglePinChat(chatId)}
+                                        onOpenInNewWindow={chat.sessionKey ? () =>
+                                          onChatOpenInNewWindow?.({
+                                            id: chat.id,
+                                            name: chatDisplayName(chat),
+                                            sessionKey: chat.sessionKey,
+                                            spaceId: chat.spaceId,
+                                          }) : undefined}
+                                        onRename={() =>
+                                          dialogActions.openRename(chat)
+                                        }
+                                        onArchive={() =>
+                                          handleArchiveChat(chatId)
+                                        }
+                                        archiveLabel="Restore"
+                                        onDelete={() =>
+                                          dialogActions.openDelete(chat)
+                                        }
+                                      />
+                                    )
+                                  })}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      )
+                    })}
                   </div>
                 ) : (
                   <Reorder.Group
