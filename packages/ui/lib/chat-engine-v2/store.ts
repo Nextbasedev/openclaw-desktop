@@ -98,11 +98,11 @@ function normalizedSpawnText(value: string | null | undefined) {
 }
 
 function spawnStatusRank(status: SpawnedSubagent["status"]) {
-  if (status === "working") return 4
-  if (status === "linking") return 3
-  if (status === "spawning") return 2
-  if (status === "failed") return 1
-  return 0
+  if (status === "failed") return 5
+  if (status === "completed") return 4
+  if (status === "working") return 3
+  if (status === "linking") return 2
+  return 1
 }
 
 function isMeaningfulSpawnLabel(label: string) {
@@ -825,12 +825,18 @@ function applySubagentLifecycleFromPatch(state: SessionState, frame: PatchFrame)
       status: "failed",
     })
   } else if (semanticType === "chat.subagent.spawn_done") {
+    const isSameTerminalChild = Boolean(
+      existing?.sessionKey &&
+      childSessionKey &&
+      existing.sessionKey === childSessionKey &&
+      (existing.status === "completed" || existing.status === "failed")
+    )
     spawns.set(toolCallId, {
       ...(existing ?? { id: `spawn:${toolCallId}`, label, sessionKey: null, toolCallId }),
       label: existing?.label ?? label,
       task,
       sessionKey: childSessionKey,
-      status: childSessionKey ? "working" : existing?.status ?? "spawning",
+      status: isSameTerminalChild ? existing!.status : childSessionKey ? "working" : existing?.status ?? "spawning",
     })
   } else if (semanticType === "chat.subagent.child_activity") {
     const childStatus = streamStatusFromPatchValue(payload.childStatus)

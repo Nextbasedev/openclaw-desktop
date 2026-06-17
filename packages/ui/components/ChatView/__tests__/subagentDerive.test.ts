@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest"
 import {
+  applySubagentStatusOverrides,
   buildSubagentAnchorMaps,
   deriveSpawnedSubagents,
   indexSpawnsByToolCallId,
+  mergeAuthoritativeSubagents,
 } from "../subagentDerive"
 import type { ChatMessage, InlineToolCall } from "../types"
 
@@ -214,6 +216,76 @@ describe("deriveSpawnedSubagents", () => {
     const spawns = deriveSpawnedSubagents(messages)
     expect(spawns).toHaveLength(1)
     expect(spawns[0].status).toBe("working")
+  })
+
+  test("applies linked child session terminal status over parent spawn status", () => {
+    const messages: ChatMessage[] = [
+      mkMessage({
+        messageId: "a1",
+        role: "assistant",
+        toolCalls: [
+          mkTool({
+            id: "tc-1",
+            tool: "sessions_spawn",
+            status: "success",
+            input: { task: "x", label: "W", sessionKey: CHILD_SESSION_KEY },
+          }),
+        ],
+      }),
+    ]
+    const spawns = deriveSpawnedSubagents(messages)
+    expect(spawns[0].status).toBe("working")
+
+    const reconciled = applySubagentStatusOverrides(
+      spawns,
+      new Map([[CHILD_SESSION_KEY, "completed"]]),
+    )
+
+    expect(reconciled[0].status).toBe("completed")
+  })
+
+  test("prefers websocket/global subagent status over local parent derivation", () => {
+    const messages: ChatMessage[] = [
+      mkMessage({
+        messageId: "a1",
+        role: "assistant",
+        toolCalls: [
+          mkTool({
+            id: "tc-1",
+            tool: "sessions_spawn",
+            status: "success",
+            input: { task: "x", label: "W", sessionKey: CHILD_SESSION_KEY },
+          }),
+        ],
+      }),
+    ]
+    const derived = deriveSpawnedSubagents(messages)
+
+    const merged = mergeAuthoritativeSubagents(derived, [{
+      ...derived[0],
+      status: "completed",
+    }])
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].status).toBe("completed")
+  })
+
+  test("keeps terminal websocket status when stale derived status is also present", () => {
+    const stale = {
+      id: "spawn:tc-1",
+      label: "W",
+      task: "x",
+      sessionKey: CHILD_SESSION_KEY,
+      status: "working" as const,
+      toolCallId: "tc-1",
+    }
+    const terminal = {
+      ...stale,
+      status: "completed" as const,
+    }
+
+    expect(mergeAuthoritativeSubagents([stale], [terminal])[0].status).toBe("completed")
+    expect(mergeAuthoritativeSubagents([terminal], [stale])[0].status).toBe("completed")
   })
 })
 

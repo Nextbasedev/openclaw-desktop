@@ -16,6 +16,7 @@ import {
 } from "@/lib/chat-engine-v2/client"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "@/lib/chat-engine-v2/applyPatches"
 import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
+import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import type { PatchFrame } from "@/lib/chat-engine-v2/types"
 import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParser"
@@ -33,6 +34,8 @@ import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
 import { normalizeSessionTokenUsage, type SessionTokenUsage } from "@/lib/sessionContextUsage"
 import { cn } from "@/lib/utils"
+import { useAgentActivity } from "@/hooks/useAgentActivity"
+import type { AgentNode } from "@/components/inspector/activity-types"
 import {
   applyTerminalToolState,
   groupAssistantToolCallsByMessage,
@@ -80,11 +83,14 @@ import { SubagentBar } from "./SubagentBar"
 import { SubagentCard } from "./SubagentCard"
 import { SubagentFullChat } from "./SubagentFullChat"
 import {
+  applySubagentStatusOverrides,
   buildSubagentAnchorMaps,
   deriveSpawnedSubagents,
   indexSpawnsByToolCallId,
+  mergeAuthoritativeSubagents,
 } from "./subagentDerive"
 import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "./types"
+import type { SubagentLifecycleStatus } from "@/lib/subagentLifecycle"
 import { orderChatMessages } from "./orderChatMessages"
 import { decideBootstrapRecovery } from "./bootstrapRecoveryGuard"
 import { beginSendIfIdle, endSend } from "./sendInFlightGuard"
@@ -247,6 +253,60 @@ function hasAssistantAnswerAfterLastUser(messages: ChatMessage[]) {
     message.role === "assistant" &&
     Boolean(message.text.trim() || message.reasoningText?.trim())
   )
+}
+
+function hasAssistantOutput(messages: ChatMessage[]) {
+  return messages.some((message) =>
+    message.role === "assistant" &&
+    Boolean(message.text.trim() || message.reasoningText?.trim())
+  )
+}
+
+function childSessionStatusOverride(
+  status: StreamStatus,
+  messages: ChatMessage[],
+): SubagentLifecycleStatus | null {
+  if (status === "error") return "failed"
+  if (status === "done") return "completed"
+  if ((status === "idle" || status === "connected") && hasAssistantOutput(messages)) {
+    return "completed"
+  }
+  if (isActiveStreamStatus(status)) return "working"
+  return null
+}
+
+function flattenActivityAgents(nodes: AgentNode[]): AgentNode[] {
+  const result: AgentNode[] = []
+  for (const node of nodes) {
+    if (node.id !== "root") result.push(node)
+    if (node.children?.length) result.push(...flattenActivityAgents(node.children))
+  }
+  return result
+}
+
+function activityStatusToSubagentStatus(status: AgentNode["status"]): SubagentLifecycleStatus {
+  if (status === "success") return "completed"
+  if (status === "error") return "failed"
+  return "working"
+}
+
+function activityAgentsToSubagents(
+  tree: AgentNode[],
+  agentToSessionKey: Map<string, string>,
+): SpawnedSubagent[] {
+  return flattenActivityAgents(tree).map((agent) => {
+    const toolCallId = agent.id.startsWith("spawn:")
+      ? agent.id.slice("spawn:".length)
+      : agent.id
+    return {
+      id: agent.id,
+      label: agent.label,
+      task: agent.description,
+      sessionKey: agent.sessionKey ?? agentToSessionKey.get(agent.id) ?? null,
+      status: activityStatusToSubagentStatus(agent.status),
+      toolCallId,
+    }
+  })
 }
 
 function isTerminalStatus(status: StreamStatus) {
@@ -1513,12 +1573,119 @@ export function ChatView({
     [state.messages]
   )
 
-  // Sub-agents derived from the message stream. Live updates flow naturally
-  // as sessions_spawn tool patches mutate tool.status / tool.resultText on the
-  // underlying messages via applyChatPatch.
-  const spawnedSubagents = useMemo(
+  // Sub-agents derived from the parent message stream. Parent patches tell us
+  // when a child was spawned/linked; linked child-session subscriptions below
+  // reconcile the real terminal status.
+  const parentSpawnedSubagents = useMemo(
     () => deriveSpawnedSubagents(renderedMessages),
     [renderedMessages]
+  )
+
+  const {
+    tree: activitySubagentTree,
+    agentToSessionKey: activityAgentToSessionKey,
+  } = useAgentActivity(isBackgroundSession ? null : sessionKey)
+
+  const activitySpawnedSubagents = useMemo(
+    () => activityAgentsToSubagents(activitySubagentTree, activityAgentToSessionKey),
+    [activityAgentToSessionKey, activitySubagentTree],
+  )
+
+  const [globalSpawnedSubagents, setGlobalSpawnedSubagents] = useState<SpawnedSubagent[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    const syncGlobalSubagents = () => {
+      const globalState = getGlobalChatSession(sessionKey)
+      if (cancelled) return
+      setGlobalSpawnedSubagents(globalState?.spawnedSubagents ?? [])
+    }
+
+    syncGlobalSubagents()
+    const unsubscribe = subscribeGlobalChatSession(sessionKey, syncGlobalSubagents)
+
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [sessionKey])
+
+  const [childSubagentStatuses, setChildSubagentStatuses] = useState<
+    Map<string, SubagentLifecycleStatus>
+  >(() => new Map())
+
+  const linkedSubagentSessionKeys = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          parentSpawnedSubagents
+            .map((subagent) => subagent.sessionKey)
+            .filter((key): key is string => Boolean(key)),
+        ),
+      ).sort(),
+    [parentSpawnedSubagents],
+  )
+  const linkedSubagentSessionKeySignature = linkedSubagentSessionKeys.join("\u0001")
+
+  useEffect(() => {
+    if (linkedSubagentSessionKeys.length === 0) {
+      setChildSubagentStatuses((current) =>
+        current.size === 0 ? current : new Map(),
+      )
+      return
+    }
+
+    let cancelled = false
+    const updateChildStatus = (childSessionKey: string) => {
+      const childState = getGlobalChatSession(childSessionKey)
+      if (!childState || cancelled) return
+      const override = childSessionStatusOverride(
+        childState.status,
+        childState.messages,
+      )
+      setChildSubagentStatuses((current) => {
+        const next = new Map(current)
+        if (override) next.set(childSessionKey, override)
+        else next.delete(childSessionKey)
+
+        for (const key of Array.from(next.keys())) {
+          if (!linkedSubagentSessionKeys.includes(key)) next.delete(key)
+        }
+
+        if (
+          next.size === current.size &&
+          Array.from(next.entries()).every(([key, status]) => current.get(key) === status)
+        ) {
+          return current
+        }
+        return next
+      })
+    }
+
+    for (const childSessionKey of linkedSubagentSessionKeys) {
+      updateChildStatus(childSessionKey)
+    }
+
+    const unsubscribers = linkedSubagentSessionKeys.map((childSessionKey) =>
+      subscribeGlobalChatSession(childSessionKey, () => updateChildStatus(childSessionKey)),
+    )
+
+    return () => {
+      cancelled = true
+      for (const unsubscribe of unsubscribers) unsubscribe()
+    }
+  }, [linkedSubagentSessionKeySignature])
+
+  const spawnedSubagents = useMemo(
+    () =>
+      applySubagentStatusOverrides(
+        mergeAuthoritativeSubagents(
+          parentSpawnedSubagents,
+          [...globalSpawnedSubagents, ...activitySpawnedSubagents],
+        ),
+        childSubagentStatuses,
+      ),
+    [activitySpawnedSubagents, childSubagentStatuses, globalSpawnedSubagents, parentSpawnedSubagents],
   )
 
   // Anchor each spawn to the triggering user message (or orphan-anchor it to
@@ -2613,13 +2780,6 @@ export function ChatView({
           </div>
         </div>
       </div>
-      {spawnedSubagents.length > 0 && (
-        <div className="shrink-0 border-b border-border/10 bg-background/60 px-4 py-2 backdrop-blur-sm">
-          <div className="mx-auto max-w-3xl">
-            <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
-          </div>
-        </div>
-      )}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
@@ -2811,6 +2971,11 @@ export function ChatView({
               return next
             })
           }}
+          topAccessory={
+            spawnedSubagents.length > 0 ? (
+              <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
+            ) : null
+          }
         />
       </div>
     </div>

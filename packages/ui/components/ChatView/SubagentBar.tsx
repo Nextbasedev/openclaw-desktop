@@ -29,7 +29,15 @@ function statusLabel(sub: SpawnedSubagent) {
 }
 
 function subagentRenderKey(sub: SpawnedSubagent) {
-  return sub.id || (sub.toolCallId ? `spawn:${sub.toolCallId}` : sub.sessionKey ?? sub.label)
+  return sub.sessionKey ?? sub.id ?? (sub.toolCallId ? `spawn:${sub.toolCallId}` : sub.label)
+}
+
+function visibleStatusRank(status: SpawnedSubagent["status"]) {
+  if (status === "failed") return 5
+  if (status === "completed") return 4
+  if (status === "working") return 3
+  if (status === "linking") return 2
+  return 1
 }
 
 function ShimmerBar() {
@@ -59,7 +67,7 @@ export function SubagentBar({
       if (
         !existing ||
         (!existing.sessionKey && sub.sessionKey) ||
-        (!isActiveSubagent(existing.status) && isActiveSubagent(sub.status))
+        visibleStatusRank(sub.status) > visibleStatusRank(existing.status)
       ) {
         byKey.set(key, sub)
       }
@@ -91,7 +99,7 @@ export function SubagentBar({
 
   return (
     <div
-      className="mx-auto w-full max-w-3xl px-4"
+      className="w-full"
       data-testid="subagent-composer-bar"
     >
       <div

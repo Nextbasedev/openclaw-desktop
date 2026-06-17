@@ -80,6 +80,7 @@ type Props = {
   queuedMessages?: QueuedChatMessage[]
   onEditQueuedMessage?: (id: string, text: string) => void
   onDeleteQueuedMessage?: (id: string) => void
+  topAccessory?: React.ReactNode
 }
 
 const SPACE_DOT_GRADIENTS = [
@@ -118,6 +119,7 @@ export function ChatBox({
   queuedMessages = [],
   onEditQueuedMessage,
   onDeleteQueuedMessage,
+  topAccessory,
 }: Props) {
   const draftStorageKey = draftKey ? `openclaw-composer-draft:v1:${draftKey}` : null
   const [input, setInput] = React.useState(() => {
@@ -694,6 +696,11 @@ export function ChatBox({
         className="hidden"
         onChange={handleFileChange}
       />
+      {topAccessory ? (
+        <div className="relative z-0 mb-2">
+          {topAccessory}
+        </div>
+      ) : null}
       <div
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}

@@ -21,6 +21,14 @@ import type { SubagentLifecycleStatus } from "@/lib/subagentLifecycle"
 
 const SPAWN_TOOL = "sessions_spawn"
 
+function subagentStatusRank(status: SubagentLifecycleStatus) {
+  if (status === "failed") return 5
+  if (status === "completed") return 4
+  if (status === "working") return 3
+  if (status === "linking") return 2
+  return 1
+}
+
 function compact(label: unknown, fallback: string): string {
   if (typeof label !== "string") return fallback
   const trimmed = label.trim()
@@ -158,6 +166,56 @@ export function deriveSpawnedSubagents(messages: ChatMessage[]): SpawnedSubagent
   }
   // Use the store's dedupe helper so we share the exact same identity rules.
   return dedupeSpawnedSubagents(spawns)
+}
+
+export function applySubagentStatusOverrides(
+  spawns: SpawnedSubagent[],
+  statusBySessionKey: Map<string, SubagentLifecycleStatus>,
+): SpawnedSubagent[] {
+  if (statusBySessionKey.size === 0 || spawns.length === 0) return spawns
+  return dedupeSpawnedSubagents(
+    spawns.map((spawn) => {
+      if (!spawn.sessionKey) return spawn
+      const status = statusBySessionKey.get(spawn.sessionKey)
+      return status && status !== spawn.status ? { ...spawn, status } : spawn
+    }),
+  )
+}
+
+export function mergeAuthoritativeSubagents(
+  derivedSpawns: SpawnedSubagent[],
+  authoritativeSpawns: SpawnedSubagent[],
+): SpawnedSubagent[] {
+  if (authoritativeSpawns.length === 0) return derivedSpawns
+
+  const byToolCallId = new Map(
+    authoritativeSpawns.map((spawn) => [spawn.toolCallId, spawn]),
+  )
+  const bySessionKey = new Map(
+    authoritativeSpawns
+      .filter((spawn) => spawn.sessionKey)
+      .map((spawn) => [spawn.sessionKey as string, spawn]),
+  )
+
+  return dedupeSpawnedSubagents([
+    ...derivedSpawns.map((spawn) => {
+      const authoritative =
+        bySessionKey.get(spawn.sessionKey ?? "") ??
+        byToolCallId.get(spawn.toolCallId)
+      if (!authoritative) return spawn
+      return {
+        ...spawn,
+        label: spawn.label || authoritative.label,
+        task: spawn.task || authoritative.task,
+        sessionKey: spawn.sessionKey || authoritative.sessionKey,
+        status:
+          subagentStatusRank(authoritative.status) >= subagentStatusRank(spawn.status)
+            ? authoritative.status
+            : spawn.status,
+      }
+    }),
+    ...authoritativeSpawns,
+  ])
 }
 
 export type SubagentAnchorMaps = {
