@@ -119,6 +119,8 @@ type Props = {
   isBackgroundSession?: boolean
 }
 
+const MAX_QUEUED_MESSAGES = 5
+
 type HistoryState = {
   loading: boolean
   error: string | null
@@ -1250,6 +1252,19 @@ export function ChatView({
     const text = payload.text.trim()
     if (!text && !payload.attachments?.length) return
     if (isGenerating && !payload.runWhileGenerating) {
+      if (queuedMessagesRef.current.length >= MAX_QUEUED_MESSAGES) {
+        setState((current) => ({
+          ...current,
+          composerError: `Queue limit reached. Send up to ${MAX_QUEUED_MESSAGES} messages at a time.`,
+        }))
+        frontendLog("chat", "chat-rebuild.send.queue-limit", {
+          sessionKey,
+          queueLength: queuedMessagesRef.current.length,
+          maxQueuedMessages: MAX_QUEUED_MESSAGES,
+        })
+        return
+      }
+
       const queued: QueuedChatMessage = {
         id: randomId(),
         payload: { ...payload, text },

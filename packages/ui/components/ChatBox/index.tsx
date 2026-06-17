@@ -706,7 +706,7 @@ export function ChatBox({
           y: 4,
           transition: { duration: 0.16, ease: "easeInOut" },
         }}
-        className="mb-2 max-h-52 origin-bottom overflow-y-auto rounded-2xl border border-border/70 bg-popover/95 p-1 shadow-sm"
+        className="mb-2 max-h-[220px] origin-bottom overflow-y-auto overscroll-contain rounded-2xl border border-border/70 bg-popover/95 p-1 shadow-sm scrollbar-hide"
       >
         <div className="py-1">
           <div className="flex items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
