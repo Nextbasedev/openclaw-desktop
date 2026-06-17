@@ -70,7 +70,7 @@ export function SkillDetailView({
 
   if (!detail?.skill) {
     return (
-      <div className="h-full w-full overflow-y-auto">
+      <div className="h-full w-full overflow-y-auto scrollbar-hide">
         <div className="mx-auto max-w-3xl px-7 py-10">
           <BackButton onClick={onBack} />
           <div className="mt-10 text-center text-muted-foreground">
@@ -118,7 +118,7 @@ export function SkillDetailView({
   ].filter(Boolean) as Array<{ label: string; value: string }>
 
   return (
-    <div className="h-full w-full overflow-y-auto">
+    <div className="h-full w-full overflow-y-auto scrollbar-hide">
       <div className="mx-auto max-w-3xl px-7 py-10">
         <BackButton onClick={onBack} />
 
