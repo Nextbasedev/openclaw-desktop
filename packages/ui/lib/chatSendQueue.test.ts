@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest"
 
 import {
+  MAX_QUEUED_CHAT_MESSAGES,
+  canEnqueueChatMessage,
   deleteQueuedChatMessage,
   editQueuedChatMessage,
   enqueueChatMessage,
@@ -17,6 +19,15 @@ describe("chatSendQueue", () => {
     const queue = enqueueChatMessage(enqueueChatMessage([], item("a", "first")), item("b", "second"))
 
     expect(queue.map((queued) => queued.payload.text)).toEqual(["first", "second"])
+  })
+
+  test("does not enqueue beyond the max queue size", () => {
+    const fullQueue = Array.from({ length: MAX_QUEUED_CHAT_MESSAGES }, (_, index) =>
+      item(String(index), `queued ${index}`)
+    )
+
+    expect(canEnqueueChatMessage(fullQueue)).toBe(false)
+    expect(enqueueChatMessage(fullQueue, item("overflow", "too much"))).toBe(fullQueue)
   })
 
   test("edits only the targeted queued message", () => {

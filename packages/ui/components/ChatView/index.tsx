@@ -23,6 +23,8 @@ import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParse
 import { dedupeChatMessages } from "@/lib/chatMessageDedupe"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import {
+  MAX_QUEUED_CHAT_MESSAGES,
+  canEnqueueChatMessage,
   deleteQueuedChatMessage,
   editQueuedChatMessage,
   enqueueChatMessage,
@@ -1304,6 +1306,19 @@ export function ChatView({
     if (!text && !payload.attachments?.length) return
     const isStopCommand = !payload.attachments?.length && !payload.replyTo && isStopSlashCommand(text)
     if (isGenerating && !payload.runWhileGenerating && !isStopCommand) {
+      if (!canEnqueueChatMessage(queuedMessagesRef.current)) {
+        const message = `Queue limit reached. Max ${MAX_QUEUED_CHAT_MESSAGES} messages can be queued.`
+        setState((current) => ({ ...current, composerError: message }))
+        frontendLog("chat", "chat-rebuild.send.queue-limit", {
+          sessionKey,
+          queueLength: queuedMessagesRef.current.length,
+          maxQueueLength: MAX_QUEUED_CHAT_MESSAGES,
+          textLength: text.length,
+          attachmentCount: payload.attachments?.length ?? 0,
+        })
+        return
+      }
+
       const queued: QueuedChatMessage = {
         id: randomId(),
         payload: { ...payload, text },

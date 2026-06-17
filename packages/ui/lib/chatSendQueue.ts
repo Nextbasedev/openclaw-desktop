@@ -1,15 +1,22 @@
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 
+export const MAX_QUEUED_CHAT_MESSAGES = 5
+
 export type QueuedChatMessage = {
   id: string
   payload: ChatComposerSubmit
   createdAtMs: number
 }
 
+export function canEnqueueChatMessage(queue: QueuedChatMessage[]): boolean {
+  return queue.length < MAX_QUEUED_CHAT_MESSAGES
+}
+
 export function enqueueChatMessage(
   queue: QueuedChatMessage[],
   item: QueuedChatMessage,
 ): QueuedChatMessage[] {
+  if (!canEnqueueChatMessage(queue)) return queue
   return [...queue, item]
 }
 
