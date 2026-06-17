@@ -608,6 +608,15 @@ export function ChatView({
     anchorOffsetFromContainerTop: number
   } | null>(null)
 
+  const composerHistoryMessages = useMemo(
+    () =>
+      state.messages
+        .filter((message) => message.role === "user")
+        .map((message) => message.text.trim())
+        .filter(Boolean),
+    [state.messages],
+  )
+
   useEffect(() => {
     queuedMessagesRef.current = queuedMessages
   }, [queuedMessages])
@@ -2843,6 +2852,7 @@ export function ChatView({
           isGenerating={isGenerating}
           onAbort={handleAbort}
           replyTo={replyTo}
+          historyMessages={composerHistoryMessages}
           sessionUsage={sessionUsage}
           onCancelReply={handleCancelReply}
           draftKey={`chat:${sessionKey}`}
