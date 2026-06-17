@@ -756,8 +756,8 @@ export function ChatBox({
               transition={{ duration: 0.16, ease: "easeOut" }}
               className="overflow-hidden"
             >
-              <div className="border-b border-border/50 px-3 pb-2 pt-2 dark:border-white/8">
-                <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium text-muted-foreground/70">
+              <div className={cn(GLASS_POPOVER, "mx-3 mb-2 overflow-hidden rounded-xl p-2")}>
+                <div className="mb-1.5 flex items-center justify-between px-1 text-[11px] font-medium text-muted-foreground/70">
                   <span>Queued messages</span>
                   <span>{queuedMessages.length}</span>
                 </div>
@@ -767,22 +767,22 @@ export function ChatBox({
                     return (
                       <div
                         key={queued.id}
-                        className="flex items-start gap-2 rounded-lg border border-border/45 bg-black/[0.02] px-2 py-1.5 dark:border-white/8 dark:bg-white/[0.03]"
+                        className="flex min-h-10 items-center gap-2 rounded-lg border border-[var(--glass-input-border)] bg-[var(--glass-input-bg)] px-2.5 py-1.5"
                       >
-                        <span className="mt-1 min-w-4 text-[11px] text-muted-foreground/50">
-                          {index + 1}.
+                        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/[0.06] text-[10px] font-medium text-muted-foreground/70">
+                          {index + 1}
                         </span>
-                        <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-1 flex-col justify-center">
                           {isEditing ? (
                             <textarea
                               value={editingQueuedText}
                               onChange={(e) => setEditingQueuedText(e.target.value)}
                               rows={2}
-                              className="w-full resize-none rounded-md border border-border/50 bg-background/70 px-2 py-1 text-[13px] leading-snug text-foreground outline-none focus:border-foreground/30 dark:border-white/10"
+                              className="w-full resize-none rounded-md border border-[var(--glass-input-border)] bg-background/70 px-2 py-1 text-[13px] leading-snug text-foreground outline-none focus:border-foreground/30"
                               autoFocus
                             />
                           ) : (
-                            <p className="line-clamp-2 whitespace-pre-wrap text-[13px] leading-snug text-foreground/75">
+                            <p className="line-clamp-2 whitespace-pre-wrap text-[13px] font-medium leading-snug text-foreground/80">
                               {queued.payload.text}
                             </p>
                           )}
@@ -792,7 +792,7 @@ export function ChatBox({
                             </p>
                           )}
                         </div>
-                        <div className="flex shrink-0 items-center gap-1">
+                        <div className="flex shrink-0 items-center gap-1 self-center">
                           {isEditing ? (
                             <>
                               <button
