@@ -67,6 +67,39 @@ export const INITIAL_WINDOW_STATE: WindowState = {
 }
 
 /**
+ * BUG-4 (docs/audit/frontend-window-audit-2026-06-17.md).
+ *
+ * `applyToolPatch` synthesizes a `live:${runId}:tools` row with no
+ * `gatewayIndex` when the parent user message has been evicted. If the
+ * caller derives `appendedNewestSeq` from `messages.at(-1).gatewayIndex` it
+ * gets `undefined` from that synthetic row and ends up writing
+ * `appendedNewestSeq = null`, which freezes `windowState.newestLoadedSeq`
+ * and breaks subsequent newer-page fetches.
+ *
+ * Walk backward (or forward, for the head mirror) past seqless rows so
+ * synthetic tool/projection rows never poison the derived cursor.
+ */
+export function lastSeqfulGatewayIndex(
+  messages: ReadonlyArray<{ gatewayIndex?: number | null | undefined }>,
+): number | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const idx = messages[i]?.gatewayIndex
+    if (typeof idx === "number" && Number.isFinite(idx)) return idx
+  }
+  return null
+}
+
+export function firstSeqfulGatewayIndex(
+  messages: ReadonlyArray<{ gatewayIndex?: number | null | undefined }>,
+): number | null {
+  for (let i = 0; i < messages.length; i++) {
+    const idx = messages[i]?.gatewayIndex
+    if (typeof idx === "number" && Number.isFinite(idx)) return idx
+  }
+  return null
+}
+
+/**
  * Returns how many messages must be dropped from the end of the buffer after
  * prepending `prependedCount` rows so the buffer stays at most `maxLoaded`.
  * Never returns a negative number.

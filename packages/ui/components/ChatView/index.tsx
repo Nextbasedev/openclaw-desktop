@@ -68,6 +68,8 @@ import {
   canEvictFromStartOnLiveAppend,
   computeEvictedAfterAppend,
   computeEvictedAfterPrepend,
+  firstSeqfulGatewayIndex,
+  lastSeqfulGatewayIndex,
   liveTailQuery,
   shouldDropPatchAsEvicted,
   shouldFetchNewer,
@@ -1153,16 +1155,10 @@ export function ChatView({
           if (canEvictFromStartOnLiveAppend(windowStateRef.current)) {
             const evict = orderedMessages.length - MAX_LOADED
             const finalMessages = orderedMessages.slice(evict)
-            const newOldest = finalMessages[0]
-            const newNewest = finalMessages[finalMessages.length - 1]
-            const appendedNewestSeq =
-              newNewest && typeof newNewest.gatewayIndex === "number"
-                ? newNewest.gatewayIndex
-                : null
-            const evictedOldestSeq =
-              newOldest && typeof newOldest.gatewayIndex === "number"
-                ? newOldest.gatewayIndex
-                : null
+            // BUG-4: synthetic live tool rows can carry no gatewayIndex; walk
+            // to the nearest seqful row so the derived cursor doesn't go null.
+            const appendedNewestSeq = lastSeqfulGatewayIndex(finalMessages)
+            const evictedOldestSeq = firstSeqfulGatewayIndex(finalMessages)
             setWindowState((s) =>
               applyLiveAppend({
                 prevState: s,
@@ -1190,11 +1186,8 @@ export function ChatView({
           // Cannot safely evict: hasOlder is false, so evicting from start would
           // destroy unrecoverable history. Allow the array to temporarily exceed
           // MAX_LOADED. Still update newestLoadedSeq.
-          const newNewest = orderedMessages[orderedMessages.length - 1]
-          const appendedNewestSeq =
-            newNewest && typeof newNewest.gatewayIndex === "number"
-              ? newNewest.gatewayIndex
-              : null
+          // BUG-4: skip seqless rows when deriving the cursor.
+          const appendedNewestSeq = lastSeqfulGatewayIndex(orderedMessages)
           setWindowState((s) =>
             applyLiveAppend({
               prevState: s,
@@ -1222,11 +1215,8 @@ export function ChatView({
 
         if (appendedAtTail) {
           // Length still ≤ MAX_LOADED, just update newestLoadedSeq.
-          const newNewest = orderedMessages[orderedMessages.length - 1]
-          const appendedNewestSeq =
-            newNewest && typeof newNewest.gatewayIndex === "number"
-              ? newNewest.gatewayIndex
-              : null
+          // BUG-4: skip seqless rows when deriving the cursor.
+          const appendedNewestSeq = lastSeqfulGatewayIndex(orderedMessages)
           setWindowState((s) =>
             applyLiveAppend({
               prevState: s,
@@ -1904,16 +1894,11 @@ export function ChatView({
           evictedFromEnd > 0
             ? combined.slice(0, combined.length - evictedFromEnd)
             : combined
-        const newOldest = finalMessages[0]
-        const newNewest = finalMessages[finalMessages.length - 1]
-        const newOldestSeq =
-          newOldest && typeof newOldest.gatewayIndex === "number"
-            ? newOldest.gatewayIndex
-            : null
+        // BUG-4: walk through seqless rows so synthetic tool projections at
+        // either boundary don't drag the derived cursors to null.
+        const newOldestSeq = firstSeqfulGatewayIndex(finalMessages)
         const evictedNewestSeq =
-          evictedFromEnd > 0 && newNewest && typeof newNewest.gatewayIndex === "number"
-            ? newNewest.gatewayIndex
-            : null
+          evictedFromEnd > 0 ? lastSeqfulGatewayIndex(finalMessages) : null
 
         setWindowState((s) =>
           applyOlderPage({
@@ -2083,16 +2068,11 @@ export function ChatView({
           : 0
         const finalMessages =
           evictedFromStart > 0 ? combined.slice(evictedFromStart) : combined
-        const newOldest = finalMessages[0]
-        const newNewest = finalMessages[finalMessages.length - 1]
+        // BUG-4: walk through seqless rows so synthetic tool projections at
+        // either boundary don't drag the derived cursors to null.
         const evictedOldestSeq =
-          evictedFromStart > 0 && newOldest && typeof newOldest.gatewayIndex === "number"
-            ? newOldest.gatewayIndex
-            : null
-        const newNewestSeq =
-          newNewest && typeof newNewest.gatewayIndex === "number"
-            ? newNewest.gatewayIndex
-            : null
+          evictedFromStart > 0 ? firstSeqfulGatewayIndex(finalMessages) : null
+        const newNewestSeq = lastSeqfulGatewayIndex(finalMessages)
 
         setWindowState((s) =>
           applyNewerPage({
