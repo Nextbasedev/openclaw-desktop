@@ -62,6 +62,7 @@ import {
   MAX_LOADED,
   OLDER_PAGE,
   BOTTOM_TRIGGER,
+  MIN_SCROLL_DELTA_PX,
   REFRACTORY_MS,
   applyInitialPage,
   applyLiveAppend,
@@ -80,6 +81,7 @@ import {
   shouldDropPatchAsEvicted,
   shouldFetchNewer,
   shouldFetchOlder,
+  shouldGateTriggerOnScrollDelta,
   type WindowState,
 } from "./messageWindow"
 import { assertWindowInvariant } from "./windowInvariants"
@@ -629,6 +631,22 @@ export function ChatView({
   // prevent the older/newer alternation loop. Different mechanism: time alone.
   const lastOlderResolvedAtRef = useRef<number>(0)
   const lastNewerResolvedAtRef = useRef<number>(0)
+  // E2E Wave 3 F-1 followup: scroll-delta gate. Snapshot of
+  // `scrollContainer.scrollTop` captured AFTER the useLayoutEffect anchor
+  // restoration runs on the resolved fetch's state.messages change. While
+  // non-null, the gate is engaged: `evaluateOlderTrigger` /
+  // `evaluateNewerTrigger` / the post-resolution useEffect all bail. The
+  // gate disengages when `handleScroll` observes the user has scrolled at
+  // least `MIN_SCROLL_DELTA_PX` from the snapshot. See
+  // `shouldGateTriggerOnScrollDelta` in messageWindow.ts.
+  const lastFetchResolvedScrollTopRef = useRef<number | null>(null)
+  // Companion flag for `lastFetchResolvedScrollTopRef`. Set to `true` in the
+  // fetch-resolution callbacks; the post-anchor-restore useLayoutEffect
+  // checks it and snapshots `scrollContainer.scrollTop` into the ref above,
+  // then clears the flag. We can't capture scrollTop directly in the
+  // resolution callback because anchor-restoration hasn't run yet at that
+  // point.
+  const pendingFetchResolveCaptureRef = useRef<boolean>(false)
   // Set to true while we are programmatically adjusting scrollTop (anchor
   // restoration). Without this, the synthetic scroll event from setting
   // container.scrollTop would call handleScroll and trigger evaluators in an
@@ -718,6 +736,8 @@ export function ChatView({
     pendingScrollAnchorRef.current = null
     lastOlderResolvedAtRef.current = 0
     lastNewerResolvedAtRef.current = 0
+    lastFetchResolvedScrollTopRef.current = null
+    pendingFetchResolveCaptureRef.current = false
     lastBootstrapRecoveryAtRef.current = 0
     lastBootstrapCompletedAtRef.current = 0
     firstPatchLoggedRef.current = false
@@ -2021,6 +2041,14 @@ export function ChatView({
         pendingScrollAnchorRef.current = null
         // Pin refractory anchor even on empty resolve.
         lastOlderResolvedAtRef.current = Date.now()
+        // E2E Wave 3 F-1 followup: empty response path does not mutate
+        // state.messages, so the post-anchor-restore useLayoutEffect won't
+        // fire. Capture scrollTop directly so the gate engages even when
+        // the server returns an empty page.
+        {
+          const sc = scrollContainerRef.current
+          lastFetchResolvedScrollTopRef.current = sc ? sc.scrollTop : 0
+        }
         frontendLog(
           "chat",
           "chat-rebuild.window.older-fetch-resolved",
@@ -2081,6 +2109,9 @@ export function ChatView({
       // REFRACTORY_MS milliseconds. Survives buffer mutations (scrollTop
       // anchors don't).
       lastOlderResolvedAtRef.current = Date.now()
+      // E2E Wave 3 F-1 followup: arm scroll-delta gate. The useLayoutEffect
+      // on [state.messages] will snapshot post-anchor-restore scrollTop.
+      pendingFetchResolveCaptureRef.current = true
     } catch (err) {
       if (seq !== olderFetchSeqRef.current) return
       setWindowState((s) => ({ ...s, isLoadingOlder: false }))
@@ -2127,6 +2158,36 @@ export function ChatView({
           elapsedSinceOlderMs: now - lastOlderResolvedAtRef.current,
           elapsedSinceNewerMs: now - lastNewerResolvedAtRef.current,
           refractoryMs: REFRACTORY_MS,
+        },
+        "debug",
+      )
+      return
+    }
+    // E2E Wave 3 F-1 followup: scroll-delta gate. The bidirectional
+    // refractory above only PACES the alternation loop — once it expires,
+    // the post-resolution useEffect fires the opposite-direction trigger
+    // while the viewport is still inside its zone. Block any
+    // trigger until the user has actually scrolled past
+    // MIN_SCROLL_DELTA_PX since the last fetch resolution.
+    const scrollContainerForGate = scrollContainerRef.current
+    if (
+      scrollContainerForGate &&
+      shouldGateTriggerOnScrollDelta({
+        lastFetchResolvedScrollTop: lastFetchResolvedScrollTopRef.current,
+        currentScrollTop: scrollContainerForGate.scrollTop,
+      })
+    ) {
+      frontendLog(
+        "chat",
+        "chat-rebuild.window.older-trigger-skip",
+        {
+          sessionKey,
+          reason: "no-user-scroll-since-resolve",
+          scrollDelta: Math.abs(
+            scrollContainerForGate.scrollTop -
+              (lastFetchResolvedScrollTopRef.current ?? 0),
+          ),
+          minScrollDeltaPx: MIN_SCROLL_DELTA_PX,
         },
         "debug",
       )
@@ -2209,6 +2270,12 @@ export function ChatView({
         )
         pendingScrollAnchorRef.current = null
         lastNewerResolvedAtRef.current = Date.now()
+        // E2E Wave 3 F-1 followup: empty-response path — capture scrollTop
+        // directly (no state.messages change to drive the useLayoutEffect).
+        {
+          const sc = scrollContainerRef.current
+          lastFetchResolvedScrollTopRef.current = sc ? sc.scrollTop : 0
+        }
         frontendLog(
           "chat",
           "chat-rebuild.window.newer-fetch-resolved",
@@ -2276,6 +2343,9 @@ export function ChatView({
       })
       // Time-based refractory.
       lastNewerResolvedAtRef.current = Date.now()
+      // E2E Wave 3 F-1 followup: arm scroll-delta gate; useLayoutEffect on
+      // [state.messages] snapshots scrollTop post-anchor-restore.
+      pendingFetchResolveCaptureRef.current = true
     } catch (err) {
       if (seq !== newerFetchSeqRef.current) return
       setWindowState((s) => ({ ...s, isLoadingNewer: false }))
@@ -2302,6 +2372,8 @@ export function ChatView({
     pendingScrollAnchorRef.current = null
     lastOlderResolvedAtRef.current = 0
     lastNewerResolvedAtRef.current = 0
+    lastFetchResolvedScrollTopRef.current = null
+    pendingFetchResolveCaptureRef.current = false
     shouldFollowScrollRef.current = true
     setStreamCursor(null)
     setReplyTo(null)
@@ -2442,6 +2514,32 @@ export function ChatView({
           elapsedSinceOlderMs: now - lastOlderResolvedAtRef.current,
           elapsedSinceNewerMs: now - lastNewerResolvedAtRef.current,
           refractoryMs: REFRACTORY_MS,
+        },
+        "debug",
+      )
+      return
+    }
+    // E2E Wave 3 F-1 followup: scroll-delta gate. See evaluateOlderTrigger
+    // above and `shouldGateTriggerOnScrollDelta` in messageWindow.ts.
+    const scrollContainerForGate = scrollContainerRef.current
+    if (
+      scrollContainerForGate &&
+      shouldGateTriggerOnScrollDelta({
+        lastFetchResolvedScrollTop: lastFetchResolvedScrollTopRef.current,
+        currentScrollTop: scrollContainerForGate.scrollTop,
+      })
+    ) {
+      frontendLog(
+        "chat",
+        "chat-rebuild.window.newer-trigger-skip",
+        {
+          sessionKey,
+          reason: "no-user-scroll-since-resolve",
+          scrollDelta: Math.abs(
+            scrollContainerForGate.scrollTop -
+              (lastFetchResolvedScrollTopRef.current ?? 0),
+          ),
+          minScrollDeltaPx: MIN_SCROLL_DELTA_PX,
         },
         "debug",
       )
@@ -2590,6 +2688,23 @@ export function ChatView({
     if (isProgrammaticScrollRef.current) return
     shouldFollowScrollRef.current = isNearScrollBottom(element)
     updateJumpToLatestVisibility(element)
+    // E2E Wave 3 F-1 followup: disengage the scroll-delta gate as soon as
+    // the user has moved past MIN_SCROLL_DELTA_PX from the post-fetch
+    // snapshot. Until this fires, the trigger evaluators below will bail.
+    if (lastFetchResolvedScrollTopRef.current !== null) {
+      const delta = Math.abs(
+        element.scrollTop - lastFetchResolvedScrollTopRef.current,
+      )
+      if (delta >= MIN_SCROLL_DELTA_PX) {
+        frontendLog(
+          "chat",
+          "chat-rebuild.window.scroll-delta-gate-disengaged",
+          { sessionKey, scrollDelta: delta, minScrollDeltaPx: MIN_SCROLL_DELTA_PX },
+          "debug",
+        )
+        lastFetchResolvedScrollTopRef.current = null
+      }
+    }
     // Refractory is now direction-locked + scroll-distance-based inside the
     // evaluators themselves — no per-event re-arming here.
     evaluateOlderTrigger()
@@ -2614,31 +2729,47 @@ export function ChatView({
   // offset. Robust to variable row heights and to either eviction direction.
   useLayoutEffect(() => {
     const anchor = pendingScrollAnchorRef.current
-    if (!anchor) return
-    pendingScrollAnchorRef.current = null
     const container = scrollContainerRef.current
-    if (!container) return
-    const newRow = container.querySelector<HTMLElement>(
-      `[data-chat-message-row="true"][data-message-id="${CSS.escape(anchor.anchorMessageId)}"]`
-    )
-    if (!newRow) return // anchor row was evicted — leave scrollTop as-is
-    const containerTop = container.getBoundingClientRect().top
-    const currentOffset = newRow.getBoundingClientRect().top - containerTop
-    const adjust = currentOffset - anchor.anchorOffsetFromContainerTop
-    if (adjust !== 0) {
-      // Guard against the synthetic scroll event re-firing handleScroll →
-      // re-arming triggers → re-fetching in an infinite loop. Cleared on the
-      // next macrotask after the browser has dispatched the scroll event.
-      isProgrammaticScrollRef.current = true
-      container.scrollTop += adjust
-      setTimeout(() => {
-        isProgrammaticScrollRef.current = false
-      }, 0)
+    if (anchor && container) {
+      pendingScrollAnchorRef.current = null
+      const newRow = container.querySelector<HTMLElement>(
+        `[data-chat-message-row="true"][data-message-id="${CSS.escape(anchor.anchorMessageId)}"]`
+      )
+      if (newRow) {
+        const containerTop = container.getBoundingClientRect().top
+        const currentOffset = newRow.getBoundingClientRect().top - containerTop
+        const adjust = currentOffset - anchor.anchorOffsetFromContainerTop
+        if (adjust !== 0) {
+          // Guard against the synthetic scroll event re-firing handleScroll →
+          // re-arming triggers → re-fetching in an infinite loop. Cleared on the
+          // next macrotask after the browser has dispatched the scroll event.
+          isProgrammaticScrollRef.current = true
+          container.scrollTop += adjust
+          setTimeout(() => {
+            isProgrammaticScrollRef.current = false
+          }, 0)
+        }
+        // We are anchored at a specific row; the user is not at the live tail by
+        // definition. Prevent the follow-bottom effect from snapping us to bottom on
+        // the same render pass (scrollFollowKey changes due to messages change).
+        shouldFollowScrollRef.current = false
+      }
+      // If !newRow the anchor row was evicted — leave scrollTop as-is.
     }
-    // We are anchored at a specific row; the user is not at the live tail by
-    // definition. Prevent the follow-bottom effect from snapping us to bottom on
-    // the same render pass (scrollFollowKey changes due to messages change).
-    shouldFollowScrollRef.current = false
+    // E2E Wave 3 F-1 followup: scroll-delta gate. After anchor restoration
+    // has settled scrollTop (or after a fetch resolved with no anchor /
+    // empty response), snapshot the post-restoration scrollTop so the gate
+    // can compare against subsequent handleScroll events. The flag is set
+    // by the fetch-resolution callbacks; this useLayoutEffect runs after
+    // every state.messages mutation (which is the same lifecycle the
+    // anchor restoration uses), so the snapshot lands AFTER the DOM has
+    // committed the new rows and any anchor adjustment.
+    if (pendingFetchResolveCaptureRef.current) {
+      pendingFetchResolveCaptureRef.current = false
+      if (container) {
+        lastFetchResolvedScrollTopRef.current = container.scrollTop
+      }
+    }
   }, [state.messages])
 
   useLayoutEffect(() => {

@@ -68,6 +68,28 @@ export const BOTTOM_TRIGGER = 60
 export const REFRACTORY_MS = 250
 
 /**
+ * E2E Wave 3 finding F-1 (followup, docs/audit/e2e-wave3-2026-06-17.md).
+ *
+ * Minimum cumulative scroll distance (in CSS pixels) the user must travel
+ * since the last fetch resolution before older/newer triggers are allowed
+ * to fire again. Defends against the post-resolution `useEffect` re-firing
+ * the opposite-direction trigger after the bidirectional refractory expires
+ * when the user is sitting at a buffer position where BOTH the top and the
+ * bottom trigger zones are in range.
+ *
+ * The E2E rerun captured this exact pathology: with the bidirectional
+ * refractory in place (a42d14ec), the post-resolution effect still re-fired
+ * the opposite direction once refractory expired, because
+ * `rowsAboveViewport` and `rowsBelowViewport` were both < 60 (the trigger
+ * thresholds) and never moved between fetches.
+ *
+ * 200 px ≈ ~3 typical message rows on the E2E rig. Short enough that a
+ * deliberate user drag never feels gated; long enough that any post-fetch
+ * scroll-anchor wiggle stays well below the threshold.
+ */
+export const MIN_SCROLL_DELTA_PX = 200
+
+/**
  * The single source of truth for the chat window's load state.
  * Tracks the seq boundaries of what's loaded and whether more exists in
  * either direction.
@@ -184,6 +206,40 @@ export function computeEvictedAfterAppend(
  * buffer immediately after an older fetch they themselves triggered
  * from the top, which is contrived in practice.
  */
+/**
+ * E2E Wave 3 finding F-1 (followup, docs/audit/e2e-wave3-2026-06-17.md).
+ *
+ * Scroll-delta gate. Returns true when the older/newer trigger evaluators
+ * MUST be blocked because the user has not scrolled enough since the last
+ * resolved fetch.
+ *
+ * Contract:
+ *   - `lastFetchResolvedScrollTop === null` ⇒ gate disengaged ⇒ returns
+ *     false (allow). The gate is engaged at fetch-resolution time (the
+ *     ChatView wires `useLayoutEffect` after anchor-restore to snapshot
+ *     `container.scrollTop` into a ref) and disengaged by `handleScroll`
+ *     once the user moves past `MIN_SCROLL_DELTA_PX` from that snapshot.
+ *   - When engaged, returns true iff
+ *     `|currentScrollTop − lastFetchResolvedScrollTop| < MIN_SCROLL_DELTA_PX`.
+ *
+ * Note: this gate only governs the autoload trigger evaluators
+ * (`evaluateOlderTrigger`, `evaluateNewerTrigger`) and the post-resolution
+ * `useEffect` that re-evaluates them. It MUST NOT gate live-append
+ * eviction, seq-epoch re-bootstrap, jump-to-latest, or initial bootstrap.
+ */
+export function shouldGateTriggerOnScrollDelta(input: {
+  lastFetchResolvedScrollTop: number | null
+  currentScrollTop: number
+  minScrollDeltaPx?: number
+}): boolean {
+  if (input.lastFetchResolvedScrollTop === null) return false
+  const min = input.minScrollDeltaPx ?? MIN_SCROLL_DELTA_PX
+  const delta = Math.abs(
+    input.currentScrollTop - input.lastFetchResolvedScrollTop,
+  )
+  return delta < min
+}
+
 export function isFetchRefractory(input: {
   now: number
   lastOlderResolvedAt: number

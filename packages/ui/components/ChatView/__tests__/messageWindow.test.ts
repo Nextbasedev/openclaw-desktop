@@ -16,11 +16,13 @@ import {
   liveTailQuery,
   MAX_BUFFER,
   MAX_LOADED,
+  MIN_SCROLL_DELTA_PX,
   OLDER_PAGE,
   REFRACTORY_MS,
   shouldDropPatchAsEvicted,
   shouldFetchNewer,
   shouldFetchOlder,
+  shouldGateTriggerOnScrollDelta,
   TOP_TRIGGER,
   type WindowState,
 } from "../messageWindow"
@@ -1277,6 +1279,510 @@ describe("loop convergence simulation (E2E Wave 3 F-1)", () => {
 
     // The buggy per-direction policy fires both directions many times.
     // Mirrors the 20+ alternating fetches in the E2E network.log.
+    expect(olderFires + newerFires).toBeGreaterThanOrEqual(10)
+  })
+})
+
+describe("MIN_SCROLL_DELTA_PX constant (E2E Wave 3 F-1 fix v2)", () => {
+  test("has the documented value (200px)", () => {
+    expect(MIN_SCROLL_DELTA_PX).toBe(200)
+  })
+})
+
+describe("shouldGateTriggerOnScrollDelta (E2E Wave 3 F-1 fix v2)", () => {
+  /**
+   * Scroll-delta gate. Engaged on every resolved older/newer fetch; only
+   * disengaged by handleScroll once the user has moved past
+   * MIN_SCROLL_DELTA_PX from the post-resolve scrollTop.
+   *
+   * In the trigger evaluators this predicate returns `true` to BLOCK the
+   * trigger from firing (and `false` to ALLOW). When the gate is disengaged
+   * (sentinel is `null`), it always returns `false`.
+   */
+  test("null sentinel → false (gate disengaged, trigger allowed)", () => {
+    expect(
+      shouldGateTriggerOnScrollDelta({
+        lastFetchResolvedScrollTop: null,
+        currentScrollTop: 1234,
+      }),
+    ).toBe(false)
+  })
+
+  test("delta = 0 → true (block, no user scroll yet)", () => {
+    expect(
+      shouldGateTriggerOnScrollDelta({
+        lastFetchResolvedScrollTop: 500,
+        currentScrollTop: 500,
+      }),
+    ).toBe(true)
+  })
+
+  test("delta = MIN - 1 → true (block, below threshold)", () => {
+    expect(
+      shouldGateTriggerOnScrollDelta({
+        lastFetchResolvedScrollTop: 500,
+        currentScrollTop: 500 + MIN_SCROLL_DELTA_PX - 1,
+      }),
+    ).toBe(true)
+  })
+
+  test("delta = MIN → false (allow, exactly at threshold)", () => {
+    expect(
+      shouldGateTriggerOnScrollDelta({
+        lastFetchResolvedScrollTop: 500,
+        currentScrollTop: 500 + MIN_SCROLL_DELTA_PX,
+      }),
+    ).toBe(false)
+  })
+
+  test("delta = MIN + 1 → false (allow, past threshold)", () => {
+    expect(
+      shouldGateTriggerOnScrollDelta({
+        lastFetchResolvedScrollTop: 500,
+        currentScrollTop: 500 + MIN_SCROLL_DELTA_PX + 1,
+      }),
+    ).toBe(false)
+  })
+
+  test("negative delta (scrolled up vs anchor) uses abs → same behaviour", () => {
+    // 199 px above anchor → still gated.
+    expect(
+      shouldGateTriggerOnScrollDelta({
+        lastFetchResolvedScrollTop: 1000,
+        currentScrollTop: 1000 - (MIN_SCROLL_DELTA_PX - 1),
+      }),
+    ).toBe(true)
+    // 200 px above anchor → past threshold.
+    expect(
+      shouldGateTriggerOnScrollDelta({
+        lastFetchResolvedScrollTop: 1000,
+        currentScrollTop: 1000 - MIN_SCROLL_DELTA_PX,
+      }),
+    ).toBe(false)
+  })
+
+  test("custom minScrollDeltaPx respected", () => {
+    expect(
+      shouldGateTriggerOnScrollDelta({
+        lastFetchResolvedScrollTop: 0,
+        currentScrollTop: 49,
+        minScrollDeltaPx: 50,
+      }),
+    ).toBe(true)
+    expect(
+      shouldGateTriggerOnScrollDelta({
+        lastFetchResolvedScrollTop: 0,
+        currentScrollTop: 50,
+        minScrollDeltaPx: 50,
+      }),
+    ).toBe(false)
+  })
+})
+
+describe("scroll-delta gate loop convergence (E2E Wave 3 F-1 fix v2)", () => {
+  /**
+   * Reality check from the E2E rerun (run_2026-06-17T08-22-31-050Z):
+   * bidirectional refractory (a42d14ec) did not break the loop. The user
+   * was sitting in the MIDDLE of the 160-row buffer at a position where
+   * BOTH `rowsAboveViewport` and `rowsBelowViewport` were inside their
+   * respective 60-row trigger zones. After each fetch, the post-resolution
+   * effect waited out the refractory and then fired the opposite direction
+   * (rowsBelow=17 / rowsAbove=44 — both well inside the 60-row zone).
+   *
+   * This test replays the exact scenario from network.log:
+   *
+   *   network.log:
+   *     16x GET .../messages?beforeSeq=309
+   *     16x GET .../messages?afterSeq=399 (alternating)
+   *
+   *   console.log:
+   *     older-fetch-resolved → newer-trigger-fired (rowsBelow=17)
+   *     newer-fetch-resolved → older-trigger-fired (rowsAbove=44)
+   *     ...
+   *
+   * The scroll-delta gate must terminate the loop: after the first fetch
+   * resolves, the gate is engaged. The post-resolution evaluator fires
+   * the opposite direction but is BLOCKED. No further fetches fire until
+   * the user genuinely scrolls past MIN_SCROLL_DELTA_PX.
+   */
+  test("loop terminates: post-resolution opposite direction is gated", () => {
+    const FETCH_LATENCY_MS = 500
+    const ROWS_ABOVE = 44 // observed in console.log
+    const ROWS_BELOW = 17 // observed in console.log
+
+    let now = REFRACTORY_MS * 10
+    let lastOlderResolvedAt = 0
+    let lastNewerResolvedAt = 0
+    let lastFetchResolvedScrollTop: number | null = null
+    // Simulated viewport position. With no user scroll, this never moves.
+    const scrollTop = 5_000
+
+    let state: WindowState = {
+      oldestLoadedSeq: 309,
+      newestLoadedSeq: 408,
+      hasOlder: true,
+      hasNewer: true,
+      isLoadingOlder: false,
+      isLoadingNewer: false,
+    }
+
+    const fired: string[] = []
+
+    function tryFireOlder(): void {
+      if (state.isLoadingOlder || state.isLoadingNewer) return
+      if (
+        isFetchRefractory({ now, lastOlderResolvedAt, lastNewerResolvedAt })
+      )
+        return
+      if (
+        shouldGateTriggerOnScrollDelta({
+          lastFetchResolvedScrollTop,
+          currentScrollTop: scrollTop,
+        })
+      )
+        return
+      if (
+        !shouldFetchOlder({
+          rowsAboveViewport: ROWS_ABOVE,
+          hasOlder: state.hasOlder,
+          isLoadingOlder: state.isLoadingOlder,
+        })
+      )
+        return
+      state = { ...state, isLoadingOlder: true }
+      fired.push(`older@${now}`)
+    }
+    function tryFireNewer(): void {
+      if (state.isLoadingOlder || state.isLoadingNewer) return
+      if (
+        isFetchRefractory({ now, lastOlderResolvedAt, lastNewerResolvedAt })
+      )
+        return
+      if (
+        shouldGateTriggerOnScrollDelta({
+          lastFetchResolvedScrollTop,
+          currentScrollTop: scrollTop,
+        })
+      )
+        return
+      if (
+        !shouldFetchNewer({
+          rowsBelowViewport: ROWS_BELOW,
+          hasNewer: state.hasNewer,
+          isLoadingNewer: state.isLoadingNewer,
+        })
+      )
+        return
+      state = { ...state, isLoadingNewer: true }
+      fired.push(`newer@${now}`)
+    }
+
+    // Round 0: scroll event triggers older (gate disengaged, no fetch yet).
+    tryFireOlder()
+    expect(state.isLoadingOlder).toBe(true)
+
+    // Drive 20 iterations of post-resolution effect simulating the loop.
+    for (let i = 0; i < 20; i++) {
+      if (state.isLoadingOlder) {
+        now += FETCH_LATENCY_MS
+        state = applyOlderPage({
+          prevState: state,
+          returnedCount: 100,
+          newOldestSeq: state.oldestLoadedSeq,
+          prevLoadedLength: 160,
+          evictedFromEnd: 92,
+          evictedNewestSeq: 316,
+          serverHasOlder: true,
+        })
+        lastOlderResolvedAt = now
+        // After useLayoutEffect anchor restoration, capture scrollTop.
+        lastFetchResolvedScrollTop = scrollTop
+      } else if (state.isLoadingNewer) {
+        now += FETCH_LATENCY_MS
+        state = applyNewerPage({
+          prevState: state,
+          returnedCount: 100,
+          newNewestSeq: state.newestLoadedSeq,
+          evictedFromStart: 83,
+          evictedOldestSeq: 392,
+          serverHasNewer: true,
+        })
+        lastNewerResolvedAt = now
+        lastFetchResolvedScrollTop = scrollTop
+      } else {
+        // No fetch in flight → no further post-resolution effect can fire.
+        // Advance past refractory in case it would otherwise gate the result.
+        now += REFRACTORY_MS * 2
+        tryFireOlder()
+        tryFireNewer()
+        break
+      }
+
+      // Post-resolution effect.
+      tryFireOlder()
+      tryFireNewer()
+    }
+
+    // Loop converged: only the initial older fetch fired. The post-
+    // resolution alternation was suppressed by the scroll-delta gate.
+    expect(state.isLoadingOlder).toBe(false)
+    expect(state.isLoadingNewer).toBe(false)
+    const olderFires = fired.filter((s) => s.startsWith("older@")).length
+    const newerFires = fired.filter((s) => s.startsWith("newer@")).length
+    expect(olderFires).toBe(1)
+    expect(newerFires).toBe(0)
+  })
+
+  test("after gate disengages on user scroll, next trigger fires once", () => {
+    const FETCH_LATENCY_MS = 500
+    const ROWS_ABOVE = 44
+    const ROWS_BELOW = 17
+
+    let now = REFRACTORY_MS * 10
+    let lastOlderResolvedAt = 0
+    let lastNewerResolvedAt = 0
+    let lastFetchResolvedScrollTop: number | null = null
+    let scrollTop = 5_000
+
+    let state: WindowState = {
+      oldestLoadedSeq: 309,
+      newestLoadedSeq: 408,
+      hasOlder: true,
+      hasNewer: true,
+      isLoadingOlder: false,
+      isLoadingNewer: false,
+    }
+
+    const fired: string[] = []
+
+    function tryFireOlder(): void {
+      if (state.isLoadingOlder || state.isLoadingNewer) return
+      if (
+        isFetchRefractory({ now, lastOlderResolvedAt, lastNewerResolvedAt })
+      )
+        return
+      if (
+        shouldGateTriggerOnScrollDelta({
+          lastFetchResolvedScrollTop,
+          currentScrollTop: scrollTop,
+        })
+      )
+        return
+      if (
+        !shouldFetchOlder({
+          rowsAboveViewport: ROWS_ABOVE,
+          hasOlder: state.hasOlder,
+          isLoadingOlder: state.isLoadingOlder,
+        })
+      )
+        return
+      state = { ...state, isLoadingOlder: true }
+      fired.push(`older@${now}`)
+    }
+    function tryFireNewer(): void {
+      if (state.isLoadingOlder || state.isLoadingNewer) return
+      if (
+        isFetchRefractory({ now, lastOlderResolvedAt, lastNewerResolvedAt })
+      )
+        return
+      if (
+        shouldGateTriggerOnScrollDelta({
+          lastFetchResolvedScrollTop,
+          currentScrollTop: scrollTop,
+        })
+      )
+        return
+      if (
+        !shouldFetchNewer({
+          rowsBelowViewport: ROWS_BELOW,
+          hasNewer: state.hasNewer,
+          isLoadingNewer: state.isLoadingNewer,
+        })
+      )
+        return
+      state = { ...state, isLoadingNewer: true }
+      fired.push(`newer@${now}`)
+    }
+
+    // handleScroll: real user input. If gate is engaged and delta crosses
+    // threshold, disengage.
+    function handleScroll(newScrollTop: number): void {
+      scrollTop = newScrollTop
+      if (
+        lastFetchResolvedScrollTop !== null &&
+        Math.abs(scrollTop - lastFetchResolvedScrollTop) >=
+          MIN_SCROLL_DELTA_PX
+      ) {
+        lastFetchResolvedScrollTop = null
+      }
+      tryFireOlder()
+      tryFireNewer()
+    }
+
+    // Round 0: initial scroll triggers older fetch.
+    tryFireOlder()
+
+    // Resolve older fetch. Gate engages. The page returned <OLDER_PAGE
+    // rows (the user has paged into the oldest), so hasOlder flips to
+    // false; only the newer trigger can fire next.
+    now += FETCH_LATENCY_MS
+    state = applyOlderPage({
+      prevState: state,
+      returnedCount: 100,
+      newOldestSeq: state.oldestLoadedSeq,
+      prevLoadedLength: 160,
+      evictedFromEnd: 92,
+      evictedNewestSeq: 316,
+      serverHasOlder: false,
+    })
+    lastOlderResolvedAt = now
+    lastFetchResolvedScrollTop = scrollTop // post-anchor-restore
+
+    // Post-resolution evaluator fires both directions — both gated.
+    tryFireOlder()
+    tryFireNewer()
+    expect(state.isLoadingOlder).toBe(false)
+    expect(state.isLoadingNewer).toBe(false)
+
+    // Advance past refractory.
+    now += REFRACTORY_MS * 2
+
+    // User scrolls down by 100px — below threshold, still gated.
+    handleScroll(scrollTop + 100)
+    expect(state.isLoadingNewer).toBe(false)
+    expect(lastFetchResolvedScrollTop).not.toBeNull()
+
+    // User scrolls further to cross MIN_SCROLL_DELTA_PX — gate disengages.
+    handleScroll(scrollTop + (MIN_SCROLL_DELTA_PX - 100) + 1)
+    expect(lastFetchResolvedScrollTop).toBeNull()
+    // Newer trigger now fires (rowsBelow=17 inside zone, hasNewer=true,
+    // refractory expired, gate disengaged).
+    expect(state.isLoadingNewer).toBe(true)
+    expect(fired.filter((s) => s.startsWith("newer@")).length).toBe(1)
+
+    // Resolve newer fetch. Gate re-engages.
+    now += FETCH_LATENCY_MS
+    state = applyNewerPage({
+      prevState: state,
+      returnedCount: 100,
+      newNewestSeq: state.newestLoadedSeq,
+      evictedFromStart: 83,
+      evictedOldestSeq: 392,
+      serverHasNewer: true,
+    })
+    lastNewerResolvedAt = now
+    lastFetchResolvedScrollTop = scrollTop
+
+    // Post-resolution effect again — gated.
+    now += REFRACTORY_MS * 2
+    tryFireOlder()
+    tryFireNewer()
+    expect(state.isLoadingOlder).toBe(false)
+    expect(state.isLoadingNewer).toBe(false)
+
+    // Total: exactly 1 older + 1 newer fetch over the whole run.
+    expect(fired.filter((s) => s.startsWith("older@")).length).toBe(1)
+    expect(fired.filter((s) => s.startsWith("newer@")).length).toBe(1)
+  })
+
+  test("control: without the gate, the loop runs many rounds (network.log scenario)", () => {
+    // Same scenario as the converging test above but the gate is removed.
+    // Demonstrates the loop the gate is designed to break.
+    const FETCH_LATENCY_MS = 500
+    const ROWS_ABOVE = 44
+    const ROWS_BELOW = 17
+
+    let now = REFRACTORY_MS * 10
+    let lastOlderResolvedAt = 0
+    let lastNewerResolvedAt = 0
+    let state: WindowState = {
+      oldestLoadedSeq: 309,
+      newestLoadedSeq: 408,
+      hasOlder: true,
+      hasNewer: true,
+      isLoadingOlder: false,
+      isLoadingNewer: false,
+    }
+    let olderFires = 0
+    let newerFires = 0
+
+    function tryFireOlder(): void {
+      if (state.isLoadingOlder || state.isLoadingNewer) return
+      if (
+        isFetchRefractory({ now, lastOlderResolvedAt, lastNewerResolvedAt })
+      )
+        return
+      if (
+        !shouldFetchOlder({
+          rowsAboveViewport: ROWS_ABOVE,
+          hasOlder: state.hasOlder,
+          isLoadingOlder: state.isLoadingOlder,
+        })
+      )
+        return
+      state = { ...state, isLoadingOlder: true }
+      olderFires += 1
+    }
+    function tryFireNewer(): void {
+      if (state.isLoadingOlder || state.isLoadingNewer) return
+      if (
+        isFetchRefractory({ now, lastOlderResolvedAt, lastNewerResolvedAt })
+      )
+        return
+      if (
+        !shouldFetchNewer({
+          rowsBelowViewport: ROWS_BELOW,
+          hasNewer: state.hasNewer,
+          isLoadingNewer: state.isLoadingNewer,
+        })
+      )
+        return
+      state = { ...state, isLoadingNewer: true }
+      newerFires += 1
+    }
+
+    tryFireOlder()
+
+    // Simulate the post-resolution alternation. After each fetch resolves,
+    // we advance time past REFRACTORY_MS so the bidirectional refractory
+    // expires, then run the post-resolution evaluator. This mirrors the
+    // observed network.log: ~16x older alternating ~16x newer.
+    for (let i = 0; i < 30; i++) {
+      if (state.isLoadingOlder) {
+        now += FETCH_LATENCY_MS
+        state = applyOlderPage({
+          prevState: state,
+          returnedCount: 100,
+          newOldestSeq: state.oldestLoadedSeq,
+          prevLoadedLength: 160,
+          evictedFromEnd: 92,
+          evictedNewestSeq: 316,
+          serverHasOlder: true,
+        })
+        lastOlderResolvedAt = now
+      } else if (state.isLoadingNewer) {
+        now += FETCH_LATENCY_MS
+        state = applyNewerPage({
+          prevState: state,
+          returnedCount: 100,
+          newNewestSeq: state.newestLoadedSeq,
+          evictedFromStart: 83,
+          evictedOldestSeq: 392,
+          serverHasNewer: true,
+        })
+        lastNewerResolvedAt = now
+      } else {
+        // Wait out refractory and re-fire (simulating a delayed
+        // post-resolution effect / a stray scroll event after the
+        // refractory window).
+        now += REFRACTORY_MS + 1
+      }
+      tryFireOlder()
+      tryFireNewer()
+    }
+
+    // Without the gate, both directions fire many times. Mirrors the
+    // 32+ alternating fetches in network.log.
     expect(olderFires + newerFires).toBeGreaterThanOrEqual(10)
   })
 })
