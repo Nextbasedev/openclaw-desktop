@@ -71,11 +71,13 @@ import {
   firstSeqfulGatewayIndex,
   lastSeqfulGatewayIndex,
   liveTailQuery,
+  // (assertWindowInvariant lives in its own module — imported below.)
   shouldDropPatchAsEvicted,
   shouldFetchNewer,
   shouldFetchOlder,
   type WindowState,
 } from "./messageWindow"
+import { assertWindowInvariant } from "./windowInvariants"
 import { ThinkingBlock } from "./ThinkingBlock"
 import { ToolCallSteps } from "./ToolCallSteps"
 import { SubagentBar } from "./SubagentBar"
@@ -997,6 +999,15 @@ export function ChatView({
   useEffect(() => {
     windowStateRef.current = windowState
   }, [windowState])
+
+  // Runtime invariant assertions for windowState + messages. Dev throws,
+  // prod warns (see windowInvariants.ts). Fires once per React commit, which
+  // means once per state transition: cold bootstrap, registry hydrate,
+  // reconcile, older page, newer page, live patch batch, reset-to-live-tail.
+  // No per-patch noise because state.messages is the post-batch tally.
+  useEffect(() => {
+    assertWindowInvariant(windowState, state.messages, "post-commit")
+  }, [windowState, state.messages])
 
   const stateLoadingRef = useRef<boolean>(true)
   const stateMessagesRef = useRef<ChatMessage[]>([])

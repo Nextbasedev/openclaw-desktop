@@ -170,7 +170,6 @@ export function shouldFetchNewer(input: {
 function warnMissingEnvelopeFlag(field: string): void {
   if (typeof process === "undefined") return
   if (process.env?.NODE_ENV !== "development") return
-  // eslint-disable-next-line no-console
   console.warn(
     `[chat-rebuild.window] server envelope missing ${field}; falling back to count heuristic`,
   )
