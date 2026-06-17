@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
-import { INITIAL_WINDOW_STATE, MAX_LOADED, type WindowState } from "../messageWindow"
+import {
+  INITIAL_WINDOW_STATE,
+  MAX_BUFFER,
+  MAX_LOADED,
+  type WindowState,
+} from "../messageWindow"
 import {
   WindowInvariantViolationError,
   assertWindowInvariant,
@@ -58,9 +63,24 @@ describe("assertWindowInvariant", () => {
     expect(() => assertWindowInvariant(windowState, messages)).not.toThrow()
   })
 
-  test("violation: messages.length exceeds MAX_LOADED throws in dev", () => {
+  test("happy path: MAX_LOADED+1 rows is allowed (BUG-2 deferred eviction)", () => {
+    // After BUG-2, the buffer may grow above MAX_LOADED up to MAX_BUFFER
+    // when live patches arrive while the user is scrolled away from the
+    // bottom. The invariant ceiling is now MAX_BUFFER, not MAX_LOADED.
     const messages = makeRows(Array.from({ length: MAX_LOADED + 1 }, (_, i) => i + 1))
     const windowState = makeWindowState({ oldestLoadedSeq: 1, newestLoadedSeq: MAX_LOADED + 1 })
+    expect(() => assertWindowInvariant(windowState, messages)).not.toThrow()
+  })
+
+  test("happy path: exactly MAX_BUFFER rows is allowed (at ceiling)", () => {
+    const messages = makeRows(Array.from({ length: MAX_BUFFER }, (_, i) => i + 1))
+    const windowState = makeWindowState({ oldestLoadedSeq: 1, newestLoadedSeq: MAX_BUFFER })
+    expect(() => assertWindowInvariant(windowState, messages)).not.toThrow()
+  })
+
+  test("violation: messages.length exceeds MAX_BUFFER throws in dev", () => {
+    const messages = makeRows(Array.from({ length: MAX_BUFFER + 1 }, (_, i) => i + 1))
+    const windowState = makeWindowState({ oldestLoadedSeq: 1, newestLoadedSeq: MAX_BUFFER + 1 })
     expect(() => assertWindowInvariant(windowState, messages, "test-length")).toThrow(
       WindowInvariantViolationError,
     )
@@ -116,14 +136,14 @@ describe("assertWindowInvariant", () => {
   test("production mode warns instead of throwing (length violation)", () => {
     vi.stubEnv("NODE_ENV", "production")
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
-    const messages = makeRows(Array.from({ length: MAX_LOADED + 1 }, (_, i) => i + 1))
-    const windowState = makeWindowState({ oldestLoadedSeq: 1, newestLoadedSeq: MAX_LOADED + 1 })
+    const messages = makeRows(Array.from({ length: MAX_BUFFER + 1 }, (_, i) => i + 1))
+    const windowState = makeWindowState({ oldestLoadedSeq: 1, newestLoadedSeq: MAX_BUFFER + 1 })
     expect(() =>
       assertWindowInvariant(windowState, messages, "prod-length"),
     ).not.toThrow()
     expect(warnSpy).toHaveBeenCalledWith(
       "[chat-rebuild.window.invariant-violation]",
-      expect.objectContaining({ rule: expect.stringContaining("MAX_LOADED") }),
+      expect.objectContaining({ rule: expect.stringContaining("MAX_BUFFER") }),
     )
     warnSpy.mockRestore()
   })

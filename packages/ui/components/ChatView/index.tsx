@@ -57,6 +57,7 @@ import type { IconType } from "react-icons"
 import { MessageBubble } from "./MessageBubble"
 import {
   INITIAL_WINDOW_STATE,
+  MAX_BUFFER,
   MAX_LOADED,
   OLDER_PAGE,
   BOTTOM_TRIGGER,
@@ -66,8 +67,9 @@ import {
   applyNewerPage,
   applyOlderPage,
   canEvictFromStartOnLiveAppend,
-  computeEvictedAfterAppend,
+  canEvictOnLiveAppend,
   computeEvictedAfterPrepend,
+  computeNewerPageEvictedFromStart,
   firstSeqfulGatewayIndex,
   lastSeqfulGatewayIndex,
   liveTailQuery,
@@ -1163,8 +1165,37 @@ export function ChatView({
         const appendedAtTail = orderedMessages.length > previousLength
 
         if (appendedAtTail && orderedMessages.length > MAX_LOADED) {
-          if (canEvictFromStartOnLiveAppend(windowStateRef.current)) {
-            const evict = orderedMessages.length - MAX_LOADED
+          // BUG-2: bottom-proximity guard. Strict eviction back to MAX_LOADED
+          // only when the user is at the live tail (shouldFollowScrollRef
+          // tracks atBottom within FOLLOW_SCROLL_THRESHOLD_PX). Otherwise
+          // defer eviction — yanking rows from the start while the user is
+          // mid-read of older context is the "newer-jolt" that revert
+          // c6c01183 was avoiding. The deferral is bounded by MAX_BUFFER:
+          // once the buffer reaches that ceiling, force-evict to MAX_BUFFER
+          // regardless of proximity, so a long-running stream cannot grow
+          // memory without limit.
+          const canEvictData = canEvictFromStartOnLiveAppend(
+            windowStateRef.current,
+          )
+          const proximityEvict = canEvictOnLiveAppend({
+            windowLength: orderedMessages.length,
+            atBottom: shouldFollowScrollRef.current,
+            maxLoaded: MAX_LOADED,
+            maxBuffer: MAX_BUFFER,
+          })
+          const overCeiling = orderedMessages.length > MAX_BUFFER
+
+          let evict = 0
+          let evictReason: "proximity" | "ceiling" | "none" = "none"
+          if (canEvictData && proximityEvict) {
+            evict = orderedMessages.length - MAX_LOADED
+            evictReason = "proximity"
+          } else if (canEvictData && overCeiling) {
+            evict = orderedMessages.length - MAX_BUFFER
+            evictReason = "ceiling"
+          }
+
+          if (evict > 0) {
             const finalMessages = orderedMessages.slice(evict)
             // BUG-4: synthetic live tool rows can carry no gatewayIndex; walk
             // to the nearest seqful row so the derived cursor doesn't go null.
@@ -1182,7 +1213,12 @@ export function ChatView({
             frontendLog(
               "chat",
               "chat-rebuild.window.live-append-evicted",
-              { sessionKey, evicted: evict, finalLength: finalMessages.length },
+              {
+                sessionKey,
+                evicted: evict,
+                finalLength: finalMessages.length,
+                reason: evictReason,
+              },
               "debug"
             )
             return {
@@ -1194,9 +1230,11 @@ export function ChatView({
               statusLabel: nextStatusLabel,
             }
           }
-          // Cannot safely evict: hasOlder is false, so evicting from start would
-          // destroy unrecoverable history. Allow the array to temporarily exceed
-          // MAX_LOADED. Still update newestLoadedSeq.
+
+          // Defer eviction: either the user is not at the tail (proximity
+          // guard OFF and we're still under MAX_BUFFER), or hasOlder=false
+          // (can't safely evict from start because we'd destroy unrecoverable
+          // history). Allow the buffer to grow up to MAX_BUFFER.
           // BUG-4: skip seqless rows when deriving the cursor.
           const appendedNewestSeq = lastSeqfulGatewayIndex(orderedMessages)
           setWindowState((s) =>
@@ -1210,9 +1248,15 @@ export function ChatView({
           )
           frontendLog(
             "chat",
-            "chat-rebuild.window.live-append-no-evict",
-            { sessionKey, length: orderedMessages.length, reason: "hasOlder=false" },
-            "warn"
+            "chat-rebuild.window.live-append-deferred",
+            {
+              sessionKey,
+              length: orderedMessages.length,
+              reason: canEvictData ? "proximity-guard-off" : "hasOlder=false",
+              atBottom: shouldFollowScrollRef.current,
+              overCeiling,
+            },
+            canEvictData ? "debug" : "warn"
           )
           return {
             ...current,
@@ -2056,27 +2100,25 @@ export function ChatView({
         return
       }
 
-      // Decide if this newer fetch reaches the live tail. If the backend
-      // returned fewer than the requested limit, we're at the tail and it's
-      // safe to evict from the start (user is or will soon be at the bottom
-      // of the document; the trim is invisible). Otherwise DO NOT evict —
-      // let the buffer grow temporarily past MAX_LOADED during active
-      // scroll-down. Evicting from the start mid-scroll shrinks the document
-      // above the user, forcing the scroll anchor to yank scrollTop backward
-      // by the evicted height — the user perceives this as 'breaking' or
-      // being thrown back. Quiescent eviction happens once we reach the tail.
+      // BUG-2 (docs/audit/frontend-window-audit-2026-06-17.md): strict newer
+      // page eviction. The previous `reachedLiveTail = responseCount <
+      // OLDER_PAGE` exception (revert c6c01183) deferred eviction mid-scroll
+      // to avoid a jolt, but at the cost of an unbounded buffer (5 pages =
+      // 560 rows). The scroll-jolt risk is now handled by:
+      //   1. captureFirstVisibleRowAnchor() above + the useLayoutEffect at
+      //      pendingScrollAnchorRef — restores scroll position around the
+      //      evicted head for FETCH evictions like this one.
+      //   2. canEvictOnLiveAppend() in the live-append path — defers eviction
+      //      when live patches arrive while the user is not at the tail.
       const responseCount = response.messageCount ?? response.messages.length
-      const reachedLiveTail = responseCount < OLDER_PAGE
 
       setState((current) => {
         const combined = [...current.messages, ...newerMessages]
-        const evictedFromStart = reachedLiveTail
-          ? computeEvictedAfterAppend(
-              current.messages.length,
-              newerMessages.length,
-              MAX_LOADED
-            )
-          : 0
+        const evictedFromStart = computeNewerPageEvictedFromStart({
+          currentLength: current.messages.length,
+          appendedCount: newerMessages.length,
+          maxLoaded: MAX_LOADED,
+        })
         const finalMessages =
           evictedFromStart > 0 ? combined.slice(evictedFromStart) : combined
         // BUG-4: walk through seqless rows so synthetic tool projections at

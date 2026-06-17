@@ -5,12 +5,15 @@ import {
   applyNewerPage,
   applyOlderPage,
   canEvictFromStartOnLiveAppend,
+  canEvictOnLiveAppend,
   centeredWindowQuery,
   computeEvictedAfterAppend,
   computeEvictedAfterPrepend,
+  computeNewerPageEvictedFromStart,
   INITIAL_PAGE,
   INITIAL_WINDOW_STATE,
   liveTailQuery,
+  MAX_BUFFER,
   MAX_LOADED,
   OLDER_PAGE,
   shouldDropPatchAsEvicted,
@@ -723,5 +726,185 @@ describe("shouldDropPatchAsEvicted", () => {
         hasNewer: true,
       }),
     ).toBe(false)
+  })
+})
+
+/**
+ * BUG-2 (docs/audit/frontend-window-audit-2026-06-17.md).
+ *
+ * Strict newer-page eviction + bottom-proximity guard for live-append.
+ *
+ * The shipped behaviour (after Wave 2):
+ *   1. Newer-page FETCH: ALWAYS evict overflow back to MAX_LOADED. The
+ *      previous `reachedLiveTail = responseCount < OLDER_PAGE` exception
+ *      (revert c6c01183) is gone; anchor-restore handles scroll position.
+ *   2. Live-append at tail (hasNewer=false): evict to MAX_LOADED ONLY when
+ *      the user is at the bottom (proximity guard). Otherwise defer up to
+ *      MAX_BUFFER=400, then force-evict at ceiling.
+ */
+describe("BUG-2: MAX_BUFFER constant", () => {
+  test("MAX_BUFFER is 400 (2.5x MAX_LOADED — bounded growth ceiling)", () => {
+    expect(MAX_BUFFER).toBe(400)
+  })
+
+  test("MAX_BUFFER >= MAX_LOADED (deferred-eviction headroom is non-negative)", () => {
+    expect(MAX_BUFFER).toBeGreaterThanOrEqual(MAX_LOADED)
+  })
+})
+
+describe("BUG-2 Test A: strict newer-page fetch eviction", () => {
+  test("160 + 100 fetched: evicts 100 (no reachedLiveTail exception)", () => {
+    // Window has 160 rows, hasNewer=true. Fetch 100 newer rows.
+    // BUG-2 pre-fix behaviour: responseCount=100 (full page) → reachedLiveTail=false
+    //   → evictedFromStart=0 → buffer grows to 260. After 5 pages, 660 rows.
+    // BUG-2 post-fix behaviour: always evict overflow back to MAX_LOADED.
+    const evicted = computeNewerPageEvictedFromStart({
+      currentLength: 160,
+      appendedCount: 100,
+    })
+    expect(evicted).toBe(100)
+
+    // Simulated buffer: after eviction, length stays at MAX_LOADED.
+    const beforeBuffer = Array.from({ length: 260 }, (_, i) => i + 1)
+    const finalBuffer = beforeBuffer.slice(evicted)
+    expect(finalBuffer.length).toBe(MAX_LOADED)
+    // The oldest 100 rows were evicted (originally 1..100); head is now 101.
+    expect(finalBuffer[0]).toBe(101)
+    expect(finalBuffer[finalBuffer.length - 1]).toBe(260)
+  })
+
+  test("full-page return: evicts; partial-page return: evicts the partial overflow", () => {
+    expect(
+      computeNewerPageEvictedFromStart({ currentLength: 160, appendedCount: 100 }),
+    ).toBe(100)
+    expect(
+      computeNewerPageEvictedFromStart({ currentLength: 160, appendedCount: 47 }),
+    ).toBe(47)
+    expect(
+      computeNewerPageEvictedFromStart({ currentLength: 50, appendedCount: 47 }),
+    ).toBe(0)
+  })
+
+  test("custom maxLoaded respected", () => {
+    expect(
+      computeNewerPageEvictedFromStart({
+        currentLength: 100,
+        appendedCount: 50,
+        maxLoaded: 120,
+      }),
+    ).toBe(30)
+  })
+})
+
+describe("BUG-2 Test B: live-append, proximity guard ON (atBottom=true)", () => {
+  test("161 rows after append + atBottom=true → evict to MAX_LOADED", () => {
+    // Window had 160, live patch appended 1 → ordered length 161.
+    expect(
+      canEvictOnLiveAppend({
+        windowLength: 161,
+        atBottom: true,
+        maxLoaded: MAX_LOADED,
+        maxBuffer: MAX_BUFFER,
+      }),
+    ).toBe(true)
+
+    // Simulate caller decision: evict to MAX_LOADED.
+    const ordered = Array.from({ length: 161 }, (_, i) => i + 1)
+    const finalMessages =
+      canEvictOnLiveAppend({
+        windowLength: ordered.length,
+        atBottom: true,
+        maxLoaded: MAX_LOADED,
+        maxBuffer: MAX_BUFFER,
+      })
+        ? ordered.slice(ordered.length - MAX_LOADED)
+        : ordered
+    expect(finalMessages.length).toBe(MAX_LOADED)
+    // Oldest 1 row evicted: head was 1, now 2.
+    expect(finalMessages[0]).toBe(2)
+  })
+
+  test("length <= maxLoaded → false (nothing to evict even when atBottom)", () => {
+    expect(
+      canEvictOnLiveAppend({
+        windowLength: 160,
+        atBottom: true,
+        maxLoaded: MAX_LOADED,
+        maxBuffer: MAX_BUFFER,
+      }),
+    ).toBe(false)
+  })
+})
+
+describe("BUG-2 Test C: live-append, proximity guard OFF (atBottom=false)", () => {
+  test("161 rows after append + atBottom=false → defer eviction", () => {
+    expect(
+      canEvictOnLiveAppend({
+        windowLength: 161,
+        atBottom: false,
+        maxLoaded: MAX_LOADED,
+        maxBuffer: MAX_BUFFER,
+      }),
+    ).toBe(false)
+
+    // Simulate caller decision: no proximity evict, no ceiling violation.
+    const ordered = Array.from({ length: 161 }, (_, i) => i + 1)
+    const proximity = canEvictOnLiveAppend({
+      windowLength: ordered.length,
+      atBottom: false,
+      maxLoaded: MAX_LOADED,
+      maxBuffer: MAX_BUFFER,
+    })
+    const overCeiling = ordered.length > MAX_BUFFER
+    expect(proximity).toBe(false)
+    expect(overCeiling).toBe(false)
+    const finalMessages = proximity
+      ? ordered.slice(ordered.length - MAX_LOADED)
+      : overCeiling
+        ? ordered.slice(ordered.length - MAX_BUFFER)
+        : ordered
+    expect(finalMessages.length).toBe(161)
+  })
+
+  test("any length between MAX_LOADED+1 and MAX_BUFFER + atBottom=false → false (defer)", () => {
+    for (const len of [161, 200, 300, 399, MAX_BUFFER]) {
+      expect(
+        canEvictOnLiveAppend({
+          windowLength: len,
+          atBottom: false,
+          maxLoaded: MAX_LOADED,
+          maxBuffer: MAX_BUFFER,
+        }),
+      ).toBe(false)
+    }
+  })
+})
+
+describe("BUG-2 Test D: buffer ceiling enforced", () => {
+  test("401 rows after append + atBottom=false → ceiling forces evict to MAX_BUFFER", () => {
+    const ordered = Array.from({ length: 401 }, (_, i) => i + 1)
+    expect(
+      canEvictOnLiveAppend({
+        windowLength: ordered.length,
+        atBottom: false,
+        maxLoaded: MAX_LOADED,
+        maxBuffer: MAX_BUFFER,
+      }),
+    ).toBe(false)
+    expect(ordered.length > MAX_BUFFER).toBe(true)
+    const finalMessages = ordered.slice(ordered.length - MAX_BUFFER)
+    expect(finalMessages.length).toBe(MAX_BUFFER)
+    expect(finalMessages[0]).toBe(2)
+  })
+
+  test("atBottom=true + over ceiling: proximity wins (evict to MAX_LOADED)", () => {
+    expect(
+      canEvictOnLiveAppend({
+        windowLength: 500,
+        atBottom: true,
+        maxLoaded: MAX_LOADED,
+        maxBuffer: MAX_BUFFER,
+      }),
+    ).toBe(true)
   })
 })

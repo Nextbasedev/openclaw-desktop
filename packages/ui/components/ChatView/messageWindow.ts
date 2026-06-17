@@ -14,6 +14,31 @@
 
 /** Maximum number of messages we hold in the active data window. */
 export const MAX_LOADED = 160
+/**
+ * BUG-2 (docs/audit/frontend-window-audit-2026-06-17.md).
+ *
+ * Hard upper bound on the loaded buffer. The window normally stays at
+ * `MAX_LOADED` (160), but live patches arriving at the tail while the user is
+ * scrolled away from the bottom are deferred-evicted to avoid the "newer-jolt"
+ * (yanking rows from the start while the user is mid-read of older context).
+ * That deferral is bounded: once the buffer exceeds `MAX_BUFFER`, the caller
+ * MUST evict back down to `MAX_BUFFER` regardless of proximity — otherwise
+ * a long-running stream could grow the buffer without limit.
+ *
+ * 400 = 2.5x MAX_LOADED. Rationale:
+ *   - 160 (1x) is the target; equals MAX_LOADED, no headroom.
+ *   - 320 (2x) is too tight — a single moderately long tool run (>160 patches)
+ *     could trip the ceiling mid-stream and produce the very jolt we're
+ *     deferring to avoid. We want the proximity guard to bear the load most of
+ *     the time, with the ceiling as a safety net only.
+ *   - 400 (2.5x) gives enough headroom that the ceiling fires only on
+ *     pathological streams (~240 patches without the user reaching bottom),
+ *     while keeping worst-case heap bounded at the same order of magnitude.
+ *   - 800+ is wasteful — the user almost always either scrolls to bottom
+ *     (clearing the buffer via proximity) or jumps to live tail (full reset)
+ *     well before that.
+ */
+export const MAX_BUFFER = 400
 /** Page size for the initial fetch when opening a chat. */
 export const INITIAL_PAGE = 160
 /** Page size for subsequent older/newer page fetches. */
@@ -247,6 +272,72 @@ export function applyOlderPage(input: {
     isLoadingOlder: false,
     isLoadingNewer: prevState.isLoadingNewer,
   }
+}
+
+/**
+ * BUG-2 (docs/audit/frontend-window-audit-2026-06-17.md).
+ *
+ * Eviction policy for a newer-page FETCH (user scrolled down, paged forward).
+ *
+ * Strict: always returns the full overflow back to `maxLoaded`. The previous
+ * `reachedLiveTail = responseCount < OLDER_PAGE` exception (revert c6c01183)
+ * deliberately skipped eviction mid-scroll to avoid a visible scroll jolt
+ * when subsequent live patches arrived at the tail; the cost was an
+ * unbounded buffer (5 pages = 560 rows = 3.5x target).
+ *
+ * The jolt is now handled at a different layer:
+ *   - For FETCH evictions (this helper), the user has intentionally scrolled
+ *     forward, and the captureFirstVisibleRowAnchor + useLayoutEffect path in
+ *     ChatView restores scroll position around the evicted head.
+ *   - For LIVE-APPEND evictions (`canEvictOnLiveAppend`), a bottom-proximity
+ *     guard defers eviction when the user is not near the tail, with a hard
+ *     ceiling at `MAX_BUFFER`.
+ */
+export function computeNewerPageEvictedFromStart(input: {
+  currentLength: number
+  appendedCount: number
+  maxLoaded?: number
+}): number {
+  return computeEvictedAfterAppend(
+    input.currentLength,
+    input.appendedCount,
+    input.maxLoaded ?? MAX_LOADED,
+  )
+}
+
+/**
+ * BUG-2 (docs/audit/frontend-window-audit-2026-06-17.md).
+ *
+ * Bottom-proximity guard for live-append eviction at the tail.
+ *
+ * Returns true when the buffer has overflowed past `maxLoaded` AND the user
+ * is at the bottom (`atBottom === true`). In that case the caller should
+ * strict-evict overflow back to `maxLoaded`: the user is reading the tail,
+ * so trimming the head is invisible.
+ *
+ * Returns false otherwise. In that case the caller should DEFER eviction
+ * (keep buffer growing, allowing length to exceed `maxLoaded` temporarily)
+ * to avoid yanking rows from the start while the user is mid-read of older
+ * context (the "newer-jolt" that revert c6c01183 was avoiding).
+ *
+ * The caller MUST enforce a hard ceiling at `MAX_BUFFER` separately: once
+ * `windowLength > MAX_BUFFER`, force eviction down to `MAX_BUFFER` even
+ * though `canEvictOnLiveAppend` says false. This bounds worst-case heap.
+ *
+ * `maxBuffer` is accepted in the signature for API symmetry / future use
+ * (e.g. if we ever want to escalate the proximity threshold near the
+ * ceiling) but is not consulted in the current implementation — the ceiling
+ * is enforced by the caller, not by this predicate.
+ */
+export function canEvictOnLiveAppend(input: {
+  windowLength: number
+  atBottom: boolean
+  maxLoaded?: number
+  maxBuffer?: number
+}): boolean {
+  const maxLoaded = input.maxLoaded ?? MAX_LOADED
+  if (input.windowLength <= maxLoaded) return false
+  return input.atBottom === true
 }
 
 /**

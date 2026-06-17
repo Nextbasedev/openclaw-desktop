@@ -20,7 +20,7 @@
  * the call.
  */
 
-import { MAX_LOADED, type WindowState } from "./messageWindow"
+import { MAX_BUFFER, type WindowState } from "./messageWindow"
 
 export type WindowInvariantRow = {
   messageId?: string
@@ -72,7 +72,12 @@ function isSeqful(row: WindowInvariantRow | undefined): row is WindowInvariantRo
  * mutates `windowState` or the loaded `messages` buffer.
  *
  * Invariants checked:
- *   1. `messages.length <= MAX_LOADED` (currently 160).
+ *   1. `messages.length <= MAX_BUFFER` (currently 400). The window normally
+ *      stays at `MAX_LOADED` (160), but BUG-2's deferred-eviction policy
+ *      allows live-append at the tail to grow the buffer up to `MAX_BUFFER`
+ *      when the user is scrolled away from the bottom. `MAX_BUFFER` is the
+ *      hard ceiling — anything beyond it is a real violation (eviction
+ *      logic failed to run).
  *   2. Seqful rows are sorted strictly ascending by `gatewayIndex`. Seqless
  *      synthetic rows (e.g. `live:${runId}:tools` before the parent user
  *      message is in window) are skipped \u2014 they do not participate in the
@@ -89,13 +94,16 @@ export function assertWindowInvariant(
   messages: ReadonlyArray<WindowInvariantRow>,
   label?: string,
 ): void {
-  // Rule 1: bounded buffer.
-  if (messages.length > MAX_LOADED) {
+  // Rule 1: bounded buffer. BUG-2 raised the ceiling from MAX_LOADED to
+  // MAX_BUFFER to accommodate deferred-eviction during live-append when the
+  // user is not at the bottom. Exceeding MAX_BUFFER means the ceiling-evict
+  // logic in ChatView's live-append path failed to fire.
+  if (messages.length > MAX_BUFFER) {
     reportViolation({
-      rule: "messages.length <= MAX_LOADED",
+      rule: "messages.length <= MAX_BUFFER",
       label,
       windowState,
-      detail: { length: messages.length, maxLoaded: MAX_LOADED },
+      detail: { length: messages.length, maxBuffer: MAX_BUFFER },
     })
     return
   }
