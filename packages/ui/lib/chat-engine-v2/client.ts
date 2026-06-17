@@ -172,6 +172,17 @@ export type ChatMessagesPageV2 = {
   }>
   messageCount: number
   cursor?: number
+  // BUG-3 (docs/audit/frontend-window-audit-2026-06-17.md): server pagination
+  // envelope. The middleware (Agent F1) is adding these to /api/chat/messages
+  // responses so the frontend stops guessing hasOlder from `returnedCount >=
+  // requestedLimit` (wrong on exact-fit pages and after normalizeHistory
+  // filtering). All fields are optional for backwards compatibility — callers
+  // must fall back to the legacy heuristic when undefined.
+  hasOlder?: boolean
+  hasNewer?: boolean
+  oldestSeq?: number | null
+  newestSeq?: number | null
+  epoch?: number
 }
 
 export async function fetchChatMessagesV2(input: {

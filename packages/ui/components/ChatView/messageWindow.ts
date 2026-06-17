@@ -129,21 +129,54 @@ export function shouldFetchNewer(input: {
 }
 
 /**
+ * BUG-3 (docs/audit/frontend-window-audit-2026-06-17.md): emit a dev-only
+ * console warn when the server envelope lacks a pagination flag and we fall
+ * back to the legacy count heuristic. Gated on `NODE_ENV === "development"`
+ * so tests and production stay quiet.
+ */
+function warnMissingEnvelopeFlag(field: string): void {
+  if (typeof process === "undefined") return
+  if (process.env?.NODE_ENV !== "development") return
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[chat-rebuild.window] server envelope missing ${field}; falling back to count heuristic`,
+  )
+}
+
+/**
  * Returns the new `WindowState` after the initial page fetch resolves.
- * `hasOlder` is inferred from whether the backend filled the requested page.
+ *
+ * BUG-3: prefers the server's `hasOlder` flag when present (BootstrapPayloadV2
+ * already exposes it; see `types.ts`). Falls back to the legacy
+ * `returnedCount >= requestedLimit` heuristic with a dev warn otherwise. The
+ * heuristic is wrong on exact-fit pages and when normalizeHistory filters
+ * rows out of the response before they reach the window.
  */
 export function applyInitialPage(input: {
   returnedCount: number
   oldestSeq: number | null
   newestSeq: number | null
   requestedLimit?: number
+  serverHasOlder?: boolean
+  // TODO(F1-envelope): once middleware ships hasNewer on the bootstrap
+  // envelope we should prefer it too; today initial fetches always target the
+  // live tail so hasNewer=false is correct.
+  serverHasNewer?: boolean
 }): WindowState {
   const requestedLimit = input.requestedLimit ?? INITIAL_PAGE
+  let hasOlder: boolean
+  if (typeof input.serverHasOlder === "boolean") {
+    hasOlder = input.serverHasOlder
+  } else {
+    warnMissingEnvelopeFlag("hasOlder")
+    hasOlder = input.returnedCount >= requestedLimit
+  }
+  const hasNewer = typeof input.serverHasNewer === "boolean" ? input.serverHasNewer : false
   return {
     oldestLoadedSeq: input.oldestSeq,
     newestLoadedSeq: input.newestSeq,
-    hasOlder: input.returnedCount >= requestedLimit,
-    hasNewer: false,
+    hasOlder,
+    hasNewer,
     isLoadingOlder: false,
     isLoadingNewer: false,
   }
@@ -161,14 +194,23 @@ export function applyOlderPage(input: {
   evictedFromEnd: number
   evictedNewestSeq: number | null
   requestedLimit?: number
+  // BUG-3: prefer server envelope flag when present.
+  serverHasOlder?: boolean
 }): WindowState {
   const requestedLimit = input.requestedLimit ?? OLDER_PAGE
   const { prevState, evictedFromEnd } = input
+  let hasOlder: boolean
+  if (typeof input.serverHasOlder === "boolean") {
+    hasOlder = input.serverHasOlder
+  } else {
+    warnMissingEnvelopeFlag("hasOlder")
+    hasOlder = input.returnedCount >= requestedLimit
+  }
   return {
     oldestLoadedSeq: input.newOldestSeq ?? prevState.oldestLoadedSeq,
     newestLoadedSeq:
       evictedFromEnd > 0 ? input.evictedNewestSeq : prevState.newestLoadedSeq,
-    hasOlder: input.returnedCount >= requestedLimit,
+    hasOlder,
     hasNewer: prevState.hasNewer || evictedFromEnd > 0,
     isLoadingOlder: false,
     isLoadingNewer: prevState.isLoadingNewer,
@@ -186,15 +228,24 @@ export function applyNewerPage(input: {
   evictedFromStart: number
   evictedOldestSeq: number | null
   requestedLimit?: number
+  // BUG-3: prefer server envelope flag when present.
+  serverHasNewer?: boolean
 }): WindowState {
   const requestedLimit = input.requestedLimit ?? OLDER_PAGE
   const { prevState, evictedFromStart } = input
+  let hasNewer: boolean
+  if (typeof input.serverHasNewer === "boolean") {
+    hasNewer = input.serverHasNewer
+  } else {
+    warnMissingEnvelopeFlag("hasNewer")
+    hasNewer = input.returnedCount >= requestedLimit
+  }
   return {
     oldestLoadedSeq:
       evictedFromStart > 0 ? input.evictedOldestSeq : prevState.oldestLoadedSeq,
     newestLoadedSeq: input.newNewestSeq ?? prevState.newestLoadedSeq,
     hasOlder: prevState.hasOlder || evictedFromStart > 0,
-    hasNewer: input.returnedCount >= requestedLimit,
+    hasNewer,
     isLoadingOlder: prevState.isLoadingOlder,
     isLoadingNewer: false,
   }

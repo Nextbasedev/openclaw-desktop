@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest"
+import { afterEach, describe, expect, test, vi } from "vitest"
 import {
   applyInitialPage,
   applyLiveAppend,
@@ -196,6 +196,65 @@ describe("shouldFetchNewer", () => {
     expect(
       shouldFetchNewer({ ...happy, rowsBelowViewport: 31, threshold: 30 }),
     ).toBe(false)
+  })
+})
+
+describe("applyInitialPage server-flag preference (BUG-3)", () => {
+  const restoreEnv = process.env.NODE_ENV
+  afterEach(() => {
+    ;(process.env as Record<string, string | undefined>).NODE_ENV = restoreEnv
+  })
+
+  test("server hasOlder=false beats count heuristic when 160 returned (exact-fit)", () => {
+    // Current heuristic: returnedCount(160) >= 160 → hasOlder=true.
+    // Server knows this is the absolute top → hasOlder=false.
+    const state = applyInitialPage({
+      returnedCount: 160,
+      oldestSeq: 1,
+      newestSeq: 160,
+      serverHasOlder: false,
+    })
+    expect(state.hasOlder).toBe(false)
+  })
+
+  test("server hasOlder=true beats count heuristic when fewer than limit returned", () => {
+    // Current heuristic: 159 < 160 → hasOlder=false. Server says there is
+    // older history (normalizeHistory filtered a row, or the page was short).
+    const state = applyInitialPage({
+      returnedCount: 159,
+      oldestSeq: 2,
+      newestSeq: 160,
+      serverHasOlder: true,
+    })
+    expect(state.hasOlder).toBe(true)
+  })
+
+  test("no server flag: falls back to count heuristic (no warn in test env)", () => {
+    ;(process.env as Record<string, string | undefined>).NODE_ENV = "test"
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const state = applyInitialPage({
+      returnedCount: 160,
+      oldestSeq: 1,
+      newestSeq: 160,
+    })
+    expect(state.hasOlder).toBe(true)
+    // Warn is gated on NODE_ENV === "development", so test env stays quiet.
+    expect(warnSpy).not.toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
+  test("no server flag in development: falls back AND emits dev warn", () => {
+    ;(process.env as Record<string, string | undefined>).NODE_ENV = "development"
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    applyInitialPage({
+      returnedCount: 80,
+      oldestSeq: 1,
+      newestSeq: 80,
+    })
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[chat-rebuild.window] server envelope missing hasOlder"),
+    )
+    warnSpy.mockRestore()
   })
 })
 

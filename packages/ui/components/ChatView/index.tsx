@@ -842,6 +842,9 @@ export function ChatView({
                     ? freshLast.gatewayIndex
                     : null,
                 requestedLimit: reconcileQuery.limit,
+                // BUG-3: prefer server envelope flags when present.
+                serverHasOlder: history.hasOlder,
+                serverHasNewer: history.hasNewer,
               }),
             )
           }
@@ -905,6 +908,9 @@ export function ChatView({
             oldestSeq,
             newestSeq,
             requestedLimit: initialQuery.limit,
+            // BUG-3: prefer server envelope flags when present (F1 middleware).
+            serverHasOlder: history.hasOlder,
+            serverHasNewer: history.hasNewer,
           })
         )
         setState({
@@ -1871,6 +1877,8 @@ export function ChatView({
             evictedFromEnd: 0,
             evictedNewestSeq: null,
             requestedLimit: OLDER_PAGE,
+            // BUG-3: prefer server envelope flag (F1 middleware).
+            serverHasOlder: response.hasOlder,
           })
         )
         pendingScrollAnchorRef.current = null
@@ -1916,6 +1924,8 @@ export function ChatView({
             evictedFromEnd,
             evictedNewestSeq,
             requestedLimit: OLDER_PAGE,
+            // BUG-3: prefer server envelope flag (F1 middleware).
+            serverHasOlder: response.hasOlder,
           })
         )
 
@@ -2035,6 +2045,8 @@ export function ChatView({
             evictedFromStart: 0,
             evictedOldestSeq: null,
             requestedLimit: OLDER_PAGE,
+            // BUG-3: prefer server envelope flag (F1 middleware).
+            serverHasNewer: response.hasNewer,
           })
         )
         pendingScrollAnchorRef.current = null
@@ -2090,6 +2102,8 @@ export function ChatView({
             evictedFromStart,
             evictedOldestSeq,
             requestedLimit: OLDER_PAGE,
+            // BUG-3: prefer server envelope flag (F1 middleware).
+            serverHasNewer: response.hasNewer,
           })
         )
 
@@ -2183,6 +2197,9 @@ export function ChatView({
           oldestSeq,
           newestSeq,
           requestedLimit: q.limit,
+          // BUG-3: prefer server envelope flags when present (F1 middleware).
+          serverHasOlder: history.hasOlder,
+          serverHasNewer: history.hasNewer,
         })
       )
       setState({
