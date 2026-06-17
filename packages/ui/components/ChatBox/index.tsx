@@ -756,21 +756,21 @@ export function ChatBox({
               transition={{ duration: 0.16, ease: "easeOut" }}
               className="overflow-hidden"
             >
-              <div className={cn(GLASS_POPOVER, "mx-3 mb-2 overflow-hidden rounded-xl p-2")}>
-                <div className="mb-1.5 flex items-center justify-between px-1 text-[11px] font-medium text-muted-foreground/70">
+              <div className="mx-3 mb-2 max-h-64 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
+                <div className="flex items-center justify-between px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
                   <span>Queued messages</span>
                   <span>{queuedMessages.length}</span>
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   {queuedMessages.map((queued, index) => {
                     const isEditing = editingQueuedId === queued.id
                     return (
                       <div
                         key={queued.id}
-                        className="flex min-h-10 items-center gap-2 rounded-lg border border-[var(--glass-input-border)] bg-[var(--glass-input-bg)] px-2.5 py-1.5"
+                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-muted-foreground transition-colors hover:bg-muted/50"
                       >
-                        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/[0.06] text-[10px] font-medium text-muted-foreground/70">
-                          {index + 1}
+                        <span className="shrink-0 font-[family:var(--font-jetbrains-mono)] text-sm font-medium text-foreground/55">
+                          {index + 1}.
                         </span>
                         <div className="flex min-w-0 flex-1 flex-col justify-center">
                           {isEditing ? (
@@ -778,16 +778,16 @@ export function ChatBox({
                               value={editingQueuedText}
                               onChange={(e) => setEditingQueuedText(e.target.value)}
                               rows={2}
-                              className="w-full resize-none rounded-md border border-[var(--glass-input-border)] bg-background/70 px-2 py-1 text-[13px] leading-snug text-foreground outline-none focus:border-foreground/30"
+                              className="w-full resize-none rounded-md border border-border bg-background/70 px-2 py-1 text-[13px] leading-snug text-foreground outline-none focus:border-foreground/30"
                               autoFocus
                             />
                           ) : (
-                            <p className="line-clamp-2 whitespace-pre-wrap text-[13px] font-medium leading-snug text-foreground/80">
+                            <p className="line-clamp-2 whitespace-pre-wrap font-[family:var(--font-jetbrains-mono)] text-sm font-medium leading-snug text-foreground">
                               {queued.payload.text}
                             </p>
                           )}
                           {(queued.payload.attachments?.length ?? 0) > 0 && (
-                            <p className="mt-0.5 text-[11px] text-muted-foreground/55">
+                            <p className="mt-0.5 text-xs text-muted-foreground">
                               {queued.payload.attachments?.length} attachment{queued.payload.attachments?.length === 1 ? "" : "s"}
                             </p>
                           )}
@@ -803,7 +803,7 @@ export function ChatBox({
                                   setEditingQueuedId(null)
                                   setEditingQueuedText("")
                                 }}
-                                className="rounded px-1.5 py-1 text-[11px] text-foreground/70 hover:bg-black/[0.05] dark:hover:bg-white/[0.06]"
+                                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                               >
                                 Save
                               </button>
@@ -813,7 +813,7 @@ export function ChatBox({
                                   setEditingQueuedId(null)
                                   setEditingQueuedText("")
                                 }}
-                                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-black/[0.05] dark:hover:bg-white/[0.06]"
+                                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                               >
                                 Cancel
                               </button>
@@ -826,7 +826,7 @@ export function ChatBox({
                                   setEditingQueuedId(queued.id)
                                   setEditingQueuedText(queued.payload.text)
                                 }}
-                                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/[0.06]"
+                                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                               >
                                 Edit
                               </button>
