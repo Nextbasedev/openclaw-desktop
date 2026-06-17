@@ -25,6 +25,9 @@ const sessionContextQuery = z.object({
   sessionKey: z.string().min(1),
 });
 
+const localMediaQuery = z.object({
+  path: z.string().min(1),
+});
 
 const DEFAULT_CHAT_SEND_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = DEFAULT_CHAT_SEND_TIMEOUT_MS + 10_000;
@@ -691,6 +694,42 @@ function isMissingApprovalError(error: unknown) {
   return /approval/i.test(message) && /(not found|missing|unknown|no pending|no such)/i.test(message);
 }
 
+const OPENCLAW_MEDIA_ROOT = path.resolve(os.homedir(), ".openclaw", "media");
+
+const MEDIA_MIME_TYPES: Record<string, string> = {
+  ".avi": "video/x-msvideo",
+  ".gif": "image/gif",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".m4a": "audio/mp4",
+  ".mov": "video/quicktime",
+  ".mp3": "audio/mpeg",
+  ".mp4": "video/mp4",
+  ".ogg": "audio/ogg",
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".wav": "audio/wav",
+  ".webm": "video/webm",
+  ".webp": "image/webp",
+};
+
+function mediaMimeType(filePath: string) {
+  return MEDIA_MIME_TYPES[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
+}
+
+function resolveOpenClawMediaPath(rawPath: string) {
+  const trimmed = rawPath.trim();
+  const candidate = path.isAbsolute(trimmed)
+    ? path.resolve(trimmed)
+    : path.resolve(OPENCLAW_MEDIA_ROOT, trimmed.replace(/^\.\//, ""));
+  const rootWithSeparator = `${OPENCLAW_MEDIA_ROOT}${path.sep}`;
+  if (candidate !== OPENCLAW_MEDIA_ROOT && !candidate.startsWith(rootWithSeparator)) {
+    throw new HttpError(403, "Media path is outside the OpenClaw media directory", "MEDIA_PATH_FORBIDDEN");
+  }
+  return candidate;
+}
+
 /**
  * Pre-warm archived history for a session so the first bootstrap doesn't
  * block on importing archive files. Call after telegram/discord import.
@@ -751,6 +790,37 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       headers: request.headers,
     }) as unknown as Promise<{ statusCode: number; json(): unknown }>);
     reply.code(response.statusCode).send(response.json());
+  });
+
+  app.get("/api/chat/media/local", async (request, reply) => {
+    const parsed = localMediaQuery.safeParse(request.query);
+    if (!parsed.success) {
+      throw new HttpError(400, "Invalid local media query", "INVALID_QUERY", parsed.error.flatten());
+    }
+
+    const requestedPath = resolveOpenClawMediaPath(parsed.data.path);
+    let realRoot = OPENCLAW_MEDIA_ROOT;
+    let realFile = requestedPath;
+    try {
+      realRoot = await fs.promises.realpath(OPENCLAW_MEDIA_ROOT);
+      realFile = await fs.promises.realpath(requestedPath);
+    } catch {
+      throw new HttpError(404, "Media file not found", "MEDIA_NOT_FOUND");
+    }
+    const rootWithSeparator = `${realRoot}${path.sep}`;
+    if (realFile !== realRoot && !realFile.startsWith(rootWithSeparator)) {
+      throw new HttpError(403, "Media path is outside the OpenClaw media directory", "MEDIA_PATH_FORBIDDEN");
+    }
+    const stat = await fs.promises.stat(realFile);
+    if (!stat.isFile()) {
+      throw new HttpError(404, "Media file not found", "MEDIA_NOT_FOUND");
+    }
+
+    return reply
+      .type(mediaMimeType(realFile))
+      .header("Content-Length", String(stat.size))
+      .header("Content-Disposition", `inline; filename="${path.basename(realFile).replace(/"/g, "")}"`)
+      .send(fs.createReadStream(realFile));
   });
 
   app.get("/api/chat/session-context", async (request) => {

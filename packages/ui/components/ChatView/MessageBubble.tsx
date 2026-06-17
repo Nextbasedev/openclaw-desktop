@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect, memo, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
+import { useState, useCallback, useRef, useEffect, useMemo, memo, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
@@ -52,6 +52,7 @@ import {
   chatAttachmentTypeLabel,
   getChatAttachmentKind,
 } from "@/lib/chatAttachmentPreview"
+import { mergeChatAttachments, parseChatMediaDirectives } from "@/lib/chatMediaDirectives"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
@@ -816,6 +817,12 @@ export const MessageBubble = memo(function MessageBubble({
   const shouldAnimateSend = isUser && message.isOptimistic && message.sendStatus === "sending"
   const hideAssistantActions =
     !isUser && (Boolean(isActivelyStreaming) || Boolean(suppressActions))
+  const mediaDirectives = useMemo(
+    () => (!isUser && !isAssistantError ? parseChatMediaDirectives(message.text) : null),
+    [isAssistantError, isUser, message.text]
+  )
+  const renderedAssistantText = mediaDirectives?.text ?? message.text
+  const renderedAttachments = mergeChatAttachments(message.attachments, mediaDirectives?.attachments)
   const isStatusSnapshot = !isUser && isAssistantStatusSnapshot(message.text)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState("")
@@ -1203,7 +1210,7 @@ export const MessageBubble = memo(function MessageBubble({
                 </div>
               ) : (
                 <MarkdownContent
-                  text={message.text}
+                  text={renderedAssistantText}
                   embeds={message.embeds}
                   streaming={Boolean(animateAssistantText)}
                   revealMode="buffered"
@@ -1215,7 +1222,7 @@ export const MessageBubble = memo(function MessageBubble({
               )}
                 {!isUser && (
                   <MessageAttachments
-                    attachments={message.attachments}
+                    attachments={renderedAttachments}
                     isUser={isUser}
                   />
                 )}

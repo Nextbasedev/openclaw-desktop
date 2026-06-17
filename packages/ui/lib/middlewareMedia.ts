@@ -44,3 +44,15 @@ export function buildInboundMediaUrl(
     connection === undefined ? getMiddlewareConnection() : connection,
   )
 }
+
+export function buildOpenClawMediaUrl(
+  mediaPath: string,
+  connection?: MiddlewareConnection | null,
+): string | null {
+  const path = mediaPath.trim()
+  if (!path) return null
+  return buildAuthenticatedMiddlewareMediaUrl(
+    `/api/chat/media/local?path=${encodeURIComponent(path)}`,
+    connection === undefined ? getMiddlewareConnection() : connection,
+  )
+}
