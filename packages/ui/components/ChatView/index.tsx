@@ -1188,6 +1188,7 @@ export function ChatView({
     }
 
     const optimisticId = randomId()
+    const replyTo = payload.replyTo ?? undefined
     shouldFollowScrollRef.current = true
     const optimisticMessage: ChatMessage = {
       messageId: optimisticId,
@@ -1196,6 +1197,7 @@ export function ChatView({
       createdAt: new Date().toISOString(),
       isOptimistic: true,
       sendStatus: "sending",
+      replyTo,
       attachments: composerAttachmentsToMessageAttachments(payload.attachments),
     }
 
@@ -1232,10 +1234,10 @@ export function ChatView({
         attachments: payload.attachments,
         idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
         clientMessageId: optimisticId,
-        replyTo: payload.replyTo
+        replyTo: replyTo
           ? {
-              messageId: payload.replyTo.messageId,
-              snippet: payload.replyTo.text.slice(0, 500),
+              messageId: replyTo.messageId,
+              snippet: replyTo.text.slice(0, 500),
             }
           : undefined,
         autonomyMode: payload.autonomyMode ?? null,
