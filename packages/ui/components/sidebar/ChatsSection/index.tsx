@@ -223,7 +223,7 @@ export function ChatsSection({
                                 [group.id]: !(prev[group.id] ?? false),
                               }))
                             }
-                            className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 pt-1 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground/55 transition-colors hover:text-muted-foreground"
+                            className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 pt-1 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground/75 transition-colors hover:text-foreground/85"
                             aria-expanded={groupOpen}
                           >
                             <motion.span
@@ -233,7 +233,7 @@ export function ChatsSection({
                             >
                               <Icons.ChevronDown size={10} strokeWidth={2} />
                             </motion.span>
-                            <span className="min-w-0 truncate">{group.label}</span>
+                            <span className="min-w-0 truncate text-foreground/70">{group.label}</span>
                           </button>
                           <AnimatePresence initial={false}>
                             {groupOpen && (
