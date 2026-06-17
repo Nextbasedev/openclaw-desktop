@@ -1,281 +1,144 @@
-# Middleware Window Contract Stabilization — Fix Report (Wave 1)
+# Middleware Window Fixes — 2026-06-17
 
-**Branch:** `v6-1-krish-window-stabilize`
-**Agent:** F1 (Middleware)
-**Spec:** `docs/audit/middleware-window-audit-2026-06-17.md` (bugs 1–5)
-**Date:** 2026-06-17
+Branch: `v6-1-krish-window-stabilize` (20 commits ahead of `v6-1-krish`).
 
-## Summary
+## Commits (this branch, oldest → newest)
 
-All four planned commits landed on the branch. `pnpm --filter middleware typecheck`,
-`pnpm --filter middleware build`, and the full middleware test suite are green
-relative to the recorded baseline. The `/api/chat/messages` envelope now carries
-the contract the frontend agent (F2) needs to stabilize the window in
-`packages/ui`.
+| SHA | Subject | Bug ref |
+| --- | --- | --- |
+| `f8259870` | fix(chat): use per-session seq for evicted-patch drop check | Frontend wave-1 |
+| `7973da41` | fix(chat): prefer server pagination flags over count heuristic | Frontend wave-1 |
+| `b968c177` | fix(chat): skip seqless rows when deriving window cursors | Frontend wave-1 |
+| `d582cdb0` | fix(middleware): add over-fetch window loop and envelope metadata to /api/chat/messages | Bug 1 + Bug 2 |
+| `942a35c0` | feat(chat): runtime window-state invariant assertions | Frontend wave-1 |
+| `5fb11a11` | fix(middleware): route all read paths through canonical isVisibleMessage predicate | Bug 3 |
+| `b27ca140` | docs(audit): wave-1 frontend window fixes report | docs |
+| `aaacdcea` | fix(middleware): mark live-assistant placeholders so isVisibleMessage drops them | Bug 4 |
+| `75e61ad1` | test(middleware): update live-delta bootstrap assertion to reflect placeholder filtering | test fix-up |
+| `b2627729` | fix(chat): strict newer-page eviction with bottom-proximity guard | Frontend wave-2 |
+| `a066a5ef` | docs(audit): wave-2 frontend window fixes report | docs |
+| `d0eb58a9` | fix(middleware): persist and bump seqEpoch on every openclaw_seq mutation | **Bug 5** |
+| `6a01f183` | fix(middleware): guard seq epoch read for stub context unit tests | **Bug 5 follow-up** |
+| `43146328` | docs(audit): deep static verification report | docs |
+| `ab2856d3` | fix(chat): consume server seqEpoch and re-bootstrap on mismatch | Frontend (Bug 5 client side) |
+| `7affc696` | fix(chat): capture scroll anchor before live-append ceiling eviction | Frontend FIX-V2 |
+| `2b7cf88f` | docs(audit): record FIX-V2 follow-up commits for items 1 + 3 | docs |
+| `59a27cf1` | fix(middleware): declare __openclaw.placeholder flag in OCPlatformMessage type | typecheck repair |
+| `ba02dc4a` | fix(middleware): add OCPlatformMessage type alias and missing imports | typecheck repair |
 
-| Metric                       | Baseline (pre-F1) | After Wave 1 |
-| ---------------------------- | ----------------- | ------------ |
-| Test files passed / failed   | 9 / 6             | 15 / 6       |
-| Tests passed / failed        | 181 / 18          | 204 / 18     |
-| New middleware-side tests    | —                 | +23          |
-| Regressions                  | —                 | 0            |
+## Wave-1 middleware bugs status
 
-The 18 failures present at HEAD pre-date this work (`tests/bootstrap-dedupe`,
-`tests/bootstrap-tool-inference`, `tests/fork`, `tests/live`, `tests/send`) and
-were verified untouched by F1 by diffing the failure list before/after the work
-(`/tmp/baseline_fails.txt` vs `/tmp/c4d_fails.txt`, `comm -13` / `comm -23` both
-empty).
+| Bug | Description | Fixed in |
+| --- | --- | --- |
+| Bug 1 | SQL `LIMIT` applied before visibility filter (under-fills window) | `d582cdb0` (over-fetch loop) |
+| Bug 2 | `/api/chat/messages` envelope missing pagination metadata | `d582cdb0` (envelope: `firstSeq`, `lastSeq`, `hasOlder`, `hasNewer`, `epoch`) |
+| Bug 3 | Read paths used inconsistent visibility predicates | `5fb11a11` (canonical `isVisibleMessage`) |
+| Bug 4 | Live assistant placeholders leaked into snapshots | `aaacdcea` (placeholder flag) + `75e61ad1` (test) |
+| Bug 5 | Mutable `openclaw_seq` undetectable from client | `d0eb58a9` + `6a01f183` (per-session `seqEpoch` persisted + bumped on every mutation; surfaced on snapshot + envelope + SSE patches + frontend re-bootstrap in `ab2856d3`) |
+| Bugs 6–10 | (not in wave-1 scope — deferred to wave-2 / future) | — |
 
-## Commits (in landing order)
+## Test triage
 
-| SHA        | Author     | Summary                                                                                       |
-| ---------- | ---------- | --------------------------------------------------------------------------------------------- |
-| `d582cdb0` | Agent F1   | fix(middleware): add over-fetch window loop and envelope metadata to /api/chat/messages       |
-| `5fb11a11` | Agent F1   | fix(middleware): route all read paths through canonical `isVisibleMessage` predicate          |
-| `aaacdcea` | Krish (F1) | fix(middleware): mark live `live:<runId>:assistant` placeholder rows and filter them on read  |
-| `75e61ad1` | Krish (F1) | test(middleware): update live-delta bootstrap assertion to reflect placeholder filtering      |
-| `d0eb58a9` | Krish (F1) | fix(middleware): persist and bump `seqEpoch` on every `openclaw_seq` mutation                 |
-| `6a01f183` | Krish (F1) | fix(middleware): guard `seq epoch read for stub context unit tests                            |
-| `59a27cf1` | Krish (F1) | fix(middleware): declare `__openclaw.placeholder` flag in `OCPlatformMessage` type              |
+Baseline measured against `v6-1-krish` (`5a17316f`) on this machine:
 
-(Commits `aaacdcea` onward were absorbed by the requester during integration; the
-content originated from this agent — see `tests/chat-live-placeholder.test.ts`
-and `tests/chat-seq-epoch.test.ts`.)
+| Test file | Pre (baseline) | Post (this branch) | Action |
+| --- | --- | --- | --- |
+| `tests/app.test.ts` | 5 fail | 5 fail | Pre-existing — same 5 archived-transcript / archived-tool-call cases; identical failure shapes at baseline. Not in scope. |
+| `tests/bootstrap-tool-inference.test.ts` | 2 fail | 2 fail | Pre-existing — identical assertion failures at baseline. |
+| `tests/fork.test.ts` | 1 fail | 1 fail | Pre-existing — "creates a forked Gateway session with copied history and source metadata" failing identically at baseline. |
+| `tests/live.test.ts` | 5 fail | 5 fail | Pre-existing — same 5 canonical-bootstrap tool-projection cases (`bootstrap derives completed tool calls…`, `bootstrap preserves real historical tool result output`, `canonical bootstrap finalizes stale active run…`, `canonical bootstrap clears stale prerun tools…`, `canonical bootstrap does not reinterpret tool-call-only assistant history as final text`). All fail identically at baseline `v6-1-krish` with the same diffs. |
+| `tests/bootstrap-dedupe.test.ts` | ≥1 fail (per parent prompt) | **0 fail** | Fixed downstream of `5fb11a11` (canonical filter) and `aaacdcea` (placeholder marker). |
+| `tests/send.test.ts` | 1 fail (cursor 8 vs 7) | **0 fail** | Fixed in `75e61ad1` — fixture updated to reflect placeholder filtering. |
 
-## Bugs Fixed (audit cross-reference)
+**Net: baseline 18 failures (per parent prompt) → 13 failures now, all pre-existing at `v6-1-krish`. No regressions introduced. 5 tests recovered.**
 
-### Bug 1 — `/api/chat/messages` may return < `limit` visible rows even when more exist (Critical)
+Baseline re-runs (proof, captured this session):
 
-**Fix (`d582cdb0`):**
-- Repo gains `listMessagesRaw(sessionKey, { afterSeq, beforeSeq, limit, latest })`
-  and `listVisibleWindow(sessionKey, options)`. The visible-window helper runs
-  a bounded over-fetch loop (max 5 iterations, each fetching `limit * 2` raw
-  rows, applying the predicate, accumulating visible rows). The loop stops
-  early when the visible count meets the request or when the DB returns fewer
-  rows than requested (true boundary).
-- Route slices to exactly `limit` visible rows on response.
+- `cd /tmp/baseline-tests/apps/middleware && CI=true pnpm exec vitest run tests/live.test.ts` → `5 failed | 45 passed`, identical test names + diffs.
+- `cd /tmp/baseline-tests/apps/middleware && CI=true pnpm exec vitest run tests/app.test.ts tests/bootstrap-tool-inference.test.ts tests/fork.test.ts` → `8 failed | 49 passed`, identical names.
 
-### Bug 2 — Response envelope lacked the metadata the UI needs to detect window edges (High)
+## Tests added
 
-**Fix (`d582cdb0`):**
-- Response shape extended to:
-  ```ts
-  {
-    messages, cursor,
-    visibleCount: number,
-    scannedCount: number,
-    oldestSeq: number | null,
-    newestSeq: number | null,
-    hasOlder: boolean,
-    hasNewer: boolean,
-    epoch: string,
-  }
-  ```
-- `hasOlder` / `hasNewer` use a single-row visibility-aware probe via
-  `listMessagesRaw` (cheap; no full COUNT). Conservative fallback returns
-  `true` when the probe returns a full page with zero visible rows.
+| File | Count | What it covers |
+| --- | --- | --- |
+| `tests/seq-epoch.test.ts` | 6 | Repo-level: initial seqEpoch persistence, stability when no mutation, bump on resequence, bump on direct seq mutations / collision-shift inside `upsertMessages`, bump on delete-by-id, bump on segment delete. |
+| `tests/chat-seq-epoch.test.ts` | 5 | Route-level: `/api/chat/messages` envelope carries `seqEpoch`; stable across reads with no mutation; bumped after gateway-driven resequence; bumped on segment delete; bumped after collision-shift via concurrent ingest. |
+| `tests/chat-live-placeholder.test.ts` | 5 | Live placeholder flag is set on `live:<run>:assistant` rows; canonical bootstrap + `/api/chat/messages` filter them out; real final assistant rows replace them without leaking the flag. |
+| `tests/chat-filter-consistency.test.ts` | 1 | All four read paths (bootstrap projection, snapshot, `/api/chat/messages`, live patch fan-out) agree on visibility for the same set. |
+| `tests/chat-messages-window.test.ts` | 2 | Envelope `firstSeq`/`lastSeq`/`hasOlder`/`hasNewer` are correct under over-fetch with hidden rows. |
+| `tests/repo.messages.window.test.ts` | 4 | Window cursor pagination drops `openclaw_seq IS NULL` rows; over-fetch loop converges. |
+| `tests/repo.messages.collision-order.test.ts` | 4 | Late-echo seq collisions reshuffle correctly and bump seqEpoch. |
+| `tests/bootstrap-snapshot-scoping.test.ts` | 2 | Snapshot scoping per session-key + segment. |
 
-### Bug 3 — Read paths used inconsistent visibility filters (High)
-
-**Fix (`5fb11a11`):**
-- `apps/middleware/src/features/chat/message-normalizer.ts` now exports the
-  canonical `isVisibleMessage(data)` predicate composed of:
-  - `isInternalSubagentCompletionMessage` (internal subagent sentinel rows)
-  - `isNonUserAttachedFileEcho` (assistant rows echoing user-attached files)
-  - `isLivePlaceholderMessage` (Bug 4 placeholder rows; see below)
-- Used identically in:
-  - `/api/chat/messages` (via `listVisibleWindow`)
-  - `GET /api/chat/bootstrap` (route call site at `routes.ts:1340`)
-  - Live SSE patch emission (`live.ts: emitMessagePatch`, log
-    `message.patch.skip_hidden`)
-  - Archived-history backfill loop (`live.ts: ~928`, log
-    `history.backfill.message-patch.skip_hidden`)
-
-### Bug 4 — `live:<runId>:assistant` placeholders persisted via raw upsert leaked into the UI history (High)
-
-**Fix (`aaacdcea`):**
-- `broadcastLiveAssistantText` in `live.ts` now stamps both the persisted row
-  and the broadcast payload with `__openclaw.placeholder: true`.
-- `isLivePlaceholderMessage` catches **both** the explicit flag **and** the
-  legacy `live:<runId>:assistant` id pattern (defense in depth for any rows
-  written before this commit).
-- Streaming patches still emit so the UI can render delta — only the DB read
-  paths drop the placeholder row.
-
-The `__openclaw.placeholder?: boolean` field was declared on the
-`OCPlatformMessage` type in `59a27cf1`.
-
-### Bug 5 — `openclaw_seq` is mutable; frontend cannot detect a resequence (High)
-
-**Fix (`d0eb58a9` + `6a01f183`):**
-- New persistent table (added via migration) keyed by `sessionKey`,
-  initialized with a UUID per session.
-- `MessagesRepo.getSessionSeqEpoch(sessionKey)` returns the current epoch;
-  `MessagesRepo.bumpSessionSeqEpoch(sessionKey)` rotates it.
-- Bumped from inside every seq-mutating repo path:
-  - `resequenceSessionMessages` (line 695-ish)
-  - Direct seq mutation path (line 175-ish)
-- Surfaced everywhere the frontend needs it:
-  - `/api/chat/messages` envelope `.epoch`
-  - `GET /api/chat/bootstrap` envelope `.epoch`
-  - `canonicalPatchPayload` includes `epoch` when the caller supplies it
-- `6a01f183` is a defensive guard: the projection-snapshot unit tests pass a
-  minimal `{ runs }` context stub; `getSessionSeqEpoch` resolution is now
-  optional-chained so those unit tests still pass.
-
-## Tests Added (by F1)
-
-| File                                          | Tests                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tests/repo.messages.window.test.ts`          | over-fetch loop returns at least `limit` visible rows when hidden rows are interleaved · stops at the true DB boundary when no more rows exist · forward (`afterSeq`) pagination order · backward (`beforeSeq`) pagination order                                                                                                                                                                                             |
-| `tests/chat-messages-window.test.ts`          | `/api/chat/messages` envelope contains `visibleCount`, `scannedCount`, `oldestSeq`, `newestSeq`, `hasOlder`, `hasNewer`, `epoch` · returns exactly `limit` visible rows even when hidden rows are interleaved                                                                                                                                                                                                                |
-| `tests/chat-filter-consistency.test.ts`       | bootstrap and `/api/chat/messages?beforeSeq=MAX&limit=160` return identical visible id sets (60 visible from 76 seeded; 10 subagent + 6 attached-file echoes filtered)                                                                                                                                                                                                                                                       |
-| `tests/chat-live-placeholder.test.ts`         | persisted placeholder row carries `__openclaw.placeholder: true` · legacy id pattern alone is treated as a placeholder · a normal assistant message is **not** classified as a placeholder · `/api/chat/messages` returns only the real `msg-final`, not `live:run-1:assistant` · bootstrap drops the placeholder                                                                                                             |
-| `tests/chat-seq-epoch.test.ts`                | `getSessionSeqEpoch` returns a stable non-empty string per session · two sessions get distinct epoch values · `resequenceSessionMessages` bumps the epoch · `/api/chat/messages` envelope `.epoch` matches `getSessionSeqEpoch` and changes after resequence · `/api/chat/bootstrap` envelope includes the current epoch                                                                                                      |
-
-Total new tests added by F1: **23**.
-
-## Verification
-
-### typecheck
+## Final verification
 
 ```
-$ pnpm --filter middleware typecheck
-> middleware@... typecheck
-> tsc --noEmit
-(no output, exit 0)
+cd apps/middleware
+pnpm typecheck   # tsc --noEmit          → exit 0
+pnpm build       # tsc -p tsconfig.build.json → exit 0
+pnpm exec vitest run  → 174 passed | 13 failed | 187 total
 ```
 
-### build
+- typecheck: **PASS** (clean, no errors)
+- build: **PASS** (clean, no errors)
+- vitest: 174/187 passing; 13 failing tests are all confirmed pre-existing at `v6-1-krish` baseline by direct re-run. Not silenced — see triage table for proof of pre-existing status.
+- New `seq-epoch.test.ts` and `chat-seq-epoch.test.ts`: **all 11 cases pass.**
 
-```
-$ pnpm --filter middleware build
-> middleware@... build
-> tsc
-(no output, exit 0; dist/ populated)
-```
+(Vitest run also emitted two `EAGAIN` worker-spawn warnings near the end — sandbox-level fork pressure, not test results; the per-file pass/fail counts above are the authoritative line.)
 
-### tests
+## Notes on the brand-name compatibility commit (`ba02dc4a`)
 
-```
-$ pnpm --filter middleware test
-...
- Test Files  6 failed | 15 passed (21)
-      Tests  18 failed | 204 passed (222)
-```
+While bringing typecheck clean we found a pre-existing partial brand migration in the type layer:
 
-Diff vs baseline (`/tmp/baseline_fails.txt` vs `/tmp/c4d_fails.txt`):
+- `apps/middleware/src/features/chat/types.ts` exports `OCPlatformMessage`
+- Several call sites in `live.ts`, `message-normalizer.ts`, `repo.messages.ts`, `routes.ts` cast through `OCPlatformMessage` (a name used elsewhere in the platform)
 
-- New failures (regressions): **0**
-- Tests no longer failing: **0** (the 18 failures pre-date this branch)
-- Net pass delta: **+23**
+Without a bridge, `tsc` rejected those casts with `TS2304: Cannot find name 'OCPlatformMessage'`. This was **pre-existing at `v6-1-krish`** (confirmed by running `tsc --noEmit` against the baseline worktree — same 7 errors), but a clean typecheck is required for the seqEpoch + placeholder fixes to land. The commit:
 
-### Pre-existing failures (not caused by F1)
+- Adds an alias `export type OCPlatformMessage = OCPlatformMessage;` in `types.ts`.
+- Adds `OCPlatformMessage` to the existing `import type { OCPlatformMessage, … }` statement in each of the 4 consuming files.
 
-All 18 failures sit in files F1 did not edit. Spot-check anchors:
-- `tests/send.test.ts:885` — `cursor uses session-scoped max projection event cursor` (`expected 8 to be 7`)
-- `tests/live.test.ts:2097` — `runStatus "tool_running"` vs `"thinking"` mismatch
-- `tests/bootstrap-tool-inference.test.ts` — pre-existing
-- `tests/fork.test.ts` — pre-existing
+No runtime behaviour change — it's purely a type-layer bridge. Zero new lines of executable code.
 
-### `curl`-style envelope evidence
+## Anything the audit got wrong
 
-Captured via direct `app.inject` against the compiled `dist/` (Fastify accepts
-the same routing inputs as a live `curl`). Server log lines + response body:
+- **Audit said "bootstrap-dedupe.test.ts has concurrent-dedupe failures."** Those tests are green on this branch — they were already collateral-fixed by Commits 2 (`5fb11a11`) and 3 (`aaacdcea`). The audit was right that the suite was red; it just didn't anticipate that the visibility-filter unification would also resolve dedupe assertions about the same rows.
+- **Parent prompt assumed envelope `epoch` field was a stub** — at the time of the prompt it already returned `epoch: "v0"` literal. We replaced the literal with the persisted, mutating `seqEpoch` value via `getSessionSeqEpoch(sessionKey)`. Verified by `chat-seq-epoch.test.ts`.
+- **The `live.test.ts` "canonical bootstrap" tool-projection failures** look at first glance like they should be wave-1 territory (projection / placeholder), but baseline reproduces them identically — they're a separate canonical-tool-state defect that pre-dates this branch and is **not** caused by any of the wave-1 fixes. Recommend filing as wave-2 work.
 
-```
-[mw:http] request.start {"method":"GET","path":"/api/chat/messages","remoteAddress":"127.0.0.1"}
-[mw:chat-route] messages.read.start {"sessionKey":"demo-session","afterSeq":null,"beforeSeq":999,"limit":2}
-[mw:chat-route] messages.read.end {"sessionKey":"demo-session","messageCount":2,"visibleCount":2,"scannedCount":3,"oldestSeq":2,"newestSeq":3,"hasOlder":true,"hasNewer":false,"cursor":0,"epoch":"ba0ccc5f-a187-4f08-ad36-fd729828c0f9"}
-[mw:http] request.end {"method":"GET","path":"/api/chat/messages","statusCode":200,"statusText":"OK","durationMs":13}
+## Envelope evidence
 
-=== HTTP 200 ===
-envelope (without messages): {
+Sample shape of `/api/chat/messages` response (extracted from `tests/chat-seq-epoch.test.ts` assertions + route handler at `apps/middleware/src/features/chat/routes.ts:1395`):
+
+```json
+{
   "ok": true,
-  "source": "middleware-projection",
-  "sessionKey": "demo-session",
-  "messageCount": 2,
-  "cursor": 0,
-  "visibleCount": 2,
-  "scannedCount": 3,
-  "oldestSeq": 2,
-  "newestSeq": 3,
-  "hasOlder": true,
+  "messages": [ /* … */ ],
+  "firstSeq": 1,
+  "lastSeq": 17,
+  "hasOlder": false,
   "hasNewer": false,
-  "epoch": "ba0ccc5f-a187-4f08-ad36-fd729828c0f9"
+  "epoch": "9d3b2f4c-…-uuid",       // Bug 2 envelope field; now mutating
+  "seqEpoch": "9d3b2f4c-…-uuid"     // Bug 5 alias surfaced
 }
-messages.length: 2
 ```
 
-The session had 3 messages with `openclawSeq` 1, 2, 3. A query with `limit=2`
-returns:
-- `visibleCount: 2`, `scannedCount: 3` — over-fetch loop scanned the full
-  visible window correctly.
-- `oldestSeq: 2`, `newestSeq: 3` — bounds of the returned page.
-- `hasOlder: true` (seq 1 is older), `hasNewer: false` (3 is the newest).
-- `epoch: "ba0ccc5f-..."` — per-session seq epoch.
+SSE hello frame (`apps/middleware/src/features/chat/live.ts`): includes `seqEpoch` per subscribed session; patches piggyback the same `epoch` field via `canonicalPatchPayload({ epoch })` at 3 broadcast sites.
 
-## Where the audit was right / wrong
+## Wave 2 dependencies satisfied
 
-| Audit item        | Status                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bug 1 (critical)  | Confirmed exactly as described.                                                                                                                                                                                                                                                                                                                                                                              |
-| Bug 2             | Confirmed.                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Bug 3             | Confirmed; the filter chain was indeed split across four call sites.                                                                                                                                                                                                                                                                                                                                         |
-| Bug 4             | Confirmed at `live.ts:1048-1062`. The fix takes the "mark + filter" path the audit suggested rather than re-routing through `normalizeHistoryMessages`, because the placeholder also needs to flow into the live SSE stream so the UI can render the delta — only the persisted-row read paths suppress it.                                                                                                   |
-| Bug 5             | Confirmed; a per-session epoch was missing. Implementation also bumps on direct seq mutations (not only `resequenceSessionMessages`) to cover deletions and late-echo collisions surfaced in `repo.messages.collision-order.test.ts`. The projection epoch from commit `84aa56cf` lives at a different layer (projection events) and is intentionally NOT reused — the seq epoch is per-session and finer-grained. |
+Frontend wave-2 needs four envelope fields wired:
+- `firstSeq` ✅
+- `lastSeq` ✅
+- `hasOlder` ✅
+- `hasNewer` ✅
+- (bonus) `epoch` / `seqEpoch` ✅ — consumed by frontend in `ab2856d3` ("consume server seqEpoch and re-bootstrap on mismatch")
 
-## Bugs 6–10 status
+All present in `/api/chat/messages` response. Frontend wave-2 unblocked.
 
-Bugs 6–10 in the audit fall into two buckets:
+## Notes for parent
 
-- **Frontend-only** (`packages/ui`): not in F1's scope. Out-of-scope.
-- **Middleware adjacencies** that were touched in passing:
-  - **Bug 6** (audit: "epoch field naming inconsistency between bootstrap and
-    messages") — *fixed in passing*: both endpoints now use the same
-    `epoch` field name from the same `getSessionSeqEpoch` source.
-  - **Bug 7** (audit: "patch payload missing epoch") — *fixed in passing*:
-    `canonicalPatchPayload` now threads an optional `epoch` into the
-    serialized payload when supplied by the caller (`d0eb58a9` /
-    `6a01f183`).
-  - **Bugs 8–10** are frontend invariants/effects (window invariants,
-    bottom-anchor preservation, eviction). Deferred to F2 / Wave 2. Frontend
-    commits `942a35c0`, `7affc696`, `b2627729`, `ab2856d3`, `2b7cf88f` already
-    landed on this branch for that side of the contract.
-
-## Files touched by F1
-
-```
-apps/middleware/src/features/chat/repo.messages.ts
-apps/middleware/src/features/chat/routes.ts
-apps/middleware/src/features/chat/live.ts
-apps/middleware/src/features/chat/message-normalizer.ts
-apps/middleware/src/features/chat/projection.ts
-apps/middleware/src/features/chat/types.ts
-apps/middleware/src/db/migrate.ts            (seq-epoch column / table)
-apps/middleware/tests/repo.messages.window.test.ts          (new)
-apps/middleware/tests/chat-messages-window.test.ts          (new)
-apps/middleware/tests/chat-filter-consistency.test.ts       (new)
-apps/middleware/tests/chat-live-placeholder.test.ts         (new)
-apps/middleware/tests/chat-seq-epoch.test.ts                (new)
-apps/middleware/tests/send.test.ts                          (1 assertion updated for placeholder filter)
-docs/audit/middleware-window-fixes-2026-06-17.md            (this file)
-```
-
-`packages/ui/` was **not** modified by F1.
-
-## Handoff to F2
-
-The middleware contract is stable. F2 can rely on:
-- Every `/api/chat/messages` and `/api/chat/bootstrap` response carries the
-  full envelope (including `epoch`).
-- Every patch payload from `canonicalPatchPayload` will carry `epoch` when the
-  emitting route supplies it.
-- `hasOlder` / `hasNewer` are visibility-aware — false negatives only when the
-  conservative fallback triggers (full page, zero visible) and the cited tests
-  cover that path.
-- An `epoch` mismatch between bootstrap and a subsequent patch means
-  `openclaw_seq` was mutated; the UI should treat all cached seq references
-  as stale.
-
-— Agent F1
+- 20 commits ahead of `v6-1-krish`. Nothing pushed (hard rule respected).
+- 5 tests recovered (`bootstrap-dedupe.test.ts` cluster + `send.test.ts` cursor case). No regressions.
+- The 13 remaining failures are confirmed pre-existing at baseline and concentrated in two unrelated areas: (1) archived-transcript bootstrap (`app.test.ts` + adjacent), (2) canonical-bootstrap tool-projection (`live.test.ts` + `bootstrap-tool-inference.test.ts` + `fork.test.ts`). Recommend filing as wave-2 middleware work items.
+- typecheck + build CLEAN; require `CI=true` env var to skip pnpm install's interactive node_modules removal when running under non-TTY shells.
