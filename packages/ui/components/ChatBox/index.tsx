@@ -18,7 +18,7 @@ import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 import { GlassDialog } from "@/components/ui/GlassDialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
-import { LuChevronDown, LuSparkles, LuX } from "react-icons/lu"
+import { LuChevronDown, LuPencil, LuSparkles, LuX } from "react-icons/lu"
 import {
   execPolicyForAutonomyMode,
   stripComposerAttachment,
@@ -685,6 +685,128 @@ export function ChatBox({
     }
   }
 
+  const queuedMessagesPanel = queuedMessages.length > 0 ? (
+    <AnimatePresence initial={false}>
+      <motion.div
+        initial={{ opacity: 0, scaleY: 0.96, y: 6 }}
+        animate={{
+          opacity: 1,
+          scaleY: 1,
+          y: 0,
+          transition: {
+            duration: 0.22,
+            ease: [0.22, 1, 0.36, 1],
+            when: "beforeChildren",
+            staggerChildren: 0.03,
+          },
+        }}
+        exit={{
+          opacity: 0,
+          scaleY: 0.96,
+          y: 4,
+          transition: { duration: 0.16, ease: "easeInOut" },
+        }}
+        className="mb-2 max-h-52 origin-bottom overflow-y-auto rounded-2xl border border-border/70 bg-popover/95 p-1 shadow-sm"
+      >
+        <div className="py-1">
+          <div className="flex items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
+            <span>Queued messages</span>
+            <span>{queuedMessages.length}</span>
+          </div>
+          <div>
+            {queuedMessages.map((queued, index) => {
+              const isEditing = editingQueuedId === queued.id
+              return (
+                <motion.div
+                  key={queued.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  transition={{ duration: 0.16, ease: "easeOut" }}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-muted-foreground transition-colors hover:bg-muted/50"
+                >
+                  <span className="shrink-0 font-[family:var(--font-jetbrains-mono)] text-sm font-medium text-foreground/55">
+                    {index + 1}.
+                  </span>
+                  <div className="flex min-w-0 flex-1 flex-col justify-center">
+                    {isEditing ? (
+                      <textarea
+                        value={editingQueuedText}
+                        onChange={(e) => setEditingQueuedText(e.target.value)}
+                        rows={2}
+                        className="w-full resize-none rounded-md border border-border bg-background/70 px-2 py-1 text-[13px] leading-snug text-foreground outline-none focus:border-foreground/30"
+                        autoFocus
+                      />
+                    ) : (
+                      <p className="line-clamp-2 whitespace-pre-wrap font-[family:var(--font-jetbrains-mono)] text-sm font-medium leading-snug text-foreground">
+                        {queued.payload.text}
+                      </p>
+                    )}
+                    {(queued.payload.attachments?.length ?? 0) > 0 && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {queued.payload.attachments?.length} attachment{queued.payload.attachments?.length === 1 ? "" : "s"}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1 self-center">
+                    {isEditing ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = editingQueuedText.trim()
+                            if (next) onEditQueuedMessage?.(queued.id, next)
+                            setEditingQueuedId(null)
+                            setEditingQueuedText("")
+                          }}
+                          className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingQueuedId(null)
+                            setEditingQueuedText("")
+                          }}
+                          className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingQueuedId(queued.id)
+                            setEditingQueuedText(queued.payload.text)
+                          }}
+                          className="rounded p-1 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground"
+                          aria-label="Edit queued message"
+                        >
+                          <LuPencil className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteQueuedMessage?.(queued.id)}
+                          className="rounded p-1 text-muted-foreground/60 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                          aria-label="Delete queued message"
+                        >
+                          <LuX className="size-3.5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </motion.div>
+              )
+            })}
+          </div>
+        </div>
+      </motion.div>
+    </AnimatePresence>
+  ) : null
+
   return (
     <div className="mx-auto w-full max-w-[44rem] px-4">
       <input
@@ -694,6 +816,7 @@ export function ChatBox({
         className="hidden"
         onChange={handleFileChange}
       />
+      {queuedMessagesPanel}
       <div
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -747,125 +870,6 @@ export function ChatBox({
           isPreparing={isPreparingAttachments}
           onRemove={removeAttachment}
         />
-        <AnimatePresence initial={false}>
-          {queuedMessages.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, scaleY: 0.86, y: 6 }}
-              animate={{
-                opacity: 1,
-                scaleY: 1,
-                y: 0,
-                transition: {
-                  duration: 0.22,
-                  ease: [0.22, 1, 0.36, 1],
-                  when: "beforeChildren",
-                  staggerChildren: 0.03,
-                },
-              }}
-              exit={{
-                opacity: 0,
-                scaleY: 0.92,
-                y: 4,
-                transition: { duration: 0.16, ease: "easeInOut" },
-              }}
-              className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-full origin-bottom overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg"
-            >
-              <div className="py-1">
-                <div className="flex items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
-                  <span>Queued messages</span>
-                  <span>{queuedMessages.length}</span>
-                </div>
-                <div>
-                  {queuedMessages.map((queued, index) => {
-                    const isEditing = editingQueuedId === queued.id
-                    return (
-                      <motion.div
-                        key={queued.id}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 4 }}
-                        transition={{ duration: 0.16, ease: "easeOut" }}
-                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-muted-foreground transition-colors hover:bg-muted/50"
-                      >
-                        <span className="shrink-0 font-[family:var(--font-jetbrains-mono)] text-sm font-medium text-foreground/55">
-                          {index + 1}.
-                        </span>
-                        <div className="flex min-w-0 flex-1 flex-col justify-center">
-                          {isEditing ? (
-                            <textarea
-                              value={editingQueuedText}
-                              onChange={(e) => setEditingQueuedText(e.target.value)}
-                              rows={2}
-                              className="w-full resize-none rounded-md border border-border bg-background/70 px-2 py-1 text-[13px] leading-snug text-foreground outline-none focus:border-foreground/30"
-                              autoFocus
-                            />
-                          ) : (
-                            <p className="line-clamp-2 whitespace-pre-wrap font-[family:var(--font-jetbrains-mono)] text-sm font-medium leading-snug text-foreground">
-                              {queued.payload.text}
-                            </p>
-                          )}
-                          {(queued.payload.attachments?.length ?? 0) > 0 && (
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {queued.payload.attachments?.length} attachment{queued.payload.attachments?.length === 1 ? "" : "s"}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1 self-center">
-                          {isEditing ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const next = editingQueuedText.trim()
-                                  if (next) onEditQueuedMessage?.(queued.id, next)
-                                  setEditingQueuedId(null)
-                                  setEditingQueuedText("")
-                                }}
-                                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                              >
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingQueuedId(null)
-                                  setEditingQueuedText("")
-                                }}
-                                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                              >
-                                Cancel
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingQueuedId(queued.id)
-                                  setEditingQueuedText(queued.payload.text)
-                                }}
-                                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onDeleteQueuedMessage?.(queued.id)}
-                                className="rounded px-1.5 py-1 text-[11px] text-red-400/75 hover:bg-red-400/10 hover:text-red-300"
-                              >
-                                Delete
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </motion.div>
-                    )
-                  })}
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
         <AnimatePresence initial={false}>
           {slashMenuOpen &&
             (commandPrefix === "@"
