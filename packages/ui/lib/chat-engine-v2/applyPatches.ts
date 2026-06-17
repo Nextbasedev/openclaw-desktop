@@ -200,10 +200,7 @@ function shouldAnimateAssistantTextPatch(frame: PatchFrame, message: ChatMessage
   if (message.role !== "assistant") return false
   if (!message.text.trim()) return false
   const semanticType = patchSemanticType(frame)
-  if (semanticType.startsWith("chat.assistant.")) return true
-  if (frame.patch.type.startsWith("chat.assistant.")) return true
-  const status = statusFromPatch(frame)?.status
-  return Boolean(status && ACTIVE_STATUSES.has(status))
+  return semanticType === "chat.assistant.delta" || frame.patch.type === "chat.assistant.delta"
 }
 
 function patchRemoveId(frame: PatchFrame): string | null {

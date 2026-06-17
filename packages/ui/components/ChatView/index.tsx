@@ -361,8 +361,10 @@ function shouldAnimateAssistantMessage(params: {
 }) {
   const { message, index, messages, isGenerating } = params
   if (message.role !== "assistant" || !message.text.trim()) return false
-  const isLast = index === messages.length - 1
-  return (isLast && isGenerating) || message.animateText === true
+  void index
+  void messages
+  void isGenerating
+  return message.animateText === true
 }
 
 function isActivelyStreamingAssistant(params: {
