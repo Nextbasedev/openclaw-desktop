@@ -121,6 +121,29 @@ describe("useChatsData", () => {
     expect(mocks.stateSets[0]).toContainEqual([cachedChat])
   })
 
+  it("loads archived chats globally instead of scoping archive to the active space", async () => {
+    const archivedChat: Chat = {
+      id: "chat_archived_other_space",
+      name: "Archived other space chat",
+      spaceId: "space_2",
+      agentId: "main",
+      archived: true,
+      pinned: false,
+      createdAt: "2026-05-10T00:00:00.000Z",
+      updatedAt: "2026-05-10T00:01:00.000Z",
+    }
+
+    mocks.invoke.mockResolvedValue({ chats: [archivedChat] })
+
+    const data = useChatsData(null, vi.fn(), 0, "space_1", true)
+    await data.loadChats()
+
+    expect(mocks.invoke).toHaveBeenCalledWith("middleware_chats_list", {
+      input: { archived: true },
+    })
+    expect(mocks.stateSets[0]).toContainEqual([archivedChat])
+  })
+
   it("only writes chats for the captured request space to cache", async () => {
     const spaceOneChat: Chat = {
       id: "chat_space_1",

@@ -6,8 +6,10 @@ import { Icons } from "@/components/icons"
 import { useChatsData } from "@/hooks/useChatsData"
 import { ChatRow } from "./ChatRow"
 import { ChatDialogs } from "./ChatDialogs"
+import { invoke } from "@/lib/ipc"
 import { chatDisplayName } from "@/utils/chatDisplayName"
 import type { ActiveChat } from "@/types/chat"
+import type { Space } from "@/types/space"
 
 export type { ActiveChat }
 
@@ -40,7 +42,9 @@ export function ChatsSection({
   const [isOpen, setIsOpen] = useState(true)
   const [currentPage, setCurrentPage] = useState(0)
   const [showArchived, setShowArchived] = useState(false)
+  const [spacesById, setSpacesById] = useState<Map<string, Space>>(new Map())
   const showList = !collapsible || isOpen
+  const activeSectionLabel = showArchived ? "Archive" : sectionLabel
   const {
     chats,
     setChatOrder,
@@ -61,6 +65,21 @@ export function ChatsSection({
   const pageStart = safeCurrentPage * CHATS_PER_PAGE
   const pageEnd = Math.min(pageStart + CHATS_PER_PAGE, sortedChatIds.length)
   const visibleChatIds = sortedChatIds.slice(pageStart, pageEnd)
+  const groupedVisibleChatIds = useMemo(() => {
+    if (!showArchived) return []
+    const groups = new Map<string, { id: string; label: string; chatIds: string[] }>()
+    for (const chatId of visibleChatIds) {
+      const chat = chatsById.get(chatId)
+      if (!chat) continue
+      const groupId = chat.spaceId || "__unknown__"
+      const space = chat.spaceId ? spacesById.get(chat.spaceId) : undefined
+      const label = space?.name || "Unknown folder"
+      const group = groups.get(groupId) ?? { id: groupId, label, chatIds: [] }
+      group.chatIds.push(chatId)
+      groups.set(groupId, group)
+    }
+    return Array.from(groups.values())
+  }, [chatsById, showArchived, spacesById, visibleChatIds])
   const showPagination = sortedChatIds.length > CHATS_PER_PAGE
 
   useEffect(() => {
@@ -82,14 +101,26 @@ export function ChatsSection({
   }, [])
 
   useEffect(() => {
-    setShowArchived(false)
-  }, [spaceId])
-
-  useEffect(() => {
     if (currentPage > totalPages - 1) {
       setCurrentPage(Math.max(0, totalPages - 1))
     }
   }, [currentPage, totalPages])
+
+  useEffect(() => {
+    if (!showArchived) return
+    let cancelled = false
+    invoke<{ spaces: Space[] }>("middleware_spaces_list", { input: {} })
+      .then((result) => {
+        if (cancelled) return
+        setSpacesById(new Map((result.spaces || []).map((space) => [space.id, space])))
+      })
+      .catch((error) => {
+        if (!cancelled) console.error("[ChatsSection] load archive spaces failed", error)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showArchived])
 
   return (
     <>
@@ -99,7 +130,7 @@ export function ChatsSection({
             <button
               type="button"
               onClick={() => setIsOpen((prev) => !prev)}
-              title={sectionLabel}
+              title={activeSectionLabel}
               className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-foreground"
             >
               <motion.span
@@ -109,24 +140,26 @@ export function ChatsSection({
               >
                 <Icons.ChevronDown size={12} />
               </motion.span>
-              <span className="min-w-0 truncate">{sectionLabel}</span>
+              <span className="min-w-0 truncate">{activeSectionLabel}</span>
             </button>
           ) : (
             <span
-              title={sectionLabel}
+              title={activeSectionLabel}
               className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-widest text-foreground"
             >
-              {sectionLabel}
+              {activeSectionLabel}
             </span>
           )}
-          <button
-            type="button"
-            onClick={onNewChat}
-            title="New chat"
-            className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/50 transition-colors hover:text-foreground"
-          >
-            <Icons.Plus size={13} strokeWidth={2} />
-          </button>
+          {!showArchived && (
+            <button
+              type="button"
+              onClick={onNewChat}
+              title="New chat"
+              className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/50 transition-colors hover:text-foreground"
+            >
+              <Icons.Plus size={13} strokeWidth={2} />
+            </button>
+          )}
         </div>
 
         <AnimatePresence initial={false}>
@@ -142,7 +175,7 @@ export function ChatsSection({
                 {chats.length === 0 && (
                   <button
                     type="button"
-                    onClick={showArchived ? () => setShowArchived(false) : onNewChat}
+                    onClick={showArchived ? undefined : onNewChat}
                     className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border/30 px-2.5 py-2 text-left text-[12px] text-muted-foreground/40 transition-colors hover:border-border/50 hover:text-muted-foreground"
                   >
                     {showArchived ? <Icons.Archive size={12} strokeWidth={1.5} /> : <Icons.Plus size={12} strokeWidth={1.5} />}
@@ -150,18 +183,71 @@ export function ChatsSection({
                   </button>
                 )}
 
-                <Reorder.Group
-                  axis="y"
-                  values={visibleChatIds}
-                  onReorder={(newVisible) => {
-                    const beforePage = sortedChatIds.slice(0, pageStart)
-                    const afterPage = sortedChatIds.slice(pageEnd)
-                    setChatOrder([...beforePage, ...newVisible, ...afterPage])
-                  }}
-                  as="div"
-                  className="flex flex-col gap-0.5"
-                >
-                  {visibleChatIds.map((chatId) => {
+                {showArchived ? (
+                  <div className="flex flex-col gap-2">
+                    {groupedVisibleChatIds.map((group) => (
+                      <div key={group.id} className="flex flex-col gap-0.5">
+                        <div className="px-2 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/55">
+                          {group.label}
+                        </div>
+                        {group.chatIds.map((chatId) => {
+                          const chat = chatsById.get(chatId)
+                          if (!chat) return null
+
+                          return (
+                            <ChatRow
+                              key={chatId}
+                              chatId={chatId}
+                              chat={chat}
+                              isActive={activeChat?.id === chatId}
+                              isPinned={pinnedChats.has(chatId)}
+                              isRunning={Boolean(chat.sessionKey && runningSessionKeys.has(chat.sessionKey))}
+                              disableReorder
+                              onClick={() => {
+                                onChatSelect({
+                                  id: chat.id,
+                                  name: chatDisplayName(chat),
+                                  sessionKey: chat.sessionKey,
+                                  spaceId: chat.spaceId,
+                                })
+                              }}
+                              onPin={() => togglePinChat(chatId)}
+                              onOpenInNewWindow={chat.sessionKey ? () =>
+                                onChatOpenInNewWindow?.({
+                                  id: chat.id,
+                                  name: chatDisplayName(chat),
+                                  sessionKey: chat.sessionKey,
+                                  spaceId: chat.spaceId,
+                                }) : undefined}
+                              onRename={() =>
+                                dialogActions.openRename(chat)
+                              }
+                              onArchive={() =>
+                                handleArchiveChat(chatId)
+                              }
+                              archiveLabel="Restore"
+                              onDelete={() =>
+                                dialogActions.openDelete(chat)
+                              }
+                            />
+                          )
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <Reorder.Group
+                    axis="y"
+                    values={visibleChatIds}
+                    onReorder={(newVisible) => {
+                      const beforePage = sortedChatIds.slice(0, pageStart)
+                      const afterPage = sortedChatIds.slice(pageEnd)
+                      setChatOrder([...beforePage, ...newVisible, ...afterPage])
+                    }}
+                    as="div"
+                    className="flex flex-col gap-0.5"
+                  >
+                    {visibleChatIds.map((chatId) => {
                     const chat = chatsById.get(chatId)
                     if (!chat) return null
 
@@ -174,7 +260,6 @@ export function ChatsSection({
                         isPinned={pinnedChats.has(chatId)}
                         isRunning={Boolean(chat.sessionKey && runningSessionKeys.has(chat.sessionKey))}
                         onClick={() => {
-                          if (showArchived) return
                           onChatSelect({
                             id: chat.id,
                             name: chatDisplayName(chat),
@@ -196,14 +281,15 @@ export function ChatsSection({
                         onArchive={() =>
                           handleArchiveChat(chatId)
                         }
-                        archiveLabel={showArchived ? "Restore" : "Archive"}
+                        archiveLabel={chat.archived ? "Restore" : "Archive"}
                         onDelete={() =>
                           dialogActions.openDelete(chat)
                         }
                       />
                     )
-                  })}
-                </Reorder.Group>
+                    })}
+                  </Reorder.Group>
+                )}
                 {showPagination && (
                   <div className="mt-1 flex items-center justify-between gap-1 px-1 text-[11px] text-muted-foreground/60">
                     <button
