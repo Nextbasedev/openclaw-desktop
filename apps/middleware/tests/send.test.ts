@@ -531,9 +531,16 @@ describe("chat send routes", () => {
       runStatus: "streaming",
       statusLabel: "Streaming",
     });
-    expect(bootstrap.json().messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ role: "assistant", text: "partial" }),
-    ]));
+    // Audit Bug 4 (window-stabilize 2026-06-17): live `live:<runId>:assistant`
+    // placeholders MUST NOT leak into bootstrap.messages. The streaming state
+    // is communicated via runStatus + activeRun (asserted above). Frontend
+    // renders the live text from the chat.assistant.delta patches that ARE
+    // still broadcast (also asserted above). Persisting the placeholder into
+    // the message log was the root cause of the duplicate-render bug.
+    expect(
+      (bootstrap.json().messages as Array<{ role?: string; text?: string }>)
+        .some((m) => m.role === "assistant" && m.text === "partial"),
+    ).toBe(false);
     await app.close();
   });
 
