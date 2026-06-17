@@ -152,6 +152,45 @@ export function isInternalSubagentCompletionMessage(message: OpenClawMessage): b
   return text.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>") && text.includes("source: subagent");
 }
 
+export function isNonUserAttachedFileEcho(message: OCPlatformMessage): boolean {
+  if (message.role === "user") return false;
+  return containsAttachedFileBlock(textFromMessage(message));
+}
+
+export function isLivePlaceholderMessage(message: OCPlatformMessage): boolean {
+  const openclaw = isObject(message.__openclaw) ? (message.__openclaw as Record<string, unknown>) : null;
+  if (openclaw && openclaw.placeholder === true) return true;
+  const candidates: unknown[] = [
+    message.messageId,
+    message.id,
+    openclaw?.id,
+    openclaw?.gatewayId,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string" && /^live:[^:]+:assistant$/i.test(value)) return true;
+  }
+  return false;
+}
+
+/**
+ * Canonical hidden-row predicate for the chat window contract.
+ *
+ * A message is VISIBLE iff it is not:
+ * - an internal subagent completion sentinel,
+ * - a non-user attached-file echo block, or
+ * - a live-assistant placeholder row (synthetic `live:<runId>:assistant`).
+ *
+ * Every read path (/api/chat/messages, bootstrap, live patch emission,
+ * archived-history backfill) MUST go through this single predicate.
+ */
+export function isVisibleMessage(message: OCPlatformMessage): boolean {
+  if (!message || typeof message !== "object" || Array.isArray(message)) return false;
+  if (isInternalSubagentCompletionMessage(message)) return false;
+  if (isNonUserAttachedFileEcho(message)) return false;
+  if (isLivePlaceholderMessage(message)) return false;
+  return true;
+}
+
 function readMessageTimestampMs(message: OpenClawMessage, fallbackMs: number): number {
   const value = message.timestamp ?? message.createdAt ?? message.created_at ?? message.updatedAt ?? message.updated_at;
   if (typeof value === "number" && Number.isFinite(value)) {

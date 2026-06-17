@@ -10,7 +10,7 @@ import { z } from "zod";
 import type { AppContext } from "../../app.js";
 import { HttpError } from "../../lib/errors.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
-import { cleanMessageDisplayText, containsAttachedFileBlock, messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
+import { cleanMessageDisplayText, containsAttachedFileBlock, isVisibleMessage as isVisibleMessageData, messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
 import { classifyGatewayMessageSemanticType, extractToolEventsFromMessage, isErrorToolResult, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
@@ -1377,26 +1377,34 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       throw new HttpError(400, "Invalid chat messages query", "INVALID_QUERY", parsed.error.flatten());
     }
     log.info("messages.read.start", { sessionKey: parsed.data.sessionKey, afterSeq: parsed.data.afterSeq ?? null, beforeSeq: parsed.data.beforeSeq ?? null, limit: parsed.data.limit });
-    const hasWindowQuery =
-      parsed.data.afterSeq !== undefined ||
-      parsed.data.beforeSeq !== undefined ||
-      parsed.data.limit !== undefined;
-    const messages = hasWindowQuery
-      ? context.messages.listMessages(parsed.data.sessionKey, {
-          afterSeq: parsed.data.afterSeq,
-          beforeSeq: parsed.data.beforeSeq,
-          limit: parsed.data.limit,
-        })
-      : context.messages.listAllMessages(parsed.data.sessionKey);
-    // Chat screen rebuild: older-message remote refill is disabled with the old virtualized loader.
+    const window = context.messages.listVisibleWindow(
+      parsed.data.sessionKey,
+      {
+        afterSeq: parsed.data.afterSeq,
+        beforeSeq: parsed.data.beforeSeq,
+        limit: parsed.data.limit ?? 200,
+      },
+      (data) => isVisibleMessageData(data),
+    );
     const sessionCursor = context.messages.latestSessionCursor(parsed.data.sessionKey);
-    const visibleMessages = messages.filter((message) => !isNonUserAttachedFileEcho(message));
-    log.info("messages.read.end", { sessionKey: parsed.data.sessionKey, messageCount: visibleMessages.length, cursor: sessionCursor });
+    const epoch = context.messages.getSessionSeqEpoch(parsed.data.sessionKey);
+    log.info("messages.read.end", {
+      sessionKey: parsed.data.sessionKey,
+      messageCount: window.messages.length,
+      visibleCount: window.visibleCount,
+      scannedCount: window.scannedCount,
+      oldestSeq: window.oldestSeq,
+      newestSeq: window.newestSeq,
+      hasOlder: window.hasOlder,
+      hasNewer: window.hasNewer,
+      cursor: sessionCursor,
+      epoch,
+    });
     return {
       ok: true,
       source: "middleware-projection",
       sessionKey: parsed.data.sessionKey,
-      messages: visibleMessages.map((message) => ({
+      messages: window.messages.map((message) => ({
         sessionKey: message.sessionKey,
         openclawSeq: message.openclawSeq,
         messageId: message.messageId,
@@ -1406,8 +1414,18 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         data: serializeProjectedMessage(message),
         updatedAtMs: message.updatedAtMs,
       })),
-      messageCount: visibleMessages.length,
+      messageCount: window.messages.length,
       cursor: sessionCursor,
+      // Window contract envelope (audit Bugs 1+2): visibleCount lets the
+      // frontend tell apart "page full of hidden rows" from "out of rows".
+      visibleCount: window.visibleCount,
+      scannedCount: window.scannedCount,
+      oldestSeq: window.oldestSeq,
+      newestSeq: window.newestSeq,
+      hasOlder: window.hasOlder,
+      hasNewer: window.hasNewer,
+      // seqEpoch detection (audit Bug 5): bumped on resequence / seq mutation.
+      epoch,
     };
   });
 

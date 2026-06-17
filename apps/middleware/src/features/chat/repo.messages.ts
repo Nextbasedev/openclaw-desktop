@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { fromJson, toJson } from "../../db/json.js";
-import { isInternalSubagentCompletionMessage, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
+import { isInternalSubagentCompletionMessage, isVisibleMessage as defaultIsVisibleMessage, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import type { OpenClawMessage, ProjectedMessage, ProjectionEvent } from "./types.js";
 
 function textOf(data: unknown): string {
@@ -964,6 +964,20 @@ export class MessageRepository {
     return row?.cursor ?? 0;
   }
 
+  /**
+   * Per-session seq epoch (audit Bug 5). Bumped whenever `openclaw_seq` is
+   * mutated (resequence / late-echo collisions / deletions) so the frontend
+   * can detect stale seq references mid-stream.
+   *
+   * Commit 1 wires the envelope field with a deterministic stub. Commit 4
+   * replaces the body with a real persisted-and-bumped value.
+   */
+  getSessionSeqEpoch(sessionKey: string): string {
+    // Stub: stable per session until Commit 4 introduces real bump tracking.
+    void sessionKey;
+    return "v0";
+  }
+
   appendProjectionEvent(params: { sessionKey?: string | null; eventType: string; payload: unknown; createdAtMs?: number }): ProjectionEvent {
     const createdAtMs = params.createdAtMs ?? Date.now();
     const info = this.db.prepare(`
@@ -1071,6 +1085,217 @@ export class MessageRepository {
         updatedAtMs: row.updated_at_ms,
       }))
       .filter((row) => !isInternalSubagentCompletionMessage(row.data));
+  }
+
+  /**
+   * Raw SQL window read without the hidden-row filter chain. Returns rows
+   * ordered by openclaw_seq ASC. Used by listVisibleWindow's over-fetch loop.
+   *
+   * Mirrors the three query modes of listMessages:
+   * - beforeSeq set: rows in (afterSeq, beforeSeq), DESC inner LIMIT, ASC outer.
+   * - latest:        last @limit rows ordered ASC.
+   * - neither:       rows > afterSeq, ASC LIMIT @limit.
+   */
+  listMessagesRaw(sessionKey: string, opts: { afterSeq?: number; beforeSeq?: number | null; limit?: number; latest?: boolean } = {}): ProjectedMessage[] {
+    const limit = Math.max(1, Math.min(10_000, opts.limit ?? 200));
+    const beforeSeq = opts.beforeSeq ?? null;
+    const rows = this.db.prepare(beforeSeq !== null ? `
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
+      FROM (
+        SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
+        FROM v2_messages
+        WHERE session_key = @sessionKey
+          AND openclaw_seq > @afterSeq
+          AND openclaw_seq < @beforeSeq
+        ORDER BY openclaw_seq DESC
+        LIMIT @limit
+      )
+      ORDER BY openclaw_seq ASC
+    ` : opts.latest ? `
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
+      FROM (
+        SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
+        FROM v2_messages
+        WHERE session_key = @sessionKey AND openclaw_seq > @afterSeq
+        ORDER BY openclaw_seq DESC
+        LIMIT @limit
+      )
+      ORDER BY openclaw_seq ASC
+    ` : `
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
+      FROM v2_messages
+      WHERE session_key = @sessionKey AND openclaw_seq > @afterSeq
+      ORDER BY openclaw_seq ASC
+      LIMIT @limit
+    `).all({ sessionKey, afterSeq: opts.afterSeq ?? 0, beforeSeq, limit }) as Array<{
+      session_key: string;
+      segment_id: string | null;
+      session_id: string | null;
+      gateway_seq: number | null;
+      openclaw_seq: number;
+      message_id: string | null;
+      role: string | null;
+      data_json: string;
+      updated_at_ms: number;
+    }>;
+    return rows.map((row): ProjectedMessage => ({
+      sessionKey: row.session_key,
+      segmentId: row.segment_id,
+      sessionId: row.session_id,
+      gatewaySeq: row.gateway_seq,
+      openclawSeq: row.openclaw_seq,
+      messageId: row.message_id,
+      role: row.role,
+      data: fromJson(row.data_json) as OpenClawMessage,
+      updatedAtMs: row.updated_at_ms,
+    }));
+  }
+
+  /**
+   * Visible-row window contract for `/api/chat/messages`.
+   *
+   * Runs the hidden-row filter INSIDE a bounded over-fetch loop so a window of
+   * N hidden tail rows never collapses to an empty page (audit Bug 1). Each
+   * iteration fetches `limit * 2` raw rows; the loop stops when:
+   *   - we accumulated @limit visible rows, OR
+   *   - the DB returned fewer than the requested raw count (true boundary),
+   *   - 5 iterations elapsed (safety cap).
+   *
+   * Returns full window metadata so the frontend can distinguish "out of rows"
+   * from "page full of hidden rows" (audit Bug 2).
+   */
+  listVisibleWindow(
+    sessionKey: string,
+    opts: { afterSeq?: number; beforeSeq?: number; limit?: number; latest?: boolean } = {},
+    isVisible: (data: OCPlatformMessage) => boolean = defaultIsVisibleMessage,
+  ): {
+    messages: ProjectedMessage[];
+    visibleCount: number;
+    scannedCount: number;
+    oldestSeq: number | null;
+    newestSeq: number | null;
+    hasOlder: boolean;
+    hasNewer: boolean;
+  } {
+    const MAX_ITERATIONS = 5;
+    const limit = Math.max(1, Math.min(10_000, opts.limit ?? 200));
+    const fetchSize = limit * 2;
+
+    // Pagination direction:
+    // - beforeSeq mode (or default "latest" when no afterSeq): page backward.
+    //   We collect into a DESC accumulator (newest-first) and reverse at the end.
+    // - afterSeq-only forward mode: page forward, ASC accumulator.
+    const goingBackward = opts.beforeSeq !== undefined || opts.latest === true || opts.afterSeq === undefined;
+
+    const initialBefore = opts.beforeSeq !== undefined ? opts.beforeSeq : null;
+    const afterSeq = opts.afterSeq ?? 0;
+
+    let cursorBefore: number | null = initialBefore;
+    let cursorAfter: number = afterSeq;
+    let scannedCount = 0;
+    let dbExhausted = false;
+    let iterations = 0;
+
+    const visibleAsc: ProjectedMessage[] = [];
+    const visibleDesc: ProjectedMessage[] = [];
+
+    while (iterations < MAX_ITERATIONS) {
+      let batch: ProjectedMessage[];
+      if (goingBackward) {
+        batch = this.listMessagesRaw(sessionKey, {
+          afterSeq,
+          beforeSeq: cursorBefore ?? Number.MAX_SAFE_INTEGER,
+          limit: fetchSize,
+          // When the caller did not pass beforeSeq we still want the LATEST
+          // page first; "latest" mode applies DESC LIMIT then ASC reorder.
+          latest: cursorBefore === null,
+        });
+      } else {
+        batch = this.listMessagesRaw(sessionKey, {
+          afterSeq: cursorAfter,
+          limit: fetchSize,
+        });
+      }
+      iterations += 1;
+      scannedCount += batch.length;
+      if (batch.length < fetchSize) dbExhausted = true;
+      if (batch.length === 0) break;
+
+      if (goingBackward) {
+        // Walk newest-to-oldest within the batch.
+        for (let i = batch.length - 1; i >= 0; i -= 1) {
+          const row = batch[i]!;
+          if (isVisible(row.data)) visibleDesc.push(row);
+          if (visibleDesc.length >= limit) break;
+        }
+        // Advance cursor: the smallest seq in this batch becomes next beforeSeq.
+        cursorBefore = batch[0]!.openclawSeq;
+      } else {
+        for (const row of batch) {
+          if (isVisible(row.data)) visibleAsc.push(row);
+          if (visibleAsc.length >= limit) break;
+        }
+        cursorAfter = batch[batch.length - 1]!.openclawSeq;
+      }
+
+      const have = goingBackward ? visibleDesc.length : visibleAsc.length;
+      if (have >= limit) break;
+      if (dbExhausted) break;
+    }
+
+    const messages: ProjectedMessage[] = goingBackward
+      ? visibleDesc.slice(0, limit).reverse()
+      : visibleAsc.slice(0, limit);
+
+    const oldestSeq = messages.length > 0 ? messages[0]!.openclawSeq : null;
+    const newestSeq = messages.length > 0 ? messages[messages.length - 1]!.openclawSeq : null;
+
+    // hasOlder / hasNewer must reflect VISIBLE rows, not raw rows (otherwise
+    // a tail of hidden subagent_completion rows would surface as hasNewer=true
+    // and the frontend would chase a nonexistent page).
+    //
+    // Strategy: small bounded probe (≤ fetchSize rows) on each side of the
+    // returned window, applying isVisible. This is O(fetchSize) and keeps
+    // pagination math correct.
+    const PROBE_SIZE = fetchSize;
+    let hasOlder = false;
+    let hasNewer = false;
+    if (oldestSeq !== null) {
+      const olderProbe = this.listMessagesRaw(sessionKey, {
+        beforeSeq: oldestSeq,
+        limit: PROBE_SIZE,
+        latest: true,
+      });
+      hasOlder = olderProbe.some((row) => isVisible(row.data));
+      // If the probe came back full and we didn't find a visible row, there
+      // might still be visible rows further down. Be conservative: report
+      // hasOlder = true so the frontend can keep paging.
+      if (!hasOlder && olderProbe.length === PROBE_SIZE) hasOlder = true;
+    } else if (!dbExhausted) {
+      // No visible rows but scanning was capped. Caller can page deeper.
+      const anyRow = this.db.prepare(`
+        SELECT 1 AS present FROM v2_messages WHERE session_key = @sessionKey LIMIT 1
+      `).get({ sessionKey }) as { present?: number } | undefined;
+      hasOlder = Boolean(anyRow);
+    }
+    if (newestSeq !== null) {
+      const newerProbe = this.listMessagesRaw(sessionKey, {
+        afterSeq: newestSeq,
+        limit: PROBE_SIZE,
+      });
+      hasNewer = newerProbe.some((row) => isVisible(row.data));
+      if (!hasNewer && newerProbe.length === PROBE_SIZE) hasNewer = true;
+    }
+
+    return {
+      messages,
+      visibleCount: messages.length,
+      scannedCount,
+      oldestSeq,
+      newestSeq,
+      hasOlder,
+      hasNewer,
+    };
   }
 
   listRecentSessionKeys(limit = 100): string[] {
