@@ -131,8 +131,11 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
   // knows the starting epoch; every /api/chat/messages response and the
   // patch envelope carry the same field. A mid-stream mismatch tells the
   // frontend that openclaw_seq values were resequenced (or otherwise mutated)
-  // and any cached seq references are now stale.
-  const epoch = context.messages.getSessionSeqEpoch(params.sessionKey);
+  // and any cached seq references are now stale. Guarded so the scoping unit
+  // tests that pass a minimal `{ runs }` stub context still work.
+  const epoch = typeof context.messages?.getSessionSeqEpoch === "function"
+    ? context.messages.getSessionSeqEpoch(params.sessionKey)
+    : null;
   const activeRun = context.runs.findLatestPendingRun(params.sessionKey);
   const latestRun = activeRun ?? context.runs.latestRun(params.sessionKey);
   const runStatus = latestRun?.status ?? canonicalRunStatusFromLegacy(params.sessionData.status);
