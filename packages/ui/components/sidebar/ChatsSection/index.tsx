@@ -121,9 +121,9 @@ export function ChatsSection({
       if (groupedVisibleChatIds.length === 0) return {}
       const next: Record<string, boolean> = {}
       let changed = false
-      for (const [index, group] of groupedVisibleChatIds.entries()) {
+      for (const group of groupedVisibleChatIds) {
         const hasExisting = Object.prototype.hasOwnProperty.call(prev, group.id)
-        next[group.id] = hasExisting ? prev[group.id] : index === 0
+        next[group.id] = hasExisting ? prev[group.id] : false
         if (prev[group.id] !== next[group.id]) changed = true
       }
       if (Object.keys(prev).length !== groupedVisibleChatIds.length) changed = true
@@ -210,9 +210,8 @@ export function ChatsSection({
 
                 {showArchived ? (
                   <div className="flex flex-col gap-2">
-                    {groupedVisibleChatIds.map((group, index) => {
-                      const defaultOpen = index === 0
-                      const groupOpen = archiveGroupOpen[group.id] ?? defaultOpen
+                    {groupedVisibleChatIds.map((group) => {
+                      const groupOpen = archiveGroupOpen[group.id] ?? false
 
                       return (
                         <div key={group.id} className="flex flex-col gap-0.5">
@@ -221,7 +220,7 @@ export function ChatsSection({
                             onClick={() =>
                               setArchiveGroupOpen((prev) => ({
                                 ...prev,
-                                [group.id]: !(prev[group.id] ?? defaultOpen),
+                                [group.id]: !(prev[group.id] ?? false),
                               }))
                             }
                             className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 pt-1 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground/55 transition-colors hover:text-muted-foreground"
