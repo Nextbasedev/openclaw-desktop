@@ -750,23 +750,41 @@ export function ChatBox({
         <AnimatePresence initial={false}>
           {queuedMessages.length > 0 && (
             <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.16, ease: "easeOut" }}
-              className="overflow-hidden"
+              initial={{ opacity: 0, scaleY: 0.86, y: 6 }}
+              animate={{
+                opacity: 1,
+                scaleY: 1,
+                y: 0,
+                transition: {
+                  duration: 0.22,
+                  ease: [0.22, 1, 0.36, 1],
+                  when: "beforeChildren",
+                  staggerChildren: 0.03,
+                },
+              }}
+              exit={{
+                opacity: 0,
+                scaleY: 0.92,
+                y: 4,
+                transition: { duration: 0.16, ease: "easeInOut" },
+              }}
+              className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-full origin-bottom overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg"
             >
-              <div className="mx-3 mb-2 max-h-64 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
-                <div className="flex items-center justify-between px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
+              <div className="py-1">
+                <div className="flex items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
                   <span>Queued messages</span>
                   <span>{queuedMessages.length}</span>
                 </div>
-                <div className="space-y-1">
+                <div>
                   {queuedMessages.map((queued, index) => {
                     const isEditing = editingQueuedId === queued.id
                     return (
-                      <div
+                      <motion.div
                         key={queued.id}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 4 }}
+                        transition={{ duration: 0.16, ease: "easeOut" }}
                         className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-muted-foreground transition-colors hover:bg-muted/50"
                       >
                         <span className="shrink-0 font-[family:var(--font-jetbrains-mono)] text-sm font-medium text-foreground/55">
@@ -840,7 +858,7 @@ export function ChatBox({
                             </>
                           )}
                         </div>
-                      </div>
+                      </motion.div>
                     )
                   })}
                 </div>
