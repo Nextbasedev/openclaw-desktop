@@ -1,7 +1,7 @@
 import type { AppContext } from "../../app.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
-import { messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
+import { isVisibleMessage, messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import { classifyGatewayMessageSemanticType, messageHasAssistantAnswerText, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import type { OpenClawMessage, ProjectedMessage } from "./types.js";
 import type { ProjectedRun } from "./repo.runs.js";
@@ -360,6 +360,14 @@ export class ChatLiveIngest {
     const emitMessagePatch = () => {
       if (!gatewayProjection.emitMessagePatch && !optimisticId) {
         this.log.info("message.patch.skip_tool_result", { sessionKey, role: projectedMessage.role, messageId: projectedMessage.messageId, messageSeq: emittedSeq });
+        return;
+      }
+      // Audit Bug 3 + 4: live patches must run through the same hidden-row
+      // filter as the read APIs. Otherwise a subagent_completion sentinel or
+      // a `live:<runId>:assistant` placeholder leaks to the frontend mid-stream
+      // and disappears on the next refresh.
+      if (!isVisibleMessage(emittedMessage as OCPlatformMessage)) {
+        this.log.info("message.patch.skip_hidden", { sessionKey, role: projectedMessage.role, messageId: projectedMessage.messageId, messageSeq: emittedSeq });
         return;
       }
       const patch = this.context.messages.appendProjectionEvent({
@@ -920,6 +928,13 @@ export class ChatLiveIngest {
         this.projectToolsFromMessage(sessionKey, projected.data as OpenClawMessage, run, gatewayProjection);
         if (!gatewayProjection.emitMessagePatch) {
           this.log.info("history.backfill.message-patch.skip_tool_result", { sessionKey, role: projected.role, messageId: projected.messageId, messageSeq: projected.openclawSeq });
+          continue;
+        }
+        // Audit Bug 3: archived backfill must apply the same hidden-row filter
+        // as /api/chat/messages and bootstrap, otherwise subagent_completion
+        // or attached-file echo rows surface mid-backfill.
+        if (!isVisibleMessage(projected.data as OCPlatformMessage)) {
+          this.log.info("history.backfill.message-patch.skip_hidden", { sessionKey, role: projected.role, messageId: projected.messageId, messageSeq: projected.openclawSeq });
           continue;
         }
         const semanticType = classifyGatewayMessageSemanticType(projected.role, projected.data as OpenClawMessage);

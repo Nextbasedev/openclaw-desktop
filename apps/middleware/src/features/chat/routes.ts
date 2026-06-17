@@ -311,10 +311,9 @@ function cleanSerializedMessageData(data: Record<string, unknown>, role: string)
 }
 
 
-function isNonUserAttachedFileEcho(message: ProjectedMessage) {
-  if (message.role === "user") return false;
-  return containsAttachedFileBlock(textFromMessage(message.data));
-}
+// Removed in v6.1 window-stabilize (audit Bug 3): the canonical hidden-row
+// predicate now lives in message-normalizer.ts as `isVisibleMessage`. Both
+// /api/chat/messages and /api/chat/bootstrap go through it.
 
 function serializeProjectedMessage(message: ProjectedMessage) {
   const data = message.data && typeof message.data === "object" && !Array.isArray(message.data)
@@ -1339,8 +1338,14 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, pruned: bootstrapPruned, lastSeq: bootstrapLastSeq });
 
     const rawProjected = context.messages.listAllMessages(sessionKey);
+    // Audit Bug 3: bootstrap MUST use the same hidden-row predicate as
+    // /api/chat/messages so the local-first frontend can union the two
+    // result sets without surprise rows. listAllMessages already drops
+    // internal subagent_completion rows in the repo; isVisibleMessage
+    // re-runs the full chain (defense-in-depth) and drops attached-file
+    // echoes + live placeholders.
     const projectedMessages = rawProjected
-      .filter((message) => !isNonUserAttachedFileEcho(message))
+      .filter((message) => isVisibleMessageData(message.data as OCPlatformMessage))
       .map(serializeProjectedMessage);
     log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length });
     void context.chatLive.ensureSessionSubscribed(sessionKey).catch((error) => {
