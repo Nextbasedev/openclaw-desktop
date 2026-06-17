@@ -24,7 +24,6 @@ const WARM_CHAT_INDEX_KEY = "warm-chat:index"
 const WARM_CHAT_ENTRY_PREFIX = "warm-chat:entry:"
 const WARM_CHAT_PREVIEW_PREFIX = "warm-chat:preview:"
 const WARM_CHAT_RUN_PREFIX = "warm-chat:run:"
-const MAX_TEXT_CHARS_PER_MESSAGE = 120_000
 const MAX_TOOL_RESULT_CHARS = 20_000
 const MAX_EMBED_CONTENT_CHARS = 20_000
 
@@ -187,7 +186,7 @@ function sanitizeTool(tool: InlineToolCall): InlineToolCall {
 function sanitizeMessage(message: ChatMessage): ChatMessage {
   return {
     ...message,
-    text: truncateText(message.text, MAX_TEXT_CHARS_PER_MESSAGE) ?? "",
+    text: message.text ?? "",
     attachments: message.attachments?.map((attachment) => ({
       name: attachment.name,
       mimeType: attachment.mimeType,

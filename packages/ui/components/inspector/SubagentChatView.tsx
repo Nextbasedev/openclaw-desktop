@@ -45,16 +45,12 @@ function MiniMessage({ msg }: { msg: SubagentMessage }) {
         >
           {isUser ? (
             <p className="whitespace-pre-wrap break-words">
-              {msg.text.length > 500
-                ? msg.text.slice(0, 500) + "..."
-                : msg.text}
+              {msg.text}
             </p>
           ) : (
             <div className="max-h-55 overflow-y-auto">
               <ReactMarkdown>
-                {msg.text.length > 1000
-                  ? msg.text.slice(0, 1000) + "\n\n..."
-                  : msg.text}
+                {msg.text}
               </ReactMarkdown>
             </div>
           )}
