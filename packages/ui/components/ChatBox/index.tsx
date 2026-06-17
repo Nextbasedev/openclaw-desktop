@@ -424,11 +424,15 @@ export function ChatBox({
     draftBeforeHistoryRef.current = ""
   }, [historyMessages])
 
+  const queueLimitError = errorMessage?.toLowerCase().includes("queue limit") && queuedMessages.length >= 5
+    ? errorMessage
+    : null
+
   React.useEffect(() => {
-    if (errorMessage) {
+    if (errorMessage && !queueLimitError) {
       setAttachmentError(errorMessage)
     }
-  }, [errorMessage, setAttachmentError])
+  }, [errorMessage, queueLimitError, setAttachmentError])
 
   React.useEffect(() => {
     if (initialPrompt && textareaRef.current) {
@@ -614,14 +618,16 @@ export function ChatBox({
       clearAttachments()
       setAttachmentError(null)
       setSlashMenuOpen(false)
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Message failed to send. Try again."
+      const isQueueLimitError = message.toLowerCase().includes("queue limit")
       frontendLog("composer", "composer.send.fail", {}, "error")
       setInput(payload.text)
       dispatchComposer({
         type: "send_failed",
-        error: "Message failed to send. Try again.",
+        error: isQueueLimitError ? message : "Message failed to send. Try again.",
       })
-      setAttachmentError("Message failed to send. Try again.")
+      if (!isQueueLimitError) setAttachmentError("Message failed to send. Try again.")
       requestAnimationFrame(() => {
         textareaRef.current?.focus()
         autoResize()
@@ -706,7 +712,7 @@ export function ChatBox({
           y: 4,
           transition: { duration: 0.16, ease: "easeInOut" },
         }}
-        className="mb-2 max-h-[220px] origin-bottom overflow-y-auto overscroll-contain rounded-2xl border border-border/70 bg-popover/95 p-1 shadow-sm scrollbar-hide"
+        className="mb-2 max-h-[220px] origin-bottom overflow-y-auto overscroll-contain rounded-2xl border border-border/70 bg-popover/95 p-1 shadow-sm"
       >
         <div className="py-1">
           <div className="flex items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
@@ -759,7 +765,7 @@ export function ChatBox({
                             setEditingQueuedId(null)
                             setEditingQueuedText("")
                           }}
-                          className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          className="cursor-pointer rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
                           Save
                         </button>
@@ -769,7 +775,7 @@ export function ChatBox({
                             setEditingQueuedId(null)
                             setEditingQueuedText("")
                           }}
-                          className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          className="cursor-pointer rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
                           Cancel
                         </button>
@@ -782,7 +788,7 @@ export function ChatBox({
                             setEditingQueuedId(queued.id)
                             setEditingQueuedText(queued.payload.text)
                           }}
-                          className="rounded p-1 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground"
+                          className="cursor-pointer rounded p-1 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground"
                           aria-label="Edit queued message"
                         >
                           <LuPencil className="size-3.5" />
@@ -790,7 +796,7 @@ export function ChatBox({
                         <button
                           type="button"
                           onClick={() => onDeleteQueuedMessage?.(queued.id)}
-                          className="rounded p-1 text-muted-foreground/60 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                          className="cursor-pointer rounded p-1 text-muted-foreground/60 transition-colors hover:bg-red-500/10 hover:text-red-400"
                           aria-label="Delete queued message"
                         >
                           <LuX className="size-3.5" />
@@ -816,6 +822,11 @@ export function ChatBox({
         className="hidden"
         onChange={handleFileChange}
       />
+      {queueLimitError && (
+        <div className="mb-2 rounded-2xl border border-red-400/25 bg-red-500/[0.07] px-3 py-2 text-[12px] font-medium leading-snug text-red-400">
+          {queueLimitError}
+        </div>
+      )}
       {queuedMessagesPanel}
       <div
         onDragEnter={handleDragEnter}

@@ -120,6 +120,7 @@ type Props = {
 }
 
 const MAX_QUEUED_MESSAGES = 5
+const QUEUE_LIMIT_MESSAGE = `Queue limit reached. You can keep up to ${MAX_QUEUED_MESSAGES} messages queued at a time. Please wait for one queued message to send before adding another.`
 
 type HistoryState = {
   loading: boolean
@@ -1255,14 +1256,14 @@ export function ChatView({
       if (queuedMessagesRef.current.length >= MAX_QUEUED_MESSAGES) {
         setState((current) => ({
           ...current,
-          composerError: `Queue limit reached. Send up to ${MAX_QUEUED_MESSAGES} messages at a time.`,
+          composerError: QUEUE_LIMIT_MESSAGE,
         }))
         frontendLog("chat", "chat-rebuild.send.queue-limit", {
           sessionKey,
           queueLength: queuedMessagesRef.current.length,
           maxQueuedMessages: MAX_QUEUED_MESSAGES,
         })
-        return
+        throw new Error(QUEUE_LIMIT_MESSAGE)
       }
 
       const queued: QueuedChatMessage = {
