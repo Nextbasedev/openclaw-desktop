@@ -60,15 +60,22 @@ export function ChatsSection({
     () => new Map(chats.map((chat) => [chat.id, chat])),
     [chats],
   )
-  const totalPages = Math.max(1, Math.ceil(sortedChatIds.length / CHATS_PER_PAGE))
-  const safeCurrentPage = Math.min(currentPage, totalPages - 1)
+  const paginatedChatIds = showArchived
+    ? sortedChatIds
+    : sortedChatIds.slice(currentPage * CHATS_PER_PAGE, (currentPage + 1) * CHATS_PER_PAGE)
+  const totalPages = showArchived
+    ? 1
+    : Math.max(1, Math.ceil(sortedChatIds.length / CHATS_PER_PAGE))
+  const safeCurrentPage = showArchived ? 0 : Math.min(currentPage, totalPages - 1)
   const pageStart = safeCurrentPage * CHATS_PER_PAGE
-  const pageEnd = Math.min(pageStart + CHATS_PER_PAGE, sortedChatIds.length)
-  const visibleChatIds = sortedChatIds.slice(pageStart, pageEnd)
+  const pageEnd = showArchived
+    ? sortedChatIds.length
+    : Math.min(pageStart + CHATS_PER_PAGE, sortedChatIds.length)
+  const visibleChatIds = showArchived ? sortedChatIds : paginatedChatIds
   const groupedVisibleChatIds = useMemo(() => {
     if (!showArchived) return []
     const groups = new Map<string, { id: string; label: string; chatIds: string[] }>()
-    for (const chatId of visibleChatIds) {
+    for (const chatId of sortedChatIds) {
       const chat = chatsById.get(chatId)
       if (!chat) continue
       const groupId = chat.spaceId || "__unknown__"
@@ -79,8 +86,8 @@ export function ChatsSection({
       groups.set(groupId, group)
     }
     return Array.from(groups.values())
-  }, [chatsById, showArchived, spacesById, visibleChatIds])
-  const showPagination = sortedChatIds.length > CHATS_PER_PAGE
+  }, [chatsById, showArchived, sortedChatIds, spacesById])
+  const showPagination = !showArchived && sortedChatIds.length > CHATS_PER_PAGE
 
   useEffect(() => {
     function showArchivedChats() {
