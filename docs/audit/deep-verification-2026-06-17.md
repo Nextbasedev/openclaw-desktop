@@ -246,3 +246,41 @@ None.
 
 _Verification completed 2026-06-17 by Agent V2 (deep static, read-only)._
 _End SHA: `d0eb58a9`. Re-verify if commits land after this report._
+
+---
+
+## Follow-up commits (after V2 report)
+
+| SHA | Item | Status |
+|---|---|---|
+| `ab2856d3` | Item 1: frontend seqEpoch consumer | ✅ shipped |
+| `7affc696` | Item 3: live-append ceiling anchor capture | ✅ shipped |
+
+Item 2 (over-fetch pathological cap) and Item 4 (epoch type drift in old client.ts field) intentionally deferred — item 2 is extremely rare data shape, item 4 is now obsolete since item 1 above adds the correctly-typed `seqEpoch` field alongside the legacy `epoch?: number` (which is no longer the canonical seq invalidation signal).
+
+Item 5 (optimistic→confirmed flicker) handed to E2E V3.
+
+### Item 1 — `ab2856d3` summary
+
+- `lib/chat-engine-v2/seqEpoch.ts` — new pure helper `shouldRebuildForEpochMismatch({ cachedEpoch, incomingEpoch })`. First-arrival adopts; missing field is backwards-compat no-op; only `(non-null cached) !== (non-null incoming)` triggers rebuild.
+- `lib/chat-engine-v2/client.ts` — `ChatMessagesPageV2.seqEpoch?: string` added next to the legacy `epoch?: number`.
+- `lib/chat-engine-v2/types.ts` — `seqEpoch?: string` added to `ChatBootstrapV2`, `PatchPayloadV2`, and `HelloFrame`.
+- `components/ChatView/index.tsx` — `seqEpochRef` cache + `resolveIncomingSeqEpoch` callback wired at all five envelope/patch arrival sites: cold bootstrap, registry-hydrate reconcile, `fetchOlderPage`, `fetchNewerPage`, SSE patch payload. `resetToLiveTail` clears + re-adopts the cache so the post-reset epoch becomes the new baseline.
+- Mismatch logs `chat-rebuild.epoch.mismatch` (warn) and kicks `resetToLiveTail` via a forward-reference ref to side-step TDZ on the dep array.
+- Test: `lib/chat-engine-v2/__tests__/seqEpoch.test.ts` (6 cases).
+
+### Item 3 — `7affc696` summary
+
+- `components/ChatView/messageWindow.ts` — new pure helper `shouldCaptureAnchorOnLiveAppend({ atBottom, isCeilingEvict })`. Returns `true` only on `isCeilingEvict && !atBottom` (scrolled-up + ceiling-evict). Proximity-evict (at-bottom) and no-evict paths return `false`.
+- `components/ChatView/index.tsx` — live-append ceiling-evict branch now calls `captureFirstVisibleRowAnchor()` before `setState` mutates the head, mirroring the `fetchNewerPage` path. The existing `useLayoutEffect`-driven `pendingScrollAnchorRef` consumer restores `scrollTop` after React reconciles.
+- Test: `components/ChatView/__tests__/liveAppendAnchor.test.ts` (4 helper cases).
+- Note: end-to-end visual verification (no scroll jolt at MAX_BUFFER ceiling) handed to E2E V3 as the canonical reproducer for MR-4 in the report above.
+
+### Verification
+
+- `pnpm --filter ui typecheck` clean (tsc --noEmit exit 0)
+- Targeted vitest: 215/215 green across `components/ChatView/__tests__/*` + `lib/chat-engine-v2/__tests__/{applyPatches,longConversation,seqEpoch}`
+- Pre-existing 5 `store.test.ts` failures (per workspace MEMORY.md) untouched, out of scope.
+
+_Follow-up commits applied 2026-06-17 by Agent FIX-V2._
+_New end SHA: `7affc696`._
