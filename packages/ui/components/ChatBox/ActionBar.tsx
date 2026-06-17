@@ -263,6 +263,9 @@ export function ActionBar({
         {(!isGenerating || canSendWhileGenerating) && (
           <button
             type="button"
+            onMouseDown={(event) => {
+              if (hasInput) event.preventDefault()
+            }}
             onClick={onSend}
             disabled={!hasInput}
             className={cn(

@@ -216,6 +216,31 @@ describe("applyChatPatch", () => {
       role: "assistant",
       text: "Hello Krish 👋 here.",
     })
+    expect(final.messages[0]?.animateText).toBeUndefined()
+  })
+
+  test("does not mark already-rendered final assistant patches for reveal", () => {
+    const state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.final",
+          messageId: "assistant-final-1",
+          message: { role: "assistant", text: "Already rendered answer", __openclaw: { id: "assistant-final-1", seq: 2 } },
+        },
+        createdAtMs: 1,
+      },
+    })
+
+    expect(state.messages[0]).toMatchObject({
+      messageId: "assistant-final-1",
+      role: "assistant",
+      text: "Already rendered answer",
+    })
+    expect(state.messages[0]?.animateText).toBeUndefined()
   })
 
   test("anchors a live assistant/tool message after its run user even when live messageSeq is lower", () => {

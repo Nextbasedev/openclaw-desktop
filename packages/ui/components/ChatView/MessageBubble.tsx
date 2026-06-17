@@ -236,6 +236,14 @@ function formatTokenCount(value?: number | null): string | null {
 }
 
 type MessageAttachment = NonNullable<ChatMessage["attachments"]>[number]
+type AttachmentPreviewSelection = {
+  attachment: MessageAttachment
+  origin: { x: number; y: number }
+}
+
+function previewOriginFromEvent(event: ReactMouseEvent<HTMLElement>) {
+  return { x: event.clientX, y: event.clientY }
+}
 
 function attachmentLabel(attachment: MessageAttachment) {
   const parts = [chatAttachmentTypeLabel(attachment)]
@@ -276,7 +284,7 @@ function ImageAttachmentCard({
   attachment: MessageAttachment
   href: string
   isUser: boolean
-  onOpen: () => void
+  onOpen: (event: ReactMouseEvent<HTMLButtonElement>) => void
 }) {
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -337,47 +345,54 @@ function ImageAttachmentStack({
 }: {
   attachments: MessageAttachment[]
   isUser: boolean
-  onOpen: (attachment: MessageAttachment) => void
+  onOpen: (attachment: MessageAttachment, event: ReactMouseEvent<HTMLButtonElement>) => void
 }) {
-  const visible = attachments.slice(0, 5)
-  const overflow = Math.max(0, attachments.length - visible.length)
-  const rotations = [-7, 4, -2, 6, -5]
-  const offsets = visible.length <= 3 ? [0, 62, 124] : [0, 54, 108, 162, 216]
-  const stackWidth = visible.length <= 3 ? 260 : 340
+  const imageCount = attachments.length
+  const cardWidth = imageCount <= 3 ? 112 : imageCount <= 5 ? 96 : imageCount <= 8 ? 82 : 70
+  const cardHeight = imageCount <= 3 ? 144 : imageCount <= 5 ? 132 : imageCount <= 8 ? 118 : 104
+  const step = imageCount <= 3 ? 62 : imageCount <= 5 ? 52 : imageCount <= 8 ? 42 : 34
+  const stackWidth = cardWidth + Math.max(0, imageCount - 1) * step + 10
+  const stackHeight = cardHeight + 32
+  const rotations = [-7, 4, -2, 6, -5, 3, -4, 5, -3, 4]
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
 
   return (
     <div className={cn("flex max-w-full", isUser ? "justify-end" : "justify-start")}>
       <div
-        className="relative h-40 max-w-full"
-        style={{ width: Math.min(stackWidth, 96 + Math.max(0, visible.length - 1) * 58) }}
+        className="relative max-w-full"
+        style={{ width: Math.min(stackWidth, 430), height: stackHeight }}
       >
-        {visible.map((attachment, index) => {
+        {attachments.map((attachment, index) => {
           const href = chatAttachmentHref(attachment)
-          const isTop = index === visible.length - 1
+          const isTop = index === imageCount - 1
           const isHovered = hoveredIndex === index
           const baseY = isTop ? -8 : index % 2 === 0 ? 8 : 0
+          const left = imageCount > 1 && stackWidth > 430
+            ? (index * (430 - cardWidth)) / (imageCount - 1)
+            : index * step
 
           return (
             <button
               key={`${attachment.name}-${index}`}
               type="button"
-              onClick={() => onOpen(attachment)}
+              onClick={(event) => onOpen(attachment, event)}
               onMouseEnter={() => setHoveredIndex(index)}
               onMouseLeave={() => setHoveredIndex(null)}
               onFocus={() => setHoveredIndex(index)}
               onBlur={() => setHoveredIndex(null)}
               className={cn(
-                "absolute top-2 h-36 w-28 cursor-pointer overflow-hidden rounded-2xl border bg-black/20 text-left shadow-[0_18px_45px_rgba(0,0,0,0.28)] transition-transform duration-200 ease-out will-change-transform",
+                "absolute top-2 cursor-pointer overflow-hidden rounded-2xl border bg-black/20 text-left shadow-[0_18px_45px_rgba(0,0,0,0.28)] transition-transform duration-200 ease-out will-change-transform",
                 isHovered && "shadow-[0_24px_60px_rgba(0,0,0,0.38)]",
                 isUser ? "border-white/15" : "border-border/35"
               )}
               style={{
-                left: offsets[index] ?? index * 54,
+                left,
+                width: cardWidth,
+                height: cardHeight,
                 zIndex: (isHovered ? 50 : 10) + index,
                 transform: isHovered
                   ? `rotate(0deg) translateY(${baseY - 14}px) scale(1.14)`
-                  : `rotate(${rotations[index] ?? 0}deg) translateY(${baseY}px) scale(1)`,
+                  : `rotate(${rotations[index % rotations.length] ?? 0}deg) translateY(${baseY}px) scale(1)`,
               }}
               aria-label={`Preview attachment ${attachment.name}`}
             >
@@ -404,11 +419,6 @@ function ImageAttachmentStack({
                   <span>Preview unavailable</span>
                 </div>
               )}
-              {overflow > 0 && index === visible.length - 1 && (
-                <span className="absolute right-2 bottom-2 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-medium text-white">
-                  +{overflow}
-                </span>
-              )}
             </button>
           )
         })}
@@ -418,23 +428,28 @@ function ImageAttachmentStack({
 }
 
 function AttachmentPreviewDialog({
-  attachment,
+  selection,
   open,
   onOpenChange,
 }: {
-  attachment: MessageAttachment | null
+  selection: AttachmentPreviewSelection | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  if (!attachment) return null
+  if (!selection) return null
 
+  const { attachment, origin } = selection
   const href = chatAttachmentHref(attachment)
   const mimeType = attachment.mimeType?.toLowerCase() ?? "application/octet-stream"
   const textContent = attachmentTextContent(attachment)
+  const transformOrigin = `calc(${origin.x}px - 50vw + 50%) calc(${origin.y}px - 50vh + 50%)`
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[86vh] gap-0 p-0 sm:max-w-4xl">
+      <DialogContent
+        className="max-h-[86vh] gap-0 p-0 sm:max-w-4xl data-open:zoom-in-90 data-closed:zoom-out-90"
+        style={{ transformOrigin }}
+      >
         <DialogHeader className="border-b border-border/25 px-5 py-4 pr-14">
           <DialogTitle className="truncate text-[15px] font-semibold">
             {attachment.name}
@@ -497,7 +512,7 @@ function MessageAttachments({
   attachments?: ChatMessage["attachments"]
   isUser: boolean
 }) {
-  const [selectedAttachment, setSelectedAttachment] = useState<MessageAttachment | null>(null)
+  const [selectedPreview, setSelectedPreview] = useState<AttachmentPreviewSelection | null>(null)
   if (!attachments || attachments.length === 0) return null
 
   const imageAttachments = attachments.filter((attachment) => getChatAttachmentKind(attachment) === "image")
@@ -516,14 +531,14 @@ function MessageAttachments({
             attachment={imageAttachments[0]}
             href={chatAttachmentHref(imageAttachments[0]) ?? ""}
             isUser={isUser}
-            onOpen={() => setSelectedAttachment(imageAttachments[0])}
+            onOpen={(event) => setSelectedPreview({ attachment: imageAttachments[0], origin: previewOriginFromEvent(event) })}
           />
         )}
         {imageAttachments.length > 1 && (
           <ImageAttachmentStack
             attachments={imageAttachments}
             isUser={isUser}
-            onOpen={setSelectedAttachment}
+            onOpen={(attachment, event) => setSelectedPreview({ attachment, origin: previewOriginFromEvent(event) })}
           />
         )}
         {otherAttachments.map((attachment, index) => {
@@ -533,7 +548,7 @@ function MessageAttachments({
           const card = (
             <button
               type="button"
-              onClick={() => setSelectedAttachment(attachment)}
+              onClick={(event) => setSelectedPreview({ attachment, origin: previewOriginFromEvent(event) })}
               className={cn(
                 "flex max-w-full cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
                 isUser
@@ -575,10 +590,10 @@ function MessageAttachments({
         })}
       </div>
       <AttachmentPreviewDialog
-        attachment={selectedAttachment}
-        open={Boolean(selectedAttachment)}
+        selection={selectedPreview}
+        open={Boolean(selectedPreview)}
         onOpenChange={(open) => {
-          if (!open) setSelectedAttachment(null)
+          if (!open) setSelectedPreview(null)
         }}
       />
     </>

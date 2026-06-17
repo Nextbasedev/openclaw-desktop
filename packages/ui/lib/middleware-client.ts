@@ -2,6 +2,7 @@ import { frontendLog, redactText, sanitizeUrlForLog } from "./clientLogs"
 
 const URL_KEY = "openclaw.middleware.url"
 const TOKEN_KEY = "openclaw.middleware.token"
+const MANUAL_DISCONNECT_KEY = "openclaw.middleware.manualDisconnect"
 const ACTIVE_PROJECT_KEY = "openclaw.activeProjectId"
 
 export const MIDDLEWARE_CONNECTION_CHANGED_EVENT = "openclaw:middleware-connection-changed"
@@ -114,6 +115,7 @@ export function saveMiddlewareConnection(input: MiddlewareConnection) {
   })
   localStorage.setItem(URL_KEY, next.url)
   localStorage.setItem(TOKEN_KEY, next.token)
+  localStorage.removeItem(MANUAL_DISCONNECT_KEY)
   localStorage.setItem("jarvis.gatewayActive", "true")
   syncDesktopBackendMode(next)
   if (workspaceChanged) {
@@ -130,6 +132,7 @@ export function clearMiddlewareConnection() {
   })
   localStorage.removeItem(URL_KEY)
   localStorage.removeItem(TOKEN_KEY)
+  localStorage.setItem(MANUAL_DISCONNECT_KEY, "true")
   localStorage.setItem("jarvis.gatewayActive", "false")
   clearWorkspaceScopeCache()
   syncDesktopBackendMode(null)
@@ -139,6 +142,16 @@ export function clearMiddlewareConnection() {
     window.dispatchEvent(new CustomEvent(MIDDLEWARE_DISCONNECTED_EVENT, { detail: { url: previous.url } }))
     window.dispatchEvent(new CustomEvent(MIDDLEWARE_CONNECTION_CHANGED_EVENT, { detail: { url: null } }))
   }
+}
+
+export function clearMiddlewareManualDisconnect() {
+  if (typeof window === "undefined") return
+  localStorage.removeItem(MANUAL_DISCONNECT_KEY)
+}
+
+export function wasMiddlewareManuallyDisconnected() {
+  if (typeof window === "undefined") return false
+  return localStorage.getItem(MANUAL_DISCONNECT_KEY) === "true"
 }
 
 async function clearAllConnectionCaches() {

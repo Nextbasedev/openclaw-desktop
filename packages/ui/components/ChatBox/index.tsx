@@ -25,6 +25,7 @@ import {
   toChatComposerAttachment,
   type ChatComposerSubmit,
 } from "@/lib/chatAttachments"
+import type { QueuedChatMessage } from "@/lib/chatSendQueue"
 import type { ReplyTo } from "@/components/ChatView/types"
 import type { Space } from "@/types/space"
 import { composerReducer, initialComposerState } from "@/lib/composerState"
@@ -76,6 +77,9 @@ type Props = {
   onSpaceSelect?: (spaceId: string) => void | Promise<void>
   onOpenSkills?: () => void
   sessionUsage?: SessionTokenUsage | null
+  queuedMessages?: QueuedChatMessage[]
+  onEditQueuedMessage?: (id: string, text: string) => void
+  onDeleteQueuedMessage?: (id: string) => void
 }
 
 const SPACE_DOT_GRADIENTS = [
@@ -111,6 +115,9 @@ export function ChatBox({
   onSpaceSelect,
   onOpenSkills,
   sessionUsage = null,
+  queuedMessages = [],
+  onEditQueuedMessage,
+  onDeleteQueuedMessage,
 }: Props) {
   const draftStorageKey = draftKey ? `openclaw-composer-draft:v1:${draftKey}` : null
   const [input, setInput] = React.useState(() => {
@@ -132,6 +139,8 @@ export function ChatBox({
   const [commandPrefix, setCommandPrefix] = React.useState<"/" | "@">("/")
   const [slashSelectedIndex, setSlashSelectedIndex] = React.useState(0)
   const [historyIndex, setHistoryIndex] = React.useState<number | null>(null)
+  const [editingQueuedId, setEditingQueuedId] = React.useState<string | null>(null)
+  const [editingQueuedText, setEditingQueuedText] = React.useState("")
   const draftBeforeHistoryRef = React.useRef("")
   const [composerState, dispatchComposer] = React.useReducer(
     composerReducer,
@@ -184,9 +193,10 @@ export function ChatBox({
   const showSendWhileGenerating = Boolean(
     isGenerating && (input.trim().length > 0 || attachments.length > 0)
   )
-  const canSendWithoutInterruptingGeneration = Boolean(
+  const canRunImmediatelyWhileGenerating = Boolean(
     showSendWhileGenerating &&
-    (!input.trim().startsWith("/") || canRunSlashCommandWhileGenerating(input, commands))
+    input.trim().startsWith("/") &&
+    canRunSlashCommandWhileGenerating(input, commands)
   )
   const {
     state: voiceState,
@@ -582,7 +592,7 @@ export function ChatBox({
         attachments.length > 0
           ? attachments.map(stripComposerAttachment)
           : undefined,
-      runWhileGenerating: canSendWithoutInterruptingGeneration,
+      runWhileGenerating: canRunImmediatelyWhileGenerating,
       replyTo: replyTo ?? undefined,
       autonomyMode: "manual",
       execPolicy: execPolicyForAutonomyMode("manual"),
@@ -592,15 +602,6 @@ export function ChatBox({
     setHistoryIndex(null)
     draftBeforeHistoryRef.current = ""
     if (textareaRef.current) textareaRef.current.style.height = "auto"
-    if (isGenerating && !payload.runWhileGenerating) {
-      setInput(payload.text)
-      setAttachmentError("Wait for the current response to finish, or send a normal follow-up message.")
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus()
-        autoResize()
-      })
-      return
-    }
     dispatchComposer({ type: "send_start", payload, generating: false })
     try {
       frontendLog("composer", "composer.send.start", {
@@ -746,6 +747,125 @@ export function ChatBox({
           isPreparing={isPreparingAttachments}
           onRemove={removeAttachment}
         />
+        <AnimatePresence initial={false}>
+          {queuedMessages.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, scaleY: 0.86, y: 6 }}
+              animate={{
+                opacity: 1,
+                scaleY: 1,
+                y: 0,
+                transition: {
+                  duration: 0.22,
+                  ease: [0.22, 1, 0.36, 1],
+                  when: "beforeChildren",
+                  staggerChildren: 0.03,
+                },
+              }}
+              exit={{
+                opacity: 0,
+                scaleY: 0.92,
+                y: 4,
+                transition: { duration: 0.16, ease: "easeInOut" },
+              }}
+              className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-full origin-bottom overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg"
+            >
+              <div className="py-1">
+                <div className="flex items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
+                  <span>Queued messages</span>
+                  <span>{queuedMessages.length}</span>
+                </div>
+                <div>
+                  {queuedMessages.map((queued, index) => {
+                    const isEditing = editingQueuedId === queued.id
+                    return (
+                      <motion.div
+                        key={queued.id}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 4 }}
+                        transition={{ duration: 0.16, ease: "easeOut" }}
+                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-muted-foreground transition-colors hover:bg-muted/50"
+                      >
+                        <span className="shrink-0 font-[family:var(--font-jetbrains-mono)] text-sm font-medium text-foreground/55">
+                          {index + 1}.
+                        </span>
+                        <div className="flex min-w-0 flex-1 flex-col justify-center">
+                          {isEditing ? (
+                            <textarea
+                              value={editingQueuedText}
+                              onChange={(e) => setEditingQueuedText(e.target.value)}
+                              rows={2}
+                              className="w-full resize-none rounded-md border border-border bg-background/70 px-2 py-1 text-[13px] leading-snug text-foreground outline-none focus:border-foreground/30"
+                              autoFocus
+                            />
+                          ) : (
+                            <p className="line-clamp-2 whitespace-pre-wrap font-[family:var(--font-jetbrains-mono)] text-sm font-medium leading-snug text-foreground">
+                              {queued.payload.text}
+                            </p>
+                          )}
+                          {(queued.payload.attachments?.length ?? 0) > 0 && (
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {queued.payload.attachments?.length} attachment{queued.payload.attachments?.length === 1 ? "" : "s"}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1 self-center">
+                          {isEditing ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = editingQueuedText.trim()
+                                  if (next) onEditQueuedMessage?.(queued.id, next)
+                                  setEditingQueuedId(null)
+                                  setEditingQueuedText("")
+                                }}
+                                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingQueuedId(null)
+                                  setEditingQueuedText("")
+                                }}
+                                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingQueuedId(queued.id)
+                                  setEditingQueuedText(queued.payload.text)
+                                }}
+                                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onDeleteQueuedMessage?.(queued.id)}
+                                className="rounded px-1.5 py-1 text-[11px] text-red-400/75 hover:bg-red-400/10 hover:text-red-300"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </motion.div>
+                    )
+                  })}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <AnimatePresence initial={false}>
           {slashMenuOpen &&
             (commandPrefix === "@"

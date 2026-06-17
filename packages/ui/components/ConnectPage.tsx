@@ -6,6 +6,7 @@ import { routeUrl } from "@/lib/app-router"
 import { ConnectPageView } from "@/components/connect/ConnectPageView"
 import {
   clearMiddlewareConnection,
+  clearMiddlewareManualDisconnect,
   getMiddlewareConnection,
   saveMiddlewareConnection,
   testMiddlewareConnection,
@@ -13,6 +14,7 @@ import {
   detectLocalMiddleware,
   isOpenClawConnected,
   MIDDLEWARE_CONNECTION_CHANGED_EVENT,
+  wasMiddlewareManuallyDisconnected,
   type MiddlewareHealth,
 } from "@/lib/middleware-client"
 
@@ -147,6 +149,11 @@ export default function ConnectPage() {
       }
 
       setStatus(statusFromConnection(false))
+      if (wasMiddlewareManuallyDisconnected()) {
+        setDetectMessage({ ok: false, text: "Disconnected. Connect manually when ready." })
+        return
+      }
+
       const detected = await detectLocalMiddleware()
       if (!detected) {
         setDetectMessage({ ok: false, text: "No local OpenClaw runtime found yet. Start OpenClaw locally, or connect a server." })
@@ -263,6 +270,7 @@ export default function ConnectPage() {
         if (mode === "local") setUrl(url.trim() || "http://127.0.0.1:8787")
       }}
       onAutoDetectChange={async () => {
+        clearMiddlewareManualDisconnect()
         setDetectMessage({ ok: true, text: "Checking for a local Middleware..." })
         const detected = await detectLocalMiddleware()
         if (!detected) {

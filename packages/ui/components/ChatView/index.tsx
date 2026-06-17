@@ -21,6 +21,13 @@ import type { PatchFrame } from "@/lib/chat-engine-v2/types"
 import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParser"
 import { dedupeChatMessages } from "@/lib/chatMessageDedupe"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
+import {
+  deleteQueuedChatMessage,
+  editQueuedChatMessage,
+  enqueueChatMessage,
+  takeNextQueuedChatMessage,
+  type QueuedChatMessage,
+} from "@/lib/chatSendQueue"
 import { frontendLog } from "@/lib/clientLogs"
 import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
@@ -79,6 +86,9 @@ import {
 } from "./subagentDerive"
 import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "./types"
 import { orderChatMessages } from "./orderChatMessages"
+import { decideBootstrapRecovery } from "./bootstrapRecoveryGuard"
+import { beginSendIfIdle, endSend } from "./sendInFlightGuard"
+import { messageListKeys, toolCallKey } from "./messageRowKey"
 
 type Props = {
   sessionKey: string
@@ -239,6 +249,24 @@ function hasAssistantAnswerAfterLastUser(messages: ChatMessage[]) {
   )
 }
 
+function isTerminalStatus(status: StreamStatus) {
+  return status === "done" || status === "idle" || status === "connected"
+}
+
+function shouldSuppressTerminalStatusDuringPendingUser({
+  currentStatus,
+  nextStatus,
+  messages,
+}: {
+  currentStatus: StreamStatus
+  nextStatus: StreamStatus | null
+  messages: ChatMessage[]
+}) {
+  if (!nextStatus || !isTerminalStatus(nextStatus)) return false
+  if (!isActiveStreamStatus(currentStatus)) return false
+  return !hasAssistantAnswerAfterLastUser(messages)
+}
+
 function summarizeToolInput(tool: InlineToolCall) {
   const input = tool.input
   if (!input || typeof input !== "object") {
@@ -333,8 +361,10 @@ function shouldAnimateAssistantMessage(params: {
 }) {
   const { message, index, messages, isGenerating } = params
   if (message.role !== "assistant" || !message.text.trim()) return false
-  const isLast = index === messages.length - 1
-  return (isLast && isGenerating) || message.animateText === true
+  void index
+  void messages
+  void isGenerating
+  return message.animateText === true
 }
 
 function isActivelyStreamingAssistant(params: {
@@ -368,26 +398,12 @@ function GeneratingStatus({ label, tool }: { label: string; tool?: string | null
   )
 }
 
-function stableToolKey(tool: InlineToolCall): string {
-  if (tool.id) return `id:${tool.id}`
-  return [
-    "fallback",
-    tool.tool,
-    tool.startedAt ?? "",
-    tool.completedAt ?? "",
-    summarizeToolInput(tool),
-  ].join(":")
-}
-
-function messageRowKey(message: ChatMessage): string {
-  if (message.role === "assistant" && message.runId?.trim()) {
-    return `assistant-run:${message.runId.trim()}`
-  }
-  return `${message.gatewayIndex ?? "no-seq"}:${message.messageId}`
-}
+// `messageRowKey` / `toolCallKey` are kept in their own module so they can be
+// unit-tested for stability across the full optimistic↔confirmed↔replay
+// lifecycle and across long conversations. See messageRowKey.ts.
 
 function toolKeySet(tools: InlineToolCall[]) {
-  return new Set(tools.map(stableToolKey))
+  return new Set(tools.map(toolCallKey))
 }
 
 function hasAllToolKeys(source: Set<string>, target: Set<string>) {
@@ -559,6 +575,7 @@ export function ChatView({
     }
   })
   const [sending, setSending] = useState(false)
+  const sendInFlightRef = useRef(false)
   const [streamCursor, setStreamCursor] = useState<number | null>(null)
   const [reactions, setReactions] = useState<Record<string, "up" | "down">>({})
   const [pinnedIds, setPinnedIds] = useState<string[]>([])
@@ -570,6 +587,7 @@ export function ChatView({
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const [windowState, setWindowState] = useState<WindowState>(INITIAL_WINDOW_STATE)
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
+  const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
   // Local sub-agent take-over state. When non-null, the chat surface renders
   // <SubagentFullChat/> instead of the normal message stream. Parent is
   // notified via onSubagentOpen so the inspector / agent breadcrumb stays in
@@ -581,12 +599,18 @@ export function ChatView({
   const shouldFollowScrollRef = useRef(true)
   const contextFetchSeqRef = useRef(0)
   const wasGeneratingRef = useRef(false)
+  const queuedMessagesRef = useRef<QueuedChatMessage[]>([])
+  const queueDrainInFlightRef = useRef(false)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pinButtonRef = useRef<HTMLButtonElement>(null)
   const pendingScrollAnchorRef = useRef<{
     anchorMessageId: string
     anchorOffsetFromContainerTop: number
   } | null>(null)
+
+  useEffect(() => {
+    queuedMessagesRef.current = queuedMessages
+  }, [queuedMessages])
   const olderFetchSeqRef = useRef(0)
   const newerFetchSeqRef = useRef(0)
   // Time-based refractory: wall-clock timestamp (ms since epoch) of the last
@@ -607,6 +631,14 @@ export function ChatView({
   // that can otherwise create a skeleton/messages blink loop on old sessions
   // whose cursor is far ahead of the gateway's replay window.
   const lastBootstrapRecoveryAtRef = useRef<number>(0)
+  // Last wall-clock time a cold bootstrap (initial fetchChatMessagesV2) or
+  // resetToLiveTail RESOLVED with rendered messages. Used to suppress
+  // bootstrap-recovery events that arrive shortly after we already fetched the
+  // live tail — the view is already fresh; running resetToLiveTail would just
+  // blank the messages and refetch the same window, producing the single
+  // "skeleton → messages → skeleton → messages" blink on first session click.
+  // See bootstrapRecoveryGuard.ts for the full decision logic.
+  const lastBootstrapCompletedAtRef = useRef<number>(0)
   // One-shot per session: has the SSE patch stream delivered its first frame?
   // Used by chat-rebuild.send.first-patch-received diagnostics so we measure
   // click → first-frame latency for the new-session send path.
@@ -634,6 +666,7 @@ export function ChatView({
     lastOlderResolvedAtRef.current = 0
     lastNewerResolvedAtRef.current = 0
     lastBootstrapRecoveryAtRef.current = 0
+    lastBootstrapCompletedAtRef.current = 0
     firstPatchLoggedRef.current = false
     setReactions({})
     setPinnedIds([])
@@ -672,6 +705,11 @@ export function ChatView({
       )
       cursorRef.current = 0
       setStreamCursor(0)
+      // Optimistic bootstrap already paints the user bubble + thinking state;
+      // treat that as a completed bootstrap so any incoming bootstrap-recovery
+      // during the early send window is suppressed by the recent-bootstrap
+      // guard in addition to the active-run guard. Double belt + suspenders.
+      lastBootstrapCompletedAtRef.current = Date.now()
       frontendLog(
         "chat",
         "chat-rebuild.send.optimistic-render",
@@ -718,6 +756,10 @@ export function ChatView({
       const reattachCursor = hydrateFromRegistry.streamCursor ?? 0
       cursorRef.current = reattachCursor
       setStreamCursor(reattachCursor)
+      // Registry hydrate already painted real messages on mount; treat that as
+      // a completed bootstrap so a stray bootstrap-recovery arriving from the
+      // SSE hello frame doesn't reset the chat surface back to the skeleton.
+      lastBootstrapCompletedAtRef.current = Date.now()
 
       // Backfill safety net: even though hydrateFromRegistry skipped the
       // history fetch for fast-paint, fire a background fetch to catch any
@@ -873,6 +915,13 @@ export function ChatView({
           streamStatus: "idle",
           statusLabel: null,
         })
+        // Cold bootstrap completed with rendered messages — stamp this so the
+        // bootstrap-recovery handler can suppress redundant resets that arrive
+        // immediately after (e.g., replayWindowExceeded hello frames on the
+        // first SSE connect after history fetch). Without this stamp, the
+        // recovery handler resets to a skeleton even though we already have
+        // fresh data, producing the "messages → skeleton → messages" blink.
+        lastBootstrapCompletedAtRef.current = Date.now()
       })
       .catch((error) => {
         if (cancelled) return
@@ -1059,9 +1108,29 @@ export function ChatView({
             "debug"
           )
         }
-        const nextStatus = patchStatus?.status ??
-          (patchImpliesActiveRun(frame) ? "thinking" : current.streamStatus)
-        const nextStatusLabel = patchStatus?.label ?? current.statusLabel
+        const rawNextStatus = patchStatus?.status ??
+          (patchImpliesActiveRun(frame) ? "thinking" : null)
+        const suppressTerminalStatus = shouldSuppressTerminalStatusDuringPendingUser({
+          currentStatus: current.streamStatus,
+          nextStatus: rawNextStatus,
+          messages: orderedMessages,
+        })
+        if (suppressTerminalStatus) {
+          frontendLog("chat", "chat-rebuild.status.suppress-stale-terminal", {
+            sessionKey,
+            cursor: frame.patch.cursor,
+            patchType: frame.patch.type,
+            semanticType,
+            currentStatus: current.streamStatus,
+            patchStatus: rawNextStatus,
+          }, "debug")
+        }
+        const nextStatus = suppressTerminalStatus
+          ? current.streamStatus
+          : rawNextStatus ?? current.streamStatus
+        const nextStatusLabel = suppressTerminalStatus
+          ? current.statusLabel
+          : patchStatus?.label ?? current.statusLabel
 
         // Detect if a NEW message was appended (length grew at the tail).
         const previousLength = current.messages.length
@@ -1171,6 +1240,34 @@ export function ChatView({
   async function handleSend(payload: ChatComposerSubmit) {
     const text = payload.text.trim()
     if (!text && !payload.attachments?.length) return
+    if (isGenerating && !payload.runWhileGenerating) {
+      const queued: QueuedChatMessage = {
+        id: randomId(),
+        payload: { ...payload, text },
+        createdAtMs: Date.now(),
+      }
+      setQueuedMessages((current) => {
+        const next = enqueueChatMessage(current, queued)
+        queuedMessagesRef.current = next
+        return next
+      })
+      setState((current) => ({ ...current, composerError: null }))
+      frontendLog("chat", "chat-rebuild.send.queued", {
+        sessionKey,
+        queueId: queued.id,
+        queueLength: queuedMessagesRef.current.length,
+        textLength: text.length,
+        attachmentCount: payload.attachments?.length ?? 0,
+      })
+      return
+    }
+    if (!beginSendIfIdle(sendInFlightRef)) {
+      frontendLog("chat", "chat-rebuild.send.duplicate-suppressed", {
+        origin: "chatview-handle-send",
+        sessionKey,
+      })
+      return
+    }
 
     const clickAt = Date.now()
     const hasExistingMessages = state.messages.length > 0
@@ -1227,6 +1324,50 @@ export function ChatView({
     setComposerSeed(null)
 
     try {
+      frontendLog("chat", "chat-rebuild.send.click", {
+        origin: "chatview-handle-send",
+        timestamp: clickAt,
+        sessionKey,
+        hasExistingMessages,
+        textLength: text.length,
+        attachmentCount: payload.attachments?.length ?? 0,
+      })
+
+      if (windowStateRef.current.hasNewer) {
+        await resetToLiveTail()
+      }
+ let optimisticId: string | null = null
+      optimisticId = randomId()
+      shouldFollowScrollRef.current = true
+      const optimisticMessage: ChatMessage = {
+        messageId: optimisticId,
+        role: "user",
+        text,
+        createdAt: new Date().toISOString(),
+        isOptimistic: true,
+        sendStatus: "sending",
+        attachments: composerAttachmentsToMessageAttachments(payload.attachments),
+      }
+
+      setSending(true)
+      setState((current) => ({
+        ...current,
+        composerError: null,
+        streamStatus: "thinking",
+        statusLabel: "Thinking",
+        messages: orderChatMessages([...current.messages, optimisticMessage]),
+      }))
+      frontendLog("chat", "chat-rebuild.send.optimistic-render", {
+        origin: "chatview-handle-send",
+        timestamp: Date.now(),
+        msSinceClick: Date.now() - clickAt,
+        sessionKey,
+        optimisticId,
+      })
+      onFirstMessageSent?.(text)
+      setReplyTo(null)
+      setComposerSeed(null)
+
       frontendLog("chat", "chat-rebuild.send.request-fired", {
         origin: "chatview-handle-send",
         timestamp: Date.now(),
@@ -1251,23 +1392,26 @@ export function ChatView({
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : "Message failed to send."
-      setState((current) => ({
-        ...current,
-        composerError: message,
-        streamStatus: "error",
-        statusLabel: null,
-        messages: current.messages.map((item) =>
-          item.messageId === optimisticId
-            ? {
-                ...item,
-                sendStatus: "failed",
-                sendError: message,
-              }
-            : item
-        ),
-      }))
+      if (optimisticId) {
+        setState((current) => ({
+          ...current,
+          composerError: message,
+          streamStatus: "error",
+          statusLabel: null,
+          messages: current.messages.map((item) =>
+            item.messageId === optimisticId
+              ? {
+                  ...item,
+                  sendStatus: "failed",
+                  sendError: message,
+                }
+              : item
+          ),
+        }))
+      }
       throw error
     } finally {
+      endSend(sendInFlightRef)
       setSending(false)
     }
   }
@@ -1548,11 +1692,31 @@ export function ChatView({
   const promptPreview = initialPrompt?.trim()
   const isGenerating = isActiveStreamStatus(state.streamStatus)
 
+  useEffect(() => {
+    if (isGenerating || sending || state.loading || queueDrainInFlightRef.current) return
+    const { next, rest } = takeNextQueuedChatMessage(queuedMessagesRef.current)
+    if (!next) return
+
+    queueDrainInFlightRef.current = true
+    queuedMessagesRef.current = rest
+    setQueuedMessages(rest)
+    frontendLog("chat", "chat-rebuild.send.queue-drain", {
+      sessionKey,
+      queueId: next.id,
+      remaining: rest.length,
+    })
+    void handleSend({ ...next.payload, runWhileGenerating: false }).finally(() => {
+      queueDrainInFlightRef.current = false
+    })
+  }, [isGenerating, queuedMessages.length, sending, sessionKey, state.loading])
+
   // Reset + initial fetch on session change
   useEffect(() => {
+    queuedMessagesRef.current = []
+    setQueuedMessages([])
     setSessionUsage(null)
     void refreshSessionUsage()
-  }, [refreshSessionUsage])
+  }, [refreshSessionUsage, sessionKey])
 
   // Refresh when a generation just finished (isGenerating true -> false)
   useEffect(() => {
@@ -1635,6 +1799,14 @@ export function ChatView({
   )
   const terminalToolState = useMemo(
     () => terminalToolStateById(renderedMessages),
+    [renderedMessages]
+  )
+  // Precompute one React key per rendered row. `messageListKeys` guarantees
+  // uniqueness even if two rows somehow share a `messageId` (last line of
+  // defense for the long-conversation duplication bug). See messageRowKey.ts
+  // for the invariant.
+  const renderedRowKeys = useMemo(
+    () => messageListKeys(renderedMessages),
     [renderedMessages]
   )
 
@@ -2064,6 +2236,10 @@ export function ChatView({
         streamStatus: "idle",
         statusLabel: null,
       })
+      // Mirrors the cold-bootstrap success path: stamp the completion time so
+      // a chained bootstrap-recovery (e.g., SSE reconnect arriving right after
+      // a reset resolves) doesn't trigger another reset cascade.
+      lastBootstrapCompletedAtRef.current = Date.now()
       frontendLog(
         "chat",
         "chat-rebuild.window.reset-to-live-tail",
@@ -2188,14 +2364,12 @@ export function ChatView({
 
   useEffect(() => {
     if (isBackgroundSession) return
-    // Minimum gap between two consecutive resetToLiveTail() calls triggered by
-    // bootstrap-recovery events. Old sessions whose persisted cursor is far
-    // ahead of the gateway's replay window can produce repeated
-    // replay-window-exceeded `hello` frames on every SSE (re)connect; without
-    // this guard the UI runs resetToLiveTail in a loop, producing a constant
-    // skeleton ↔ messages blink while older-page fetches also fire because the
-    // newly-bootstrapped window puts the user near the top.
-    const RECOVERY_DEBOUNCE_MS = 4000
+    // See bootstrapRecoveryGuard.ts for the layered decision (active-run skip,
+    // in-flight reset skip, recent-bootstrap skip — the single-blink fix — and
+    // debounce loop-breaker). The recent-bootstrap guard is the key change
+    // over the prior debounce-only handler: it eliminates the FIRST skeleton
+    // blink after cold-bootstrap renders, which the debounce could never catch
+    // because the debounce only protects against the second-and-later events.
     function handleBootstrapRecovery(event: Event) {
       if (!(event instanceof CustomEvent)) return
       const detail = event.detail as { sessionKey?: unknown } | undefined
@@ -2206,46 +2380,27 @@ export function ChatView({
       ) {
         return
       }
-      // If a new-session send is already rendering the optimistic user bubble
-      // + Thinking state, a recovery reset would briefly swap the chat surface
-      // back to the full loading skeleton and then to a user-only history page.
-      // Fresh sessions can legitimately emit bootstrap-recovery before the
-      // first assistant frame; keep the optimistic/run state until normal
-      // patches or the post-send history reconciliation arrive.
-      if (
-        activeRunRegistry.isActiveRunStatus(stateStreamStatusRef.current) &&
-        stateMessagesRef.current.some((message) => message.role === "user")
-      ) {
-        frontendLog(
-          "chat",
-          "chat-rebuild.window.bootstrap-recovery-skipped-active-run",
-          { sessionKey, streamStatus: stateStreamStatusRef.current, messageCount: stateMessagesRef.current.length },
-          "debug"
-        )
-        return
-      }
-      // If a reset is already in flight (state.loading is still true from a
-      // prior reset), skip — we'd just thrash the messages array and steal
-      // focus. The in-flight reset will resolve and produce a current view.
-      if (stateLoadingRef.current) {
-        frontendLog(
-          "chat",
-          "chat-rebuild.window.bootstrap-recovery-skipped-loading",
-          { sessionKey },
-          "warn"
-        )
-        return
-      }
-      // Debounce: ignore recoveries that arrive shortly after the previous one.
-      // This is the primary loop-breaker for old sessions in a recovery storm.
       const now = Date.now()
-      const elapsed = now - lastBootstrapRecoveryAtRef.current
-      if (elapsed < RECOVERY_DEBOUNCE_MS) {
+      const decision = decideBootstrapRecovery({
+        isLoading: stateLoadingRef.current,
+        streamStatus: stateStreamStatusRef.current,
+        hasUserMessage: stateMessagesRef.current.some((message) => message.role === "user"),
+        lastBootstrapCompletedAt: lastBootstrapCompletedAtRef.current,
+        lastRecoveryAt: lastBootstrapRecoveryAtRef.current,
+        now,
+      })
+      if (!decision.apply) {
+        const logTag = `chat-rebuild.window.bootstrap-recovery-${decision.reason}`
         frontendLog(
           "chat",
-          "chat-rebuild.window.bootstrap-recovery-debounced",
-          { sessionKey, elapsedMs: elapsed, debounceMs: RECOVERY_DEBOUNCE_MS },
-          "warn"
+          logTag,
+          {
+            sessionKey,
+            streamStatus: stateStreamStatusRef.current,
+            messageCount: stateMessagesRef.current.length,
+            elapsedMs: decision.elapsedMs,
+          },
+          decision.reason === "skipped-active-run" ? "debug" : "warn",
         )
         return
       }
@@ -2572,7 +2727,7 @@ export function ChatView({
               })
               return (
               <div
-                key={messageRowKey(message)}
+                key={renderedRowKeys[index]}
                 id={`message-${message.messageId}`}
                 data-chat-message-row="true"
                 data-message-id={message.messageId}
@@ -2684,13 +2839,28 @@ export function ChatView({
           initialPrompt={composerSeed ?? initialPrompt}
           errorMessage={state.composerError}
           onSend={handleSend}
-          disabled={state.loading || sending}
+          disabled={state.loading}
           isGenerating={isGenerating}
           onAbort={handleAbort}
           replyTo={replyTo}
           sessionUsage={sessionUsage}
           onCancelReply={handleCancelReply}
           draftKey={`chat:${sessionKey}`}
+          queuedMessages={queuedMessages}
+          onEditQueuedMessage={(id, text) => {
+            setQueuedMessages((current) => {
+              const next = editQueuedChatMessage(current, id, text)
+              queuedMessagesRef.current = next
+              return next
+            })
+          }}
+          onDeleteQueuedMessage={(id) => {
+            setQueuedMessages((current) => {
+              const next = deleteQueuedChatMessage(current, id)
+              queuedMessagesRef.current = next
+              return next
+            })
+          }}
         />
       </div>
     </div>

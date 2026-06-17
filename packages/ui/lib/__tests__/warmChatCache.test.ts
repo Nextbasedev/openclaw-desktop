@@ -26,4 +26,17 @@ describe("warmChatCache", () => {
     expect(cached?.entry.messages[0]?.messageId).toBe(`m${extra}`)
     expect(cached?.entry.messages.at(-1)?.messageId).toBe(`m${total - 1}`)
   })
+
+  it("does not replace long visible message text with a truncated preview", async () => {
+    const longText = `${"Long assistant response. ".repeat(8_000)}THE_REAL_END`
+
+    await setWarmChatCache("s1", {
+      messages: [{ messageId: "m1", role: "assistant", text: longText }],
+    })
+    const cached = await getWarmChatCache("s1")
+
+    expect(cached?.entry.messages[0]?.text).toBe(longText)
+    expect(cached?.entry.messages[0]?.text).toContain("THE_REAL_END")
+    expect(cached?.entry.messages[0]?.text).not.toContain("Cached preview truncated")
+  })
 })

@@ -90,8 +90,10 @@ function inferStatus(
     return childSessionKey ? "completed" : "failed"
   }
   if (tool.status === "success") {
-    // sessions_spawn tool settled successfully — sub-agent finished.
-    return "completed"
+    // sessions_spawn success usually means the child session was created, not
+    // that the child finished. Keep linked children live until an explicit
+    // terminal marker arrives from the result text/lifecycle stream.
+    return childSessionKey ? "working" : "completed"
   }
 
   // Still running (tool.status === 'running'): if we have a child session,

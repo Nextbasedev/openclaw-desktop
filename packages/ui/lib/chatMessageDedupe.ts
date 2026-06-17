@@ -307,7 +307,7 @@ function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   // live echoes as the same assistant turn even when those synthetic indexes
   // drift, otherwise rapid tab/reload flows show the final answer twice.
   if ((isLiveAssistantEcho(a) || isLiveAssistantEcho(b)) && aText && aText === bText) return true
-  if (hasSameRunId(a, b) && aText && aText === bText) return true
+  if (hasSameRunId(a, b) && aText && bText) return true
 
   // Tool-only assistant rows are often replay/update projections for the same
   // underlying tool call. Collapse those by tool id even when live/backfill
