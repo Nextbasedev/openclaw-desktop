@@ -128,7 +128,7 @@ Context:
 
 Source:
 - Repo: https://github.com/Nextbasedev/openclaw-desktop.git
-- Branch: v3
+- Branch: v6-1-krish
 
 Setup:
 1. Ensure Node.js 22+ and pnpm exist.
