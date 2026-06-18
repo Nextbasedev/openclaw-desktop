@@ -630,7 +630,7 @@ function ResponseMetadata({ message }: { message: ChatMessage }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground/45 transition-colors hover:bg-black/[0.045] hover:text-muted-foreground dark:hover:bg-white/[0.06]"
+          className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground/45 transition-colors hover:bg-black/[0.045] hover:text-muted-foreground dark:hover:bg-white/[0.06] cursor-pointer"
           aria-label="Response details"
         >
           {[message.model, total ? `${total} tokens` : null]
