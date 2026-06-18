@@ -89,13 +89,6 @@ export function ChatsSection({
     setShowArchived(false)
   }, [spaceId])
 
-  const closeArchive = () => {
-    setShowArchived(false)
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("openclaw:show-active-chats"))
-    }
-  }
-
   useEffect(() => {
     if (currentPage > totalPages - 1) {
       setCurrentPage(Math.max(0, totalPages - 1))
@@ -108,7 +101,6 @@ export function ChatsSection({
         sectionLabel="Archived"
         activeSpaceId={spaceId}
         spaces={spaces}
-        onClose={closeArchive}
         onChatSelect={onChatSelect}
         onChatOpenInNewWindow={onChatOpenInNewWindow}
         refreshTrigger={refreshTrigger}

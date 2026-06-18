@@ -17,7 +17,6 @@ type Props = {
   sectionLabel?: string
   activeSpaceId?: string | null
   spaces: Space[]
-  onClose: () => void
   onChatSelect: (chat: ActiveChat) => void
   onChatOpenInNewWindow?: (chat: ActiveChat) => void
   refreshTrigger?: number
@@ -49,7 +48,6 @@ export function ArchivedChatsSection({
   sectionLabel = "Archived",
   activeSpaceId,
   spaces,
-  onClose,
   onChatSelect,
   onChatOpenInNewWindow,
   refreshTrigger = 0,
@@ -252,21 +250,7 @@ export function ArchivedChatsSection({
           <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-foreground">
             <Icons.Archive size={11} strokeWidth={1.75} className="shrink-0 text-muted-foreground/70" />
             <span className="min-w-0 truncate">{sectionLabel}</span>
-            {!loading && totalCount > 0 && (
-              <span className="ml-1 shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground/55 normal-case tracking-normal">
-                {totalCount}
-              </span>
-            )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            title="Back to chats"
-            aria-label="Close archive"
-            className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/50 transition-colors hover:text-foreground"
-          >
-            <Icons.Close size={13} strokeWidth={2} />
-          </button>
         </div>
 
         <div className="flex flex-col gap-2 px-1">
@@ -332,9 +316,6 @@ export function ArchivedChatsSection({
                     className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70"
                   >
                     {group.label}
-                  </span>
-                  <span className="shrink-0 rounded-full bg-muted/50 px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-muted-foreground/70">
-                    {group.chats.length}
                   </span>
                 </button>
                 {groupOpen && (
