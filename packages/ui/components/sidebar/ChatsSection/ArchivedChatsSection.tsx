@@ -64,6 +64,8 @@ export function ArchivedChatsSection({
   const [deleteTarget, setDeleteTarget] = useState<DialogTarget>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [archiveGroupOpen, setArchiveGroupOpen] = useState<Record<string, boolean>>({})
+  const [archiveSpaces, setArchiveSpaces] = useState<Space[]>([])
   const loadSeqRef = useRef(0)
 
   const loadArchived = useCallback(async () => {
@@ -96,11 +98,27 @@ export function ArchivedChatsSection({
   useEffect(() => on("sidebar:refresh", loadArchived), [loadArchived])
   useEffect(() => on("archive:changed", loadArchived), [loadArchived])
 
+  useEffect(() => {
+    let cancelled = false
+    invoke<{ spaces: Space[] }>("middleware_spaces_list", { input: { archived: true } })
+      .then((result) => {
+        if (cancelled) return
+        setArchiveSpaces(result.spaces || [])
+      })
+      .catch((err) => {
+        if (!cancelled) console.error("[ArchivedChats] load archived spaces failed", err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const spaceNameById = useMemo(() => {
     const map = new Map<string, string>()
     for (const space of spaces) map.set(space.id, space.name || "Project")
+    for (const space of archiveSpaces) map.set(space.id, space.name || "Project")
     return map
-  }, [spaces])
+  }, [spaces, archiveSpaces])
 
   const grouped = useMemo(() => {
     const byKey = new Map<string, { key: string; label: string; spaceId: string | null; chats: Chat[] }>()
@@ -126,6 +144,20 @@ export function ArchivedChatsSection({
     })
     return sortedKeys.map((key) => byKey.get(key)!).filter(Boolean)
   }, [chats, spaceNameById, activeSpaceId])
+
+  useEffect(() => {
+    setArchiveGroupOpen((prev) => {
+      if (grouped.length === 0) return {}
+      const next: Record<string, boolean> = {}
+      let changed = Object.keys(prev).length !== grouped.length
+      for (const group of grouped) {
+        const hasExisting = Object.prototype.hasOwnProperty.call(prev, group.key)
+        next[group.key] = hasExisting ? prev[group.key] : false
+        if (prev[group.key] !== next[group.key]) changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [grouped])
 
   const handleRestoreChat = useCallback(async (chat: Chat) => {
     const chatId = chat.id
@@ -272,54 +304,77 @@ export function ArchivedChatsSection({
             </div>
           )}
 
-          {!loading && !error && grouped.map((group) => (
-            <div key={group.key} className="flex flex-col">
-              <div className="mb-0.5 flex min-w-0 items-center gap-1.5 px-2 pt-1">
-                <span
-                  title={group.label}
-                  className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70"
+          {!loading && !error && grouped.map((group) => {
+            const groupOpen = archiveGroupOpen[group.key] ?? false
+
+            return (
+              <div key={group.key} className="flex flex-col">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setArchiveGroupOpen((prev) => ({
+                      ...prev,
+                      [group.key]: !(prev[group.key] ?? false),
+                    }))
+                  }
+                  className="mb-0.5 flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 pt-1 text-left transition-colors hover:text-foreground/85"
+                  aria-expanded={groupOpen}
                 >
-                  {group.label}
-                </span>
-                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/40">
-                  {group.chats.length}
-                </span>
+                  <span className="inline-flex shrink-0 items-center justify-center">
+                    <Icons.ChevronDown
+                      size={10}
+                      strokeWidth={2}
+                      className={groupOpen ? "" : "-rotate-90"}
+                    />
+                  </span>
+                  <span
+                    title={group.label}
+                    className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70"
+                  >
+                    {group.label}
+                  </span>
+                  <span className="shrink-0 rounded-full bg-muted/50 px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-muted-foreground/70">
+                    {group.chats.length}
+                  </span>
+                </button>
+                {groupOpen && (
+                  <div className="flex flex-col gap-0.5">
+                    {group.chats.map((chat) => (
+                      <ChatRow
+                        key={chat.id}
+                        chatId={chat.id}
+                        chat={chat}
+                        isActive={false}
+                        isPinned={false}
+                        isRunning={false}
+                        disableReorder
+                        onClick={() => {
+                          onChatSelect({
+                            id: chat.id,
+                            name: chatDisplayName(chat),
+                            sessionKey: chat.sessionKey,
+                            spaceId: chat.spaceId,
+                          })
+                        }}
+                        onPin={() => {}}
+                        onOpenInNewWindow={chat.sessionKey ? () =>
+                          onChatOpenInNewWindow?.({
+                            id: chat.id,
+                            name: chatDisplayName(chat),
+                            sessionKey: chat.sessionKey,
+                            spaceId: chat.spaceId,
+                          }) : undefined}
+                        onRename={() => openRename(chat)}
+                        onArchive={() => handleRestoreChat(chat)}
+                        archiveLabel="Restore"
+                        onDelete={() => openDelete(chat)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="flex flex-col gap-0.5">
-                {group.chats.map((chat) => (
-                  <ChatRow
-                    key={chat.id}
-                    chatId={chat.id}
-                    chat={chat}
-                    isActive={false}
-                    isPinned={false}
-                    isRunning={false}
-                    disableReorder
-                    onClick={() => {
-                      onChatSelect({
-                        id: chat.id,
-                        name: chatDisplayName(chat),
-                        sessionKey: chat.sessionKey,
-                        spaceId: chat.spaceId,
-                      })
-                    }}
-                    onPin={() => {}}
-                    onOpenInNewWindow={chat.sessionKey ? () =>
-                      onChatOpenInNewWindow?.({
-                        id: chat.id,
-                        name: chatDisplayName(chat),
-                        sessionKey: chat.sessionKey,
-                        spaceId: chat.spaceId,
-                      }) : undefined}
-                    onRename={() => openRename(chat)}
-                    onArchive={() => handleRestoreChat(chat)}
-                    archiveLabel="Restore"
-                    onDelete={() => openDelete(chat)}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
