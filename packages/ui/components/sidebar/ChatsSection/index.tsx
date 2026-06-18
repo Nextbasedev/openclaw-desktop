@@ -96,6 +96,12 @@ export function ChatsSection({
     }
   }
 
+  useEffect(() => {
+    if (currentPage > totalPages - 1) {
+      setCurrentPage(Math.max(0, totalPages - 1))
+    }
+  }, [currentPage, totalPages])
+
   if (showArchived) {
     return (
       <ArchivedChatsSection
@@ -109,12 +115,6 @@ export function ChatsSection({
       />
     )
   }
-
-  useEffect(() => {
-    if (currentPage > totalPages - 1) {
-      setCurrentPage(Math.max(0, totalPages - 1))
-    }
-  }, [currentPage, totalPages])
 
   return (
     <>
