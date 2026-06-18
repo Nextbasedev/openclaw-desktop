@@ -73,7 +73,7 @@ export function ArchivedChatsSection({
     setError(null)
     try {
       const result = await invoke<{ chats: Chat[] }>("middleware_chats_list", {
-        input: { archived: true },
+        input: { archived: true, all: true },
       })
       if (loadSeqRef.current !== seq) return
       const visible = (result.chats || []).filter(isVisibleArchivedChat)
