@@ -1,4 +1,5 @@
 import { frontendLog, redactText, sanitizeUrlForLog } from "./clientLogs"
+import { dedupeRequest, invalidateDedupe } from "./requestDedupe"
 
 const URL_KEY = "openclaw.middleware.url"
 const TOKEN_KEY = "openclaw.middleware.token"
@@ -211,6 +212,46 @@ const CONNECTION_PROBE_TIMEOUT_MS = 3_000
 
 type MiddlewareRequestInit = RequestInit & { timeoutMs?: number }
 
+const MIDDLEWARE_FETCH_DEDUPE_PREFIX = "middlewareFetch:"
+
+function headerValue(headers: HeadersInit | undefined, name: string): string | null {
+  if (!headers) return null
+  const lower = name.toLowerCase()
+  if (headers instanceof Headers) return headers.get(name)
+  if (Array.isArray(headers)) {
+    const entry = headers.find(([key]) => key.toLowerCase() === lower)
+    return entry?.[1] ?? null
+  }
+  const record = headers as Record<string, string>
+  const key = Object.keys(record).find((candidate) => candidate.toLowerCase() === lower)
+  return key ? record[key] ?? null : null
+}
+
+function cacheableReadTtlMs(path: string): number {
+  const pathname = (() => {
+    try { return new URL(path, "http://openclaw.local").pathname } catch { return path.split("?")[0] || path }
+  })()
+  if (pathname.startsWith("/api/chat/") || pathname.startsWith("/api/stream/") || pathname.includes("/git/") || pathname.includes("/terminal/")) return 0
+  if (["/api/spaces", "/api/projects", "/api/topics", "/api/chats", "/api/sessions", "/api/repos/recent", "/api/skills/installed", "/api/skills/discover", "/api/version"].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}?`))) return 750
+  return 0
+}
+
+function shouldDedupeMiddlewareRead(method: string, path: string, init: MiddlewareRequestInit): boolean {
+  if (method !== "GET" && method !== "HEAD") return false
+  if (init.body || init.signal) return false
+  const cacheControl = headerValue(init.headers, "Cache-Control")?.toLowerCase() ?? ""
+  if (cacheControl.includes("no-cache") || cacheControl.includes("no-store")) return false
+  const pathname = (() => {
+    try { return new URL(path, "http://openclaw.local").pathname } catch { return path.split("?")[0] || path }
+  })()
+  if (pathname.startsWith("/api/stream/") || pathname.includes("/media/") || pathname.includes("/tool-result")) return false
+  return true
+}
+
+function middlewareFetchDedupeKey(method: string, url: string, token: string, path: string) {
+  return `${MIDDLEWARE_FETCH_DEDUPE_PREFIX}${method}:${url}:${token ? "auth" : "anon"}:${path}`
+}
+
 function sanitizeMiddlewarePath(path: string): string {
   try {
     const parsed = new URL(path, "http://openclaw.local")
@@ -253,8 +294,7 @@ function timeoutSignal(timeoutMs: number) {
   return { signal: controller.signal, clear: () => globalThis.clearTimeout(timer) }
 }
 
-export async function middlewareFetch<T>(path: string, init: MiddlewareRequestInit = {}, connection = getMiddlewareConnection()): Promise<T> {
-  if (!connection) throw new Error("Middleware connection is not configured")
+async function middlewareFetchNetwork<T>(path: string, init: MiddlewareRequestInit, connection: MiddlewareConnection): Promise<T> {
   const startedAt = performance.now()
   const method = (init.method ?? "GET").toUpperCase()
   const token = connection.token.trim()
@@ -284,6 +324,7 @@ export async function middlewareFetch<T>(path: string, init: MiddlewareRequestIn
     if (!response.ok) {
       throw new Error(body?.error?.message ?? `Middleware request failed (${response.status})`)
     }
+    if (method !== "GET" && method !== "HEAD") invalidateDedupe(MIDDLEWARE_FETCH_DEDUPE_PREFIX)
     return body as T
   } catch (error) {
     frontendLog("api", "middleware.fetch.fail", middlewareLogContext(method, path, url, token, {
@@ -294,6 +335,19 @@ export async function middlewareFetch<T>(path: string, init: MiddlewareRequestIn
   } finally {
     timeout?.clear()
   }
+}
+
+export async function middlewareFetch<T>(path: string, init: MiddlewareRequestInit = {}, connection = getMiddlewareConnection()): Promise<T> {
+  if (!connection) throw new Error("Middleware connection is not configured")
+  const method = (init.method ?? "GET").toUpperCase()
+  if (!shouldDedupeMiddlewareRead(method, path, init)) return middlewareFetchNetwork<T>(path, init, connection)
+  const token = connection.token.trim()
+  const url = trimTrailingSlash(rewriteLoopbackForRemoteBrowser(connection.url))
+  return dedupeRequest(
+    middlewareFetchDedupeKey(method, url, token, path),
+    () => middlewareFetchNetwork<T>(path, init, connection),
+    { ttlMs: cacheableReadTtlMs(path) },
+  )
 }
 
 export function isOpenClawConnected(health: MiddlewareHealth | null | undefined): boolean {

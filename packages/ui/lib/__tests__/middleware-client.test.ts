@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest"
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest"
 import {
   clearMiddlewareConnection,
   clearMiddlewareManualDisconnect,
@@ -12,7 +12,9 @@ import {
   wasMiddlewareManuallyDisconnected,
   MIDDLEWARE_CONNECTION_CHANGED_EVENT,
   MIDDLEWARE_DISCONNECTED_EVENT,
+  middlewareFetch,
 } from "../middleware-client"
+import { clearDedupeForTests } from "../requestDedupe"
 
 function mockStorage() {
   const data = new Map<string, string>()
@@ -39,6 +41,12 @@ describe("middleware onboarding client", () => {
   beforeEach(() => {
     mockStorage()
     vi.restoreAllMocks()
+    clearDedupeForTests()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    clearDedupeForTests()
   })
 
   it("saves and clears middleware connection", () => {
@@ -124,6 +132,56 @@ describe("middleware onboarding client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     const secondCall = fetchMock.mock.calls[1] as unknown as [string, RequestInit]
     expect((secondCall[1].headers as Record<string, string>).Authorization).toBe("Bearer abc")
+  })
+
+  it("dedupes concurrent safe GET middleware reads", async () => {
+    saveMiddlewareConnection({ url: "http://server:8787", token: "abc" })
+    let resolveFetch!: (response: Response) => void
+    const pendingFetch = new Promise<Response>((resolve) => { resolveFetch = resolve })
+    const fetchMock = vi.fn(() => pendingFetch)
+    vi.stubGlobal("fetch", fetchMock)
+
+    const first = middlewareFetch("/api/projects")
+    const second = middlewareFetch("/api/projects")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    resolveFetch(new Response(JSON.stringify({ projects: [] }), { status: 200 }))
+    await expect(Promise.all([first, second])).resolves.toEqual([{ projects: [] }, { projects: [] }])
+  })
+
+  it("does not dedupe no-cache middleware reads", async () => {
+    saveMiddlewareConnection({ url: "http://server:8787", token: "abc" })
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await Promise.all([
+      middlewareFetch("/api/projects/p1/git/status", { headers: { "Cache-Control": "no-cache" } }),
+      middlewareFetch("/api/projects/p1/git/status", { headers: { "Cache-Control": "no-cache" } }),
+    ])
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("invalidates short read cache after middleware mutations", async () => {
+    vi.useFakeTimers()
+    saveMiddlewareConnection({ url: "http://server:8787", token: "abc" })
+    let projectsCall = 0
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/projects") && (init?.method ?? "GET") === "GET") {
+        projectsCall += 1
+        return new Response(JSON.stringify({ projects: [projectsCall] }), { status: 200 })
+      }
+      if (url.endsWith("/api/projects") && init?.method === "POST") {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 })
+      }
+      return new Response("not found", { status: 404 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(middlewareFetch("/api/projects")).resolves.toEqual({ projects: [1] })
+    await expect(middlewareFetch("/api/projects")).resolves.toEqual({ projects: [1] })
+    await expect(middlewareFetch("/api/projects", { method: "POST", body: JSON.stringify({ name: "x" }) })).resolves.toEqual({ ok: true })
+    await expect(middlewareFetch("/api/projects")).resolves.toEqual({ projects: [2] })
   })
 
   it("fails when token is rejected", async () => {
