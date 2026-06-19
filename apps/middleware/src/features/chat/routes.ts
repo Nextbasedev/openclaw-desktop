@@ -701,6 +701,15 @@ const sendBody = z.object({
   autonomyMode: z.unknown().optional(),
 }).passthrough();
 
+function execPolicyCacheKey(value: unknown): string {
+  if (value === null) return "null";
+  const policy = objectData(value);
+  return JSON.stringify({
+    security: typeof policy.security === "string" ? policy.security : null,
+    ask: typeof policy.ask === "string" ? policy.ask : null,
+  });
+}
+
 const approvalResolveBody = z.object({
   approvalId: z.string().min(1).optional(),
   id: z.string().min(1).optional(),
@@ -903,6 +912,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
 
     const existingLocalSession = context.messages.getSession(input.sessionKey);
+    let sessionCreatedThisRequest = false;
     if (existingLocalSession?.sessionId) {
       log.info("session.create.skip-existing", { sessionKey: input.sessionKey, sessionId: existingLocalSession.sessionId });
     } else {
@@ -921,6 +931,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         const createdSessionId = sessionIdFromGatewayResult(created);
         const createdSessionFile = sessionFileFromGatewayResult(created);
         if (createdSessionId) {
+          sessionCreatedThisRequest = true;
           context.messages.ensureActiveSegment({
             sessionKey: input.sessionKey,
             sessionId: createdSessionId,
@@ -951,14 +962,36 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             ...(input.execPolicy.security !== undefined ? { execSecurity: input.execPolicy.security } : {}),
             ...(input.execPolicy.ask !== undefined ? { execAsk: input.execPolicy.ask } : {}),
           };
-      log.info("session.patch.start", {
-        sessionKey: input.sessionKey,
-        hasExecSecurity: Object.prototype.hasOwnProperty.call(patch, "execSecurity"),
-        hasExecAsk: Object.prototype.hasOwnProperty.call(patch, "execAsk"),
-        clearingPolicy: input.execPolicy === null,
-      });
-      await context.gateway.request("sessions.patch", patch);
-      log.info("session.patch.end", { sessionKey: input.sessionKey });
+      const currentLocalSession = context.messages.getSession(input.sessionKey);
+      const currentLocalSessionData = objectData(currentLocalSession?.data);
+      const nextExecPolicyKey = execPolicyCacheKey(input.execPolicy);
+      const canSkipExecPatch = Boolean(
+        currentLocalSession?.sessionId &&
+        !sessionCreatedThisRequest &&
+        currentLocalSessionData.__openclawLastExecPolicyKey === nextExecPolicyKey
+      );
+      if (canSkipExecPatch) {
+        log.info("session.patch.skip-unchanged", { sessionKey: input.sessionKey });
+      } else {
+        log.info("session.patch.start", {
+          sessionKey: input.sessionKey,
+          hasExecSecurity: Object.prototype.hasOwnProperty.call(patch, "execSecurity"),
+          hasExecAsk: Object.prototype.hasOwnProperty.call(patch, "execAsk"),
+          clearingPolicy: input.execPolicy === null,
+        });
+        await context.gateway.request("sessions.patch", patch);
+        const patchedLocalSession = context.messages.getSession(input.sessionKey);
+        context.messages.upsertSession({
+          sessionKey: input.sessionKey,
+          sessionId: patchedLocalSession?.sessionId ?? currentLocalSession?.sessionId ?? null,
+          data: {
+            ...objectData(patchedLocalSession?.data ?? currentLocalSessionData),
+            sessionKey: input.sessionKey,
+            __openclawLastExecPolicyKey: nextExecPolicyKey,
+          },
+        });
+        log.info("session.patch.end", { sessionKey: input.sessionKey });
+      }
     }
 
     log.info("send.accept.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
