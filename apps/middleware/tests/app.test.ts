@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -67,6 +68,35 @@ describe("middleware app", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true, port: 8787 });
     await app.close();
+  });
+
+  test("middleware update status defaults to the current branch", async () => {
+    const originalCwd = process.cwd();
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-update-status-repo-"));
+    const remoteRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-update-status-remote-"));
+    const branch = "v6-1-krish";
+    try {
+      fs.writeFileSync(path.join(repoRoot, "package.json"), "{}\n");
+      execFileSync("git", ["init", "-b", branch], { cwd: repoRoot, stdio: "ignore" });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repoRoot, stdio: "ignore" });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: repoRoot, stdio: "ignore" });
+      execFileSync("git", ["add", "package.json"], { cwd: repoRoot, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", "initial"], { cwd: repoRoot, stdio: "ignore" });
+      execFileSync("git", ["init", "--bare"], { cwd: remoteRoot, stdio: "ignore" });
+      execFileSync("git", ["remote", "add", "origin", remoteRoot], { cwd: repoRoot, stdio: "ignore" });
+      execFileSync("git", ["push", "-u", "origin", branch], { cwd: repoRoot, stdio: "ignore" });
+
+      process.chdir(repoRoot);
+      const app = await createApp(testConfig());
+      const res = await app.inject({ method: "GET", url: "/api/middleware/update/status" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().git).toMatchObject({ currentBranch: branch, targetBranch: branch, upstream: `origin/${branch}` });
+      await app.close();
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+      fs.rmSync(remoteRoot, { recursive: true, force: true });
+    }
   });
 
   test("accepts attachment-sized JSON payloads above Fastify default body limit", async () => {

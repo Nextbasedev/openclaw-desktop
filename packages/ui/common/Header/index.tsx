@@ -34,6 +34,49 @@ type VersionInfo = {
   source?: string
 }
 
+type MiddlewareGitStatus = {
+  currentBranch?: string
+  targetBranch?: string
+  upstream?: string
+  headSha?: string
+  remoteSha?: string
+  ahead?: number
+  behind?: number
+  error?: string
+}
+
+type MiddlewareUpdateStatus = {
+  state: "idle" | "running" | "restarting" | "succeeded" | "failed"
+  updatedAt: string
+  message?: string
+  branch?: string
+  git?: MiddlewareGitStatus
+}
+
+type MiddlewareUpdateStart = {
+  ok: boolean
+  accepted: boolean
+  message?: string
+  status: MiddlewareUpdateStatus
+}
+
+function hasMiddlewareUpdate(status: MiddlewareUpdateStatus | null) {
+  const git = status?.git
+  if (!git) return false
+  return (git.behind ?? 0) > 0 || Boolean(git.remoteSha && git.headSha && git.remoteSha !== git.headSha)
+}
+
+function middlewareHeaderMessage(status: MiddlewareUpdateStatus | null) {
+  if (!status) return "Install OpenClaw update"
+  if (status.state === "running") return status.message ?? `Updating Middleware from ${status.branch ?? status.git?.targetBranch ?? "current branch"}…`
+  if (status.state === "restarting") return status.message ?? "Build complete. Restarting Middleware service…"
+  if (status.state === "failed") return status.message ?? "Middleware update failed"
+  const git = status.git
+  if ((git?.behind ?? 0) > 0) return `Update available: ${git?.behind} commit${git?.behind === 1 ? "" : "s"} behind ${git?.upstream ?? "remote"}`
+  if (git?.remoteSha && git.remoteSha !== git.headSha) return `Update available on ${git.upstream ?? git.targetBranch ?? "remote"}`
+  return status.message ?? "Install OpenClaw update"
+}
+
 type HeaderProps = {
   user?: HeaderUser
   className?: string
@@ -143,7 +186,9 @@ export function Header({
   const [openClawVersion, setOpenClawVersion] = useState<string | null>(null)
   const [nodeVersion, setNodeVersion] = useState<string | null>(null)
   const [appUpdateState, setAppUpdateState] = useState<AppUpdateState>({ status: "idle", message: null })
+  const [middlewareUpdateStatus, setMiddlewareUpdateStatus] = useState<MiddlewareUpdateStatus | null>(null)
   const updateCheckInFlightRef = useRef(false)
+  const middlewareUpdateCheckInFlightRef = useRef(false)
   const rightClusterRef = useRef<HTMLDivElement>(null)
   const [rightClusterWidth, setRightClusterWidth] = useState(0)
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
@@ -200,17 +245,44 @@ export function Header({
     }
   }, [isTauri])
 
+  const checkForHeaderMiddlewareUpdate = useCallback(async () => {
+    if (!isTauri || middlewareUpdateCheckInFlightRef.current) return
+    middlewareUpdateCheckInFlightRef.current = true
+    try {
+      const status = await invoke<MiddlewareUpdateStatus>("middleware_self_update_status")
+      setMiddlewareUpdateStatus(status)
+    } catch (error) {
+      console.warn("Middleware update check failed", error)
+    } finally {
+      middlewareUpdateCheckInFlightRef.current = false
+    }
+  }, [isTauri])
+
   useEffect(() => {
     if (!isTauri) return
     void checkForHeaderUpdate()
-    const interval = window.setInterval(() => void checkForHeaderUpdate(), 30 * 60 * 1000)
-    const onFocus = () => void checkForHeaderUpdate()
+    void checkForHeaderMiddlewareUpdate()
+    const interval = window.setInterval(() => {
+      void checkForHeaderUpdate()
+      void checkForHeaderMiddlewareUpdate()
+    }, 30 * 60 * 1000)
+    const onFocus = () => {
+      void checkForHeaderUpdate()
+      void checkForHeaderMiddlewareUpdate()
+    }
     window.addEventListener("focus", onFocus)
     return () => {
       window.clearInterval(interval)
       window.removeEventListener("focus", onFocus)
     }
-  }, [isTauri, checkForHeaderUpdate])
+  }, [isTauri, checkForHeaderUpdate, checkForHeaderMiddlewareUpdate])
+
+  useEffect(() => {
+    if (!isTauri) return
+    if (middlewareUpdateStatus?.state !== "running" && middlewareUpdateStatus?.state !== "restarting") return
+    const interval = window.setInterval(() => void checkForHeaderMiddlewareUpdate(), 2_000)
+    return () => window.clearInterval(interval)
+  }, [isTauri, middlewareUpdateStatus?.state, checkForHeaderMiddlewareUpdate])
 
   const handleInstallHeaderUpdate = useCallback(async () => {
     if (appUpdateState.status !== "available") return
@@ -220,6 +292,24 @@ export function Header({
       setAppUpdateState({ status: "error", message: updateErrorMessage(error) })
     }
   }, [appUpdateState])
+
+  const handleInstallHeaderMiddlewareUpdate = useCallback(async () => {
+    if (!middlewareUpdateStatus) return
+    if (middlewareUpdateStatus.state === "running" || middlewareUpdateStatus.state === "restarting") return
+    const branch = middlewareUpdateStatus.branch || middlewareUpdateStatus.git?.targetBranch || middlewareUpdateStatus.git?.currentBranch
+    if (!branch) return
+    try {
+      const started = await invoke<MiddlewareUpdateStart>("middleware_self_update", { branch })
+      setMiddlewareUpdateStatus(started.status)
+    } catch (error) {
+      setMiddlewareUpdateStatus((prev) => ({
+        ...(prev ?? { updatedAt: new Date().toISOString(), branch }),
+        state: "failed",
+        updatedAt: new Date().toISOString(),
+        message: error instanceof Error ? error.message : String(error),
+      }))
+    }
+  }, [middlewareUpdateStatus])
 
   // changes comment
   const isMac = platform === "macos"
@@ -240,9 +330,22 @@ export function Header({
   const hasVisibleTabs = Boolean(editorGroups?.groups.some((g) => g.tabs.length > 0))
   const isSplitTabs = (editorGroups?.groups.length ?? 0) > 1
   const displayOpenClawVersion = openClawVersion?.replace(/^v/i, "") ?? null
-  const showUpdateButton = ["available", "downloading", "installing", "restarting", "error"].includes(appUpdateState.status)
-  const updateButtonDisabled = appUpdateState.status !== "available"
-  const updateButtonLabel = appUpdateState.status === "error"
+  const showAppUpdateButton = ["available", "downloading", "installing", "restarting", "error"].includes(appUpdateState.status)
+  const showMiddlewareUpdateButton = hasMiddlewareUpdate(middlewareUpdateStatus) || middlewareUpdateStatus?.state === "running" || middlewareUpdateStatus?.state === "restarting" || middlewareUpdateStatus?.state === "failed"
+  const updateButtonMode = showAppUpdateButton ? "app" : showMiddlewareUpdateButton ? "middleware" : null
+  const showUpdateButton = updateButtonMode !== null
+  const updateButtonDisabled = updateButtonMode === "app"
+    ? appUpdateState.status !== "available"
+    : middlewareUpdateStatus?.state === "running" || middlewareUpdateStatus?.state === "restarting"
+  const updateButtonLabel = updateButtonMode === "middleware"
+    ? middlewareUpdateStatus?.state === "failed"
+      ? "Update failed"
+      : middlewareUpdateStatus?.state === "running"
+        ? "Updating"
+        : middlewareUpdateStatus?.state === "restarting"
+          ? "Restarting"
+          : "Update"
+    : appUpdateState.status === "error"
     ? "Update failed"
     : appUpdateState.status === "available"
       ? "Update"
@@ -251,6 +354,12 @@ export function Header({
         : appUpdateState.status === "installing"
           ? "Installing"
           : "Restarting"
+  const updateButtonMessage = updateButtonMode === "middleware"
+    ? middlewareHeaderMessage(middlewareUpdateStatus)
+    : appUpdateState.message ?? "Install OpenClaw update"
+  const updateButtonError = updateButtonMode === "app"
+    ? appUpdateState.status === "error"
+    : middlewareUpdateStatus?.state === "failed"
 
   useEffect(() => {
     if (!draggingTabId) return
@@ -585,11 +694,11 @@ export function Header({
             </HeaderActionTooltip>
 
             {showUpdateButton && (
-              <HeaderActionTooltip label={appUpdateState.message ?? "Install OpenClaw update"}>
+              <HeaderActionTooltip label={updateButtonMessage}>
                 <button
                   type="button"
-                  aria-label={appUpdateState.message ?? "Install OpenClaw update"}
-                  onClick={handleInstallHeaderUpdate}
+                  aria-label={updateButtonMessage}
+                  onClick={updateButtonMode === "middleware" ? handleInstallHeaderMiddlewareUpdate : handleInstallHeaderUpdate}
                   disabled={updateButtonDisabled}
                   className={cn(
                     "mx-1 flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium",
@@ -597,16 +706,16 @@ export function Header({
                     updateButtonDisabled
                       ? "cursor-default border-border/35 bg-foreground/[0.035] text-muted-foreground"
                       : "cursor-pointer border-emerald-400/30 bg-emerald-400/10 text-emerald-500 hover:bg-emerald-400/15 hover:text-emerald-400",
-                    appUpdateState.status === "error" && "border-red-400/30 bg-red-400/10 text-red-400",
+                    updateButtonError && "border-red-400/30 bg-red-400/10 text-red-400",
                   )}
                 >
                   <span className="relative flex size-2">
-                    {appUpdateState.status === "available" && (
+                    {((updateButtonMode === "app" && appUpdateState.status === "available") || (updateButtonMode === "middleware" && hasMiddlewareUpdate(middlewareUpdateStatus))) && (
                       <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                     )}
                     <span className={cn(
                       "relative inline-flex size-2 rounded-full",
-                      appUpdateState.status === "error" ? "bg-red-400" : "bg-emerald-400",
+                      updateButtonError ? "bg-red-400" : "bg-emerald-400",
                     )} />
                   </span>
                   {updateButtonLabel}

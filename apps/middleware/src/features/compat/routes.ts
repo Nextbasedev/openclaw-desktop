@@ -914,6 +914,9 @@ function middlewareGitStatusMessage(git: MiddlewareGitStatus) {
 }
 
 function readMiddlewareUpdateStatus(input: MiddlewareUpdateInput = {}): MiddlewareUpdateStatus {
+  const requestedBranch = Object.prototype.hasOwnProperty.call(input, "branch")
+    ? input.branch
+    : undefined;
   let status: MiddlewareUpdateStatus;
   try {
     const parsed = JSON.parse(fs.readFileSync(UPDATE_STATUS_PATH, "utf8")) as MiddlewareUpdateStatus;
@@ -927,12 +930,12 @@ function readMiddlewareUpdateStatus(input: MiddlewareUpdateInput = {}): Middlewa
       state: "succeeded",
       message: status.state === "restarting"
         ? "Middleware service is back online after restart."
-        : "Previous Middleware update status was stale; service is online.",
+      : "Previous Middleware update status was stale; service is online.",
       updatedAt: nowIso(),
     };
     writeMiddlewareUpdateStatus(status);
   }
-  const git = readMiddlewareGitStatus(input.branch || status.branch || DEFAULT_UPDATE_BRANCH);
+  const git = readMiddlewareGitStatus(requestedBranch);
   const statusMessage = status.state === "running" || status.state === "restarting" || status.state === "failed" || status.state === "succeeded"
     ? status.message
     : undefined;
