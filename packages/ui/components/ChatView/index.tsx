@@ -651,6 +651,17 @@ export function ChatView({
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
   const [windowState, setWindowState] = useState<WindowState>(INITIAL_WINDOW_STATE)
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
+  const composerHistoryMessages = useMemo(() => {
+    const prompts: string[] = []
+    for (const message of state.messages) {
+      if (message.role !== "user") continue
+      const text = message.text.trim()
+      if (!text) continue
+      if (prompts[prompts.length - 1] === text) continue
+      prompts.push(text)
+    }
+    return prompts
+  }, [state.messages])
   const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
   // Local sub-agent take-over state. When non-null, the chat surface renders
   // <SubagentFullChat/> instead of the normal message stream. Parent is
@@ -2988,6 +2999,7 @@ export function ChatView({
           key={sessionKey}
           initialPrompt={composerSeed ?? initialPrompt}
           errorMessage={state.composerError}
+          historyMessages={composerHistoryMessages}
           onSend={handleSend}
           disabled={state.loading}
           isGenerating={isGenerating}
