@@ -31,7 +31,7 @@ import {
   takeNextQueuedChatMessage,
   type QueuedChatMessage,
 } from "@/lib/chatSendQueue"
-import { isStopSlashCommand } from "@/lib/controlSlashCommands"
+import { isHistoryHiddenSlashCommand, isStopSlashCommand } from "@/lib/controlSlashCommands"
 import { frontendLog } from "@/lib/clientLogs"
 import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
@@ -1315,7 +1315,9 @@ export function ChatView({
   async function handleSend(payload: ChatComposerSubmit) {
     const text = payload.text.trim()
     if (!text && !payload.attachments?.length) return
-    const isStopCommand = !payload.attachments?.length && !payload.replyTo && isStopSlashCommand(text)
+    const hasAttachments = (payload.attachments?.length ?? 0) > 0
+    const isStopCommand = !hasAttachments && !payload.replyTo && isStopSlashCommand(text)
+    const hideOptimisticUserEcho = !hasAttachments && !payload.replyTo && isHistoryHiddenSlashCommand(text)
     if (isGenerating && !payload.runWhileGenerating && !isStopCommand) {
       if (!canEnqueueChatMessage(queuedMessagesRef.current)) {
         const message = `Queue limit reached. Max ${MAX_QUEUED_CHAT_MESSAGES} messages can be queued.`
@@ -1378,15 +1380,17 @@ export function ChatView({
 
       optimisticId = randomId()
       shouldFollowScrollRef.current = true
-      const optimisticMessage: ChatMessage = {
-        messageId: optimisticId,
-        role: "user",
-        text,
-        createdAt: new Date().toISOString(),
-        isOptimistic: true,
-        sendStatus: "sending",
-        attachments: composerAttachmentsToMessageAttachments(payload.attachments),
-      }
+      const optimisticMessage: ChatMessage | null = hideOptimisticUserEcho
+        ? null
+        : {
+            messageId: optimisticId,
+            role: "user",
+            text,
+            createdAt: new Date().toISOString(),
+            isOptimistic: true,
+            sendStatus: "sending",
+            attachments: composerAttachmentsToMessageAttachments(payload.attachments),
+          }
 
       setSending(true)
       setState((current) => ({
@@ -1394,7 +1398,9 @@ export function ChatView({
         composerError: null,
         streamStatus: "thinking",
         statusLabel: "Thinking",
-        messages: orderChatMessages([...current.messages, optimisticMessage]),
+        messages: optimisticMessage
+          ? orderChatMessages([...current.messages, optimisticMessage])
+          : current.messages,
       }))
       frontendLog("chat", "chat-rebuild.send.optimistic-render", {
         origin: "chatview-handle-send",

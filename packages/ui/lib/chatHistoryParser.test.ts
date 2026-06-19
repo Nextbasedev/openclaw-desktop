@@ -276,6 +276,21 @@ describe("isTransientSlashCommandHistory", () => {
       false,
     )
   })
+
+  it("drops native slash command user echoes when parsing history", () => {
+    const parsed = parseChatHistory([
+      { role: "user", content: [{ type: "text", text: "hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "hi" }] },
+      { role: "user", content: [{ type: "text", text: "/new" }] },
+      { role: "user", content: [{ type: "text", text: "/status" }] },
+      { role: "user", content: [{ type: "text", text: "/plan ship the UI" }] },
+    ])
+
+    assert.deepEqual(
+      parsed.messages.map((message) => [message.role, message.text]),
+      [["user", "hello"], ["assistant", "hi"], ["user", "/plan ship the UI"]],
+    )
+  })
 })
 
 describe("parseChatHistory", () => {
