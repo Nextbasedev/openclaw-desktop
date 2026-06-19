@@ -118,6 +118,7 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
   messageCount: number;
   cursor: number;
   projection: { upserted: number; lastSeq: number; liveSubscribed: boolean };
+  historyWindow?: { historyCoverage: "full" | "windowed"; fullMessagesIncluded: boolean; hasOlder: boolean; knownTotalMessages: number; oldestLoadedSeq: number | null };
   historyMeta?: { thinkingLevel?: unknown; fastMode?: unknown; verboseLevel?: unknown };
 }) {
   const activeRun = context.runs.findLatestPendingRun(params.sessionKey);
@@ -143,11 +144,11 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
     runStatus,
     statusLabel,
     activeRun: activeRunProjection(activeRun),
-    historyCoverage: "full",
-    fullMessagesIncluded: true,
-    hasOlder: false,
-    knownTotalMessages: params.messageCount,
-    oldestLoadedSeq: null,
+    historyCoverage: params.historyWindow?.historyCoverage ?? "full",
+    fullMessagesIncluded: params.historyWindow?.fullMessagesIncluded ?? true,
+    hasOlder: params.historyWindow?.hasOlder ?? false,
+    knownTotalMessages: params.historyWindow?.knownTotalMessages ?? params.messageCount,
+    oldestLoadedSeq: params.historyWindow?.oldestLoadedSeq ?? null,
     messages: params.messages,
     messageCount: params.messageCount,
     tools,

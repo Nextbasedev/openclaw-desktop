@@ -19,6 +19,7 @@ import type { OpenClawMessage, ProjectedMessage } from "./types.js";
 
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
+  limit: z.coerce.number().int().positive().max(1000).optional(),
 });
 
 const sessionContextQuery = z.object({
@@ -120,8 +121,23 @@ function withStoredTotalCacheRead(usage: SessionContextUsage | null, totalCacheR
 
 /** Kept for older tests; chat bootstrap no longer uses a local-first cache. */
 export function clearLocalFirstBootstrapCache() {
+  inFlightBootstraps.clear();
 }
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
+
+const DEFAULT_BOOTSTRAP_LIMIT = 160;
+const inFlightBootstraps = new Map<string, Promise<ChatHistoryResponse>>();
+
+async function dedupedChatHistory(context: AppContext, payload: { sessionKey: string; limit?: number }) {
+  const key = `${payload.sessionKey}\u0000${payload.limit ?? ""}`;
+  const existing = inFlightBootstraps.get(key);
+  if (existing) return existing;
+  const job = context.gateway.request<ChatHistoryResponse>("chat.history", payload).finally(() => {
+    inFlightBootstraps.delete(key);
+  });
+  inFlightBootstraps.set(key, job);
+  return job;
+}
 
 
 // Hard cap on bytes read for a bounded (maxLines) probe so a multi-MB archive
@@ -249,6 +265,7 @@ async function archivedHistoryTranscriptFiles(params: { sessionKey: string; sess
   const sessionsDir = current ? path.dirname(current) : path.join(os.homedir(), ".openclaw", "agents", agentId, "sessions");
   const candidateDirs = Array.from(new Set([sessionsDir, path.join(sessionsDir, "archive"), path.join(sessionsDir, "archives")].map((dir) => path.resolve(dir))));
   const currentIdentity = firstHistoryIdentity(params.messages, params.sessionKey);
+  if (!current && currentIdentity?.kind === "desktop") return [];
   const archiveSuffixRe = /\.jsonl\.(?:reset|deleted)\.\d{4}-\d{2}-\d{2}T/;
   const candidates = candidateDirs.flatMap((dir) => {
     try {
@@ -370,7 +387,7 @@ function collectArchivedToolResults(messages: ProjectedMessage[], resultById: Ma
 }
 
 /** Upsert one tool row per toolCall block in a batch, attaching its paired result. */
-async function upsertArchivedToolCalls(context: AppContext, sessionKey: string, messages: ProjectedMessage[], resultById: Map<string, ArchivedToolResult>): Promise<number> {
+async function upsertArchivedToolCalls(context: AppContext, sessionKey: string, messages: ProjectedMessage[], resultById: Map<string, ArchivedToolResult>, opts: { assumeCompleted?: boolean } = {}): Promise<number> {
   let projected = 0;
   let processed = 0;
   for (const message of messages) {
@@ -389,8 +406,8 @@ async function upsertArchivedToolCalls(context: AppContext, sessionKey: string, 
         runId,
         messageId,
         name: event.name,
-        phase: result ? "result" : "calling",
-        status: result?.status,
+        phase: result || opts.assumeCompleted ? "result" : "calling",
+        status: result?.status ?? (opts.assumeCompleted ? "success" : undefined),
         argsMeta: event.args,
         resultMeta: result?.resultMeta,
         startedAtMs: ts ?? undefined,
@@ -404,10 +421,10 @@ async function upsertArchivedToolCalls(context: AppContext, sessionKey: string, 
   return projected;
 }
 
-export async function projectArchivedSegmentToolCalls(context: AppContext, sessionKey: string, messages: ProjectedMessage[]): Promise<number> {
+export async function projectArchivedSegmentToolCalls(context: AppContext, sessionKey: string, messages: ProjectedMessage[], opts: { assumeCompleted?: boolean } = {}): Promise<number> {
   const resultById = new Map<string, ArchivedToolResult>();
   collectArchivedToolResults(messages, resultById);
-  return upsertArchivedToolCalls(context, sessionKey, messages, resultById);
+  return upsertArchivedToolCalls(context, sessionKey, messages, resultById, opts);
 }
 
 /**
@@ -436,12 +453,72 @@ export async function backfillArchivedToolCalls(context: AppContext, sessionKey:
   for (;;) {
     const page = context.messages.listMessages(sessionKey, { afterSeq, limit: CHUNK });
     if (page.length === 0) break;
-    total += await upsertArchivedToolCalls(context, sessionKey, page, resultById);
+    total += await upsertArchivedToolCalls(context, sessionKey, page, resultById, { assumeCompleted: true });
     afterSeq = page[page.length - 1]!.openclawSeq;
     if (page.length < CHUNK) break;
     await yieldToEventLoop();
   }
   return total;
+}
+
+async function projectCanonicalBootstrapToolCalls(context: AppContext, sessionKey: string, messages: ProjectedMessage[], canonicalStatus: string): Promise<number> {
+  const terminal = ["done", "complete", "completed", "success", "succeeded", "finished"].includes(canonicalStatus);
+  const activeRun = context.runs.findLatestPendingRun(sessionKey);
+  const latestRun = context.runs.latestRun(sessionKey);
+  if (activeRun && latestRun && latestRun.runId !== activeRun.runId && !ACTIVE_RUN_STATUSES.has(latestRun.status) && latestRun.updatedAtMs >= activeRun.updatedAtMs) {
+    context.runs.completeRunningTools(sessionKey, activeRun.runId, { status: "success", updatedAtMs: Date.now() });
+    context.runs.updateRunStatus(activeRun.runId, "done", { statusLabel: null });
+  }
+
+  const fallbackRun = context.runs.findLatestPendingRun(sessionKey);
+  const latestUserSeq = messages.reduce((max, message) => message.role === "user" ? Math.max(max, message.gatewaySeq ?? message.openclawSeq) : max, 0);
+  const resultById = new Map<string, ArchivedToolResult>();
+  collectArchivedToolResults(messages, resultById);
+  let projected = 0;
+  let attachedRunningToolName: string | null = null;
+  let completedStaleActiveTool = false;
+  for (const message of messages) {
+    const seq = message.gatewaySeq ?? message.openclawSeq;
+    const data = message.data as Record<string, unknown>;
+    const openclaw = objectData(data.__openclaw);
+    const messageId = message.messageId ?? (typeof openclaw.id === "string" ? openclaw.id : null);
+    const runId = typeof openclaw.runId === "string" ? openclaw.runId : (fallbackRun && !terminal && seq > latestUserSeq ? fallbackRun.runId : null);
+    const ts = historyTimestampMs(data);
+    for (const event of extractToolEventsFromMessage(message.data)) {
+      if (event.phase !== "calling" && event.phase !== "start") continue;
+      if (!event.toolCallId || !event.name) continue;
+      const result = resultById.get(event.toolCallId);
+      const staleBeforeLatestUser = latestUserSeq > 0 && seq < latestUserSeq;
+      const shouldComplete = terminal || staleBeforeLatestUser || Boolean(result);
+      const existingTool = context.runs.getToolCall(sessionKey, event.toolCallId);
+      if (staleBeforeLatestUser && fallbackRun && existingTool?.runId === fallbackRun.runId) completedStaleActiveTool = true;
+      context.runs.upsertToolCall({
+        sessionKey,
+        toolCallId: event.toolCallId,
+        runId,
+        messageId,
+        name: event.name,
+        phase: shouldComplete ? "result" : "calling",
+        status: result?.status ?? (shouldComplete ? "success" : undefined),
+        argsMeta: event.args,
+        resultMeta: result?.resultMeta,
+        startedAtMs: ts ?? undefined,
+        finishedAtMs: result?.finishedAtMs ?? (shouldComplete ? Date.now() : undefined),
+      });
+      if (runId && !shouldComplete) attachedRunningToolName = event.name;
+      projected += 1;
+    }
+    if (projected > 0 && projected % 25 === 0) await yieldToEventLoop();
+  }
+  const afterProjectionRun = context.runs.findLatestPendingRun(sessionKey);
+  if (afterProjectionRun && attachedRunningToolName) {
+    context.runs.updateRunStatus(afterProjectionRun.runId, "tool_running", { statusLabel: attachedRunningToolName });
+  } else if (afterProjectionRun && context.runs.hasRunningTools(sessionKey, afterProjectionRun.runId)) {
+    context.runs.updateRunStatus(afterProjectionRun.runId, "tool_running", { statusLabel: afterProjectionRun.statusLabel });
+  } else if (afterProjectionRun && completedStaleActiveTool && latestUserSeq > 0 && canonicalStatus === "running") {
+    context.runs.updateRunStatus(afterProjectionRun.runId, "streaming", { statusLabel: "Streaming" });
+  }
+  return projected;
 }
 
 async function persistArchivedHistorySegments(context: AppContext, sessionKey: string, history: ChatHistoryResponse) {
@@ -495,6 +572,7 @@ async function persistArchivedHistorySegments(context: AppContext, sessionKey: s
     // monopolise the event loop on a cold cache.
     if (++processed % 3 === 0) await yieldToEventLoop();
   }
+  if (changedFiles > 0) context.messages.resequenceSessionMessages(sessionKey);
   return { fileCount: archivedFiles.length, importedFiles, skippedFiles, changedFiles, upserted, projectedTools, changed: importedFiles > 0 || changedFiles > 0 };
 }
 
@@ -1485,9 +1563,11 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }
     const bootstrapStartedAtMs = nowMs();
     log.info("bootstrap.start", { sessionKey: parsed.data.sessionKey });
+    const requestedLimit = parsed.data.limit ?? DEFAULT_BOOTSTRAP_LIMIT;
     const gatewayHistoryStartedAtMs = nowMs();
-    const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
+    const history = await dedupedChatHistory(context, {
       sessionKey: parsed.data.sessionKey,
+      limit: requestedLimit,
     });
     const historyMessageCount = history.messages?.length ?? 0;
     log.info("bootstrap.gateway.history", { sessionKey: history.sessionKey ?? parsed.data.sessionKey, sessionId: history.sessionId ?? null, durationMs: elapsedMs(gatewayHistoryStartedAtMs), messageCount: historyMessageCount, status: history.status ?? null });
@@ -1516,12 +1596,17 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       data: sessionData,
     });
     log.info("bootstrap.session.persist", { sessionKey, sessionId: history.sessionId ?? existingSession?.sessionId ?? null, status: typeof sessionData.status === "string" ? sessionData.status : null });
+    const canonicalStatus = typeof history.status === "string" ? history.status.trim().toLowerCase() : "";
     const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-    const bootstrapPruned = context.runs.findLatestPendingRun(sessionKey) ? 0 : context.messages.pruneSegmentToCanonicalMessages({ sessionKey, segmentId: segment.segmentId, baseSeq: segment.baseSeq, canonicalMessages: normalized });
+    const projectedTools = await projectCanonicalBootstrapToolCalls(context, sessionKey, normalized, canonicalStatus);
+    const archived = await persistArchivedHistorySegments(context, sessionKey, history);
+    const bootstrapPruned = normalized.length === 0 || context.runs.findLatestPendingRun(sessionKey)
+      ? 0
+      : context.messages.pruneSegmentToCanonicalMessages({ sessionKey, segmentId: segment.segmentId, baseSeq: segment.baseSeq, canonicalMessages: normalized });
     const bootstrapLastSeq = context.messages.nextMessageSeq(sessionKey) - 1;
-    log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, pruned: bootstrapPruned, lastSeq: bootstrapLastSeq });
+    log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, projectedTools, archivedImported: archived.importedFiles, archivedSkipped: archived.skippedFiles, pruned: bootstrapPruned, lastSeq: bootstrapLastSeq });
 
-    const rawProjected = context.messages.listAllMessages(sessionKey);
+    const rawProjected = context.messages.listMessages(sessionKey, { limit: requestedLimit, latest: true });
     const projectedMessages = rawProjected
       .filter((message) => !isNonUserAttachedFileEcho(message))
       .map(serializeProjectedMessage);
@@ -1529,12 +1614,21 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     void context.chatLive.ensureSessionSubscribed(sessionKey).catch((error) => {
       log.warn("bootstrap.live-subscribe.background.fail", { sessionKey, error: errorMeta(error) });
     });
+    const firstVisibleSeq = rawProjected.find((message) => !isNonUserAttachedFileEcho(message))?.openclawSeq ?? null;
+    const hasOlder = firstVisibleSeq !== null && firstVisibleSeq > 1;
+    const sessionCursor = context.messages.latestSessionCursor(sessionKey);
     context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.bootstrap",
-      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "full", fullMessagesIncluded: true, pruned: bootstrapPruned },
+      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: hasOlder ? "windowed" : "full", fullMessagesIncluded: !hasOlder, hasOlder, oldestLoadedSeq: firstVisibleSeq, pruned: bootstrapPruned },
     });
-    const sessionCursor = context.messages.latestSessionCursor(sessionKey);
+    if (archived.changed) {
+      context.messages.appendProjectionEvent({
+        sessionKey,
+        eventType: "chat.bootstrap",
+        payload: { sessionKey, backgroundArchiveImport: 1, importedFiles: archived.importedFiles, changedFiles: archived.changedFiles, messageCount: projectedMessages.length },
+      });
+    }
     log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: sessionCursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: "background" } });
 
     return buildChatBootstrapSnapshot(context, {
@@ -1545,6 +1639,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       messageCount: projectedMessages.length,
       cursor: sessionCursor,
       projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: false },
+      historyWindow: { historyCoverage: hasOlder ? "windowed" : "full", fullMessagesIncluded: !hasOlder, hasOlder, knownTotalMessages: bootstrapLastSeq, oldestLoadedSeq: firstVisibleSeq },
       historyMeta: { thinkingLevel: history.thinkingLevel, fastMode: history.fastMode, verboseLevel: history.verboseLevel },
     });
   });
@@ -1564,14 +1659,38 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       parsed.data.afterSeq !== undefined ||
       parsed.data.beforeSeq !== undefined ||
       parsed.data.limit !== undefined;
-    const messages = hasWindowQuery
+    let messages = hasWindowQuery
       ? context.messages.listMessages(parsed.data.sessionKey, {
           afterSeq: parsed.data.afterSeq,
           beforeSeq: parsed.data.beforeSeq,
           limit: parsed.data.limit,
         })
       : context.messages.listAllMessages(parsed.data.sessionKey);
-    // Chat screen rebuild: older-message remote refill is disabled with the old virtualized loader.
+    if (parsed.data.beforeSeq !== undefined && messages.length === 0) {
+      try {
+        const refillLimit = Math.min(10_000, parsed.data.beforeSeq + (parsed.data.limit ?? 200));
+        const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey: parsed.data.sessionKey, limit: refillLimit });
+        const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
+        const existingSession = context.messages.getSession(sessionKey);
+        const segment = context.messages.ensureActiveSegment({
+          sessionKey,
+          sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+          sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
+        });
+        const normalized = normalizeHistoryMessages(sessionKey, history.messages ?? []);
+        if (normalized.length > 0) {
+          context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+          await projectArchivedSegmentToolCalls(context, sessionKey, normalized);
+          messages = context.messages.listMessages(parsed.data.sessionKey, {
+            afterSeq: parsed.data.afterSeq,
+            beforeSeq: parsed.data.beforeSeq,
+            limit: parsed.data.limit,
+          });
+        }
+      } catch (error) {
+        log.warn("messages.read.gateway-backfill.fail_ignored", { sessionKey: parsed.data.sessionKey, ...errorMeta(error) });
+      }
+    }
     const sessionCursor = context.messages.latestSessionCursor(parsed.data.sessionKey);
     const visibleMessages = messages.filter((message) => !isNonUserAttachedFileEcho(message));
     log.info("messages.read.end", { sessionKey: parsed.data.sessionKey, messageCount: visibleMessages.length, cursor: sessionCursor });

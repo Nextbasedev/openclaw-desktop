@@ -140,11 +140,13 @@ async function fetchJson<T>(path: string, init?: RequestInit & { schedulerPriori
   }
 }
 
+const CHAT_BOOTSTRAP_INITIAL_LIMIT = 160
+
 export async function fetchChatBootstrapV2(sessionKey: string): Promise<ChatBootstrapV2> {
   const key = `bootstrap:${sessionKey}`
   const existing = chatBootstrapRequests.get(key)
   if (existing) return existing
-  const params = new URLSearchParams({ sessionKey })
+  const params = new URLSearchParams({ sessionKey, limit: String(CHAT_BOOTSTRAP_INITIAL_LIMIT) })
   const request = fetchJson<ChatBootstrapV2>(`/api/chat/bootstrap?${params.toString()}`, {
     schedulerPriority: "active-chat",
     schedulerSessionKey: sessionKey,
