@@ -7,7 +7,7 @@ import type { MiddlewareConfig } from "../../config/env.js";
 import { createLogger, errorMeta, safeUrlForLog } from "../../lib/logger.js";
 
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
-const PROTOCOL_VERSION = 4;
+const PROTOCOL_VERSION = 3;
 const DEFAULT_SCOPES = ["operator.read", "operator.write", "operator.admin"];
 const CLIENT = {
   id: "gateway-client",
