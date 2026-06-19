@@ -73,7 +73,7 @@ import { PAGE_SIZE as WINDOW_PAGE_SIZE, WINDOW_SIZE as WINDOW_TOTAL_SIZE, planDr
 import { createPageCache, getCachedPage, putCachedPage, clearSessionPageCache, type PageCacheState } from "@/lib/chat-engine-v2/pageCache"
 import { getTimelineStore, deleteTimelineStore } from "@/lib/chat-engine-v2/timelineStore"
 import { stripTransientChatMessagesState } from "@/lib/chatTransientState"
-import { isStopSlashCommand } from "@/lib/controlSlashCommands"
+import { isHistoryHiddenSlashCommand, isStopSlashCommand } from "@/lib/controlSlashCommands"
 import { setSchedulerActiveSession, abortSessionRequests } from "@/lib/requestScheduler"
 import {
   getWarmChatCache,
@@ -2538,6 +2538,7 @@ export function useChatMessages(
       const trimmed = payload.text.trim()
       const hasAttachments = (payload.attachments?.length ?? 0) > 0
       const isStopCommand = isStopSlashCommand(trimmed)
+      const hideOptimisticUserEcho = !hasAttachments && isHistoryHiddenSlashCommand(trimmed)
       const runsAlongsideGeneration = Boolean(
         isGenerating && payload.runWhileGenerating && !isStopCommand
       )
@@ -2625,25 +2626,29 @@ export function useChatMessages(
           messageText
         )
       }
-      const optimisticMessage: ChatMessage = {
-        messageId: optimisticId,
-        role: "user" as const,
-        text: trimmed,
-        createdAt: new Date().toISOString(),
-        isOptimistic: true,
-        optimisticMessageId: optimisticId,
-        sendStatus: "sending",
-        sendError: null,
-        retryPayload: payload,
-        replyTo,
-        attachments: messageAttachments,
-      }
-      const optimisticMessages = dedupeChatMessages([
-        ...messagesRef.current.filter((m) => m.messageId !== optimisticId),
-        optimisticMessage,
-      ])
+      const optimisticMessage: ChatMessage | null = hideOptimisticUserEcho
+        ? null
+        : {
+            messageId: optimisticId,
+            role: "user" as const,
+            text: trimmed,
+            createdAt: new Date().toISOString(),
+            isOptimistic: true,
+            optimisticMessageId: optimisticId,
+            sendStatus: "sending",
+            sendError: null,
+            retryPayload: payload,
+            replyTo,
+            attachments: messageAttachments,
+          }
+      const optimisticMessages = optimisticMessage
+        ? dedupeChatMessages([
+            ...messagesRef.current.filter((m) => m.messageId !== optimisticId),
+            optimisticMessage,
+          ])
+        : messagesRef.current
       // Write optimistic to timeline store BEFORE React state
-      timelineStoreRef.current.applyOptimistic(optimisticMessage)
+      if (optimisticMessage) timelineStoreRef.current.applyOptimistic(optimisticMessage)
       flushSync(() => {
         setMessages(optimisticMessages)
         seedGlobalChatSession({

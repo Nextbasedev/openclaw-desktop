@@ -1,6 +1,6 @@
 import type { SlashCommand } from "@/hooks/useSlashCommands"
 
-const FALLBACK_RUN_WHILE_GENERATING = new Set([
+const HISTORY_HIDDEN_NATIVE_COMMANDS = new Set([
   "status",
   "model",
   "models",
@@ -13,8 +13,13 @@ const FALLBACK_RUN_WHILE_GENERATING = new Set([
   "deny",
   "approvals",
   "help",
+  "clear",
+  "reset",
+  "new",
   "stop",
 ])
+
+const FALLBACK_RUN_WHILE_GENERATING = HISTORY_HIDDEN_NATIVE_COMMANDS
 
 export function getSlashCommandName(text: string): string | null {
   const match = text.trimStart().match(/^\/(\S+)/)
@@ -44,4 +49,9 @@ export function canRunSlashCommandWhileGenerating(
 
 export function isStopSlashCommand(text: string): boolean {
   return getSlashCommandName(text) === "stop"
+}
+
+export function isHistoryHiddenSlashCommand(text: string): boolean {
+  const name = getSlashCommandName(text)
+  return Boolean(name && HISTORY_HIDDEN_NATIVE_COMMANDS.has(name))
 }
