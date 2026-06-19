@@ -558,6 +558,24 @@ function objectData(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function sessionEntryFromGatewayResult(value: unknown): Record<string, unknown> {
+  const root = objectData(value);
+  const payload = objectData(root.payload);
+  return objectData(payload.entry ?? root.entry ?? root);
+}
+
+function sessionIdFromGatewayResult(value: unknown): string | null {
+  const entry = sessionEntryFromGatewayResult(value);
+  const candidate = entry.sessionId ?? entry.id;
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
+}
+
+function sessionFileFromGatewayResult(value: unknown): string | null {
+  const entry = sessionEntryFromGatewayResult(value);
+  const candidate = entry.sessionFile;
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
+}
+
 function attachmentMetadata(raw: unknown) {
   if (!Array.isArray(raw)) return { count: 0 };
   return {
@@ -899,8 +917,26 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         key: input.sessionKey,
         agentId: input.agentId || "main",
         label: gatewayLabel,
-      }).then(() => {
-        log.info("session.create.end", { sessionKey: input.sessionKey, durationMs: elapsedMs(sessionCreateStartedAtMs) });
+      }).then((created) => {
+        const createdSessionId = sessionIdFromGatewayResult(created);
+        const createdSessionFile = sessionFileFromGatewayResult(created);
+        if (createdSessionId) {
+          context.messages.ensureActiveSegment({
+            sessionKey: input.sessionKey,
+            sessionId: createdSessionId,
+            sessionFile: createdSessionFile,
+          });
+          context.messages.upsertSession({
+            sessionKey: input.sessionKey,
+            sessionId: createdSessionId,
+            data: {
+              ...objectData(existingLocalSession?.data),
+              sessionKey: input.sessionKey,
+              sessionId: createdSessionId,
+            },
+          });
+        }
+        log.info("session.create.end", { sessionKey: input.sessionKey, durationMs: elapsedMs(sessionCreateStartedAtMs), sessionId: createdSessionId });
       }).catch((error) => {
         log.warn("session.create.fail_ignored", { sessionKey: input.sessionKey, ...errorMeta(error) });
         return null;
@@ -1197,11 +1233,24 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             });
             let currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null = null;
             if (history?.messages?.length) {
+              const historySessionId = history.sessionId ?? context.messages.getSession(input.sessionKey)?.sessionId ?? null;
+              const historySessionFile = typeof history.sessionFile === "string" ? history.sessionFile : null;
               const segment = context.messages.ensureActiveSegment({
                 sessionKey: input.sessionKey,
-                sessionId: history.sessionId ?? context.messages.getSession(input.sessionKey)?.sessionId ?? null,
-                sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
+                sessionId: historySessionId,
+                sessionFile: historySessionFile,
               });
+              if (historySessionId) {
+                context.messages.upsertSession({
+                  sessionKey: input.sessionKey,
+                  sessionId: historySessionId,
+                  data: {
+                    ...objectData(context.messages.getSession(input.sessionKey)?.data),
+                    sessionKey: input.sessionKey,
+                    sessionId: historySessionId,
+                  },
+                });
+              }
               const normalized = normalizeHistoryMessages(input.sessionKey, history.messages);
               const projectSeq = (message: ProjectedMessage) => segment.baseSeq + (message.gatewaySeq ?? message.openclawSeq);
               const historyMaxSeq = normalized.reduce((max, message) => Math.max(max, projectSeq(message)), 0);
