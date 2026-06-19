@@ -961,6 +961,7 @@ export class MessageRepository {
       SELECT COALESCE(max(cursor), 0) AS cursor
       FROM v2_projection_events
       WHERE session_key = @sessionKey
+        AND event_type != 'chat.bootstrap'
     `).get({ sessionKey }) as { cursor: number | null } | undefined;
     return row?.cursor ?? 0;
   }

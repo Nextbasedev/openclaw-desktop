@@ -90,6 +90,7 @@ function summarizeV2Body(body: BodyInit | null | undefined): unknown {
 
 const chatBootstrapRequests = new Map<string, Promise<ChatBootstrapV2>>()
 const chatMessagesRequests = new Map<string, Promise<ChatMessagesPageV2>>()
+const chatSessionContextRequests = new Map<string, Promise<{ ok: boolean; sessionKey: string; usage: SessionTokenUsage | null; updatedAtMs: number }>>()
 
 async function fetchJson<T>(path: string, init?: RequestInit & { schedulerPriority?: RequestPriority; schedulerSessionKey?: string | null; schedulerLabel?: string }): Promise<T> {
   const startedAt = performance.now()
@@ -140,11 +141,13 @@ async function fetchJson<T>(path: string, init?: RequestInit & { schedulerPriori
   }
 }
 
+const CHAT_BOOTSTRAP_INITIAL_LIMIT = 160
+
 export async function fetchChatBootstrapV2(sessionKey: string): Promise<ChatBootstrapV2> {
   const key = `bootstrap:${sessionKey}`
   const existing = chatBootstrapRequests.get(key)
   if (existing) return existing
-  const params = new URLSearchParams({ sessionKey })
+  const params = new URLSearchParams({ sessionKey, limit: String(CHAT_BOOTSTRAP_INITIAL_LIMIT) })
   const request = fetchJson<ChatBootstrapV2>(`/api/chat/bootstrap?${params.toString()}`, {
     schedulerPriority: "active-chat",
     schedulerSessionKey: sessionKey,
@@ -204,12 +207,18 @@ export async function fetchSessionContextUsage(sessionKey: string): Promise<{
   usage: SessionTokenUsage | null
   updatedAtMs: number
 }> {
+  const existing = chatSessionContextRequests.get(sessionKey)
+  if (existing) return existing
   const params = new URLSearchParams({ sessionKey })
-  return fetchJson(`/api/chat/session-context?${params.toString()}`, {
+  const request = fetchJson<{ ok: boolean; sessionKey: string; usage: SessionTokenUsage | null; updatedAtMs: number }>(`/api/chat/session-context?${params.toString()}`, {
     schedulerPriority: "active-chat",
     schedulerSessionKey: sessionKey,
     schedulerLabel: `session-context:${sessionKey}`,
+  }).finally(() => {
+    chatSessionContextRequests.delete(sessionKey)
   })
+  chatSessionContextRequests.set(sessionKey, request)
+  return request
 }
 
 async function replayPatchBacklog(afterCursor: number, onFrame: (frame: StreamFrame) => void) {

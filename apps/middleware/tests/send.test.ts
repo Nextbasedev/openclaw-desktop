@@ -216,6 +216,44 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("accepts and broadcasts optimistic send before Gateway session setup resolves", async () => {
+    const app = await createApp(config("fast-accept-before-setup"));
+    const context = contextOf(app);
+    const patches: unknown[] = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch); });
+    let resolveCreate!: () => void;
+    const createBlocked = new Promise<void>((resolve) => { resolveCreate = resolve; });
+    const calls: string[] = [];
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      calls.push(method);
+      if (method === "sessions.create") {
+        await createBlocked;
+        return { ok: true };
+      }
+      if (method === "sessions.messages.subscribe") return { ok: true };
+      if (method === "chat.send") return { runId: "r1", status: "started" };
+      return { ok: true };
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s-fast", text: "hello", idempotencyKey: "fast-key", clientMessageId: "client-fast" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, accepted: true, sessionKey: "s-fast", idempotencyKey: "fast-key" });
+    expect(patches[0]).toMatchObject({ type: "chat.message.upsert", sessionKey: "s-fast" });
+    expect(patches[1]).toMatchObject({ type: "chat.status", sessionKey: "s-fast" });
+    expect(calls).toContain("sessions.create");
+    expect(calls).not.toContain("chat.send");
+
+    resolveCreate();
+    await waitFor(() => calls.includes("chat.send"));
+    expect(calls.indexOf("sessions.messages.subscribe")).toBeLessThan(calls.indexOf("chat.send"));
+    await app.close();
+  });
+
   test("keeps text attachments out of the visible user message while forwarding them to Gateway", async () => {
     const app = await createApp(config("text-attachment-display"));
     const context = contextOf(app);

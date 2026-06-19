@@ -47,6 +47,27 @@ describe("middleware client", () => {
     const { getMiddlewareUrl } = await import("../client")
     expect(getMiddlewareUrl()).toBe("https://remote.example.com")
   })
+
+  it("dedupes concurrent session-context usage reads", async () => {
+    vi.stubGlobal("window", { location: { hostname: "localhost" }, console, addEventListener: vi.fn() })
+    vi.stubGlobal("localStorage", { getItem: vi.fn(() => null) })
+    let resolveFetch!: (response: Response) => void
+    const pendingFetch = new Promise<Response>((resolve) => { resolveFetch = resolve })
+    const fetchMock = vi.fn(() => pendingFetch)
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { fetchSessionContextUsage } = await import("../client")
+    const first = fetchSessionContextUsage("s1")
+    const second = fetchSessionContextUsage("s1")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    resolveFetch(new Response(JSON.stringify({ ok: true, sessionKey: "s1", usage: null, updatedAtMs: 1 }), { status: 200 }))
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { ok: true, sessionKey: "s1", usage: null, updatedAtMs: 1 },
+      { ok: true, sessionKey: "s1", usage: null, updatedAtMs: 1 },
+    ])
+  })
+
   it("continues delivering live patches after backlog replay finishes", async () => {
     const data = new Map<string, string>()
     vi.stubGlobal("window", { location: { hostname: "localhost" }, console, addEventListener: vi.fn(), dispatchEvent: vi.fn() })
