@@ -3205,6 +3205,30 @@ function usageTimestampMs(value: unknown) {
   return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
+const FALLBACK_USAGE_PRICES_PER_MILLION: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
+  "openai-codex/gpt-5.5": { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
+};
+
+function usageCost(raw: CompatRecord, normalized: ReturnType<typeof normalizeUsage>, provider: unknown, model: unknown) {
+  const storedCost = usageNumber(
+    (raw.cost && typeof raw.cost === "object" ? (raw.cost as CompatRecord).total : raw.cost)
+      ?? raw.totalCost
+      ?? raw.cost_usd,
+  );
+  if (storedCost > 0) return storedCost;
+
+  const priceKey = `${String(provider ?? "").trim()}/${String(model ?? "").trim()}`;
+  const prices = FALLBACK_USAGE_PRICES_PER_MILLION[priceKey];
+  if (!prices) return storedCost;
+
+  return (
+    (normalized.input / 1_000_000) * prices.input
+    + (normalized.output / 1_000_000) * prices.output
+    + (normalized.cacheRead / 1_000_000) * prices.cacheRead
+    + (normalized.cacheWrite / 1_000_000) * prices.cacheWrite
+  );
+}
+
 function frontendUsageSummary(summary: CompatRecord) {
   return {
     totalCost: usageNumber(summary.totalCost),
@@ -3262,12 +3286,14 @@ function usageFromSessions(requestedDays = 30) {
             const timestamp = entry.timestamp ?? entry.ts ?? message.timestamp ?? data.timestamp;
             const timestampMs = usageTimestampMs(timestamp);
             if (timestampMs < cutoff) continue;
-            const cost = usageNumber((raw.cost && typeof raw.cost === "object" ? (raw.cost as CompatRecord).total : undefined) ?? raw.totalCost);
+            const provider = message.provider ?? entry.provider;
+            const model = message.model ?? entry.modelId;
+            const cost = usageCost(raw, normalized, provider, model);
             const item = {
               ...normalized,
               cost,
-              provider: message.provider ?? entry.provider,
-              model: message.model ?? entry.modelId,
+              provider,
+              model,
               timestamp: typeof timestamp === "string" || typeof timestamp === "number" ? timestamp : new Date(timestampMs).toISOString(),
               sessionFile: full,
             };
