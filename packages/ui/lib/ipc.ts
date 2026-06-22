@@ -222,6 +222,14 @@ async function invokeRemoteMiddleware<T>(
     }
     case "middleware_sessions_create":
       return middlewareFetch<T>("/api/sessions", { method: "POST", body: JSON.stringify(input) })
+    case "middleware_ai_chat_titles_get":
+      return middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }) })
+    case "middleware_ai_chat_titles_set":
+      return middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }), timeoutMs: 30_000 })
+    case "middleware_usage":
+      return middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }), timeoutMs: 60_000 })
+    case "middleware_usage_daily":
+      return middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }), timeoutMs: 60_000 })
     case "middleware_repos_recent":
       return middlewareFetch<T>("/api/repos/recent")
     case "middleware_repos_scan":

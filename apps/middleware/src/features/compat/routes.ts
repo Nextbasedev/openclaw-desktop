@@ -2704,6 +2704,110 @@ function writeVoiceSettings(input: CompatRecord) {
   return voiceSettingsPayload();
 }
 
+function legacyAutonameFromText(text: unknown) {
+  return String(text || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
+}
+
+function aiChatTitleConfig(cfg: CompatRecord) {
+  const raw = cfg.features?.aiGeneratedChatTitles && typeof cfg.features.aiGeneratedChatTitles === "object"
+    ? cfg.features.aiGeneratedChatTitles as CompatRecord
+    : {};
+  const apiKey = String(raw.apiKey || cfg.env?.vars?.GPT_OSS_API_KEY || process.env.GPT_OSS_API_KEY || "").trim();
+  return {
+    enabled: raw.enabled === true,
+    apiKey,
+    apiKeyConfigured: Boolean(apiKey),
+    model: String(raw.model || process.env.GPT_OSS_TITLE_MODEL || "gpt-oss-20b").trim(),
+    endpoint: String(raw.endpoint || process.env.GPT_OSS_CHAT_COMPLETIONS_URL || "https://api.openai.com/v1/chat/completions").trim(),
+  };
+}
+
+function aiChatTitleSettingsPayload() {
+  const cfg = readOCPlatformConfig();
+  const settings = aiChatTitleConfig(cfg);
+  return {
+    settings: {
+      enabled: settings.enabled,
+      apiKeyConfigured: settings.apiKeyConfigured,
+      model: settings.model,
+    },
+  };
+}
+
+function validateAiChatTitleKey(apiKey: string) {
+  const key = apiKey.trim();
+  if (!key) return { ok: false, error: "GPT OSS API key is required." };
+  if (key.length < 16) return { ok: false, error: "GPT OSS API key looks too short." };
+  if (/\s/.test(key)) return { ok: false, error: "GPT OSS API key cannot contain spaces." };
+  return { ok: true };
+}
+
+function writeAiChatTitleSettings(input: CompatRecord) {
+  const cfg = readOCPlatformConfig();
+  cfg.features ??= {};
+  cfg.features.aiGeneratedChatTitles ??= {};
+  const settings = cfg.features.aiGeneratedChatTitles as CompatRecord;
+  settings.enabled = input.enabled === true;
+  if (Object.prototype.hasOwnProperty.call(input, "apiKey")) {
+    const apiKey = String(input.apiKey || "").trim();
+    if (apiKey) {
+      const validation = validateAiChatTitleKey(apiKey);
+      if (!validation.ok) throw new HttpError(400, validation.error || "Invalid GPT OSS API key", "GPT_OSS_API_KEY_INVALID");
+      settings.apiKey = apiKey;
+    } else {
+      delete settings.apiKey;
+    }
+  }
+  if (typeof input.model === "string" && input.model.trim()) settings.model = input.model.trim();
+  writeOCPlatformConfig(cfg);
+  return aiChatTitleSettingsPayload();
+}
+
+function sanitizeAiChatTitle(value: unknown) {
+  const title = String(value || "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/^Title:\s*/i, "")
+    .replace(/^['\"`]+|['\"`]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!title || title.length < 2) return null;
+  return title.length <= 60 ? title : title.slice(0, 57).trimEnd() + "...";
+}
+
+async function generateAiChatTitleFromPrompt(firstPrompt: string) {
+  const cfg = readOCPlatformConfig();
+  const settings = aiChatTitleConfig(cfg);
+  if (!settings.enabled || !settings.apiKeyConfigured) return null;
+  const prompt = firstPrompt.replace(/\s+/g, " ").trim();
+  if (!prompt) return null;
+  try {
+    const response = await fetch(settings.endpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${settings.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: settings.model,
+        temperature: 0.2,
+        max_tokens: 24,
+        messages: [
+          { role: "system", content: "Generate a concise chat title from only the user's first prompt. Return only the title, no quotes, no punctuation wrapper, 2-6 words, max 40 characters." },
+          { role: "user", content: prompt.slice(0, 2000) },
+        ],
+      }),
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as CompatRecord;
+    const choice = Array.isArray(payload.choices) ? payload.choices[0] as CompatRecord | undefined : undefined;
+    const message = choice?.message && typeof choice.message === "object" ? choice.message as CompatRecord : {};
+    return sanitizeAiChatTitle(message.content ?? choice?.text);
+  } catch {
+    return null;
+  }
+}
+
 function providerDetails(providerId: string) {
   const envVar = voiceProviderEnvVars[providerId] ?? `${providerId.toUpperCase()}_API_KEY`;
   const name = providerId.charAt(0).toUpperCase() + providerId.slice(1);
@@ -4246,6 +4350,10 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return voiceSettingsPayload();
       case "middleware_voice_settings_set":
         return writeVoiceSettings(input);
+      case "middleware_ai_chat_titles_get":
+        return aiChatTitleSettingsPayload();
+      case "middleware_ai_chat_titles_set":
+        return writeAiChatTitleSettings(input);
       case "middleware_onboarding_provider_details": {
         const providerId = String(input.providerId || "").trim();
         if (!providerId) return reply.code(400).send({ ok: false, error: { message: "providerId is required" } });
@@ -4293,7 +4401,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_skills_active":
         return getActiveSkills();
       case "middleware_autonaming_quick": {
-        const name = String(input.text || input.prompt || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
+        const firstPrompt = String(input.text || input.prompt || "");
+        const name = await generateAiChatTitleFromPrompt(firstPrompt) || legacyAutonameFromText(firstPrompt);
         return { name, title: name };
       }
       case "middleware_chat_history": {
