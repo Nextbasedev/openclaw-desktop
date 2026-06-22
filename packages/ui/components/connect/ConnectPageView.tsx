@@ -147,7 +147,7 @@ Setup:
    - MIDDLEWARE_TOKEN=<stable random secret>
    - MIDDLEWARE_PAIRING_CODE=<short readable code, 6-8 uppercase chars>
 5. Run it as an auto-restarting service that survives crashes and reboot.
-6. Middleware URL rule: use the URL Desktop can actually reach — HTTPS reverse proxy first, then Tailscale MagicDNS/100.x.y.z, then private IP/LAN, then public IP:8787 only if firewall/security-group allows it.
+6. Middleware URL rule: use the URL Desktop can actually reach - HTTPS reverse proxy first, then Tailscale MagicDNS/100.x.y.z, then private IP/LAN, then public IP:8787 only if firewall/security-group allows it.
 
 Mandatory verification:
 Run the repo smoke-test script. It checks health, pairing/token, auth APIs, admin commands, cron, stream, chat send, workspace, and terminal.
