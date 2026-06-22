@@ -13,9 +13,11 @@ function testDbPath(name: string) {
 }
 
 describe("SQLite projection", () => {
-  test("migration creates schema version", () => {
+  test("migration creates schema version and projection cursor index", () => {
     const db = openDatabase({ databasePath: testDbPath("schema") });
-    expect(readSchemaVersion(db)).toBe(2);
+    expect(readSchemaVersion(db)).toBe(3);
+    const indexes = db.prepare(`PRAGMA index_list(v2_projection_events)`).all() as Array<{ name: string }>;
+    expect(indexes.map((index) => index.name)).toContain("idx_v2_projection_events_session_cursor_non_bootstrap");
     db.close();
   });
 
