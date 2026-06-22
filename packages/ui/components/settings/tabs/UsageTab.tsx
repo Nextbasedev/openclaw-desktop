@@ -36,7 +36,7 @@ export function UsageTab() {
             <Icons.Automations size={14} strokeWidth={1.7} />
           </div> */}
           <div className="min-w-0">
-            <span className="block text-[16px] font-semibold uppercase tracking-[0.14em] text-black dark:text-white">
+            <span className="block text-[16px] font-semibold uppercase tracking-[0.14em] text-white">
               Token Usage
             </span>
             <span className="block truncate text-[12px] text-muted-foreground/50">

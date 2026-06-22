@@ -3237,29 +3237,7 @@ function userHomeDir() {
   return process.env.HOME || os.homedir();
 }
 
-let usageCache: { key: string; expiresAt: number; value: ReturnType<typeof buildUsageFromSessions> } | null = null;
-
-function usageSessionsSignature(agentsRoot: string) {
-  let newestMtime = 0;
-  let fileCount = 0;
-  if (!fs.existsSync(agentsRoot)) return "missing";
-  for (const agent of fs.readdirSync(agentsRoot)) {
-    const sessionsDir = path.join(agentsRoot, agent, "sessions");
-    if (!fs.existsSync(sessionsDir)) continue;
-    for (const file of fs.readdirSync(sessionsDir)) {
-      if (!file.endsWith(".jsonl") || file.endsWith(".trajectory.jsonl")) continue;
-      fileCount += 1;
-      try {
-        newestMtime = Math.max(newestMtime, fs.statSync(path.join(sessionsDir, file)).mtimeMs);
-      } catch {
-        // Ignore files that disappear while scanning.
-      }
-    }
-  }
-  return `${fileCount}:${Math.round(newestMtime)}`;
-}
-
-function buildUsageFromSessions(requestedDays = 30) {
+function usageFromSessions(requestedDays = 30) {
   const usage: CompatRecord[] = [];
   const days = new Map<string, CompatRecord>();
   const cutoff = Date.now() - Math.max(1, requestedDays) * 24 * 60 * 60 * 1000;
@@ -3271,11 +3249,6 @@ function buildUsageFromSessions(requestedDays = 30) {
       for (const file of fs.readdirSync(sessionsDir)) {
         if (!file.endsWith(".jsonl") || file.endsWith(".trajectory.jsonl")) continue;
         const full = path.join(sessionsDir, file);
-        try {
-          if (fs.statSync(full).mtimeMs < cutoff) continue;
-        } catch {
-          continue;
-        }
         const lines = fs.readFileSync(full, "utf8").split("\n");
         for (const line of lines) {
           if (!line.includes('"usage"')) continue;
@@ -3333,16 +3306,6 @@ function buildUsageFromSessions(requestedDays = 30) {
   };
 }
 
-function usageFromSessions(requestedDays = 30) {
-  const agentsRoot = path.join(userHomeDir(), ".openclaw", "agents");
-  const key = `${Math.max(1, requestedDays)}:${usageSessionsSignature(agentsRoot)}`;
-  const now = Date.now();
-  if (usageCache && usageCache.key === key && usageCache.expiresAt > now) return usageCache.value;
-  const value = buildUsageFromSessions(requestedDays);
-  usageCache = { key, value, expiresAt: now + 30_000 };
-  return value;
-}
-
 async function usageProviders(context: AppContext) {
   try {
     const status = await context.gateway.request<CompatRecord>("usage.status", {}, 30_000);
@@ -3356,13 +3319,10 @@ async function usageProviders(context: AppContext) {
 async function usageResponse(context: AppContext, days: number) {
   const usage = usageFromSessions(days);
   const providers = await usageProviders(context);
-  const daily = frontendDaily(usage.days);
   return {
     range: { days },
     summary: frontendUsageSummary(usage.summary),
     providers,
-    daily,
-    days: usage.days,
     usage: usage.usage.slice(-500),
     source: usage.source,
     unavailable: usage.unavailable,
@@ -4178,14 +4138,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const write = (event: string, payload: CompatRecord) => {
       reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
     };
-    reply.raw.write(": cron stream ready\n\n");
-    write("cron.ready", { ok: true });
-    if (String(request.headers["user-agent"] ?? "").toLowerCase().includes("curl/")) {
-      reply.raw.end();
-      return;
-    }
     const client = { write };
     cronSseClients.add(client);
+    write("cron.ready", { ok: true });
     const unsubscribe = context.gateway.onEvent((gatewayEvent) => {
       if (!gatewayEvent.event.startsWith("cron.")) return;
       const payload = gatewayEvent.payload && typeof gatewayEvent.payload === "object" ? gatewayEvent.payload as CompatRecord : {};
@@ -4363,12 +4318,12 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const message = String(input.message ?? input.text ?? input.prompt ?? "");
         if (!sessionKey || !message.trim()) return reply.code(400).send({ ok: false, error: { message: "sessionKey and message required" } });
         try {
-          const { text: _text, prompt: _prompt, execPolicy: _execPolicy, ...chatInput } = input;
           const result = await context.gateway.request("chat.send", {
-            ...chatInput,
+            ...input,
             sessionKey,
             message,
-            idempotencyKey: String(input.idempotencyKey ?? `middleware:${sessionKey}:${Date.now()}:${Math.random().toString(36).slice(2)}`),
+            text: undefined,
+            prompt: undefined,
           }, Number(input.timeoutMs ?? 130_000));
           return { ok: true, result, sessionKey };
         } catch (error) {
@@ -4383,7 +4338,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const message = String(lastUser?.data?.text ?? "").trim();
         if (!message) return reply.code(404).send({ ok: false, error: { message: "No user message available to regenerate" } });
         try {
-          const result = await context.gateway.request("chat.send", { sessionKey, message, timeoutMs: input.timeoutMs ?? 130_000, idempotencyKey: String(input.idempotencyKey ?? `regenerate:${sessionKey}:${Date.now()}`) }, Number(input.timeoutMs ?? 130_000));
+          const result = await context.gateway.request("chat.send", { sessionKey, message, timeoutMs: input.timeoutMs ?? 130_000 }, Number(input.timeoutMs ?? 130_000));
           return { ok: true, result, sessionKey };
         } catch (error) {
           return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Regenerate failed" } });

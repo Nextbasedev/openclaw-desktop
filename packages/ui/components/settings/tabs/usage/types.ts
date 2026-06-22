@@ -27,7 +27,6 @@ export type UsageResponse = {
   range: { days: number }
   summary: UsageSummary
   providers: ProviderStatus[]
-  daily?: DailyEntry[]
 }
 
 export type DailyEntry = {
