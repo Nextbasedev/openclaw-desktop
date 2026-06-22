@@ -3341,57 +3341,138 @@ function userHomeDir() {
   return process.env.HOME || os.homedir();
 }
 
+type UsageCacheFile = {
+  size: number;
+  mtimeMs: number;
+  usage: CompatRecord[];
+};
+
+type UsageCacheState = {
+  version: number;
+  files: Record<string, UsageCacheFile>;
+};
+
+const USAGE_CACHE_VERSION = 1;
+let usageCacheState: UsageCacheState | null = null;
+
+function usageCachePath() {
+  return path.join(userHomeDir(), ".openclaw", "middleware", "usage-cache.json");
+}
+
+function loadUsageCache(): UsageCacheState {
+  if (usageCacheState) return usageCacheState;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(usageCachePath(), "utf8")) as UsageCacheState;
+    usageCacheState = parsed?.version === USAGE_CACHE_VERSION && parsed.files && typeof parsed.files === "object"
+      ? parsed
+      : { version: USAGE_CACHE_VERSION, files: {} };
+  } catch {
+    usageCacheState = { version: USAGE_CACHE_VERSION, files: {} };
+  }
+  return usageCacheState;
+}
+
+function saveUsageCache(cache: UsageCacheState) {
+  try {
+    const file = usageCachePath();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(cache));
+  } catch {
+    // Cache writes are best-effort; usage can still be recomputed from transcripts.
+  }
+}
+
+function listUsageTranscriptFiles() {
+  const files: string[] = [];
+  const agentsRoot = path.join(userHomeDir(), ".openclaw", "agents");
+  if (!fs.existsSync(agentsRoot)) return files;
+  for (const agent of fs.readdirSync(agentsRoot)) {
+    const sessionsDir = path.join(agentsRoot, agent, "sessions");
+    if (!fs.existsSync(sessionsDir)) continue;
+    for (const file of fs.readdirSync(sessionsDir)) {
+      if (!file.endsWith(".jsonl") || file.endsWith(".trajectory.jsonl")) continue;
+      files.push(path.join(sessionsDir, file));
+    }
+  }
+  return files;
+}
+
+function parseUsageTranscriptFile(full: string) {
+  const parsedUsage: CompatRecord[] = [];
+  const lines = fs.readFileSync(full, "utf8").split("\n");
+  for (const line of lines) {
+    if (!line.includes('"usage"')) continue;
+    try {
+      const entry = JSON.parse(line) as CompatRecord;
+      const message = entry.message && typeof entry.message === "object" ? entry.message as CompatRecord : {};
+      const data = entry.data && typeof entry.data === "object" ? entry.data as CompatRecord : {};
+      const raw = (message.usage ?? data.usage ?? entry.usage) as CompatRecord | undefined;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const normalized = normalizeUsage(raw);
+      const timestamp = entry.timestamp ?? entry.ts ?? message.timestamp ?? data.timestamp;
+      const timestampMs = usageTimestampMs(timestamp);
+      const cost = usageNumber((raw.cost && typeof raw.cost === "object" ? (raw.cost as CompatRecord).total : undefined) ?? raw.totalCost);
+      parsedUsage.push({
+        ...normalized,
+        cost,
+        provider: message.provider ?? entry.provider,
+        model: message.model ?? entry.modelId,
+        timestamp: typeof timestamp === "string" || typeof timestamp === "number" ? timestamp : new Date(timestampMs).toISOString(),
+        timestampMs,
+        sessionFile: full,
+      });
+    } catch {
+      // Skip malformed transcript lines.
+    }
+  }
+  return parsedUsage;
+}
+
 function usageFromSessions(requestedDays = 30) {
   const usage: CompatRecord[] = [];
   const days = new Map<string, CompatRecord>();
   const cutoff = Date.now() - Math.max(1, requestedDays) * 24 * 60 * 60 * 1000;
-  const agentsRoot = path.join(userHomeDir(), ".openclaw", "agents");
-  if (fs.existsSync(agentsRoot)) {
-    for (const agent of fs.readdirSync(agentsRoot)) {
-      const sessionsDir = path.join(agentsRoot, agent, "sessions");
-      if (!fs.existsSync(sessionsDir)) continue;
-      for (const file of fs.readdirSync(sessionsDir)) {
-        if (!file.endsWith(".jsonl") || file.endsWith(".trajectory.jsonl")) continue;
-        const full = path.join(sessionsDir, file);
-        const lines = fs.readFileSync(full, "utf8").split("\n");
-        for (const line of lines) {
-          if (!line.includes('"usage"')) continue;
-          try {
-            const entry = JSON.parse(line) as CompatRecord;
-            const message = entry.message && typeof entry.message === "object" ? entry.message as CompatRecord : {};
-            const data = entry.data && typeof entry.data === "object" ? entry.data as CompatRecord : {};
-            const raw = (message.usage ?? data.usage ?? entry.usage) as CompatRecord | undefined;
-            if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-            const normalized = normalizeUsage(raw);
-            const timestamp = entry.timestamp ?? entry.ts ?? message.timestamp ?? data.timestamp;
-            const timestampMs = usageTimestampMs(timestamp);
-            if (timestampMs < cutoff) continue;
-            const cost = usageNumber((raw.cost && typeof raw.cost === "object" ? (raw.cost as CompatRecord).total : undefined) ?? raw.totalCost);
-            const item = {
-              ...normalized,
-              cost,
-              provider: message.provider ?? entry.provider,
-              model: message.model ?? entry.modelId,
-              timestamp: typeof timestamp === "string" || typeof timestamp === "number" ? timestamp : new Date(timestampMs).toISOString(),
-              sessionFile: full,
-            };
-            usage.push(item);
-            const dayKey = new Date(timestampMs).toISOString().slice(0, 10);
-            const daily = days.get(dayKey) ?? { day: dayKey, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, totalCost: 0 };
-            daily.input += item.input;
-            daily.output += item.output;
-            daily.cacheRead += item.cacheRead;
-            daily.cacheWrite += item.cacheWrite;
-            daily.totalTokens += item.total;
-            daily.totalCost += item.cost;
-            days.set(dayKey, daily);
-          } catch {
-            // Skip malformed transcript lines.
-          }
-        }
-      }
+  const cache = loadUsageCache();
+  const seenFiles = new Set<string>();
+  let cacheChanged = false;
+
+  for (const full of listUsageTranscriptFiles()) {
+    seenFiles.add(full);
+    let stat: fs.Stats;
+    try { stat = fs.statSync(full); } catch { continue; }
+    const size = stat.size;
+    const mtimeMs = Math.round(stat.mtimeMs);
+    let fileUsage = cache.files[full]?.usage;
+    if (!fileUsage || cache.files[full].size !== size || cache.files[full].mtimeMs !== mtimeMs) {
+      fileUsage = parseUsageTranscriptFile(full);
+      cache.files[full] = { size, mtimeMs, usage: fileUsage };
+      cacheChanged = true;
+    }
+
+    for (const item of fileUsage) {
+      const timestampMs = usageTimestampMs(item.timestampMs ?? item.timestamp);
+      if (timestampMs < cutoff) continue;
+      usage.push(item);
+      const dayKey = new Date(timestampMs).toISOString().slice(0, 10);
+      const daily = days.get(dayKey) ?? { day: dayKey, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, totalCost: 0 };
+      daily.input += usageNumber(item.input);
+      daily.output += usageNumber(item.output);
+      daily.cacheRead += usageNumber(item.cacheRead);
+      daily.cacheWrite += usageNumber(item.cacheWrite);
+      daily.totalTokens += usageNumber(item.total);
+      daily.totalCost += usageNumber(item.cost);
+      days.set(dayKey, daily);
     }
   }
+
+  for (const file of Object.keys(cache.files)) {
+    if (!seenFiles.has(file)) {
+      delete cache.files[file];
+      cacheChanged = true;
+    }
+  }
+  if (cacheChanged) saveUsageCache(cache);
+
   const summary = usage.reduce((acc, item) => {
     acc.input += usageNumber(item.input);
     acc.output += usageNumber(item.output);
@@ -3412,7 +3493,7 @@ function usageFromSessions(requestedDays = 30) {
 
 async function usageProviders(context: AppContext) {
   try {
-    const status = await context.gateway.request<CompatRecord>("usage.status", {}, 30_000);
+    const status = await context.gateway.request<CompatRecord>("usage.status", {}, 2_000);
     const payload = status.payload && typeof status.payload === "object" ? status.payload as CompatRecord : status;
     return Array.isArray(payload.providers) ? payload.providers : [];
   } catch {
