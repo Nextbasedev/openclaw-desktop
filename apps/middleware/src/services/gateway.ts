@@ -15,7 +15,7 @@ export type MiddlewareGatewayHandle = {
 }
 
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
-const PROTOCOL_VERSION = 3
+const PROTOCOL_VERSION = 4
 const CLIENT = { id: "gateway-client", displayName: "OpenClaw Desktop Middleware", version: "0.1.0", platform: "desktop", mode: "backend" }
 const DEFAULT_SCOPES = ["operator.read", "operator.write", "operator.approvals", "operator.admin"]
 
@@ -283,7 +283,7 @@ export async function connectGateway(scopes = DEFAULT_SCOPES, opts: { purpose?: 
 
 
 async function connectSharedGatewayOnce(gatewayUrl: string, token: string, identity: Awaited<ReturnType<typeof loadOrCreateIdentity>>, scopes: string[], purpose: GatewayPurpose) {
-  const headers = process.env.MIDDLEWARE_ORIGIN ? { origin: process.env.MIDDLEWARE_ORIGIN } : undefined
+  const headers = process.env.OPENCLAW_GATEWAY_ORIGIN ? { origin: process.env.OPENCLAW_GATEWAY_ORIGIN } : undefined
   const ws = new WebSocket(gatewayUrl, headers ? { headers } : undefined)
   try {
     await waitOpen(ws)
@@ -304,7 +304,7 @@ async function connectSharedGatewayOnce(gatewayUrl: string, token: string, ident
 }
 
 async function connectGatewayOnce(gatewayUrl: string, token: string, identity: Awaited<ReturnType<typeof loadOrCreateIdentity>>, scopes: string[]) {
-  const headers = process.env.MIDDLEWARE_ORIGIN ? { origin: process.env.MIDDLEWARE_ORIGIN } : undefined
+  const headers = process.env.OPENCLAW_GATEWAY_ORIGIN ? { origin: process.env.OPENCLAW_GATEWAY_ORIGIN } : undefined
   const ws = new WebSocket(gatewayUrl, headers ? { headers } : undefined)
   try {
     await waitOpen(ws)

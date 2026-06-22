@@ -51,7 +51,24 @@ function shellQuote(value: string) {
 }
 
 export function middlewareUpdateStatus() {
-  return readStatus()
+  const status = readStatus()
+
+  // The updater writes `restarting` immediately before asking systemd to restart
+  // this service. If this endpoint is reachable again from the restarted
+  // process, the restart has completed successfully. Without this normalization,
+  // the desktop UI can stay stuck on “Restarting” forever because the status file
+  // is intentionally persisted outside the process.
+  if (status.state === "restarting") {
+    const succeeded: MiddlewareUpdateStatus = {
+      ...status,
+      state: "succeeded",
+      message: "Middleware service restarted successfully",
+    }
+    writeStatus(succeeded)
+    return readStatus()
+  }
+
+  return status
 }
 
 export function startMiddlewareUpdate() {
