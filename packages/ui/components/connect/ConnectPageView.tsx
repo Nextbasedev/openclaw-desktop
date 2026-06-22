@@ -952,26 +952,26 @@ function ConnectedState({
   return (
     <div className="rounded-2xl bg-emerald-500/[0.055] p-5">
       <div className="flex items-start gap-4">
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-300">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-300">
           <HugeiconsIcon icon={CheckmarkCircle02Icon} size={22} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-emerald-100">
+            <p className="text-sm font-semibold text-emerald-950 dark:text-emerald-100">
               Workspace ready
             </p>
-            <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-emerald-300/80">
+            <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-emerald-700 dark:text-emerald-300/80">
               Connected
             </span>
           </div>
-          <p className="mt-1.5 text-xs leading-relaxed text-emerald-100/62">
+          <p className="mt-1.5 text-xs leading-relaxed text-emerald-900/70 dark:text-emerald-100/62">
             Projects, terminal, git, chats, files, streams, and approvals will run through this runtime.
           </p>
-          <div className="mt-4 rounded-xl bg-black/10 px-3 py-2">
-            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-emerald-100/38">
+          <div className="mt-4 rounded-xl bg-black/[0.07] dark:bg-black/10 px-3 py-2">
+            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-emerald-900/55 dark:text-emerald-100/38">
               Middleware URL
             </p>
-            <p className="mt-1 truncate font-mono text-[12px] text-emerald-50/80" title={displayUrl}>
+            <p className="mt-1 truncate font-mono text-[12px] text-emerald-950/85 dark:text-emerald-50/80" title={displayUrl}>
               {displayUrl}
             </p>
           </div>
@@ -982,7 +982,7 @@ function ConnectedState({
         disabled={busy}
         variant="outline"
         size="sm"
-        className="mt-5 w-full border-0 bg-emerald-400/[0.08] text-emerald-100 hover:bg-emerald-400/[0.13]"
+        className="mt-5 w-full border-0 bg-emerald-400/[0.08] text-emerald-800 hover:bg-emerald-400/[0.13] dark:text-emerald-100"
       >
         <HugeiconsIcon icon={Unlink03Icon} size={14} />
         {disconnecting ? "Disconnecting..." : "Disconnect"}
