@@ -6,7 +6,6 @@ import { dedupeRequest } from "@/lib/requestDedupe"
 import type {
   UsagePeriod,
   UsageResponse,
-  UsageDailyResponse,
   UsageSummary,
   ProviderStatus,
   DailyEntry,
@@ -95,25 +94,18 @@ export function useUsageData(period: UsagePeriod) {
     }))
     try {
       const days = PERIOD_DAYS[requestedPeriod]
-      const [usageRes, dailyRes] = await Promise.all([
-        dedupeRequest(
-          `usage:${days}`,
-          () => invoke<UsageResponse>("middleware_usage", { input: { days } }),
-          { ttlMs: 30_000 },
-        ),
-        dedupeRequest(
-          `usage-daily:${days}`,
-          () => invoke<UsageDailyResponse>("middleware_usage_daily", { input: { days } }),
-          { ttlMs: 30_000 },
-        ),
-      ])
+      const usageRes = await dedupeRequest(
+        `usage:${days}`,
+        () => invoke<UsageResponse>("middleware_usage", { input: { days } }),
+        { ttlMs: 30_000 },
+      )
 
       loadedPeriodRef.current = requestedPeriod
       
       // Zero-fill the daily array so the chart width properly reflects the requested period (e.g. 7d vs 30d)
       // For a 24h period we'll pad it to at least 2 days so Recharts can draw a line instead of a single dot.
       const displayDays = Math.max(2, days)
-      const filledDaily = fillMissingDays(dailyRes.daily, displayDays)
+      const filledDaily = fillMissingDays(usageRes.daily ?? [], displayDays)
 
       setData({
         summary: usageRes.summary,
