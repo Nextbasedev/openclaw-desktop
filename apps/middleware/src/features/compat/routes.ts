@@ -2759,16 +2759,16 @@ function aiChatTitleSettingsPayload() {
 
 function validateAiChatTitleKey(apiKey: string) {
   const key = apiKey.trim();
-  if (!key) return { ok: false, error: "GPT OSS API key is required." };
-  if (key.length < 16) return { ok: false, error: "GPT OSS API key looks too short." };
-  if (/\s/.test(key)) return { ok: false, error: "GPT OSS API key cannot contain spaces." };
+  if (!key) return { ok: false, error: "AI chat title API key is required." };
+  if (key.length < 16) return { ok: false, error: "AI chat title API key looks too short." };
+  if (/\s/.test(key)) return { ok: false, error: "AI chat title API key cannot contain spaces." };
   return { ok: true };
 }
 
 function writeAiChatTitleSettings(input: CompatRecord) {
   const cfg = readOCPlatformConfig();
-  cfg.features ??= {};
-  cfg.features.aiGeneratedChatTitles ??= {};
+  if (!cfg.features || typeof cfg.features !== "object") cfg.features = {};
+  if (!cfg.features.aiGeneratedChatTitles || typeof cfg.features.aiGeneratedChatTitles !== "object") cfg.features.aiGeneratedChatTitles = {};
   const settings = cfg.features.aiGeneratedChatTitles as CompatRecord;
   const provider = normalizeAiChatTitleProvider(input.provider || settings.provider);
   settings.enabled = input.enabled === true;
