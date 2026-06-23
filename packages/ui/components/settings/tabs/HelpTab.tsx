@@ -169,6 +169,11 @@ function aiChatTitleProviderOption(provider: AiChatTitleProvider) {
   return AI_CHAT_TITLE_PROVIDER_OPTIONS.find((option) => option.value === provider) ?? AI_CHAT_TITLE_PROVIDER_OPTIONS[0]
 }
 
+function isUnsupportedAiChatTitlesCommandError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes("Unsupported middleware command: middleware_ai_chat_titles_")
+}
+
 export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) {
   function handleClick(link: HelpLink) {
     if (link.label === "Keyboard Shortcuts" && onShortcutsClick) {
@@ -637,16 +642,22 @@ function AiChatTitlesCard() {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [saved, setSaved] = React.useState(false)
+  const [unsupportedMiddleware, setUnsupportedMiddleware] = React.useState(false)
 
   async function loadSettings() {
     try {
       const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_get")
       const nextProvider = res.settings.provider === "xai" ? "xai" : "openai-compatible"
+      setUnsupportedMiddleware(false)
       setEnabled(Boolean(res.settings.enabled))
       setProvider(nextProvider)
       setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured))
       setModel(res.settings.model || aiChatTitleProviderOption(nextProvider).defaultModel)
     } catch (err) {
+      if (isUnsupportedAiChatTitlesCommandError(err)) {
+        setUnsupportedMiddleware(true)
+        return
+      }
       setError(err instanceof Error ? err.message : String(err))
     }
   }
@@ -672,6 +683,11 @@ function AiChatTitlesCard() {
       setSaved(true)
       toast.success("AI chat title settings saved.")
     } catch (err) {
+      if (isUnsupportedAiChatTitlesCommandError(err)) {
+        setUnsupportedMiddleware(true)
+        toast.info("Update Middleware to use AI-generated chat titles.")
+        return
+      }
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
       toast.error(message)
@@ -694,6 +710,11 @@ function AiChatTitlesCard() {
       setSaved(true)
       toast.success("AI chat title API key cleared.")
     } catch (err) {
+      if (isUnsupportedAiChatTitlesCommandError(err)) {
+        setUnsupportedMiddleware(true)
+        toast.info("Update Middleware to use AI-generated chat titles.")
+        return
+      }
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
       toast.error(message)
@@ -807,6 +828,12 @@ function AiChatTitlesCard() {
         <div className="mt-3 flex items-start gap-2 rounded-2xl bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-400">
           <LuCheck className="mt-0.5 shrink-0" size={14} />
           <span>AI chat title settings saved.</span>
+        </div>
+      )}
+
+      {unsupportedMiddleware && (
+        <div className="mt-3 rounded-2xl bg-black/[0.035] px-3 py-2 text-[11px] text-muted-foreground dark:bg-white/[0.045]">
+          Update Middleware to use AI-generated chat titles.
         </div>
       )}
 
