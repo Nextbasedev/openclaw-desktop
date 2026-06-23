@@ -2389,11 +2389,13 @@ function AppShell({
   const handleFirstMessageSent = useCallback(async (text: string) => {
     const chat = activeChatRef.current
     if (!chat) return
+    const fallbackName = fallbackChatNameFromText(text)
     // Skip autonaming if the chat already has a meaningful name
-    // (e.g. migrated Telegram chats, previously named chats)
-    if (!isWeakChatName(chat.name)) return
+    // (e.g. migrated Telegram chats, previously named chats). Prompt-derived
+    // fallback names are still eligible for AI renaming because new chats are
+    // often created with that fallback before the first-message callback runs.
+    if (!isWeakChatName(chat.name) && chat.name !== fallbackName) return
     try {
-      const fallbackName = fallbackChatNameFromText(text)
       const { name } = await invoke<{ name: string }>(
         "middleware_autonaming_quick",
         { input: { text } },
