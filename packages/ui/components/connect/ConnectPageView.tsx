@@ -667,7 +667,6 @@ function VpsOpenClawPanel(props: {
             Connect Desktop to middleware running on your server. Paste the verified URL and pairing code below.
           </p>
         </div>
-        <SetupPromptButton prompt={VPS_OPENCLAW_PROMPT} />
       </div>
 
       <div className="relative mt-5 space-y-4">
@@ -701,9 +700,7 @@ function SetupPromptPreview({ prompt }: { prompt: string }) {
         <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/54">
           Setup prompt
         </p>
-        <p className="text-[11px] text-muted-foreground/45">
-          Visible copy for server OpenClaw
-        </p>
+        <SetupPromptButton prompt={prompt} />
       </div>
       <pre className="max-h-[150px] overflow-y-auto rounded-[18px] bg-black/[0.04] dark:bg-black/20 px-4 py-3 font-mono text-[10.5px] leading-relaxed whitespace-pre-wrap text-muted-foreground dark:text-zinc-400/90 shadow-[inset_0_1px_16px_rgba(0,0,0,0.18)]">
         {prompt}
