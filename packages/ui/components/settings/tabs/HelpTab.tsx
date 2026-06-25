@@ -144,7 +144,7 @@ type AiChatTitlesSettingsResponse = {
   }
 }
 
-type AiChatTitleProvider = "openai-compatible" | "xai" | "openrouter"
+type AiChatTitleProvider = "openai-compatible" | "xai"
 
 const AI_CHAT_TITLE_PROVIDER_OPTIONS: Array<{ value: AiChatTitleProvider; label: string; defaultModel: string; keyLabel: string; hint: string }> = [
   {
@@ -161,24 +161,12 @@ const AI_CHAT_TITLE_PROVIDER_OPTIONS: Array<{ value: AiChatTitleProvider; label:
     keyLabel: "xAI/Grok API key",
     hint: "Uses xAI's Grok chat completions endpoint automatically.",
   },
-  {
-    value: "openrouter",
-    label: "OpenRouter",
-    defaultModel: "meta-llama/llama-3.2-3b-instruct:free",
-    keyLabel: "OpenRouter API key",
-    hint: "Uses OpenRouter's OpenAI-compatible endpoint. Free models require an OpenRouter key and may change availability.",
-  },
 ]
 
 const AI_CHAT_TITLE_DEFAULT_MODELS = AI_CHAT_TITLE_PROVIDER_OPTIONS.map((option) => option.defaultModel)
 
 function aiChatTitleProviderOption(provider: AiChatTitleProvider) {
   return AI_CHAT_TITLE_PROVIDER_OPTIONS.find((option) => option.value === provider) ?? AI_CHAT_TITLE_PROVIDER_OPTIONS[0]
-}
-
-function normalizeAiChatTitleProvider(value: unknown): AiChatTitleProvider {
-  if (value === "xai" || value === "openrouter") return value
-  return "openai-compatible"
 }
 
 function isUnsupportedAiChatTitlesCommandError(error: unknown) {
@@ -660,7 +648,7 @@ function AiChatTitlesCard() {
   async function loadSettings() {
     try {
       const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_get")
-      const nextProvider = normalizeAiChatTitleProvider(res.settings.provider)
+      const nextProvider = res.settings.provider === "xai" ? "xai" : "openai-compatible"
       setUnsupportedMiddleware(false)
       setEnabled(Boolean(res.settings.enabled))
       setProvider(nextProvider)
@@ -687,7 +675,7 @@ function AiChatTitlesCard() {
       const input: Record<string, unknown> = { enabled: nextEnabled, provider, model }
       if (apiKey.trim()) input.apiKey = apiKey.trim()
       const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_set", { input })
-      const nextProvider = normalizeAiChatTitleProvider(res.settings.provider)
+      const nextProvider = res.settings.provider === "xai" ? "xai" : "openai-compatible"
       setEnabled(Boolean(res.settings.enabled))
       setProvider(nextProvider)
       setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured))
@@ -715,7 +703,7 @@ function AiChatTitlesCard() {
     setSaved(false)
     try {
       const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_set", { input: { enabled: false, provider, apiKey: "", model } })
-      const nextProvider = normalizeAiChatTitleProvider(res.settings.provider)
+      const nextProvider = res.settings.provider === "xai" ? "xai" : "openai-compatible"
       setEnabled(Boolean(res.settings.enabled))
       setProvider(nextProvider)
       setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured))

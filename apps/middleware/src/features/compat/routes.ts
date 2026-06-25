@@ -2708,7 +2708,7 @@ function legacyAutonameFromText(text: unknown) {
   return String(text || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
 }
 
-type AiChatTitleProvider = "openai-compatible" | "xai" | "openrouter";
+type AiChatTitleProvider = "openai-compatible" | "xai";
 
 const aiChatTitleProviderDefaults: Record<AiChatTitleProvider, { model: string; endpoint: string }> = {
   "openai-compatible": {
@@ -2719,23 +2719,12 @@ const aiChatTitleProviderDefaults: Record<AiChatTitleProvider, { model: string; 
     model: "grok-3-mini",
     endpoint: "https://api.x.ai/v1/chat/completions",
   },
-  openrouter: {
-    model: "meta-llama/llama-3.2-3b-instruct:free",
-    endpoint: "https://openrouter.ai/api/v1/chat/completions",
-  },
 };
 
 function normalizeAiChatTitleProvider(value: unknown): AiChatTitleProvider {
   const provider = String(value || "").trim().toLowerCase();
   if (provider === "xai" || provider === "grok") return "xai";
-  if (provider === "openrouter" || provider === "open-router") return "openrouter";
   return "openai-compatible";
-}
-
-function aiChatTitleEnvApiKey(cfg: CompatRecord, provider: AiChatTitleProvider) {
-  if (provider === "xai") return cfg.env?.vars?.XAI_API_KEY || process.env.XAI_API_KEY;
-  if (provider === "openrouter") return cfg.env?.vars?.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY;
-  return cfg.env?.vars?.GPT_OSS_API_KEY || process.env.GPT_OSS_API_KEY;
 }
 
 function aiChatTitleConfig(cfg: CompatRecord) {
@@ -2744,7 +2733,7 @@ function aiChatTitleConfig(cfg: CompatRecord) {
     : {};
   const provider = normalizeAiChatTitleProvider(raw.provider || process.env.GPT_OSS_TITLE_PROVIDER);
   const defaults = aiChatTitleProviderDefaults[provider];
-  const apiKey = String(raw.apiKey || aiChatTitleEnvApiKey(cfg, provider) || "").trim();
+  const apiKey = String(raw.apiKey || cfg.env?.vars?.GPT_OSS_API_KEY || process.env.GPT_OSS_API_KEY || "").trim();
   return {
     enabled: raw.enabled === true,
     provider,
