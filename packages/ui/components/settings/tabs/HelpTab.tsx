@@ -144,7 +144,7 @@ type AiChatTitlesSettingsResponse = {
   }
 }
 
-type AiChatTitleProvider = "openai-compatible" | "xai" | "groq"
+type AiChatTitleProvider = "openai-compatible" | "xai" | "openrouter"
 
 const AI_CHAT_TITLE_PROVIDER_OPTIONS: Array<{ value: AiChatTitleProvider; label: string; defaultModel: string; keyLabel: string; hint: string }> = [
   {
@@ -162,11 +162,11 @@ const AI_CHAT_TITLE_PROVIDER_OPTIONS: Array<{ value: AiChatTitleProvider; label:
     hint: "Uses xAI's Grok chat completions endpoint automatically.",
   },
   {
-    value: "groq",
-    label: "Groq",
-    defaultModel: "llama-3.3-70b-versatile",
-    keyLabel: "Groq API key",
-    hint: "Uses Groq's OpenAI-compatible endpoint. Good for free testing with Groq API keys.",
+    value: "openrouter",
+    label: "OpenRouter",
+    defaultModel: "meta-llama/llama-3.2-3b-instruct:free",
+    keyLabel: "OpenRouter API key",
+    hint: "Uses OpenRouter's OpenAI-compatible endpoint. Free models require an OpenRouter key and may change availability.",
   },
 ]
 
@@ -177,7 +177,7 @@ function aiChatTitleProviderOption(provider: AiChatTitleProvider) {
 }
 
 function normalizeAiChatTitleProvider(value: unknown): AiChatTitleProvider {
-  if (value === "xai" || value === "groq") return value
+  if (value === "xai" || value === "openrouter") return value
   return "openai-compatible"
 }
 
