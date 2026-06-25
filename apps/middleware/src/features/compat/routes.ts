@@ -806,7 +806,7 @@ type MiddlewareUpdateBranch = {
 };
 
 const UPDATE_REPO_URL = "https://github.com/Nextbasedev/openclaw-desktop.git";
-const DEFAULT_UPDATE_BRANCH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_BRANCH || "main";
+const DEFAULT_UPDATE_BRANCH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_BRANCH || "harsh-test";
 const UPDATE_SERVICE_NAME = process.env.OPENCLAW_MIDDLEWARE_SERVICE || "openclaw-middleware";
 const UPDATE_STATUS_PATH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_STATUS || path.join(os.tmpdir(), "openclaw-middleware-update-status.json");
 const UPDATE_LOG_PATH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_LOG || path.join(os.tmpdir(), "openclaw-middleware-update.log");
@@ -961,7 +961,7 @@ function writeMiddlewareUpdateStatus(status: MiddlewareUpdateStatus) {
 }
 
 function fallbackMiddlewareUpdateBranches(source = "fallback"): { branches: MiddlewareUpdateBranch[]; defaultBranch: string; source: string } {
-  const names = new Set<string>([DEFAULT_UPDATE_BRANCH, "main", "dev-2-temp", "dev-2", "dev-3-harsh"]);
+  const names = new Set<string>([DEFAULT_UPDATE_BRANCH, "harsh-test", "main", "dev-2-temp", "dev-2", "dev-3-harsh"]);
   try {
     const repoRoot = findMiddlewareRepoRoot();
     const refs = gitOutput(repoRoot, ["branch", "-r", "--format=%(refname:short)"]);
