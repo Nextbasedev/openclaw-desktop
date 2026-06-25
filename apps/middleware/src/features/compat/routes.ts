@@ -2708,39 +2708,17 @@ function legacyAutonameFromText(text: unknown) {
   return String(text || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
 }
 
-type AiChatTitleProvider = "openai-compatible" | "xai";
-
-const aiChatTitleProviderDefaults: Record<AiChatTitleProvider, { model: string; endpoint: string }> = {
-  "openai-compatible": {
-    model: "gpt-oss-20b",
-    endpoint: "https://api.openai.com/v1/chat/completions",
-  },
-  xai: {
-    model: "grok-3-mini",
-    endpoint: "https://api.x.ai/v1/chat/completions",
-  },
-};
-
-function normalizeAiChatTitleProvider(value: unknown): AiChatTitleProvider {
-  const provider = String(value || "").trim().toLowerCase();
-  if (provider === "xai" || provider === "grok") return "xai";
-  return "openai-compatible";
-}
-
 function aiChatTitleConfig(cfg: CompatRecord) {
   const raw = cfg.features?.aiGeneratedChatTitles && typeof cfg.features.aiGeneratedChatTitles === "object"
     ? cfg.features.aiGeneratedChatTitles as CompatRecord
     : {};
-  const provider = normalizeAiChatTitleProvider(raw.provider || process.env.GPT_OSS_TITLE_PROVIDER);
-  const defaults = aiChatTitleProviderDefaults[provider];
   const apiKey = String(raw.apiKey || cfg.env?.vars?.GPT_OSS_API_KEY || process.env.GPT_OSS_API_KEY || "").trim();
   return {
     enabled: raw.enabled === true,
-    provider,
     apiKey,
     apiKeyConfigured: Boolean(apiKey),
-    model: String(raw.model || process.env.GPT_OSS_TITLE_MODEL || defaults.model).trim(),
-    endpoint: String(raw.endpoint || process.env.GPT_OSS_CHAT_COMPLETIONS_URL || defaults.endpoint).trim(),
+    model: String(raw.model || process.env.GPT_OSS_TITLE_MODEL || "gpt-oss-20b").trim(),
+    endpoint: String(raw.endpoint || process.env.GPT_OSS_CHAT_COMPLETIONS_URL || "https://api.openai.com/v1/chat/completions").trim(),
   };
 }
 
@@ -2750,7 +2728,6 @@ function aiChatTitleSettingsPayload() {
   return {
     settings: {
       enabled: settings.enabled,
-      provider: settings.provider,
       apiKeyConfigured: settings.apiKeyConfigured,
       model: settings.model,
     },
@@ -2770,9 +2747,7 @@ function writeAiChatTitleSettings(input: CompatRecord) {
   cfg.features ??= {};
   cfg.features.aiGeneratedChatTitles ??= {};
   const settings = cfg.features.aiGeneratedChatTitles as CompatRecord;
-  const provider = normalizeAiChatTitleProvider(input.provider || settings.provider);
   settings.enabled = input.enabled === true;
-  settings.provider = provider;
   if (Object.prototype.hasOwnProperty.call(input, "apiKey")) {
     const apiKey = String(input.apiKey || "").trim();
     if (apiKey) {
@@ -2784,7 +2759,6 @@ function writeAiChatTitleSettings(input: CompatRecord) {
     }
   }
   if (typeof input.model === "string" && input.model.trim()) settings.model = input.model.trim();
-  else if (!settings.model) settings.model = aiChatTitleProviderDefaults[provider].model;
   writeOCPlatformConfig(cfg);
   return aiChatTitleSettingsPayload();
 }

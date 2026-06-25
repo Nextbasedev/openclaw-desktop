@@ -138,35 +138,9 @@ type V1SqliteMigrationImport = {
 type AiChatTitlesSettingsResponse = {
   settings: {
     enabled: boolean
-    provider?: AiChatTitleProvider
     apiKeyConfigured: boolean
     model?: string
   }
-}
-
-type AiChatTitleProvider = "openai-compatible" | "xai"
-
-const AI_CHAT_TITLE_PROVIDER_OPTIONS: Array<{ value: AiChatTitleProvider; label: string; defaultModel: string; keyLabel: string; hint: string }> = [
-  {
-    value: "openai-compatible",
-    label: "OpenAI-compatible / GPT OSS",
-    defaultModel: "gpt-oss-20b",
-    keyLabel: "GPT OSS API key",
-    hint: "Uses the OpenAI-compatible chat completions endpoint.",
-  },
-  {
-    value: "xai",
-    label: "xAI / Grok",
-    defaultModel: "grok-3-mini",
-    keyLabel: "xAI/Grok API key",
-    hint: "Uses xAI's Grok chat completions endpoint automatically.",
-  },
-]
-
-const AI_CHAT_TITLE_DEFAULT_MODELS = AI_CHAT_TITLE_PROVIDER_OPTIONS.map((option) => option.defaultModel)
-
-function aiChatTitleProviderOption(provider: AiChatTitleProvider) {
-  return AI_CHAT_TITLE_PROVIDER_OPTIONS.find((option) => option.value === provider) ?? AI_CHAT_TITLE_PROVIDER_OPTIONS[0]
 }
 
 export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) {
@@ -630,7 +604,6 @@ function V1SqliteMigrationCard() {
 
 function AiChatTitlesCard() {
   const [enabled, setEnabled] = React.useState(false)
-  const [provider, setProvider] = React.useState<AiChatTitleProvider>("openai-compatible")
   const [apiKey, setApiKey] = React.useState("")
   const [apiKeyConfigured, setApiKeyConfigured] = React.useState(false)
   const [model, setModel] = React.useState("gpt-oss-20b")
@@ -641,11 +614,9 @@ function AiChatTitlesCard() {
   async function loadSettings() {
     try {
       const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_get")
-      const nextProvider = res.settings.provider === "xai" ? "xai" : "openai-compatible"
       setEnabled(Boolean(res.settings.enabled))
-      setProvider(nextProvider)
       setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured))
-      setModel(res.settings.model || aiChatTitleProviderOption(nextProvider).defaultModel)
+      setModel(res.settings.model || "gpt-oss-20b")
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -660,14 +631,12 @@ function AiChatTitlesCard() {
     setError(null)
     setSaved(false)
     try {
-      const input: Record<string, unknown> = { enabled: nextEnabled, provider, model }
+      const input: Record<string, unknown> = { enabled: nextEnabled, model }
       if (apiKey.trim()) input.apiKey = apiKey.trim()
       const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_set", { input })
-      const nextProvider = res.settings.provider === "xai" ? "xai" : "openai-compatible"
       setEnabled(Boolean(res.settings.enabled))
-      setProvider(nextProvider)
       setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured))
-      setModel(res.settings.model || model || aiChatTitleProviderOption(nextProvider).defaultModel)
+      setModel(res.settings.model || model)
       setApiKey("")
       setSaved(true)
       toast.success("AI chat title settings saved.")
@@ -685,14 +654,12 @@ function AiChatTitlesCard() {
     setError(null)
     setSaved(false)
     try {
-      const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_set", { input: { enabled: false, provider, apiKey: "", model } })
-      const nextProvider = res.settings.provider === "xai" ? "xai" : "openai-compatible"
+      const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_set", { input: { enabled: false, apiKey: "", model } })
       setEnabled(Boolean(res.settings.enabled))
-      setProvider(nextProvider)
       setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured))
       setApiKey("")
       setSaved(true)
-      toast.success("AI chat title API key cleared.")
+      toast.success("GPT OSS API key cleared.")
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
@@ -703,15 +670,6 @@ function AiChatTitlesCard() {
   }
 
   const canEnable = apiKeyConfigured || apiKey.trim().length > 0
-  const selectedProvider = aiChatTitleProviderOption(provider)
-
-  function handleProviderChange(nextProvider: AiChatTitleProvider) {
-    setProvider(nextProvider)
-    const nextDefaultModel = aiChatTitleProviderOption(nextProvider).defaultModel
-    if (!model.trim() || AI_CHAT_TITLE_DEFAULT_MODELS.includes(model.trim())) {
-      setModel(nextDefaultModel)
-    }
-  }
 
   return (
     <section className={HELP_SECTION_CLASS}>
@@ -722,33 +680,20 @@ function AiChatTitlesCard() {
         <div className="min-w-0 flex-1">
           <h3 className="text-[13px] font-medium text-foreground">AI Generated Chat Titles</h3>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            Use an AI model to name newly created chats from the first user prompt. If this is off or no key is configured, OpenClaw keeps the current first-prompt truncation fallback.
+            Use a GPT OSS model to name newly created chats from the first user prompt. If this is off or no key is configured, OpenClaw keeps the current first-prompt truncation fallback.
           </p>
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 rounded-2xl bg-black/15 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(150px,210px)]">
+      <div className="mt-4 grid gap-3 rounded-2xl bg-black/15 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(160px,220px)]">
         <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
-          Provider
-          <select
-            value={provider}
-            onChange={(event) => handleProviderChange(event.target.value === "xai" ? "xai" : "openai-compatible")}
-            disabled={busy}
-            className={HELP_FIELD_CLASS}
-          >
-            {AI_CHAT_TITLE_PROVIDER_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
-          {selectedProvider.keyLabel}
+          GPT OSS API key
           <input
             type="password"
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
             disabled={busy}
-            placeholder={apiKeyConfigured ? "Configured — enter a new key to replace" : `Enter ${selectedProvider.keyLabel}`}
+            placeholder={apiKeyConfigured ? "Configured — enter a new key to replace" : "Enter GPT OSS API key"}
             className={HELP_FIELD_CLASS}
           />
         </label>
@@ -758,14 +703,11 @@ function AiChatTitlesCard() {
             value={model}
             onChange={(event) => setModel(event.target.value)}
             disabled={busy}
-            placeholder={selectedProvider.defaultModel}
+            placeholder="gpt-oss-20b"
             className={HELP_FIELD_CLASS}
           />
         </label>
       </div>
-      <p className="mt-2 px-1 text-[10px] leading-relaxed text-muted-foreground/65">
-        {selectedProvider.hint}
-      </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <label className="inline-flex cursor-pointer items-center gap-2 text-[12px] text-foreground">
