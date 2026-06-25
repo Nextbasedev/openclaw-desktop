@@ -6,7 +6,7 @@ import { invoke, openExternalUrl } from "@/lib/ipc"
 import { emit } from "@/lib/events"
 import { invalidateMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { getMiddlewareConnection, isOpenClawConnected, testMiddlewareConnection } from "@/lib/middleware-client"
-import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert, LuChevronDown, LuSparkles } from "react-icons/lu"
+import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert, LuChevronDown } from "react-icons/lu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 
@@ -135,14 +135,6 @@ type V1SqliteMigrationImport = {
   }
 }
 
-type AiChatTitlesSettingsResponse = {
-  settings: {
-    enabled: boolean
-    apiKeyConfigured: boolean
-    model?: string
-  }
-}
-
 export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) {
   function handleClick(link: HelpLink) {
     if (link.label === "Keyboard Shortcuts" && onShortcutsClick) {
@@ -195,8 +187,6 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
       <MiddlewareUpdateCard />
 
       <V1SqliteMigrationCard />
-
-      <AiChatTitlesCard />
 
       <SessionMigrationCard platform="telegram" />
 
@@ -589,166 +579,6 @@ function V1SqliteMigrationCard() {
             <Stat label="Sessions" value={result.summary.sessions} />
           </div>
           <p className="mt-3 truncate pt-3 text-muted-foreground/70">Source: {result.sourcePath}</p>
-        </div>
-      )}
-
-      {error && (
-        <div className="mt-3 flex items-start gap-2 rounded-2xl bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
-          <LuCircleAlert className="mt-0.5 shrink-0" size={14} />
-          <span>{error}</span>
-        </div>
-      )}
-    </section>
-  )
-}
-
-function AiChatTitlesCard() {
-  const [enabled, setEnabled] = React.useState(false)
-  const [apiKey, setApiKey] = React.useState("")
-  const [apiKeyConfigured, setApiKeyConfigured] = React.useState(false)
-  const [model, setModel] = React.useState("gpt-oss-20b")
-  const [busy, setBusy] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
-  const [saved, setSaved] = React.useState(false)
-
-  async function loadSettings() {
-    try {
-      const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_get")
-      setEnabled(Boolean(res.settings.enabled))
-      setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured))
-      setModel(res.settings.model || "gpt-oss-20b")
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  React.useEffect(() => {
-    loadSettings().catch(() => undefined)
-  }, [])
-
-  async function saveSettings(nextEnabled = enabled) {
-    setBusy(true)
-    setError(null)
-    setSaved(false)
-    try {
-      const input: Record<string, unknown> = { enabled: nextEnabled, model }
-      if (apiKey.trim()) input.apiKey = apiKey.trim()
-      const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_set", { input })
-      setEnabled(Boolean(res.settings.enabled))
-      setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured))
-      setModel(res.settings.model || model)
-      setApiKey("")
-      setSaved(true)
-      toast.success("AI chat title settings saved.")
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      setError(message)
-      toast.error(message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function clearKey() {
-    setBusy(true)
-    setError(null)
-    setSaved(false)
-    try {
-      const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_set", { input: { enabled: false, apiKey: "", model } })
-      setEnabled(Boolean(res.settings.enabled))
-      setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured))
-      setApiKey("")
-      setSaved(true)
-      toast.success("GPT OSS API key cleared.")
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      setError(message)
-      toast.error(message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const canEnable = apiKeyConfigured || apiKey.trim().length > 0
-
-  return (
-    <section className={HELP_SECTION_CLASS}>
-      <div className="flex items-start gap-4">
-        <span className={HELP_ICON_CLASS}>
-          <LuSparkles size={16} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h3 className="text-[13px] font-medium text-foreground">AI Generated Chat Titles</h3>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            Use a GPT OSS model to name newly created chats from the first user prompt. If this is off or no key is configured, OpenClaw keeps the current first-prompt truncation fallback.
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-3 rounded-2xl bg-black/15 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(160px,220px)]">
-        <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
-          GPT OSS API key
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            disabled={busy}
-            placeholder={apiKeyConfigured ? "Configured — enter a new key to replace" : "Enter GPT OSS API key"}
-            className={HELP_FIELD_CLASS}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
-          Model
-          <input
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
-            disabled={busy}
-            placeholder="gpt-oss-20b"
-            className={HELP_FIELD_CLASS}
-          />
-        </label>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <label className="inline-flex cursor-pointer items-center gap-2 text-[12px] text-foreground">
-          <input
-            type="checkbox"
-            checked={enabled}
-            disabled={busy || (!enabled && !canEnable)}
-            onChange={(event) => saveSettings(event.target.checked)}
-            className="size-4 accent-foreground"
-          />
-          Enable AI-generated titles
-        </label>
-        <span className="text-[10px] text-muted-foreground/65">
-          Key: {apiKeyConfigured ? "configured" : "not configured"}
-        </span>
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => saveSettings()}
-          disabled={busy}
-          className={HELP_PRIMARY_BUTTON_CLASS}
-        >
-          <LuCheck size={13} />
-          {busy ? "Saving…" : "Save settings"}
-        </button>
-        <button
-          type="button"
-          onClick={clearKey}
-          disabled={busy || !apiKeyConfigured}
-          className={HELP_SECONDARY_BUTTON_CLASS}
-        >
-          Clear key
-        </button>
-      </div>
-
-      {saved && (
-        <div className="mt-3 flex items-start gap-2 rounded-2xl bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-400">
-          <LuCheck className="mt-0.5 shrink-0" size={14} />
-          <span>AI chat title settings saved.</span>
         </div>
       )}
 
