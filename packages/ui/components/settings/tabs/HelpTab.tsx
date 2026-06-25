@@ -71,7 +71,7 @@ type MiddlewareUpdateStart = {
   status: MiddlewareUpdateStatus
 }
 
-const FALLBACK_UPDATE_BRANCH_OPTIONS = ["harsh-test", "main", "dev-2-temp", "dev-2", "dev-3-harsh"] as const
+const FALLBACK_UPDATE_BRANCH_OPTIONS = ["main", "dev-2-temp", "dev-2", "dev-3-harsh"] as const
 
 type MiddlewareUpdateBranch = {
   name: string
