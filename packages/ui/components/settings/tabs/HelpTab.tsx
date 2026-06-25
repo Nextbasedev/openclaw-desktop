@@ -154,25 +154,6 @@ const GROQ_AI_CHAT_TITLE_PROVIDER = {
   hint: "Uses Groq's OpenAI-compatible endpoint for AI-generated chat titles.",
 }
 
-const AI_CHAT_TITLE_KEY_CONFIGURED_PREFIX = "openclaw.aiChatTitles.keyConfigured:"
-
-function aiChatTitleKeyConfiguredCacheKey() {
-  const connection = getMiddlewareConnection()
-  return `${AI_CHAT_TITLE_KEY_CONFIGURED_PREFIX}${connection?.url ?? "default"}`
-}
-
-function readAiChatTitleKeyConfiguredCache() {
-  if (typeof window === "undefined") return false
-  return localStorage.getItem(aiChatTitleKeyConfiguredCacheKey()) === "true"
-}
-
-function writeAiChatTitleKeyConfiguredCache(configured: boolean) {
-  if (typeof window === "undefined") return
-  const key = aiChatTitleKeyConfiguredCacheKey()
-  if (configured) localStorage.setItem(key, "true")
-  else localStorage.removeItem(key)
-}
-
 function aiChatTitleProviderOption(_provider: AiChatTitleProvider) {
   return GROQ_AI_CHAT_TITLE_PROVIDER
 }
@@ -663,8 +644,7 @@ function AiChatTitlesCard() {
       setUnsupportedMiddleware(false)
       setEnabled(Boolean(res.settings.enabled))
       setProvider(nextProvider)
-      const configured = Boolean(res.settings.apiKeyConfigured || readAiChatTitleKeyConfiguredCache())
-      setApiKeyConfigured(configured)
+      setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured))
       setModel(res.settings.model || aiChatTitleProviderOption(nextProvider).defaultModel)
     } catch (err) {
       if (isUnsupportedAiChatTitlesCommandError(err)) {
@@ -689,11 +669,9 @@ function AiChatTitlesCard() {
       if (submittedApiKey) input.apiKey = submittedApiKey
       const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_set", { input })
       const nextProvider = normalizeAiChatTitleProvider(res.settings.provider)
-      const configured = Boolean(res.settings.apiKeyConfigured || submittedApiKey)
-      writeAiChatTitleKeyConfiguredCache(configured)
       setEnabled(Boolean(res.settings.enabled))
       setProvider(nextProvider)
-      setApiKeyConfigured(configured)
+      setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured || submittedApiKey))
       setModel(res.settings.model || model || aiChatTitleProviderOption(nextProvider).defaultModel)
       setApiKey("")
       setSaved(true)
@@ -719,7 +697,6 @@ function AiChatTitlesCard() {
     try {
       const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_set", { input: { enabled: false, provider, apiKey: "", model } })
       const nextProvider = normalizeAiChatTitleProvider(res.settings.provider)
-      writeAiChatTitleKeyConfiguredCache(false)
       setEnabled(Boolean(res.settings.enabled))
       setProvider(nextProvider)
       setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured))

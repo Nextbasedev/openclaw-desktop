@@ -2721,11 +2721,10 @@ function AppShell({
           invalidateChatListCache(activeSpaceId)
           const renamedChat = { ...createdChat, name: finalName }
           resolvedChatCacheRef.current.set(result.chat.id, { chat: renamedChat, sessionKey, title: finalName })
-          const stillActive = activeChatRef.current?.id === result.chat.id
           setActiveChat((prev) =>
             prev?.id === result.chat.id ? { ...prev, name: finalName } : prev,
           )
-          if (stillActive) setActiveSessionTitle(finalName)
+          setActiveSessionTitle((prev) => (prev === fallbackName ? finalName : prev))
           dispatchGroups({
             type: "UPDATE_TAB",
             tabId: `chat:${result.chat.id}`,
