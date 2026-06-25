@@ -4347,14 +4347,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const write = (event: string, payload: CompatRecord) => {
       reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
     };
-    reply.raw.write(": cron stream ready\n\n");
-    write("cron.ready", { ok: true });
-    if (String(request.headers["user-agent"] ?? "").toLowerCase().includes("curl/")) {
-      reply.raw.end();
-      return;
-    }
     const client = { write };
     cronSseClients.add(client);
+    write("cron.ready", { ok: true });
     const unsubscribe = context.gateway.onEvent((gatewayEvent) => {
       if (!gatewayEvent.event.startsWith("cron.")) return;
       const payload = gatewayEvent.payload && typeof gatewayEvent.payload === "object" ? gatewayEvent.payload as CompatRecord : {};
@@ -4537,12 +4532,12 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const message = String(input.message ?? input.text ?? input.prompt ?? "");
         if (!sessionKey || !message.trim()) return reply.code(400).send({ ok: false, error: { message: "sessionKey and message required" } });
         try {
-          const { text: _text, prompt: _prompt, execPolicy: _execPolicy, ...chatInput } = input;
           const result = await context.gateway.request("chat.send", {
-            ...chatInput,
+            ...input,
             sessionKey,
             message,
-            idempotencyKey: String(input.idempotencyKey ?? `middleware:${sessionKey}:${Date.now()}:${Math.random().toString(36).slice(2)}`),
+            text: undefined,
+            prompt: undefined,
           }, Number(input.timeoutMs ?? 130_000));
           return { ok: true, result, sessionKey };
         } catch (error) {
@@ -4557,7 +4552,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const message = String(lastUser?.data?.text ?? "").trim();
         if (!message) return reply.code(404).send({ ok: false, error: { message: "No user message available to regenerate" } });
         try {
-          const result = await context.gateway.request("chat.send", { sessionKey, message, timeoutMs: input.timeoutMs ?? 130_000, idempotencyKey: String(input.idempotencyKey ?? `regenerate:${sessionKey}:${Date.now()}`) }, Number(input.timeoutMs ?? 130_000));
+          const result = await context.gateway.request("chat.send", { sessionKey, message, timeoutMs: input.timeoutMs ?? 130_000 }, Number(input.timeoutMs ?? 130_000));
           return { ok: true, result, sessionKey };
         } catch (error) {
           return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Regenerate failed" } });
