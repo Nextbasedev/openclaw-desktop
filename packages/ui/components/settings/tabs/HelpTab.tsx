@@ -664,14 +664,13 @@ function AiChatTitlesCard() {
     setError(null)
     setSaved(false)
     try {
-      const submittedApiKey = apiKey.trim()
       const input: Record<string, unknown> = { enabled: nextEnabled, provider, model }
-      if (submittedApiKey) input.apiKey = submittedApiKey
+      if (apiKey.trim()) input.apiKey = apiKey.trim()
       const res = await invoke<AiChatTitlesSettingsResponse>("middleware_ai_chat_titles_set", { input })
       const nextProvider = normalizeAiChatTitleProvider(res.settings.provider)
       setEnabled(Boolean(res.settings.enabled))
       setProvider(nextProvider)
-      setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured || submittedApiKey))
+      setApiKeyConfigured(Boolean(res.settings.apiKeyConfigured))
       setModel(res.settings.model || model || aiChatTitleProviderOption(nextProvider).defaultModel)
       setApiKey("")
       setSaved(true)
