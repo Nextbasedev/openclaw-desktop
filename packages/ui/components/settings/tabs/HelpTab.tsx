@@ -748,17 +748,17 @@ function AiChatTitlesCard() {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 rounded-2xl bg-black/[0.025] p-3 dark:bg-black/15 sm:grid-cols-[minmax(230px,1.15fr)_minmax(220px,1fr)_minmax(110px,140px)]">
+      <div className="mt-4 grid gap-3 rounded-2xl bg-black/15 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(150px,210px)]">
         <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
           Provider
           <select
             value={provider}
             onChange={(event) => handleProviderChange(event.target.value === "xai" ? "xai" : "openai-compatible")}
             disabled={busy}
-            className={cn(HELP_FIELD_CLASS, "bg-white pr-8 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100")}
+            className={HELP_FIELD_CLASS}
           >
             {AI_CHAT_TITLE_PROVIDER_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value} className="bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">{option.label}</option>
+              <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
         </label>
