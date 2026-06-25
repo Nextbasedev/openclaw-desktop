@@ -2708,37 +2708,50 @@ function legacyAutonameFromText(text: unknown) {
   return String(text || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
 }
 
-type AiChatTitleProvider = "groq";
+type AiChatTitleProvider = "openai-compatible" | "xai" | "groq";
 
 const aiChatTitleProviderDefaults: Record<AiChatTitleProvider, { model: string; endpoint: string }> = {
+  "openai-compatible": {
+    model: "gpt-oss-20b",
+    endpoint: "https://api.openai.com/v1/chat/completions",
+  },
+  xai: {
+    model: "grok-3-mini",
+    endpoint: "https://api.x.ai/v1/chat/completions",
+  },
   groq: {
     model: "llama-3.3-70b-versatile",
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
   },
 };
 
-function normalizeAiChatTitleProvider(_value: unknown): AiChatTitleProvider {
-  return "groq";
+function normalizeAiChatTitleProvider(value: unknown): AiChatTitleProvider {
+  const provider = String(value || "").trim().toLowerCase();
+  if (provider === "xai" || provider === "grok") return "xai";
+  if (provider === "groq") return "groq";
+  return "openai-compatible";
 }
 
-function aiChatTitleEnvApiKey(cfg: CompatRecord) {
-  return cfg.env?.vars?.GROQ_API_KEY || process.env.GROQ_API_KEY;
+function aiChatTitleEnvApiKey(cfg: CompatRecord, provider: AiChatTitleProvider) {
+  if (provider === "xai") return cfg.env?.vars?.XAI_API_KEY || process.env.XAI_API_KEY;
+  if (provider === "groq") return cfg.env?.vars?.GROQ_API_KEY || process.env.GROQ_API_KEY;
+  return cfg.env?.vars?.GPT_OSS_API_KEY || process.env.GPT_OSS_API_KEY;
 }
 
 function aiChatTitleConfig(cfg: CompatRecord) {
   const raw = cfg.features?.aiGeneratedChatTitles && typeof cfg.features.aiGeneratedChatTitles === "object"
     ? cfg.features.aiGeneratedChatTitles as CompatRecord
     : {};
-  const provider = normalizeAiChatTitleProvider(raw.provider || process.env.GROQ_TITLE_PROVIDER);
+  const provider = normalizeAiChatTitleProvider(raw.provider || process.env.GPT_OSS_TITLE_PROVIDER);
   const defaults = aiChatTitleProviderDefaults[provider];
-  const apiKey = String(raw.apiKey || aiChatTitleEnvApiKey(cfg) || "").trim();
+  const apiKey = String(raw.apiKey || aiChatTitleEnvApiKey(cfg, provider) || "").trim();
   return {
     enabled: raw.enabled === true,
     provider,
     apiKey,
     apiKeyConfigured: Boolean(apiKey),
-    model: String(raw.model || process.env.GROQ_TITLE_MODEL || defaults.model).trim(),
-    endpoint: String(raw.endpoint || process.env.GROQ_CHAT_COMPLETIONS_URL || defaults.endpoint).trim(),
+    model: String(raw.model || process.env.GPT_OSS_TITLE_MODEL || defaults.model).trim(),
+    endpoint: String(raw.endpoint || process.env.GPT_OSS_CHAT_COMPLETIONS_URL || defaults.endpoint).trim(),
   };
 }
 
@@ -2775,7 +2788,7 @@ function writeAiChatTitleSettings(input: CompatRecord) {
     const apiKey = String(input.apiKey || "").trim();
     if (apiKey) {
       const validation = validateAiChatTitleKey(apiKey);
-      if (!validation.ok) throw new HttpError(400, validation.error || "Invalid AI chat title API key", "AI_CHAT_TITLE_API_KEY_INVALID");
+      if (!validation.ok) throw new HttpError(400, validation.error || "Invalid GPT OSS API key", "GPT_OSS_API_KEY_INVALID");
       settings.apiKey = apiKey;
     } else {
       delete settings.apiKey;

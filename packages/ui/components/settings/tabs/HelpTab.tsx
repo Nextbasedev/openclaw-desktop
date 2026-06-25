@@ -144,22 +144,41 @@ type AiChatTitlesSettingsResponse = {
   }
 }
 
-type AiChatTitleProvider = "groq"
+type AiChatTitleProvider = "openai-compatible" | "xai" | "groq"
 
-const GROQ_AI_CHAT_TITLE_PROVIDER = {
-  value: "groq" as const,
-  label: "Groq",
-  defaultModel: "llama-3.3-70b-versatile",
-  keyLabel: "Groq API key",
-  hint: "Uses Groq's OpenAI-compatible endpoint for AI-generated chat titles.",
+const AI_CHAT_TITLE_PROVIDER_OPTIONS: Array<{ value: AiChatTitleProvider; label: string; defaultModel: string; keyLabel: string; hint: string }> = [
+  {
+    value: "openai-compatible",
+    label: "OpenAI-compatible / GPT OSS",
+    defaultModel: "gpt-oss-20b",
+    keyLabel: "GPT OSS API key",
+    hint: "Uses the OpenAI-compatible chat completions endpoint.",
+  },
+  {
+    value: "xai",
+    label: "xAI / Grok",
+    defaultModel: "grok-3-mini",
+    keyLabel: "xAI/Grok API key",
+    hint: "Uses xAI's Grok chat completions endpoint automatically.",
+  },
+  {
+    value: "groq",
+    label: "Groq",
+    defaultModel: "llama-3.3-70b-versatile",
+    keyLabel: "Groq API key",
+    hint: "Uses Groq's OpenAI-compatible endpoint. Good for free testing with Groq API keys.",
+  },
+]
+
+const AI_CHAT_TITLE_DEFAULT_MODELS = AI_CHAT_TITLE_PROVIDER_OPTIONS.map((option) => option.defaultModel)
+
+function aiChatTitleProviderOption(provider: AiChatTitleProvider) {
+  return AI_CHAT_TITLE_PROVIDER_OPTIONS.find((option) => option.value === provider) ?? AI_CHAT_TITLE_PROVIDER_OPTIONS[0]
 }
 
-function aiChatTitleProviderOption(_provider: AiChatTitleProvider) {
-  return GROQ_AI_CHAT_TITLE_PROVIDER
-}
-
-function normalizeAiChatTitleProvider(_value: unknown): AiChatTitleProvider {
-  return "groq"
+function normalizeAiChatTitleProvider(value: unknown): AiChatTitleProvider {
+  if (value === "xai" || value === "groq") return value
+  return "openai-compatible"
 }
 
 function isUnsupportedAiChatTitlesCommandError(error: unknown) {
@@ -628,14 +647,15 @@ function V1SqliteMigrationCard() {
 
 function AiChatTitlesCard() {
   const [enabled, setEnabled] = React.useState(false)
-  const [provider, setProvider] = React.useState<AiChatTitleProvider>("groq")
+  const [provider, setProvider] = React.useState<AiChatTitleProvider>("openai-compatible")
   const [apiKey, setApiKey] = React.useState("")
   const [apiKeyConfigured, setApiKeyConfigured] = React.useState(false)
-  const [model, setModel] = React.useState(GROQ_AI_CHAT_TITLE_PROVIDER.defaultModel)
+  const [model, setModel] = React.useState("gpt-oss-20b")
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [saved, setSaved] = React.useState(false)
   const [unsupportedMiddleware, setUnsupportedMiddleware] = React.useState(false)
+  const [providerMenuOpen, setProviderMenuOpen] = React.useState(false)
 
   async function loadSettings() {
     try {
@@ -719,6 +739,13 @@ function AiChatTitlesCard() {
   const canEnable = apiKeyConfigured || apiKey.trim().length > 0
   const selectedProvider = aiChatTitleProviderOption(provider)
 
+  function handleProviderChange(nextProvider: AiChatTitleProvider) {
+    setProvider(nextProvider)
+    const nextDefaultModel = aiChatTitleProviderOption(nextProvider).defaultModel
+    if (!model.trim() || AI_CHAT_TITLE_DEFAULT_MODELS.includes(model.trim())) {
+      setModel(nextDefaultModel)
+    }
+  }
 
   return (
     <section className={HELP_SECTION_CLASS}>
@@ -734,13 +761,52 @@ function AiChatTitlesCard() {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 rounded-2xl bg-black/[0.025] p-3 dark:bg-black/15 sm:grid-cols-[minmax(150px,180px)_minmax(220px,1fr)_minmax(120px,150px)]">
+      <div className="mt-4 grid gap-3 rounded-2xl bg-black/[0.025] p-3 dark:bg-black/15 sm:grid-cols-[minmax(230px,1.15fr)_minmax(220px,1fr)_minmax(110px,140px)]">
         <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
           Provider
-          <div className={cn(HELP_FIELD_CLASS, "flex items-center justify-between gap-2 text-foreground")}>
-            <span className="min-w-0 truncate">Groq</span>
-            <span className="shrink-0 rounded-full bg-emerald-500/12 px-2 py-0.5 text-[10px] font-medium text-emerald-500 dark:text-emerald-300">Free test</span>
-          </div>
+          <Popover open={providerMenuOpen} onOpenChange={setProviderMenuOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={busy}
+                className={cn(HELP_FIELD_CLASS, "flex w-full cursor-pointer items-center justify-between gap-2 text-left disabled:cursor-not-allowed disabled:opacity-60")}
+              >
+                <span className="min-w-0 truncate">{selectedProvider.label}</span>
+                <LuChevronDown size={14} className={cn("shrink-0 text-muted-foreground/70 transition-transform", providerMenuOpen && "rotate-180")} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              sideOffset={8}
+              className={cn(
+                "w-[min(320px,var(--radix-popover-content-available-width))] overflow-hidden rounded-2xl p-1.5 ring-0",
+                "border border-white/45 bg-white/80 text-zinc-950 shadow-[0_22px_60px_rgba(15,23,42,0.18),inset_0_1px_0_rgba(255,255,255,0.72)]",
+                "backdrop-blur-[34px] backdrop-saturate-[180%]",
+                "dark:border-white/10 dark:bg-zinc-950/78 dark:text-zinc-100 dark:shadow-[0_22px_60px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.08)]",
+              )}
+            >
+              {AI_CHAT_TITLE_PROVIDER_OPTIONS.map((option) => {
+                const active = option.value === provider
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={cn(
+                      "flex w-full cursor-pointer flex-col gap-0.5 rounded-xl px-3 py-2.5 text-left transition-colors",
+                      active ? "bg-black/[0.07] text-foreground dark:bg-white/[0.10]" : "hover:bg-black/[0.045] dark:hover:bg-white/[0.07]",
+                    )}
+                    onClick={() => {
+                      handleProviderChange(option.value)
+                      setProviderMenuOpen(false)
+                    }}
+                  >
+                    <span className="text-[12px] font-medium text-foreground">{option.label}</span>
+                    <span className="text-[10px] leading-relaxed text-muted-foreground/75">{option.defaultModel}</span>
+                  </button>
+                )
+              })}
+            </PopoverContent>
+          </Popover>
         </label>
         <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
           {selectedProvider.keyLabel}
