@@ -440,7 +440,16 @@ function isActivelyStreamingAssistant(params: {
   isGenerating: boolean
 }) {
   const { message, index, messages, isGenerating } = params
-  return isGenerating && message.role === "assistant" && index === messages.length - 1
+  if (!isGenerating || message.role !== "assistant") return false
+  const latestUserIndex = messages.reduce(
+    (latest, item, itemIndex) => item.role === "user" ? itemIndex : latest,
+    -1
+  )
+  // During a live run, tool/status rows can be appended after the partial
+  // assistant text. Treat every assistant row after the latest user as active,
+  // not only the physical last row, so completed-message actions don't flash
+  // before the run actually finishes.
+  return index > latestUserIndex
 }
 
 function GeneratingStatus({ label, tool }: { label: string; tool?: string | null }) {
@@ -2977,7 +2986,7 @@ export function ChatView({
                     isActivelyStreaming={isStreamingAssistant}
                     animateAssistantText={animateAssistantText}
                     onTextAnimationComplete={handleTextAnimationComplete}
-                    suppressActions={message.role === "assistant" && animateAssistantText}
+                    suppressActions={message.role === "assistant" && (animateAssistantText || (isGenerating && index > latestRenderedUserIndex))}
                     popoverOpen={activePopoverId === message.messageId}
                     onPopoverOpenChange={(open) =>
                       setActivePopoverId(open ? message.messageId : null)
