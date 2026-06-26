@@ -1068,11 +1068,19 @@ export function ChatView({
   const stateLoadingRef = useRef<boolean>(true)
   const stateMessagesRef = useRef<ChatMessage[]>([])
   const stateStreamStatusRef = useRef<StreamStatus>("idle")
+  // statusLabel ref mirrors state.statusLabel so the patch-apply path can read
+  // the latest committed label OUTSIDE a setState updater (see below). These
+  // refs are the authoritative "base" for live patch application: the effect
+  // resyncs them from non-patch writers (bootstrap/send/older-page), and the
+  // patch path updates them synchronously so a burst of frames in one tick
+  // chains correctly.
+  const stateStatusLabelRef = useRef<string | null>(null)
   useEffect(() => {
     stateLoadingRef.current = state.loading
     stateMessagesRef.current = state.messages
     stateStreamStatusRef.current = state.streamStatus
-  }, [state.loading, state.messages, state.streamStatus])
+    stateStatusLabelRef.current = state.statusLabel
+  }, [state.loading, state.messages, state.streamStatus, state.statusLabel])
 
   useEffect(() => {
     if (isBackgroundSession || streamCursor === null) return
@@ -1132,7 +1140,38 @@ export function ChatView({
           "debug"
         )
       }
-      setState((current) => {
+      // Apply the patch PURELY, OUTSIDE any setState updater. React invokes
+      // setState updater functions multiple times (StrictMode/concurrent
+      // rendering), so keeping applyChatPatch + frontendLog + setWindowState
+      // INSIDE the updater ran them 2x per frame (the measured render-state /
+      // older-fetch doubling, I2). The onFrame callback itself runs exactly
+      // once per frame, so computing here and committing a pure value below is
+      // both correct and side-effect-once. `current` is the synchronously
+      // maintained base (resynced from non-patch writers via the effect above,
+      // and advanced below so a burst of frames in one tick chains correctly).
+      {
+        const current = {
+          messages: stateMessagesRef.current,
+          streamStatus: stateStreamStatusRef.current,
+          statusLabel: stateStatusLabelRef.current,
+        }
+        const commit = (
+          nextMessages: ChatMessage[],
+          status: StreamStatus,
+          label: string | null,
+        ) => {
+          stateMessagesRef.current = nextMessages
+          stateStreamStatusRef.current = status
+          stateStatusLabelRef.current = label
+          setState((prev) => ({
+            ...prev,
+            loading: false,
+            error: null,
+            messages: nextMessages,
+            streamStatus: status,
+            statusLabel: label,
+          }))
+        }
         const toolId = semanticType.startsWith("chat.tool.") ? toolPatchId(frame) : null
         const beforeTool = findVisibleTool(current.messages, toolId)
         const patched = applyChatPatch(
@@ -1240,14 +1279,8 @@ export function ChatView({
               { sessionKey, evicted: evict, finalLength: finalMessages.length },
               "debug"
             )
-            return {
-              ...current,
-              loading: false,
-              error: null,
-              messages: finalMessages,
-              streamStatus: nextStatus,
-              statusLabel: nextStatusLabel,
-            }
+            commit(finalMessages, nextStatus, nextStatusLabel)
+            return
           }
           // Cannot safely evict: hasOlder is false, so evicting from start would
           // destroy unrecoverable history. Allow the array to temporarily exceed
@@ -1272,14 +1305,8 @@ export function ChatView({
             { sessionKey, length: orderedMessages.length, reason: "hasOlder=false" },
             "warn"
           )
-          return {
-            ...current,
-            loading: false,
-            error: null,
-            messages: orderedMessages,
-            streamStatus: nextStatus,
-            statusLabel: nextStatusLabel,
-          }
+          commit(orderedMessages, nextStatus, nextStatusLabel)
+          return
         }
 
         if (appendedAtTail) {
@@ -1300,15 +1327,8 @@ export function ChatView({
           )
         }
 
-        return {
-          ...current,
-          loading: false,
-          error: null,
-          messages: orderedMessages,
-          streamStatus: nextStatus,
-          statusLabel: nextStatusLabel,
-        }
-      })
+        commit(orderedMessages, nextStatus, nextStatusLabel)
+      }
     })
   }, [isBackgroundSession, sessionKey, streamCursor])
 
