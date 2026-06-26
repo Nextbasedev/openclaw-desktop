@@ -40,3 +40,4 @@ coverage/
 .stitch-sa.json
 .openclaw-src/
 docs/power-user-stress-test-raw.json
+tests/repro/runs/
