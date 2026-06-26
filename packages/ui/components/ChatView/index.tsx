@@ -1411,7 +1411,6 @@ export function ChatView({
             createdAt: new Date().toISOString(),
             isOptimistic: true,
             sendStatus: "sending",
-            replyTo: payload.replyTo,
             attachments: composerAttachmentsToMessageAttachments(payload.attachments),
           }
 
