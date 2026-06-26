@@ -395,6 +395,106 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
   }
 }
 
+/**
+ * Shared patch-stream multiplexer.
+ *
+ * Problem it solves (I1): the chat UI had THREE independent consumers
+ * (chat-engine store, runWatcher, the mounted ChatView) that each called
+ * openPatchStreamV2 and therefore each opened its own global WebSocket +
+ * health-check interval + focus/visibility listeners. That meant 2-3 sockets
+ * receiving the identical global patch stream.
+ *
+ * This hub keeps exactly ONE underlying openPatchStreamV2 connection and
+ * fans every frame out to all subscribers. Each consumer already dedupes by
+ * cursor (frame.patch.cursor <= previousCursor => skip), and assistant deltas
+ * are cumulative snapshots, so fan-out is behaviour-preserving. A subscriber
+ * that joins after the socket is live and needs older frames than the current
+ * live cursor catches up via the existing REST backlog replay (covers
+ * non-cumulative tool/status patches); overlap is harmless because consumers
+ * dedupe by cursor.
+ */
+type SharedFrameSub = { onFrame: (frame: StreamFrame) => void }
+const sharedSubs = new Set<SharedFrameSub>()
+let sharedTeardown: (() => void) | null = null
+let sharedLiveCursor = 0
+let sharedCloseTimer: ReturnType<typeof setTimeout> | null = null
+
+// Grace period before tearing down the shared socket when the last subscriber
+// leaves. React StrictMode (dev) mounts effects twice (mount -> cleanup ->
+// remount); a real session switch also unmounts ChatView a tick before the
+// next mounts. Deferring teardown keeps ONE socket alive across those gaps
+// instead of churning close/reopen (which also showed up as 1006 disconnects).
+const SHARED_CLOSE_GRACE_MS = 750
+
+function fanoutFrame(frame: StreamFrame) {
+  if (frame.type === "patch" && typeof frame.patch.cursor === "number") {
+    sharedLiveCursor = Math.max(sharedLiveCursor, frame.patch.cursor)
+  }
+  for (const sub of [...sharedSubs]) {
+    try {
+      sub.onFrame(frame)
+    } catch (error) {
+      frontendLog("stream", "patch-stream.subscriber-error", {
+        error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+      }, "warn")
+    }
+  }
+}
+
+export function subscribeChatPatches(afterCursor: number, onFrame: (frame: StreamFrame) => void): () => void {
+  if (typeof window === "undefined") return () => undefined
+  const sub: SharedFrameSub = { onFrame }
+  // Cancel a pending teardown: a new subscriber arrived within the grace window
+  // so the existing socket is reused instead of reopened.
+  if (sharedCloseTimer) {
+    clearTimeout(sharedCloseTimer)
+    sharedCloseTimer = null
+  }
+  const socketAlive = sharedTeardown !== null
+  sharedSubs.add(sub)
+  frontendLog("stream", "patch-stream.shared-subscribe", { afterCursor, subscribers: sharedSubs.size, socketAlive }, "debug")
+  if (!socketAlive) {
+    sharedLiveCursor = Math.max(0, afterCursor)
+    sharedTeardown = openPatchStreamV2(afterCursor, fanoutFrame)
+  } else if (Math.max(0, afterCursor) < sharedLiveCursor) {
+    // Late joiner that needs frames older than the live cursor: catch it up
+    // from its own afterCursor. Delivered only to this subscriber; the live
+    // fan-out continues in parallel and the consumer dedupes by cursor.
+    void replayPatchBacklog(afterCursor, onFrame).catch((error) => {
+      frontendLog("stream", "patch-stream.shared-catchup.error", {
+        afterCursor,
+        error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+      }, "warn")
+    })
+  }
+  return () => {
+    sharedSubs.delete(sub)
+    frontendLog("stream", "patch-stream.shared-unsubscribe", { subscribers: sharedSubs.size }, "debug")
+    if (sharedSubs.size === 0 && sharedTeardown && !sharedCloseTimer) {
+      sharedCloseTimer = setTimeout(() => {
+        sharedCloseTimer = null
+        if (sharedSubs.size === 0 && sharedTeardown) {
+          sharedTeardown()
+          sharedTeardown = null
+          sharedLiveCursor = 0
+        }
+      }, SHARED_CLOSE_GRACE_MS)
+    }
+  }
+}
+
+/** Test helper: forcibly reset the shared multiplexer between tests. */
+export function __resetSharedPatchStreamForTests() {
+  if (sharedCloseTimer) {
+    clearTimeout(sharedCloseTimer)
+    sharedCloseTimer = null
+  }
+  if (sharedTeardown) sharedTeardown()
+  sharedTeardown = null
+  sharedSubs.clear()
+  sharedLiveCursor = 0
+}
+
 export type SendChatV2Input = {
   sessionKey: string
   text: string

@@ -10,7 +10,7 @@ import { extractSubagentSessionKey } from "../subagentSession"
 import { stripTransientChatMessagesState } from "../chatTransientState"
 import { setWarmChatCache, preloadWarmCacheToMemory, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
-import { openPatchStreamV2 } from "./client"
+import { subscribeChatPatches } from "./client"
 import { CHAT_PROJECTION_VERSION, type CachedChatBootstrapV2, type HistoryCoverageV2, type PatchFrame, type PatchPayloadV2, type StreamFrame, type ToolCallProjectionV2 } from "./types"
 
 export type SessionState = {
@@ -1988,7 +1988,7 @@ export function ensureGlobalChatEngine(
     reason: options?.reason ?? null,
     sessionKey: options?.sessionKey ?? null,
   })
-  unsubscribeStream = openPatchStreamV2(globalCursor, handleFrame)
+  unsubscribeStream = subscribeChatPatches(globalCursor, handleFrame)
 }
 
 export function seedGlobalChatSession(params: {

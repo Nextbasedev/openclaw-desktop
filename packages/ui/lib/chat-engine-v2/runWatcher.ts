@@ -24,7 +24,7 @@
  * that remains ChatView's job. We only track lifecycle signals here.
  */
 
-import { openPatchStreamV2 } from "./client"
+import { subscribeChatPatches } from "./client"
 import {
   applyChatPatch,
   patchImpliesActiveRun,
@@ -169,7 +169,7 @@ function openStream() {
     { afterCursor: lastSeenCursor },
     "debug"
   )
-  teardown = openPatchStreamV2(lastSeenCursor, (frame) => {
+  teardown = subscribeChatPatches(lastSeenCursor, (frame) => {
     if (frame.type !== "patch") return
     if (typeof frame.patch.cursor === "number") {
       lastSeenCursor = Math.max(lastSeenCursor, frame.patch.cursor)

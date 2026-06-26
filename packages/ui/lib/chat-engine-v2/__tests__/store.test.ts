@@ -15,6 +15,7 @@ import {
 
 vi.mock("../client", () => ({
   openPatchStreamV2: vi.fn(() => () => undefined),
+  subscribeChatPatches: vi.fn(() => () => undefined),
 }))
 
 const _lsStore = new Map<string, string>()
@@ -186,8 +187,8 @@ describe("global V2 chat engine store", () => {
       reason: "test-focused-window",
     })
 
-    const { openPatchStreamV2 } = await import("../client")
-    expect(vi.mocked(openPatchStreamV2)).toHaveBeenCalledWith(1000, expect.any(Function))
+    const { subscribeChatPatches } = await import("../client")
+    expect(vi.mocked(subscribeChatPatches)).toHaveBeenCalledWith(1000, expect.any(Function))
   })
 
   test("focused replay cursor cannot lower when another session has newer local state", async () => {
@@ -205,8 +206,8 @@ describe("global V2 chat engine store", () => {
       reason: "test-focused-window",
     })
 
-    const { openPatchStreamV2 } = await import("../client")
-    expect(vi.mocked(openPatchStreamV2)).toHaveBeenCalledWith(1000, expect.any(Function))
+    const { subscribeChatPatches } = await import("../client")
+    expect(vi.mocked(subscribeChatPatches)).toHaveBeenCalledWith(1000, expect.any(Function))
   })
 
   test("metadata-only bootstrap replay is not authoritative empty history", () => {

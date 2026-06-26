@@ -105,4 +105,55 @@ describe("middleware client", () => {
       expect.objectContaining({ type: "patch", patch: expect.objectContaining({ cursor: 3 }) }),
     ])
   })
+
+  it("I1: shares ONE websocket across multiple subscribers and fans out frames", async () => {
+    const data = new Map<string, string>()
+    vi.stubGlobal("window", { location: { hostname: "localhost" }, console, addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() })
+    vi.stubGlobal("localStorage", { getItem: vi.fn((key: string) => data.get(key) ?? null) })
+
+    const sockets: Array<{ onmessage?: (event: { data: string }) => void; closed: boolean }> = []
+    class FakeWebSocket {
+      onmessage?: (event: { data: string }) => void
+      onopen?: () => void
+      onerror?: () => void
+      onclose?: (event: { code: number; wasClean: boolean }) => void
+      closed = false
+      readyState = 1
+      constructor(_url: string) { sockets.push(this) }
+      close() { this.closed = true }
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket)
+
+    const { subscribeChatPatches } = await import("../client")
+    const a: unknown[] = []
+    const b: unknown[] = []
+    const c: unknown[] = []
+    const relA = subscribeChatPatches(100, (f) => a.push(f))
+    const relB = subscribeChatPatches(100, (f) => b.push(f))
+    const relC = subscribeChatPatches(100, (f) => c.push(f))
+
+    // PROOF of I1 fix: 3 subscribers, exactly ONE underlying socket.
+    expect(sockets).toHaveLength(1)
+
+    sockets[0].onmessage?.({ data: JSON.stringify({ type: "patch", patch: { cursor: 101, type: "chat.status", sessionKey: "s1", payload: {}, createdAtMs: 1 } }) })
+    // every subscriber receives the frame
+    expect(a).toHaveLength(1)
+    expect(b).toHaveLength(1)
+    expect(c).toHaveLength(1)
+
+    // socket stays open until the LAST subscriber releases
+    relA(); relB()
+    expect(sockets[0].closed).toBe(false)
+    relC()
+    // deferred teardown: not closed immediately (survives StrictMode remount gap)
+    expect(sockets[0].closed).toBe(false)
+    // a new subscriber within the grace window REUSES the same socket
+    const relD = subscribeChatPatches(100, () => {})
+    expect(sockets).toHaveLength(1)
+    relD()
+    // after the grace period with no subscribers, the socket finally closes
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    expect(sockets[0].closed).toBe(true)
+    expect(sockets).toHaveLength(1)
+  })
 })

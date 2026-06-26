@@ -10,7 +10,7 @@ import {
   abortChatV2,
   fetchChatMessagesV2,
   fetchSessionContextUsage,
-  openPatchStreamV2,
+  subscribeChatPatches,
   resolveExecApprovalV2,
   sendChatV2,
 } from "@/lib/chat-engine-v2/client"
@@ -1076,7 +1076,7 @@ export function ChatView({
 
   useEffect(() => {
     if (isBackgroundSession || streamCursor === null) return
-    return openPatchStreamV2(streamCursor, (frame) => {
+    return subscribeChatPatches(streamCursor, (frame) => {
       if (frame.type !== "patch") return
       if (!patchBelongsToSession(frame, sessionKey)) return
       const previousCursor = cursorRef.current
