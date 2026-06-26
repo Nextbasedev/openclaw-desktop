@@ -3488,66 +3488,9 @@ async function usageProviders(context: AppContext) {
   }
 }
 
-async function gatewayUsageCost(context: AppContext, days: number) {
-  try {
-    const result = await context.gateway.request<CompatRecord>("usage.cost", { days }, 2_000);
-    if (result && typeof result === "object" && "ok" in result && result.ok === false) return null;
-    const payload = result.payload && typeof result.payload === "object" ? result.payload as CompatRecord : result;
-    const totals = payload.totals && typeof payload.totals === "object" ? payload.totals as CompatRecord : null;
-    if (!totals) return null;
-    return {
-      totals,
-      daily: Array.isArray(payload.daily) ? payload.daily as CompatRecord[] : [],
-    };
-  } catch {
-    return null;
-  }
-}
-
-function frontendGatewayUsageSummary(totals: CompatRecord) {
-  return {
-    totalCost: usageNumber(totals.totalCost),
-    totalInputTokens: usageNumber(totals.input),
-    totalOutputTokens: usageNumber(totals.output),
-    cacheReadTokens: usageNumber(totals.cacheRead),
-    cacheWriteTokens: usageNumber(totals.cacheWrite),
-    totalTokens: usageNumber(totals.totalTokens),
-    input: usageNumber(totals.input),
-    output: usageNumber(totals.output),
-    cacheRead: usageNumber(totals.cacheRead),
-    cacheWrite: usageNumber(totals.cacheWrite),
-  };
-}
-
-function frontendGatewayDaily(days: CompatRecord[]) {
-  return days.map((day) => ({
-    date: day.date ?? day.day,
-    day: day.date ?? day.day,
-    input_tokens: usageNumber(day.input),
-    output_tokens: usageNumber(day.output),
-    cache_read_tokens: usageNumber(day.cacheRead),
-    cache_write_tokens: usageNumber(day.cacheWrite),
-    total_tokens: usageNumber(day.totalTokens),
-    cost_usd: usageNumber(day.totalCost),
-  }));
-}
-
 async function usageResponse(context: AppContext, days: number) {
-  const [cost, providers] = await Promise.all([
-    gatewayUsageCost(context, days),
-    usageProviders(context),
-  ]);
-  if (cost) {
-    return {
-      range: { days },
-      summary: frontendGatewayUsageSummary(cost.totals),
-      providers,
-      usage: [],
-      source: "gateway-usage-cost",
-      unavailable: false,
-    };
-  }
   const usage = usageFromSessions(days);
+  const providers = await usageProviders(context);
   return {
     range: { days },
     summary: frontendUsageSummary(usage.summary),
@@ -3558,12 +3501,7 @@ async function usageResponse(context: AppContext, days: number) {
   };
 }
 
-async function dailyUsage(context: AppContext, days: number) {
-  const cost = await gatewayUsageCost(context, days);
-  if (cost) {
-    const daily = frontendGatewayDaily(cost.daily).slice(-days);
-    return { range: { days }, daily, days: cost.daily, source: "gateway-usage-cost", unavailable: false };
-  }
+function dailyUsage(days: number) {
   const usage = usageFromSessions(days);
   const daily = frontendDaily(usage.days);
   return { range: { days }, daily, days: usage.days, source: usage.source, unavailable: usage.unavailable };
@@ -4461,7 +4399,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_usage":
         return usageResponse(context, Number(input.days) || 30);
       case "middleware_usage_daily":
-        return dailyUsage(context, Number(input.days) || 30);
+        return dailyUsage(Number(input.days) || 30);
       case "middleware_models_list":
         return modelsResponse(context, readOCPlatformConfig());
       case "middleware_models_set_default": {
