@@ -2758,10 +2758,14 @@ function fileNamingConfig(cfg: CompatRecord) {
   return { enabled: groq.enabled !== false && Boolean(apiKey), apiKey, model: String(groq.model || FILE_NAMING_GROQ_MODEL).trim() || FILE_NAMING_GROQ_MODEL };
 }
 
+function maskedApiKey(value: string) {
+  return value ? `••••${value.slice(-4)}` : null;
+}
+
 function fileNamingSettingsPayload() {
   const cfg = readOCPlatformConfig();
   const naming = fileNamingConfig(cfg);
-  return { ok: true, settings: { provider: "groq", enabled: naming.enabled, connected: Boolean(naming.apiKey), model: naming.model } };
+  return { ok: true, settings: { provider: "groq", enabled: naming.enabled, connected: Boolean(naming.apiKey), model: naming.model, keyPreview: maskedApiKey(naming.apiKey) } };
 }
 
 function writeFileNamingGroqSettings(input: CompatRecord) {
@@ -2770,6 +2774,9 @@ function writeFileNamingGroqSettings(input: CompatRecord) {
   const cfg = readOCPlatformConfig();
   cfg.tools ??= {};
   cfg.tools.fileNaming ??= {};
+  cfg.env ??= {};
+  cfg.env.vars ??= {};
+  cfg.env.vars.GROQ_API_KEY_FILE_NAMING = key;
   cfg.tools.fileNaming.groq = { apiKey: key, enabled: input.enabled !== false, model: String(input.model || FILE_NAMING_GROQ_MODEL).trim() || FILE_NAMING_GROQ_MODEL };
   writeOCPlatformConfig(cfg);
   return fileNamingSettingsPayload();
@@ -2780,8 +2787,9 @@ function removeFileNamingGroqSettings() {
   if (cfg.tools?.fileNaming?.groq) {
     delete cfg.tools.fileNaming.groq;
     if (Object.keys(cfg.tools.fileNaming).length === 0) delete cfg.tools.fileNaming;
-    writeOCPlatformConfig(cfg);
   }
+  if (cfg.env?.vars?.GROQ_API_KEY_FILE_NAMING) delete cfg.env.vars.GROQ_API_KEY_FILE_NAMING;
+  writeOCPlatformConfig(cfg);
   return fileNamingSettingsPayload();
 }
 
