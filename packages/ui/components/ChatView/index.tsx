@@ -28,6 +28,8 @@ import {
   deleteQueuedChatMessage,
   editQueuedChatMessage,
   enqueueChatMessage,
+  loadPersistedChatSendQueue,
+  savePersistedChatSendQueue,
   takeNextQueuedChatMessage,
   type QueuedChatMessage,
 } from "@/lib/chatSendQueue"
@@ -662,7 +664,9 @@ export function ChatView({
     }
     return prompts
   }, [state.messages])
-  const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
+  const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>(() =>
+    loadPersistedChatSendQueue(sessionKey)
+  )
   // Local sub-agent take-over state. When non-null, the chat surface renders
   // <SubagentFullChat/> instead of the normal message stream. Parent is
   // notified via onSubagentOpen so the inspector / agent breadcrumb stays in
@@ -686,6 +690,25 @@ export function ChatView({
   useEffect(() => {
     queuedMessagesRef.current = queuedMessages
   }, [queuedMessages])
+  const replaceQueuedMessages = useCallback(
+    (next: QueuedChatMessage[]) => {
+      queuedMessagesRef.current = next
+      setQueuedMessages(next)
+      savePersistedChatSendQueue(sessionKey, next)
+    },
+    [sessionKey]
+  )
+  const updateQueuedMessages = useCallback(
+    (updater: (current: QueuedChatMessage[]) => QueuedChatMessage[]) => {
+      setQueuedMessages((current) => {
+        const next = updater(current)
+        queuedMessagesRef.current = next
+        savePersistedChatSendQueue(sessionKey, next)
+        return next
+      })
+    },
+    [sessionKey]
+  )
   const olderFetchSeqRef = useRef(0)
   const newerFetchSeqRef = useRef(0)
   // Time-based refractory: wall-clock timestamp (ms since epoch) of the last
@@ -1337,9 +1360,8 @@ export function ChatView({
         payload: { ...payload, text },
         createdAtMs: Date.now(),
       }
-      setQueuedMessages((current) => {
+      updateQueuedMessages((current) => {
         const next = enqueueChatMessage(current, queued)
-        queuedMessagesRef.current = next
         return next
       })
       setState((current) => ({ ...current, composerError: null }))
@@ -1872,8 +1894,7 @@ export function ChatView({
     if (!next) return
 
     queueDrainInFlightRef.current = true
-    queuedMessagesRef.current = rest
-    setQueuedMessages(rest)
+    replaceQueuedMessages(rest)
     frontendLog("chat", "chat-rebuild.send.queue-drain", {
       sessionKey,
       queueId: next.id,
@@ -1882,12 +1903,13 @@ export function ChatView({
     void handleSend({ ...next.payload, runWhileGenerating: false }).finally(() => {
       queueDrainInFlightRef.current = false
     })
-  }, [isGenerating, queuedMessages.length, sending, sessionKey, state.loading])
+  }, [isGenerating, queuedMessages.length, replaceQueuedMessages, sending, sessionKey, state.loading])
 
   // Reset + initial fetch on session change
   useEffect(() => {
-    queuedMessagesRef.current = []
-    setQueuedMessages([])
+    const nextQueuedMessages = loadPersistedChatSendQueue(sessionKey)
+    queuedMessagesRef.current = nextQueuedMessages
+    setQueuedMessages(nextQueuedMessages)
     setSessionUsage(null)
     void refreshSessionUsage()
   }, [refreshSessionUsage, sessionKey])
@@ -1956,7 +1978,12 @@ export function ChatView({
   const statusText = isGenerating
     ? generatingStatusText(state.streamStatus, state.statusLabel, liveTool)
     : null
-  const showThinkingState = isGenerating && !hasAssistantAnswerAfterLastUser(renderedMessages)
+  // Keep the active-run indicator visible for the full non-terminal run, even
+  // after the assistant has produced partial text/reasoning/tool rows. The old
+  // gate hid this as soon as any assistant output existed after the last user
+  // message, which made long-running turns look idle while the gateway/model
+  // was still responding (composer stop button/progress still active).
+  const showThinkingState = isGenerating
   const latestRenderedUserIndex = useMemo(() => {
     for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
       if (renderedMessages[index]?.role === "user") return index
@@ -3016,16 +3043,14 @@ export function ChatView({
           draftKey={`chat:${sessionKey}`}
           queuedMessages={queuedMessages}
           onEditQueuedMessage={(id, text) => {
-            setQueuedMessages((current) => {
+            updateQueuedMessages((current) => {
               const next = editQueuedChatMessage(current, id, text)
-              queuedMessagesRef.current = next
               return next
             })
           }}
           onDeleteQueuedMessage={(id) => {
-            setQueuedMessages((current) => {
+            updateQueuedMessages((current) => {
               const next = deleteQueuedChatMessage(current, id)
-              queuedMessagesRef.current = next
               return next
             })
           }}

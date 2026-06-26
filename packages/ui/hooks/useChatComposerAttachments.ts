@@ -3,24 +3,64 @@
 import * as React from "react"
 import {
   CHAT_ATTACHMENT_LIMITS,
+  hydrateChatComposerAttachment,
   releaseAttachmentPreview,
+  stripComposerAttachment,
   toChatComposerAttachment,
   totalAttachmentBytes,
   type ChatComposerAttachment,
+  type ChatSendAttachment,
 } from "@/lib/chatAttachments"
 
 type Props = {
   disabled?: boolean
   onFilesProcessed?: () => void
+  storageKey?: string | null
+}
+
+function loadPersistedAttachments(storageKey: string | null | undefined) {
+  if (!storageKey || typeof localStorage === "undefined") return []
+  try {
+    const raw = localStorage.getItem(storageKey)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((item): item is ChatSendAttachment => {
+        return Boolean(
+          item &&
+            typeof item.name === "string" &&
+            typeof item.mimeType === "string" &&
+            typeof item.content === "string" &&
+            (item.encoding === "utf-8" || item.encoding === "base64") &&
+            typeof item.size === "number"
+        )
+      })
+      .slice(0, CHAT_ATTACHMENT_LIMITS.maxCount)
+      .filter((item) => item.size <= CHAT_ATTACHMENT_LIMITS.maxSingleBytes)
+      .reduce<ChatSendAttachment[]>((items, item) => {
+        if (
+          totalAttachmentBytes(items) + item.size >
+          CHAT_ATTACHMENT_LIMITS.maxTotalBytes
+        ) {
+          return items
+        }
+        return [...items, item]
+      }, [])
+      .map(hydrateChatComposerAttachment)
+  } catch {
+    return []
+  }
 }
 
 export function useChatComposerAttachments({
   disabled,
   onFilesProcessed,
+  storageKey,
 }: Props) {
   const [attachments, setAttachments] = React.useState<
     ChatComposerAttachment[]
-  >([])
+  >(() => loadPersistedAttachments(storageKey))
   const [attachmentError, setAttachmentError] = React.useState<string | null>(
     null,
   )
@@ -28,10 +68,50 @@ export function useChatComposerAttachments({
     React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const attachmentsRef = React.useRef<ChatComposerAttachment[]>([])
+  const lastStorageKeyRef = React.useRef(storageKey ?? null)
+  const skipNextPersistRef = React.useRef(false)
 
   React.useEffect(() => {
     attachmentsRef.current = attachments
   }, [attachments])
+
+  React.useEffect(() => {
+    const nextStorageKey = storageKey ?? null
+    if (lastStorageKeyRef.current === nextStorageKey) return
+
+    for (const attachment of attachmentsRef.current) {
+      releaseAttachmentPreview(attachment)
+    }
+    lastStorageKeyRef.current = nextStorageKey
+    skipNextPersistRef.current = true
+    setAttachments(loadPersistedAttachments(nextStorageKey))
+    setAttachmentError(null)
+  }, [storageKey])
+
+  React.useEffect(() => {
+    const activeStorageKey = lastStorageKeyRef.current
+    if (
+      !activeStorageKey ||
+      activeStorageKey !== (storageKey ?? null) ||
+      typeof localStorage === "undefined"
+    ) {
+      return
+    }
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false
+      return
+    }
+    try {
+      if (attachments.length > 0) {
+        localStorage.setItem(
+          activeStorageKey,
+          JSON.stringify(attachments.map(stripComposerAttachment)),
+        )
+      } else {
+        localStorage.removeItem(activeStorageKey)
+      }
+    } catch {}
+  }, [attachments, storageKey])
 
   React.useEffect(() => {
     return () => {

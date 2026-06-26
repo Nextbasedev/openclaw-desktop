@@ -106,6 +106,15 @@ function getPreviewKind(mimeType: string): ChatComposerAttachment["previewKind"]
   return "file"
 }
 
+function dataUrlForAttachment(attachment: ChatSendAttachment): string | undefined {
+  const previewKind = getPreviewKind(attachment.mimeType)
+  if (previewKind !== "image" && previewKind !== "video") return undefined
+  if (attachment.encoding === "base64") {
+    return `data:${attachment.mimeType};base64,${attachment.content}`
+  }
+  return `data:${attachment.mimeType};charset=utf-8,${encodeURIComponent(attachment.content)}`
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = ""
   const chunkSize = 0x8000
@@ -160,6 +169,18 @@ export function stripComposerAttachment(
     content: attachment.content,
     encoding: attachment.encoding,
     size: attachment.size,
+  }
+}
+
+export function hydrateChatComposerAttachment(
+  attachment: ChatSendAttachment,
+): ChatComposerAttachment {
+  const previewKind = getPreviewKind(attachment.mimeType)
+  return {
+    ...attachment,
+    id: randomId(),
+    previewKind,
+    previewUrl: dataUrlForAttachment(attachment),
   }
 }
 

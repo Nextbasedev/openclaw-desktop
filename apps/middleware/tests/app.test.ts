@@ -485,6 +485,66 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("groq file naming settings save, report connected, generate, remove, and fallback", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-groq-file-naming-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: "Build API Client" } }] }),
+    } as Response);
+
+    const app = await createApp(testConfig());
+
+    const initial = await app.inject({ method: "POST", url: "/api/commands/middleware_file_naming_groq_get", payload: {} });
+    expect(initial.statusCode).toBe(200);
+    expect(initial.json().settings).toMatchObject({ connected: false, enabled: false });
+
+    const saved = await app.inject({ method: "POST", url: "/api/commands/middleware_file_naming_groq_set", payload: { input: { apiKey: "gsk_test_key" } } });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().settings).toMatchObject({ connected: true, enabled: true, provider: "groq" });
+    expect(fs.readFileSync(path.join(home, ".openclaw", "openclaw.json"), "utf8")).toContain("gsk_test_key");
+
+    const named = await app.inject({ method: "POST", url: "/api/commands/middleware_autonaming_quick", payload: { input: { prompt: "please build a TypeScript API client for Stripe invoices" } } });
+    expect(named.statusCode).toBe(200);
+    expect(named.json()).toMatchObject({ name: "Build API Client", title: "Build API Client" });
+    expect(fetchSpy).toHaveBeenCalledWith("https://api.groq.com/openai/v1/chat/completions", expect.objectContaining({ method: "POST" }));
+
+    const removed = await app.inject({ method: "POST", url: "/api/commands/middleware_file_naming_groq_remove", payload: {} });
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json().settings).toMatchObject({ connected: false, enabled: false });
+
+    fetchSpy.mockClear();
+    const fallback = await app.inject({ method: "POST", url: "/api/commands/middleware_autonaming_quick", payload: { input: { prompt: "please build a TypeScript API client for Stripe invoices" } } });
+    expect(fallback.statusCode).toBe(200);
+    expect(fallback.json().name).toBe("please build a TypeScript API client for Stripe invoices");
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    await app.close();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  test("new sessions use groq-generated gateway labels when connected", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-groq-session-label-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: "Stripe Invoice Client" } }] }),
+    } as Response);
+
+    const app = await createApp(testConfig());
+    await app.inject({ method: "POST", url: "/api/commands/middleware_file_naming_groq_set", payload: { input: { apiKey: "gsk_test_key" } } });
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.request = vi.fn(async () => ({}));
+
+    const res = await app.inject({ method: "POST", url: "/api/commands/middleware_sessions_create", payload: { input: { sessionKey: "agent:main:desktop:test-groq-label", label: "please build a TypeScript API client for Stripe invoices", agentId: "main" } } });
+
+    expect(res.statusCode).toBe(200);
+    expect(context.gateway.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({ label: "Stripe Invoice Client · oq-label" }));
+
+    await app.close();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
   test("attaching a session recreates missing chat shell", async () => {
     const app = await createApp(testConfig());
     const res = await app.inject({ method: "POST", url: "/api/chats/chat_missing/session", payload: { sessionKey: "agent:main:desktop:test" } });

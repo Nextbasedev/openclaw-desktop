@@ -6,7 +6,7 @@ import { invoke, openExternalUrl } from "@/lib/ipc"
 import { emit } from "@/lib/events"
 import { invalidateMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { getMiddlewareConnection, isOpenClawConnected, testMiddlewareConnection } from "@/lib/middleware-client"
-import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert, LuChevronDown } from "react-icons/lu"
+import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert, LuChevronDown, LuKeyRound } from "react-icons/lu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 
@@ -135,6 +135,15 @@ type V1SqliteMigrationImport = {
   }
 }
 
+type GroqFileNamingSettings = {
+  settings: {
+    provider: "groq"
+    enabled: boolean
+    connected: boolean
+    model: string
+  }
+}
+
 export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) {
   function handleClick(link: HelpLink) {
     if (link.label === "Keyboard Shortcuts" && onShortcutsClick) {
@@ -185,6 +194,8 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
       </div>
 
       <MiddlewareUpdateCard />
+
+      <GroqFileNamingCard />
 
       <V1SqliteMigrationCard />
 
@@ -579,6 +590,127 @@ function V1SqliteMigrationCard() {
             <Stat label="Sessions" value={result.summary.sessions} />
           </div>
           <p className="mt-3 truncate pt-3 text-muted-foreground/70">Source: {result.sourcePath}</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-3 flex items-start gap-2 rounded-2xl bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
+          <LuCircleAlert className="mt-0.5 shrink-0" size={14} />
+          <span>{error}</span>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function GroqFileNamingCard() {
+  const [settings, setSettings] = React.useState<GroqFileNamingSettings["settings"] | null>(null)
+  const [apiKey, setApiKey] = React.useState("")
+  const [busy, setBusy] = React.useState<"load" | "save" | "remove" | null>("load")
+  const [error, setError] = React.useState<string | null>(null)
+
+  async function refresh() {
+    setBusy((current) => current ?? "load")
+    setError(null)
+    try {
+      const payload = await invoke<GroqFileNamingSettings>("middleware_file_naming_groq_get")
+      setSettings(payload.settings)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  React.useEffect(() => {
+    refresh().catch(() => undefined)
+  }, [])
+
+  async function saveKey() {
+    const key = apiKey.trim()
+    if (!key) {
+      setError("Paste a Groq API key first.")
+      return
+    }
+    setBusy("save")
+    setError(null)
+    try {
+      const payload = await invoke<GroqFileNamingSettings>("middleware_file_naming_groq_set", { input: { apiKey: key, enabled: true } })
+      setSettings(payload.settings)
+      setApiKey("")
+      toast.success("Groq file naming connected.")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function removeKey() {
+    setBusy("remove")
+    setError(null)
+    try {
+      const payload = await invoke<GroqFileNamingSettings>("middleware_file_naming_groq_remove")
+      setSettings(payload.settings)
+      setApiKey("")
+      toast.info("Groq file naming disconnected.")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const connected = Boolean(settings?.connected && settings.enabled)
+
+  return (
+    <section className={HELP_SECTION_CLASS}>
+      <div className="flex items-start gap-4">
+        <span className={HELP_ICON_CLASS}>
+          <LuKeyRound size={16} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-[13px] font-medium text-foreground">Groq file naming</h3>
+            <span className={cn(
+              "rounded-full px-2 py-0.5 text-[10px] font-medium",
+              connected ? "bg-emerald-500/10 text-emerald-500" : "bg-black/[0.05] text-muted-foreground dark:bg-white/[0.06]",
+            )}>
+              {connected ? "Connected" : "Not connected"}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            Save a Groq API key to generate short, meaningful filenames from the first prompt. Without a key, Desktop keeps the existing raw-prompt fallback.
+          </p>
+          {settings?.model && connected && (
+            <p className="mt-1 text-[10px] text-muted-foreground/70">Using {settings.model}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+        <input
+          value={apiKey}
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => setApiKey(event.target.value)}
+          disabled={busy !== null}
+          placeholder={connected ? "Paste a new key to replace the saved Groq key" : "Paste Groq API key"}
+          className={HELP_FIELD_CLASS}
+        />
+        <button type="button" onClick={saveKey} disabled={busy !== null || !apiKey.trim()} className={HELP_PRIMARY_BUTTON_CLASS}>
+          {busy === "save" ? "Saving…" : connected ? "Replace key" : "Save key"}
+        </button>
+        <button type="button" onClick={removeKey} disabled={busy !== null || !connected} className={HELP_SECONDARY_BUTTON_CLASS}>
+          {busy === "remove" ? "Removing…" : "Disconnect"}
+        </button>
+      </div>
+
+      {connected && (
+        <div className="mt-3 flex items-start gap-2 rounded-2xl bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-500">
+          <LuCheck className="mt-0.5 shrink-0" size={14} />
+          <span>Groq is saved and enabled for first-prompt file naming.</span>
         </div>
       )}
 
