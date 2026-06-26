@@ -18,12 +18,43 @@ type Props = {
   storageKey?: string | null
 }
 
-function loadPersistedAttachments(storageKey: string | null | undefined) {
-  if (!storageKey || typeof localStorage === "undefined") return []
+const composerAttachmentDrafts = new Map<string, ChatSendAttachment[]>()
+
+export function __clearComposerAttachmentDraftsForTests() {
+  composerAttachmentDrafts.clear()
+}
+
+export function persistAttachmentDraft(
+  storageKey: string | null | undefined,
+  attachments: ChatComposerAttachment[],
+) {
+  if (!storageKey) return
+  const stripped = attachments.map(stripComposerAttachment)
+  if (stripped.length > 0) composerAttachmentDrafts.set(storageKey, stripped)
+  else composerAttachmentDrafts.delete(storageKey)
+
+  if (typeof localStorage === "undefined") return
   try {
-    const raw = localStorage.getItem(storageKey)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
+    if (stripped.length > 0) {
+      localStorage.setItem(storageKey, JSON.stringify(stripped))
+    } else {
+      localStorage.removeItem(storageKey)
+    }
+  } catch {
+    // Full-size image attachments can exceed localStorage quota. The in-memory
+    // draft cache above still preserves the composer while switching chats in
+    // the current Desktop window.
+  }
+}
+
+export function loadPersistedAttachments(storageKey: string | null | undefined) {
+  if (!storageKey) return []
+  try {
+    const memoryDraft = composerAttachmentDrafts.get(storageKey)
+    const parsed = memoryDraft ??
+      (typeof localStorage === "undefined"
+        ? []
+        : JSON.parse(localStorage.getItem(storageKey) || "[]"))
     if (!Array.isArray(parsed)) return []
     return parsed
       .filter((item): item is ChatSendAttachment => {
@@ -101,16 +132,7 @@ export function useChatComposerAttachments({
       skipNextPersistRef.current = false
       return
     }
-    try {
-      if (attachments.length > 0) {
-        localStorage.setItem(
-          activeStorageKey,
-          JSON.stringify(attachments.map(stripComposerAttachment)),
-        )
-      } else {
-        localStorage.removeItem(activeStorageKey)
-      }
-    } catch {}
+    persistAttachmentDraft(activeStorageKey, attachments)
   }, [attachments, storageKey])
 
   React.useEffect(() => {
@@ -126,6 +148,7 @@ export function useChatComposerAttachments({
       for (const attachment of prev) {
         releaseAttachmentPreview(attachment)
       }
+      persistAttachmentDraft(lastStorageKeyRef.current, [])
       return []
     })
   }, [])
@@ -137,7 +160,9 @@ export function useChatComposerAttachments({
       if (attachment) {
         releaseAttachmentPreview(attachment)
       }
-      return prev.filter((item) => item.id !== attachmentId)
+      const next = prev.filter((item) => item.id !== attachmentId)
+      persistAttachmentDraft(lastStorageKeyRef.current, next)
+      return next
     })
   }, [])
 
@@ -197,7 +222,11 @@ export function useChatComposerAttachments({
       }
 
       if (prepared.length > 0) {
-        setAttachments((prev) => [...prev, ...prepared])
+        setAttachments((prev) => {
+          const next = [...prev, ...prepared]
+          persistAttachmentDraft(lastStorageKeyRef.current, next)
+          return next
+        })
       }
 
       setAttachmentError(errors[0] ?? null)
