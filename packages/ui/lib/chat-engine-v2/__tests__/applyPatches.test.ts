@@ -62,6 +62,54 @@ describe("applyChatPatch", () => {
     expect(next.messages[0]).toMatchObject({ messageId: "m1", role: "user", text: "hello" })
   })
 
+  test("keeps reply metadata when optimistic user message is confirmed", () => {
+    const state = {
+      cursor: 1,
+      messages: [{
+        messageId: "client-1",
+        role: "user" as const,
+        text: "prompt exact this line",
+        isOptimistic: true,
+        sendStatus: "sending" as const,
+        replyTo: {
+          messageId: "assistant-1",
+          role: "assistant" as const,
+          text: "explain how many lights",
+        },
+        attachments: [{ name: "lights.jpg", mimeType: "image/jpeg", content: "abc" }],
+      }],
+    }
+
+    const next = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.confirmed",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.confirmed",
+          optimisticId: "client-1",
+          messageId: "gateway-1",
+          message: { role: "user", text: "prompt exact this line", id: "gateway-1" },
+        },
+        createdAtMs: 2,
+      },
+    })
+
+    expect(next.messages).toHaveLength(1)
+    expect(next.messages[0]).toMatchObject({
+      messageId: "gateway-1",
+      role: "user",
+      text: "prompt exact this line",
+      replyTo: {
+        messageId: "assistant-1",
+        role: "assistant",
+        text: "explain how many lights",
+      },
+      attachments: [{ name: "lights.jpg", mimeType: "image/jpeg" }],
+    })
+  })
+
   test("merges sequential tool-only assistant patches into one visible steps block", () => {
     const withFirstTool = applyChatPatch({ cursor: 0, messages: [
       { messageId: "u1", role: "user", text: "run tools" },

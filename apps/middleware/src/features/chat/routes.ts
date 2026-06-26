@@ -772,6 +772,30 @@ function isMissingApprovalError(error: unknown) {
   return /approval/i.test(message) && /(not found|missing|unknown|no pending|no such)/i.test(message);
 }
 
+function normalizeReplyTo(input: unknown) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const record = input as Record<string, unknown>;
+  const messageId = typeof record.messageId === "string" && record.messageId.trim()
+    ? record.messageId.trim()
+    : undefined;
+  const snippet = typeof record.snippet === "string"
+    ? record.snippet
+    : typeof record.text === "string"
+      ? record.text
+      : undefined;
+  const role = record.role === "user" || record.role === "assistant" ? record.role : undefined;
+  const text = typeof record.text === "string" ? record.text : snippet;
+  const selections = Array.isArray(record.selections) ? record.selections : undefined;
+  if (!messageId && !snippet && !text && !selections?.length) return undefined;
+  return {
+    ...(messageId ? { messageId } : {}),
+    ...(role ? { role } : {}),
+    ...(text !== undefined ? { text } : {}),
+    ...(snippet !== undefined ? { snippet } : {}),
+    ...(selections?.length ? { selections } : {}),
+  };
+}
+
 const OPENCLAW_MEDIA_ROOT = path.resolve(os.homedir(), ".openclaw", "media");
 const OPENCLAW_WORKSPACE_ROOT = path.resolve(process.env.WORKSPACE_ROOT || path.join(os.homedir(), ".openclaw", "workspace"));
 
@@ -1023,6 +1047,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
     const prepared = prepareMessageAndAttachments(rawMessage, input.attachments);
     const userVisibleAttachments = displayAttachments(input.attachments);
+    const replyTo = normalizeReplyTo(input.replyTo);
     log.info("send.prepared", {
       sessionKey: input.sessionKey,
       idempotencyKey: input.idempotencyKey,
@@ -1048,6 +1073,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       role: "user",
       text: rawMessage,
       ...(userVisibleAttachments ? { attachments: userVisibleAttachments } : {}),
+      ...(replyTo ? { replyTo } : {}),
       createdAt: nowIso,
       isOptimistic: true,
       __clientOptimistic: true,
@@ -1300,6 +1326,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               message: prepared.message,
               timeoutMs: input.timeoutMs || DEFAULT_CHAT_SEND_TIMEOUT_MS,
               idempotencyKey: input.idempotencyKey,
+              ...(replyTo ? { replyTo } : {}),
               ...(prepared.attachments ? { attachments: prepared.attachments } : {}),
             }, input.timeoutMs || DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS);
             log.info("gateway.chat.send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, durationMs: elapsedMs(gatewaySendStartedAtMs), elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), status: typeof result.status === "string" ? result.status : undefined, runId: typeof result.runId === "string" ? result.runId : undefined });

@@ -505,6 +505,24 @@ function preserveUserAttachmentsFromReplacedMessages(
   })
 }
 
+function preserveUserReplyToFromReplacedMessages(
+  state: ApplyPatchState,
+  incoming: ChatMessage[],
+  idsToReplace: Set<string>,
+) {
+  return incoming.map((message) => {
+    if (message.role !== "user" || message.replyTo) return message
+    const existing = state.messages.find(
+      (candidate) =>
+        candidate.role === "user" &&
+        Boolean(candidate.replyTo) &&
+        (idsToReplace.has(candidate.messageId) ||
+          userTextMatchesSent(message.text, candidate.text))
+    )
+    return existing?.replyTo ? { ...message, replyTo: existing.replyTo } : message
+  })
+}
+
 function preserveOptimisticUserDisplayFromBlankConfirmation(
   state: ApplyPatchState,
   incoming: ChatMessage[],
@@ -519,6 +537,7 @@ function preserveOptimisticUserDisplayFromBlankConfirmation(
       ...message,
       text: existing.text,
       attachments: message.attachments?.length ? message.attachments : existing.attachments,
+      replyTo: message.replyTo ?? existing.replyTo,
     }
   })
 }
@@ -713,7 +732,12 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
     normalizedWithPriorTools,
     idsToReplace,
   )
-  const animated = withPreservedAttachments.map((item) =>
+  const withPreservedReplyTo = preserveUserReplyToFromReplacedMessages(
+    state,
+    withPreservedAttachments,
+    idsToReplace,
+  )
+  const animated = withPreservedReplyTo.map((item) =>
     shouldAnimateAssistantTextPatch(frame, item)
       ? { ...item, animateText: true }
       : item
