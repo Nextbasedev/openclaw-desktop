@@ -34,9 +34,99 @@ const isMissingApprovalError = (error: unknown) => {
   return /approval/i.test(message) && /(not found|missing|unknown|no pending|no such)/i.test(message);
 };
 const gatewaySessionLabel = (label: unknown, sessionKey: string) => {
-  const base = String(label || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
+  const base = rawSessionLabel(label);
   return `${base} · ${shortSessionId(sessionKey)}`;
 };
+const rawSessionLabel = (label: unknown) => String(label || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
+
+const FILE_NAMING_GROQ_MODEL = "llama-3.1-8b-instant";
+
+function fileNamingConfig(cfg: CompatRecord) {
+  const naming = cfg.tools?.fileNaming && typeof cfg.tools.fileNaming === "object" ? cfg.tools.fileNaming : {};
+  const groq = naming.groq && typeof naming.groq === "object" ? naming.groq : {};
+  const apiKey = String(groq.apiKey || cfg.env?.vars?.GROQ_API_KEY_FILE_NAMING || "").trim();
+  return { enabled: groq.enabled !== false && Boolean(apiKey), apiKey, model: String(groq.model || FILE_NAMING_GROQ_MODEL).trim() || FILE_NAMING_GROQ_MODEL };
+}
+
+function fileNamingSettingsPayload() {
+  const cfg = readOCPlatformConfig();
+  const naming = fileNamingConfig(cfg);
+  return { ok: true, settings: { provider: "groq", enabled: naming.enabled, connected: Boolean(naming.apiKey), model: naming.model } };
+}
+
+function writeFileNamingGroqSettings(input: CompatRecord) {
+  const key = String(input.apiKey || input.key || input.values?.["api-key"] || input.values?.apiKey || "").trim();
+  if (!key) return { ok: false, error: { message: "Groq API key is required" } };
+  const cfg = readOCPlatformConfig();
+  cfg.tools ??= {};
+  cfg.tools.fileNaming ??= {};
+  cfg.tools.fileNaming.groq = { apiKey: key, enabled: input.enabled !== false, model: String(input.model || FILE_NAMING_GROQ_MODEL).trim() || FILE_NAMING_GROQ_MODEL };
+  writeOCPlatformConfig(cfg);
+  return fileNamingSettingsPayload();
+}
+
+function removeFileNamingGroqSettings() {
+  const cfg = readOCPlatformConfig();
+  if (cfg.tools?.fileNaming?.groq) {
+    delete cfg.tools.fileNaming.groq;
+    if (Object.keys(cfg.tools.fileNaming).length === 0) delete cfg.tools.fileNaming;
+    writeOCPlatformConfig(cfg);
+  }
+  return fileNamingSettingsPayload();
+}
+
+function sanitizeGeneratedFileName(value: unknown) {
+  const cleaned = String(value || "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/^title\s*:\s*/i, "")
+    .replace(/["'`]/g, "")
+    .replace(/[^a-zA-Z0-9 _.-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const extensionMatch = cleaned.match(/^(.+?\.(?:js|jsx|ts|tsx|py|md|json|csv|txt|sh|html|css|sql|ya?ml))\b/i);
+  if (extensionMatch?.[1]) return extensionMatch[1].slice(0, 60);
+  const codeWordIndex = cleaned.search(/\b(?:javascript|typescript|const|let|var|function|import|require|class|return)\b/i);
+  const filename = (codeWordIndex > 0 ? cleaned.slice(0, codeWordIndex) : cleaned).trim();
+  return filename.slice(0, 60);
+}
+
+function fallbackFileNameFromPrompt(prompt: unknown) {
+  return rawSessionLabel(prompt);
+}
+
+async function groqFileNameFromPrompt(prompt: unknown) {
+  const text = String(prompt || "").replace(/\s+/g, " ").trim();
+  if (!text) return fallbackFileNameFromPrompt(prompt);
+  const cfg = readOCPlatformConfig();
+  const naming = fileNamingConfig(cfg);
+  if (!naming.enabled) return fallbackFileNameFromPrompt(prompt);
+  try {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${naming.apiKey}` },
+      body: JSON.stringify({
+        model: naming.model,
+        temperature: 0.2,
+        max_tokens: 16,
+        messages: [
+          { role: "system", content: "Create a short, meaningful filename base from the user's first prompt. Return only 2-5 words or kebab-case words. Do not include code, explanations, quotes, trailing punctuation, or extra alternatives." },
+          { role: "user", content: text.slice(0, 2000) },
+        ],
+      }),
+    });
+    if (!response.ok) throw new Error(`Groq filename request failed: ${response.status}`);
+    const data = await response.json() as CompatRecord;
+    const generated = sanitizeGeneratedFileName(data?.choices?.[0]?.message?.content);
+    return generated || fallbackFileNameFromPrompt(prompt);
+  } catch (error) {
+    createLogger("compat").warn("file_naming.groq_failed", { error: error instanceof Error ? error.message : String(error) });
+    return fallbackFileNameFromPrompt(prompt);
+  }
+}
+
+async function smartGatewaySessionLabel(label: unknown, sessionKey: string) {
+  return gatewaySessionLabel(await groqFileNameFromPrompt(label), sessionKey);
+}
 
 type CompatTerminal = {
   id: string;
@@ -3691,7 +3781,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     void context.gateway.request("sessions.create", {
       key: sessionKey,
       agentId: body.agentId || "main",
-      label: gatewaySessionLabel(body.name, sessionKey),
+      label: await smartGatewaySessionLabel(body.name, sessionKey),
     }).catch(() => { /* session may already exist or gateway may be offline */ });
     const chat = {
       id: id("chat"),
@@ -4323,6 +4413,15 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       }
       case "middleware_models_auth_status":
         return { providers: [], configured: true };
+      case "middleware_file_naming_groq_get":
+        return fileNamingSettingsPayload();
+      case "middleware_file_naming_groq_set": {
+        const saved = writeFileNamingGroqSettings(input);
+        if (!saved.ok) return reply.code(400).send(saved);
+        return saved;
+      }
+      case "middleware_file_naming_groq_remove":
+        return removeFileNamingGroqSettings();
       case "middleware_voice_settings_get":
         return voiceSettingsPayload();
       case "middleware_voice_settings_set":
@@ -4374,7 +4473,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_skills_active":
         return getActiveSkills();
       case "middleware_autonaming_quick": {
-        const name = String(input.text || input.prompt || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
+        const name = await groqFileNameFromPrompt(input.text || input.prompt || "New Chat");
         return { name, title: name };
       }
       case "middleware_chat_history": {
@@ -4670,7 +4769,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           await context.gateway.request("sessions.create", {
             key: sessionKey,
             agentId: input.agentId || "main",
-            label: gatewaySessionLabel(input.label, sessionKey),
+            label: await smartGatewaySessionLabel(input.label, sessionKey),
           });
         } catch { /* session may already exist */ }
         const session = {
@@ -4700,7 +4799,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           await context.gateway.request("sessions.create", {
             key: sessionKey,
             agentId: input.agentId || "main",
-            label: gatewaySessionLabel(input.name, sessionKey),
+            label: await smartGatewaySessionLabel(input.name, sessionKey),
           });
         } catch { /* session may already exist */ }
         const writeSpaceId = sessionWriteSpaceId(input);
