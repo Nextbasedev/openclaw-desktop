@@ -505,6 +505,12 @@ describe("middleware app", () => {
     const savedConfig = fs.readFileSync(path.join(home, ".openclaw", "openclaw.json"), "utf8");
     expect(savedConfig).toContain("gsk_test_key");
     expect(savedConfig).toContain("GROQ_API_KEY_FILE_NAMING");
+    expect(fs.readFileSync(path.join(home, ".openclaw", "file-naming-groq.json"), "utf8")).toContain("gsk_test_key");
+
+    fs.writeFileSync(path.join(home, ".openclaw", "openclaw.json"), JSON.stringify({ gateway: { port: 18789 } }), "utf8");
+    const restored = await app.inject({ method: "POST", url: "/api/commands/middleware_file_naming_groq_get", payload: {} });
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json().settings).toMatchObject({ connected: true, enabled: true, provider: "groq", keyPreview: "••••_key" });
 
     const named = await app.inject({ method: "POST", url: "/api/commands/middleware_autonaming_quick", payload: { input: { prompt: "please build a TypeScript API client for Stripe invoices" } } });
     expect(named.statusCode).toBe(200);
@@ -519,6 +525,7 @@ describe("middleware app", () => {
     expect(removed.statusCode).toBe(200);
     expect(removed.json().settings).toMatchObject({ connected: false, enabled: false });
     expect(fs.readFileSync(path.join(home, ".openclaw", "openclaw.json"), "utf8")).not.toContain("GROQ_API_KEY_FILE_NAMING");
+    expect(fs.existsSync(path.join(home, ".openclaw", "file-naming-groq.json"))).toBe(false);
 
     fetchSpy.mockClear();
     const fallback = await app.inject({ method: "POST", url: "/api/commands/middleware_autonaming_quick", payload: { input: { prompt: "please build a TypeScript API client for Stripe invoices" } } });

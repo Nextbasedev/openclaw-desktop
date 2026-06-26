@@ -41,11 +41,32 @@ const rawSessionLabel = (label: unknown) => String(label || "New Chat").replace(
 
 const FILE_NAMING_GROQ_MODEL = "llama-3.1-8b-instant";
 
+function fileNamingGroqSecretPath() {
+  return path.join(os.homedir(), ".openclaw", "file-naming-groq.json");
+}
+
+function readFileNamingGroqSecret(): CompatRecord {
+  try { return JSON.parse(fs.readFileSync(fileNamingGroqSecretPath(), "utf8")); } catch { return {}; }
+}
+
+function writeFileNamingGroqSecret(input: CompatRecord) {
+  const secretPath = fileNamingGroqSecretPath();
+  fs.mkdirSync(path.dirname(secretPath), { recursive: true });
+  fs.writeFileSync(secretPath, JSON.stringify(input, null, 2), { encoding: "utf8", mode: 0o600 });
+  try { fs.chmodSync(secretPath, 0o600); } catch { /* best effort */ }
+}
+
+function removeFileNamingGroqSecret() {
+  try { fs.rmSync(fileNamingGroqSecretPath(), { force: true }); } catch { /* best effort */ }
+}
+
 function fileNamingConfig(cfg: CompatRecord) {
   const naming = cfg.tools?.fileNaming && typeof cfg.tools.fileNaming === "object" ? cfg.tools.fileNaming : {};
   const groq = naming.groq && typeof naming.groq === "object" ? naming.groq : {};
-  const apiKey = String(groq.apiKey || cfg.env?.vars?.GROQ_API_KEY_FILE_NAMING || "").trim();
-  return { enabled: groq.enabled !== false && Boolean(apiKey), apiKey, model: String(groq.model || FILE_NAMING_GROQ_MODEL).trim() || FILE_NAMING_GROQ_MODEL };
+  const sidecar = readFileNamingGroqSecret();
+  const apiKey = String(groq.apiKey || cfg.env?.vars?.GROQ_API_KEY_FILE_NAMING || sidecar.apiKey || "").trim();
+  const enabled = (groq.enabled ?? sidecar.enabled) !== false && Boolean(apiKey);
+  return { enabled, apiKey, model: String(groq.model || sidecar.model || FILE_NAMING_GROQ_MODEL).trim() || FILE_NAMING_GROQ_MODEL };
 }
 
 function maskedApiKey(value: string) {
@@ -67,8 +88,10 @@ function writeFileNamingGroqSettings(input: CompatRecord) {
   cfg.env ??= {};
   cfg.env.vars ??= {};
   cfg.env.vars.GROQ_API_KEY_FILE_NAMING = key;
-  cfg.tools.fileNaming.groq = { apiKey: key, enabled: input.enabled !== false, model: String(input.model || FILE_NAMING_GROQ_MODEL).trim() || FILE_NAMING_GROQ_MODEL };
+  const settings = { apiKey: key, enabled: input.enabled !== false, model: String(input.model || FILE_NAMING_GROQ_MODEL).trim() || FILE_NAMING_GROQ_MODEL };
+  cfg.tools.fileNaming.groq = settings;
   writeOCPlatformConfig(cfg);
+  writeFileNamingGroqSecret(settings);
   return fileNamingSettingsPayload();
 }
 
@@ -80,6 +103,7 @@ function removeFileNamingGroqSettings() {
   }
   if (cfg.env?.vars?.GROQ_API_KEY_FILE_NAMING) delete cfg.env.vars.GROQ_API_KEY_FILE_NAMING;
   writeOCPlatformConfig(cfg);
+  removeFileNamingGroqSecret();
   return fileNamingSettingsPayload();
 }
 
