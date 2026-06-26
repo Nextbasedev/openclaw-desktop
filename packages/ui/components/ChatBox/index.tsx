@@ -119,6 +119,7 @@ export function ChatBox({
   topAccessory,
 }: Props) {
   const draftStorageKey = draftKey ? `openclaw-composer-draft:v1:${draftKey}` : null
+  const draftAttachmentStorageKey = draftKey ? `openclaw-composer-attachments-draft:v1:${draftKey}` : null
   const [input, setInput] = React.useState(() => {
     if (initialPrompt != null) return initialPrompt
     if (!draftStorageKey || typeof localStorage === "undefined") return ""
@@ -184,6 +185,7 @@ export function ChatBox({
     processFiles,
   } = useChatComposerAttachments({
     disabled: isComposerDisabled,
+    storageKey: draftAttachmentStorageKey,
     onFilesProcessed: () => {
       setPlusOpen(false)
       textareaRef.current?.focus()
