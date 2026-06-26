@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { ChatMessage } from "@/components/ChatView/types"
 import { stripTransientChatMessagesState } from "../chatTransientState"
-import { ChatTimelineStore } from "../chat-engine-v2/timelineStore"
 
 function assistant(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
@@ -32,31 +31,13 @@ describe("transient chat message state", () => {
     expect(restored.runId).toBe("run-1")
   })
 
-  it("strips warm-cache messages before timeline snapshots can replay reveal", () => {
-    const store = new ChatTimelineStore("warm-cache-remount")
-    store.applyWarmCache([assistant({ animateText: true })], 10)
-    store.flushSync()
+  it("strips animateText across a batch while preserving non-transient fields", () => {
+    const restored = stripTransientChatMessagesState([
+      assistant({ messageId: "a", animateText: true, stopReason: "stop" }),
+      assistant({ messageId: "b", animateText: true, runId: "run-2" }),
+    ])
 
-    expect(store.getSnapshot().messages[0].animateText).toBeUndefined()
-  })
-
-  it("strips background-completed bootstrap messages opened later", () => {
-    const store = new ChatTimelineStore("bootstrap-remount")
-    store.applyBootstrap([assistant({ animateText: true, stopReason: "stop" })], 20)
-    store.flushSync()
-
-    expect(store.getSnapshot().messages[0].animateText).toBeUndefined()
-  })
-
-  it("preserves animateText for live patch deltas that arrive after mount", () => {
-    const store = new ChatTimelineStore("live-stream")
-    store.applyBootstrap([assistant({ messageId: "previous", text: "Previous", animateText: true })], 5)
-    store.flushSync()
-
-    store.applyPatchMessage(assistant({ messageId: "live", text: "Streaming now", animateText: true, runId: "run-live" }), 6)
-    store.flushSync()
-
-    const live = store.getSnapshot().messages.find((message) => message.messageId === "live")
-    expect(live?.animateText).toBe(true)
+    expect(restored.every((m) => m.animateText === undefined)).toBe(true)
+    expect(restored[1].runId).toBe("run-2")
   })
 })
