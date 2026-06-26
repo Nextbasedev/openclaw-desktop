@@ -850,20 +850,14 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
   const rawSessionLabel = (label: unknown) => String(label || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
   const fallbackFileNameFromPrompt = (prompt: unknown) => rawSessionLabel(prompt);
   const openclawConfigPath = () => path.join(os.homedir(), ".openclaw", "openclaw.json");
-  const fileNamingGroqSecretPath = () => path.join(os.homedir(), ".openclaw", "file-naming-groq.json");
   const readOCPlatformConfig = (): Record<string, any> => {
     try { return JSON.parse(fs.readFileSync(openclawConfigPath(), "utf8")); } catch { return {}; }
-  };
-  const readFileNamingGroqSecret = (): Record<string, any> => {
-    try { return JSON.parse(fs.readFileSync(fileNamingGroqSecretPath(), "utf8")); } catch { return {}; }
   };
   const fileNamingConfig = () => {
     const cfg = readOCPlatformConfig();
     const groq = cfg.tools?.fileNaming?.groq && typeof cfg.tools.fileNaming.groq === "object" ? cfg.tools.fileNaming.groq : {};
-    const sidecar = readFileNamingGroqSecret();
-    const apiKey = String(groq.apiKey || cfg.env?.vars?.GROQ_API_KEY_FILE_NAMING || sidecar.apiKey || "").trim();
-    const enabled = (groq.enabled ?? sidecar.enabled) !== false && Boolean(apiKey);
-    return { enabled, apiKey, model: String(groq.model || sidecar.model || "llama-3.1-8b-instant").trim() || "llama-3.1-8b-instant" };
+    const apiKey = String(groq.apiKey || cfg.env?.vars?.GROQ_API_KEY_FILE_NAMING || "").trim();
+    return { enabled: groq.enabled !== false && Boolean(apiKey), apiKey, model: String(groq.model || "llama-3.1-8b-instant").trim() || "llama-3.1-8b-instant" };
   };
   const sanitizeGeneratedFileName = (value: unknown) => {
     const cleaned = String(value || "")
