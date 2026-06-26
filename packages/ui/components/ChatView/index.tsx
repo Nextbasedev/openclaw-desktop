@@ -1956,7 +1956,11 @@ export function ChatView({
   const statusText = isGenerating
     ? generatingStatusText(state.streamStatus, state.statusLabel, liveTool)
     : null
-  const showThinkingState = isGenerating && !hasAssistantAnswerAfterLastUser(renderedMessages)
+  // Keep the active-run indicator visible until the stream reaches a terminal
+  // status. A response can already contain assistant text/reasoning while the
+  // model or tool loop is still running; hiding this row in that state makes
+  // the chat look idle even though Stop/progress is still active.
+  const showThinkingState = isGenerating
   const latestRenderedUserIndex = useMemo(() => {
     for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
       if (renderedMessages[index]?.role === "user") return index

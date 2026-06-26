@@ -375,7 +375,10 @@ export function OpenClawVercelChat({
     }
   }, [containerRef, hasOlderMessages, isGenerating, loadOlderWithoutJump, localOlderLoading])
   const lastMessage = stableMessages.at(-1)
-  const showThinking = isGenerating && lastMessage?.role === "user"
+  // Show live run status for the whole non-terminal stream, not only before
+  // the first assistant chunk. Assistant text can be visible while the run is
+  // still producing tokens or waiting on tools.
+  const showThinking = isGenerating
   const latestOptimisticUserKey =
     lastMessage?.role === "user" && (lastMessage.isOptimistic || lastMessage.sendStatus === "sending")
       ? lastMessage.uiId
@@ -389,8 +392,8 @@ export function OpenClawVercelChat({
     previousGeneratingRef.current = isGenerating
 
     if (isGenerating) {
-      setSettlingPlainAssistantUiId(null)
-      return
+      const timeout = window.setTimeout(() => setSettlingPlainAssistantUiId(null), 0)
+      return () => window.clearTimeout(timeout)
     }
 
     if (!wasGenerating || lastMessage?.role !== "assistant") return
@@ -400,11 +403,16 @@ export function OpenClawVercelChat({
     // plain streaming text to Markdown immediately at terminal status, changing
     // margins/headings/list layout and causing a visible jump/re-render.
     const uiId = lastMessage.uiId
-    setSettlingPlainAssistantUiId(uiId)
-    const timeout = window.setTimeout(() => {
+    const startTimeout = window.setTimeout(() => {
+      setSettlingPlainAssistantUiId(uiId)
+    }, 0)
+    const clearTimeout = window.setTimeout(() => {
       setSettlingPlainAssistantUiId((current) => current === uiId ? null : current)
     }, COMPLETED_ASSISTANT_PLAIN_SETTLE_MS)
-    return () => window.clearTimeout(timeout)
+    return () => {
+      window.clearTimeout(startTimeout)
+      window.clearTimeout(clearTimeout)
+    }
   }, [isGenerating, lastMessage?.role, lastMessage?.uiId])
 
   useLayoutEffect(() => {
