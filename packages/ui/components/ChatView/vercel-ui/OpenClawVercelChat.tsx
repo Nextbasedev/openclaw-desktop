@@ -142,40 +142,6 @@ function ThinkingMessage({ statusText }: { statusText?: string | null }) {
   )
 }
 
-function ReplyPreview({ message }: { message: StableChatMessage }) {
-  if (!message.replyTo) return null
-
-  const handleClick = () => {
-    if (!message.replyTo?.messageId) return
-    document
-      .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(message.replyTo.messageId)}"]`)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" })
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={!message.replyTo.messageId}
-      className={cn(
-        "mb-1 flex w-fit max-w-full items-start gap-2 rounded-lg border border-border/20 bg-foreground/[0.03] px-2.5 py-1.5 text-left transition-colors",
-        message.replyTo.messageId ? "cursor-pointer hover:bg-foreground/[0.06]" : "cursor-default"
-      )}
-      aria-label="Scroll to replied message"
-    >
-      <div className="min-w-0 flex-1">
-        <span className="text-[10px] font-medium text-muted-foreground/60">
-          Replying to {message.replyTo.role === "user" ? "You" : "Assistant"}
-        </span>
-        <p className="line-clamp-2 text-[12px] leading-snug text-foreground/50">
-          {message.replyTo.text.slice(0, 150)}
-          {message.replyTo.text.length > 150 ? "…" : ""}
-        </p>
-      </div>
-    </button>
-  )
-}
-
 function VercelMessage({
   message,
   isStreaming = false,
@@ -210,12 +176,9 @@ function VercelMessage({
 
         <div className={cn(isUser ? "flex max-w-[min(80%,56ch)] flex-col items-end gap-2" : "flex min-w-0 flex-1 flex-col gap-1.5")}>
           {isUser ? (
-            <>
-              <ReplyPreview message={message} />
-              <div className="w-fit overflow-hidden break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 text-[13px] leading-[1.65] shadow-[var(--shadow-card)]">
-                <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.text}</p>
-              </div>
-            </>
+            <div className="w-fit overflow-hidden break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 text-[13px] leading-[1.65] shadow-[var(--shadow-card)]">
+              <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.text}</p>
+            </div>
           ) : (
             <>
               {message.reasoningText && (
@@ -292,7 +255,7 @@ export function OpenClawVercelChat({
         tool.approval?.id ?? "",
       ].join(":"))
       .join(",")
-    return `${message.uiId}:${message.text.length}:${message.reasoningText?.length ?? 0}:${message.replyTo?.messageId ?? ""}:${message.replyTo?.text.length ?? 0}:${toolKey}`
+    return `${message.uiId}:${message.text.length}:${message.reasoningText?.length ?? 0}:${toolKey}`
   }).join("|")
   const { containerRef, endRef, isAtBottom, scrollToBottom } = useStableChatScroll({
     sessionKey,
