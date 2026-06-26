@@ -75,16 +75,33 @@ frames after `lastSeq` within the same epoch, or signals epoch change → full r
   and the in-progress response correctly.
 
 ## 5. Acceptance criteria ("production-ready")
-- Zero dupe / flicker / blink / jump / reorder under normal use.
-- Survives WS reconnect and backend restart with no manual refresh (epoch resync).
-- Typewriter animates once per response; never restarts.
-- Session switch preserves all per-session state correctly.
-- No console errors/warnings on the touched paths.
-- Smooth streaming + scrolling at 100+ message history.
+- No duplicate messages, flicker, blink, or scroll jumps under normal use.
+- Stable, smooth streaming — no resets, no broken animations.
+- Reliable caching, rendering, and state synchronization.
+- Seamless multi-session switching with no state loss or desync.
+- Survives WS reconnect AND backend restart with no manual refresh (epoch resync).
+- **Message order correct at all times**: every user message appears first,
+  with its corresponding assistant response directly below it.
+- **Attachment correctness**: tool calls, thinking blocks, reasoning,
+  visualizations, artifacts, and assistant responses always stay attached to
+  their correct message — never out of order, never under another conversation.
+- Tool execution state stays synchronized during streaming, reconnects, cache
+  restoration, and session switching.
+- Generating / thinking / tool-call states restore correctly after session
+  switch or reconnect (returning to a generating session shows live indicator +
+  in-progress response).
+- **Feature preservation (non-negotiable)**: keep ALL existing chat features —
+  user & assistant message action buttons, message details, visualizations,
+  artifacts, timestamps, attachments, and every currently supported function.
+- Long conversations (100+ messages) stay smooth; no perf degradation.
+- No race conditions, memory leaks, unnecessary re-renders, or render inconsistencies.
+- No console errors, warnings, or regressions.
+- Typewriter animates exactly once per response; never restarts.
 - Measurable middleware improvement: lower time-to-first-token and bootstrap time
   vs baseline (capture before/after numbers).
 - Each stage: typecheck clean; characterization + property tests green; no NEW
-  lint errors; PR-style review pass before merge.
+  lint errors; PR-style review pass; validated by end-to-end + integration +
+  real-world testing before considered complete.
 
 ## 6. Non-goals / anti-over-engineering (explicitly rejected)
 CRDTs (Yjs/Automerge), custom binary protocols, Redux+Saga/Observable stacks,
@@ -92,19 +109,33 @@ Web Workers for the reducer, GraphQL subscriptions, per-session multiple WS,
 index keys, per-token setState, speculative pre-render. One server of truth +
 sequence numbers is sufficient.
 
-## 7. Verification
+## 7. Verification & E2E debugging methodology
+For every issue: **reproduce consistently → identify the exact event sequence that
+causes it → fix → verify via automated AND real-world testing** before it is done.
+Techniques to apply:
+- **Virtual/structured logs + event tracing** through the patch pipeline
+  (middleware emit → WS → store reduce → render).
+- **WebSocket lifecycle tracing**: connect/reconnect/epoch/close, per session.
+- **Cache inspection**: what is in the store / LRU / IndexedDB at each transition.
+- **Render profiling**: React Profiler / why-did-you-render style checks for
+  unnecessary re-renders; Performance API + long-task observer.
+- **Browser automation** (Playwright/webwright or equivalent) to drive real flows
+  and capture screenshot/DOM-mutation evidence of no-flicker/no-jump.
 - Characterization tests: record real patch-frame logs, replay, lock current good
   behavior BEFORE each refactor stage.
 - Property tests on the reducer: any permutation/duplication/drop of patches →
   same final state (idempotent + order-independent for the final snapshot).
 - Deterministic virtual clock + fake WS transport for streaming/reconnect tests.
-- Live browser proof (Playwright/webwright) **iff** a trustworthy runnable dev env
-  is available on the host; otherwise tests + typecheck + code reasoning, stated
-  honestly. (Host has 3.7GB RAM/no swap — full build OOMs; `next dev` may run.)
+- Live browser proof is REQUIRED where a trustworthy runnable dev env exists;
+  if the host cannot run it reliably (3.7GB RAM/no swap — full build OOMs; `next
+  dev` may run), state that honestly and rely on tests + tracing + code reasoning.
+  Never fake a green result.
 
 ## 8. Branch / merge
-- Work on `chat-refactor` off `master`. Each stage = one verified commit.
-- Krish merges to `master` after review. No direct master commits.
+- Work on **`fix-master`** off `master` (created 2026-06-26). Each stage = one
+  verified commit. Krish merges to `master` after review. No direct master commits.
+- (Superseded: earlier `chat-refactor` branch held the same Stage 0 + spec;
+  fix-master is the live branch going forward.)
 
 ## 9. Staged plan
 - **Stage 0 (DONE, db48a782):** delete ~16k LOC dead code; lock audit + research docs.
