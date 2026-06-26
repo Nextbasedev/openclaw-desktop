@@ -62,6 +62,50 @@ describe("applyChatPatch", () => {
     expect(next.messages[0]).toMatchObject({ messageId: "m1", role: "user", text: "hello" })
   })
 
+  test("preserves reply preview when an optimistic user bubble is confirmed", () => {
+    const next = applyChatPatch({
+      cursor: 1,
+      messages: [{
+        messageId: "client-1",
+        role: "user",
+        text: "what is the color of this?",
+        isOptimistic: true,
+        sendStatus: "sending",
+        replyTo: {
+          messageId: "assistant-1",
+          role: "assistant",
+          text: "The jeep is mainly olive drab / army green.",
+        },
+      }],
+    }, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.confirmed",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.confirmed",
+          optimisticId: "client-1",
+          messageId: "gateway-1",
+          message: { role: "user", text: "what is the color of this?", id: "gateway-1" },
+        },
+        createdAtMs: 2,
+      },
+    })
+
+    expect(next.messages).toHaveLength(1)
+    expect(next.messages[0]).toMatchObject({
+      messageId: "gateway-1",
+      role: "user",
+      text: "what is the color of this?",
+      replyTo: {
+        messageId: "assistant-1",
+        role: "assistant",
+        text: "The jeep is mainly olive drab / army green.",
+      },
+    })
+  })
+
   test("merges sequential tool-only assistant patches into one visible steps block", () => {
     const withFirstTool = applyChatPatch({ cursor: 0, messages: [
       { messageId: "u1", role: "user", text: "run tools" },
