@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react"
 import { emit } from "@/lib/events"
 import { routeUrl } from "@/lib/app-router"
-import { parseMiddlewarePairingInput } from "@/lib/middlewarePairingInput"
 import { ConnectPageView } from "@/components/connect/ConnectPageView"
 import {
   clearMiddlewareConnection,
@@ -174,36 +173,16 @@ export default function ConnectPage() {
     initializeConnection().finally(() => setLoadingStatus(false))
   }, [])
 
-  function applyUrlInput(value: string) {
-    const parsed = parseMiddlewarePairingInput(value)
-    setUrl(parsed.url ?? value)
-    if (parsed.pairingCode) setToken(parsed.pairingCode)
-    setError(null)
-    setConnectResult(null)
-  }
-
-  function applyTokenInput(value: string) {
-    const parsed = parseMiddlewarePairingInput(value)
-    if (parsed.url) setUrl(parsed.url)
-    setToken(parsed.pairingCode ?? value)
-    setError(null)
-    setConnectResult(null)
-  }
-
   async function runTest(save: boolean) {
-    const parsedUrlInput = parseMiddlewarePairingInput(url)
-    const parsedTokenInput = parseMiddlewarePairingInput(token)
-    const effectiveUrl = parsedUrlInput.url ?? parsedTokenInput.url ?? url.trim()
-    const effectiveToken = parsedTokenInput.pairingCode ?? parsedUrlInput.pairingCode ?? token.trim()
-    const localUrl = isLoopbackMiddlewareUrl(effectiveUrl)
-    if (!effectiveUrl || (!localUrl && !effectiveToken)) {
+    const localUrl = isLoopbackMiddlewareUrl(url)
+    if (!url.trim() || (!localUrl && !token.trim())) {
       setError(localUrl ? "Middleware URL is required" : "Both Middleware URL and pairing code/token are required")
       return null
     }
-    let connection = { url: effectiveUrl, token: effectiveToken }
+    let connection = { url: url.trim(), token: token.trim() }
     let health: MiddlewareHealth | null = null
-    if (!localUrl && isLikelyPairingCode(effectiveToken)) {
-      const paired = await claimMiddlewarePairing({ url: effectiveUrl, code: effectiveToken })
+    if (!localUrl && isLikelyPairingCode(token)) {
+      const paired = await claimMiddlewarePairing({ url: url.trim(), code: token.trim() })
       connection = { url: paired.url, token: paired.token }
       health = await testMiddlewareConnection(connection)
     } else {
@@ -227,7 +206,7 @@ export default function ConnectPage() {
     try {
       await runTest(false)
     } catch (err) {
-      setError(humanConnectionError(err, parseMiddlewarePairingInput(url).url ?? url))
+      setError(humanConnectionError(err, url))
     } finally {
       setTesting(false)
     }
@@ -239,10 +218,10 @@ export default function ConnectPage() {
     try {
       await runTest(true)
       setSessionConnected(true)
-      notifyShellConnected(parseMiddlewarePairingInput(url).url ?? url.trim())
+      notifyShellConnected(url.trim())
       redirectToDashboard()
     } catch (err) {
-      setError(humanConnectionError(err, parseMiddlewarePairingInput(url).url ?? url))
+      setError(humanConnectionError(err, url))
     } finally {
       setSaving(false)
     }
@@ -280,8 +259,8 @@ export default function ConnectPage() {
       autoDetect={false}
       detecting={false}
       detectMessage={detectMessage}
-      onUrlChange={applyUrlInput}
-      onTokenChange={applyTokenInput}
+      onUrlChange={(value) => { setUrl(value); setError(null); setConnectResult(null) }}
+      onTokenChange={(value) => { setToken(value); setError(null); setConnectResult(null) }}
       onShowTokenChange={setShowToken}
       onSetupModeChange={(mode) => {
         setSetupMode(mode)
