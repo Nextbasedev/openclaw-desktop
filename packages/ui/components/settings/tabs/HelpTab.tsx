@@ -141,7 +141,6 @@ type GroqFileNamingSettings = {
     enabled: boolean
     connected: boolean
     model: string
-    keyPreview?: string | null
   }
 }
 
@@ -609,9 +608,7 @@ function GroqFileNamingCard() {
             Save a Groq API key to generate short, meaningful filenames from the first prompt. Without a key, Desktop keeps the existing raw-prompt fallback.
           </p>
           {settings?.model && connected && (
-            <p className="mt-1 text-[10px] text-muted-foreground/70">
-              Using {settings.model}{settings.keyPreview ? ` · saved key ${settings.keyPreview}` : ""}
-            </p>
+            <p className="mt-1 text-[10px] text-muted-foreground/70">Using {settings.model}</p>
           )}
         </div>
       </div>

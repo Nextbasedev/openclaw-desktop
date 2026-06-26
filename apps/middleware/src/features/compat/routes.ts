@@ -48,14 +48,10 @@ function fileNamingConfig(cfg: CompatRecord) {
   return { enabled: groq.enabled !== false && Boolean(apiKey), apiKey, model: String(groq.model || FILE_NAMING_GROQ_MODEL).trim() || FILE_NAMING_GROQ_MODEL };
 }
 
-function maskedApiKey(value: string) {
-  return value ? `••••${value.slice(-4)}` : null;
-}
-
 function fileNamingSettingsPayload() {
   const cfg = readOCPlatformConfig();
   const naming = fileNamingConfig(cfg);
-  return { ok: true, settings: { provider: "groq", enabled: naming.enabled, connected: Boolean(naming.apiKey), model: naming.model, keyPreview: maskedApiKey(naming.apiKey) } };
+  return { ok: true, settings: { provider: "groq", enabled: naming.enabled, connected: Boolean(naming.apiKey), model: naming.model } };
 }
 
 function writeFileNamingGroqSettings(input: CompatRecord) {
@@ -64,9 +60,6 @@ function writeFileNamingGroqSettings(input: CompatRecord) {
   const cfg = readOCPlatformConfig();
   cfg.tools ??= {};
   cfg.tools.fileNaming ??= {};
-  cfg.env ??= {};
-  cfg.env.vars ??= {};
-  cfg.env.vars.GROQ_API_KEY_FILE_NAMING = key;
   cfg.tools.fileNaming.groq = { apiKey: key, enabled: input.enabled !== false, model: String(input.model || FILE_NAMING_GROQ_MODEL).trim() || FILE_NAMING_GROQ_MODEL };
   writeOCPlatformConfig(cfg);
   return fileNamingSettingsPayload();
@@ -77,9 +70,8 @@ function removeFileNamingGroqSettings() {
   if (cfg.tools?.fileNaming?.groq) {
     delete cfg.tools.fileNaming.groq;
     if (Object.keys(cfg.tools.fileNaming).length === 0) delete cfg.tools.fileNaming;
+    writeOCPlatformConfig(cfg);
   }
-  if (cfg.env?.vars?.GROQ_API_KEY_FILE_NAMING) delete cfg.env.vars.GROQ_API_KEY_FILE_NAMING;
-  writeOCPlatformConfig(cfg);
   return fileNamingSettingsPayload();
 }
 
@@ -3786,15 +3778,14 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const timestamp = nowIso();
     const sessionKey = String(body.sessionKey || `agent:${body.agentId || "main"}:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
     const spaceId = sessionWriteSpaceId(body);
-    const displayName = await groqFileNameFromPrompt(body.name || "New Chat");
     void context.gateway.request("sessions.create", {
       key: sessionKey,
       agentId: body.agentId || "main",
-      label: gatewaySessionLabel(displayName, sessionKey),
+      label: await smartGatewaySessionLabel(body.name, sessionKey),
     }).catch(() => { /* session may already exist or gateway may be offline */ });
     const chat = {
       id: id("chat"),
-      name: displayName,
+      name: body.name || "New Chat",
       sessionKey,
       spaceId,
       agentId: body.agentId || "main",
@@ -3812,7 +3803,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       topicId: body.topicId || null,
       spaceId,
       agentId: body.agentId || "main",
-      label: displayName,
+      label: body.name || "New Chat",
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -4774,12 +4765,11 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_sessions_create": {
         const sessionKey = String(input.sessionKey || `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
         const timestamp = nowIso();
-        const displayName = await groqFileNameFromPrompt(input.label || "New Chat");
         try {
           await context.gateway.request("sessions.create", {
             key: sessionKey,
             agentId: input.agentId || "main",
-            label: gatewaySessionLabel(displayName, sessionKey),
+            label: await smartGatewaySessionLabel(input.label, sessionKey),
           });
         } catch { /* session may already exist */ }
         const session = {
@@ -4789,7 +4779,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           projectId: input.projectId || null,
           topicId: input.topicId || null,
           agentId: input.agentId || "main",
-          label: displayName,
+          label: input.label || "New Chat",
           createdAt: timestamp,
           updatedAt: timestamp,
         };
@@ -4805,18 +4795,17 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_chats_create": {
         const sessionKey = String(input.sessionKey || `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
         const timestamp = nowIso();
-        const displayName = await groqFileNameFromPrompt(input.name || "New Chat");
         try {
           await context.gateway.request("sessions.create", {
             key: sessionKey,
             agentId: input.agentId || "main",
-            label: gatewaySessionLabel(displayName, sessionKey),
+            label: await smartGatewaySessionLabel(input.name, sessionKey),
           });
         } catch { /* session may already exist */ }
         const writeSpaceId = sessionWriteSpaceId(input);
         const chat = {
           id: id("chat"),
-          name: displayName,
+          name: input.name || "New Chat",
           sessionKey,
           spaceId: writeSpaceId,
           agentId: input.agentId || "main",
@@ -4834,7 +4823,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           projectId: input.projectId || null,
           topicId: input.topicId || null,
           agentId: input.agentId || "main",
-          label: displayName,
+          label: input.name || "New Chat",
           createdAt: timestamp,
           updatedAt: timestamp,
         };
