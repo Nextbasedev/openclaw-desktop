@@ -236,7 +236,7 @@ export function useChatsData(
   useEffect(() => {
     if (showArchived) return
     // Sidebar loader has two upstream sources that need to be UNIONed:
-    //   1. chatActivityStore  — fed by the legacy useChatMessages hook (still
+    //   1. chatActivityStore  — fed by the chat-engine-v2 store (legacy hook removed)
     //      used by some surfaces / sub-agent flows).
     //   2. activeRunRegistry  — fed by the v2 ChatView so its runs are visible
     //      to the sidebar even when ChatView is unmounted (the fix for
