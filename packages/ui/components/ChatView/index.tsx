@@ -28,8 +28,6 @@ import {
   deleteQueuedChatMessage,
   editQueuedChatMessage,
   enqueueChatMessage,
-  loadPersistedChatSendQueue,
-  savePersistedChatSendQueue,
   takeNextQueuedChatMessage,
   type QueuedChatMessage,
 } from "@/lib/chatSendQueue"
@@ -664,9 +662,7 @@ export function ChatView({
     }
     return prompts
   }, [state.messages])
-  const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>(() =>
-    loadPersistedChatSendQueue(sessionKey)
-  )
+  const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
   // Local sub-agent take-over state. When non-null, the chat surface renders
   // <SubagentFullChat/> instead of the normal message stream. Parent is
   // notified via onSubagentOpen so the inspector / agent breadcrumb stays in
@@ -690,25 +686,6 @@ export function ChatView({
   useEffect(() => {
     queuedMessagesRef.current = queuedMessages
   }, [queuedMessages])
-  const replaceQueuedMessages = useCallback(
-    (next: QueuedChatMessage[]) => {
-      queuedMessagesRef.current = next
-      setQueuedMessages(next)
-      savePersistedChatSendQueue(sessionKey, next)
-    },
-    [sessionKey]
-  )
-  const updateQueuedMessages = useCallback(
-    (updater: (current: QueuedChatMessage[]) => QueuedChatMessage[]) => {
-      setQueuedMessages((current) => {
-        const next = updater(current)
-        queuedMessagesRef.current = next
-        savePersistedChatSendQueue(sessionKey, next)
-        return next
-      })
-    },
-    [sessionKey]
-  )
   const olderFetchSeqRef = useRef(0)
   const newerFetchSeqRef = useRef(0)
   // Time-based refractory: wall-clock timestamp (ms since epoch) of the last
@@ -1360,8 +1337,9 @@ export function ChatView({
         payload: { ...payload, text },
         createdAtMs: Date.now(),
       }
-      updateQueuedMessages((current) => {
+      setQueuedMessages((current) => {
         const next = enqueueChatMessage(current, queued)
+        queuedMessagesRef.current = next
         return next
       })
       setState((current) => ({ ...current, composerError: null }))
@@ -1894,7 +1872,8 @@ export function ChatView({
     if (!next) return
 
     queueDrainInFlightRef.current = true
-    replaceQueuedMessages(rest)
+    queuedMessagesRef.current = rest
+    setQueuedMessages(rest)
     frontendLog("chat", "chat-rebuild.send.queue-drain", {
       sessionKey,
       queueId: next.id,
@@ -1903,13 +1882,12 @@ export function ChatView({
     void handleSend({ ...next.payload, runWhileGenerating: false }).finally(() => {
       queueDrainInFlightRef.current = false
     })
-  }, [isGenerating, queuedMessages.length, replaceQueuedMessages, sending, sessionKey, state.loading])
+  }, [isGenerating, queuedMessages.length, sending, sessionKey, state.loading])
 
   // Reset + initial fetch on session change
   useEffect(() => {
-    const nextQueuedMessages = loadPersistedChatSendQueue(sessionKey)
-    queuedMessagesRef.current = nextQueuedMessages
-    setQueuedMessages(nextQueuedMessages)
+    queuedMessagesRef.current = []
+    setQueuedMessages([])
     setSessionUsage(null)
     void refreshSessionUsage()
   }, [refreshSessionUsage, sessionKey])
@@ -3042,14 +3020,16 @@ export function ChatView({
           draftKey={`chat:${sessionKey}`}
           queuedMessages={queuedMessages}
           onEditQueuedMessage={(id, text) => {
-            updateQueuedMessages((current) => {
+            setQueuedMessages((current) => {
               const next = editQueuedChatMessage(current, id, text)
+              queuedMessagesRef.current = next
               return next
             })
           }}
           onDeleteQueuedMessage={(id) => {
-            updateQueuedMessages((current) => {
+            setQueuedMessages((current) => {
               const next = deleteQueuedChatMessage(current, id)
+              queuedMessagesRef.current = next
               return next
             })
           }}
