@@ -126,6 +126,7 @@ export type RawHistoryMessage = {
   toolCalls?: unknown[]
   tools?: unknown[]
   stopReason?: string | null
+  replyTo?: unknown
   isOptimistic?: boolean
   __clientOptimistic?: boolean
 }
@@ -223,6 +224,49 @@ function messageOrderSeq(raw: RawHistoryMessage, gatewayOrderBase: number | unde
 function messageRunId(raw: RawHistoryMessage) {
   const runId = raw.__openclaw?.runId ?? raw.runId
   return typeof runId === "string" && runId.trim() ? runId.trim() : undefined
+}
+
+function normalizeReplyTo(value: unknown): ReplyTo | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const messageId = typeof record.messageId === "string" && record.messageId.trim()
+    ? record.messageId.trim()
+    : typeof record.id === "string" && record.id.trim()
+      ? record.id.trim()
+      : ""
+  const rawRole = typeof record.role === "string" ? record.role.trim().toLowerCase() : ""
+  const role: ReplyTo["role"] = rawRole === "user" ? "user" : "assistant"
+  const text = typeof record.text === "string"
+    ? record.text
+    : typeof record.snippet === "string"
+      ? record.snippet
+      : ""
+  const selections = Array.isArray(record.selections)
+    ? record.selections
+      .map((selection) => {
+        if (!selection || typeof selection !== "object" || Array.isArray(selection)) return null
+        const item = selection as Record<string, unknown>
+        const selectedText = typeof item.text === "string" ? item.text.trim() : ""
+        if (!selectedText) return null
+        const selectedMessageId = typeof item.messageId === "string" && item.messageId.trim()
+          ? item.messageId.trim()
+          : messageId
+        return {
+          messageId: selectedMessageId,
+          text: selectedText,
+          ...(typeof item.comment === "string" && item.comment.trim() ? { comment: item.comment.trim() } : {}),
+        }
+      })
+      .filter((selection): selection is NonNullable<ReplyTo["selections"]>[number] => Boolean(selection))
+    : undefined
+
+  if (!messageId && !text.trim() && !selections?.length) return undefined
+  return {
+    messageId,
+    role,
+    text,
+    ...(selections?.length ? { selections } : {}),
+  }
 }
 
 function messageId(raw: RawHistoryMessage) {
@@ -916,7 +960,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           usage: item.usage,
           stopReason: item.stopReason,
           isOptimistic: Boolean(item.isOptimistic || item.__clientOptimistic),
-          replyTo: reply?.replyTo,
+          replyTo: reply?.replyTo ?? normalizeReplyTo(item.replyTo),
           gatewayIndex: messageOrderSeq(item, gatewayOrderBase),
           runId: messageRunId(item),
           attachments,
