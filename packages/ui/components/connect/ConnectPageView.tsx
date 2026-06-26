@@ -664,7 +664,7 @@ function VpsOpenClawPanel(props: {
         <div>
           <p className="text-[15px] font-semibold tracking-tight text-foreground">Remote connection</p>
           <p className="mt-1 max-w-[420px] text-[12px] leading-relaxed text-muted-foreground/64">
-            Connect Desktop to middleware running on your server. Paste the verified URL and pairing code below.
+            Connect Desktop to middleware running on your server. Paste the verified URL and pairing code separately, or paste the full setup output into either field.
           </p>
         </div>
       </div>
@@ -760,7 +760,7 @@ function RemoteCredentialFields({
         <Input
           value={url}
           onChange={(event) => onUrlChange(event.target.value)}
-          placeholder="https://domain.com or http://100.x.y.z:8787"
+          placeholder="https://domain.com or paste URL + Pairing code"
           disabled={disabled}
           autoComplete="off"
           spellCheck={false}
@@ -776,7 +776,7 @@ function RemoteCredentialFields({
             value={token}
             onChange={(event) => onTokenChange(event.target.value)}
             type={showToken ? "text" : "password"}
-            placeholder="ABC-123"
+            placeholder="ABC-123 or paste full setup output"
             disabled={disabled}
             autoComplete="off"
             spellCheck={false}
