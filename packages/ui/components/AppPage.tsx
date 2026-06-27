@@ -2607,24 +2607,14 @@ function AppShell({
     try {
       const targetGroupId = editorGroups.focusedGroupId
       const fallbackName = fallbackChatNameFromText(text)
-      const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
-        "middleware_chats_create",
-        { input: { name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
-      )
-      let sessionKey = sessionKeyFromResponse(result)
-      if (!sessionKey) {
-        const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
-          "middleware_sessions_create",
-          { input: { agentId: "main", label: fallbackName, spaceId: activeSpaceId ?? undefined } },
-        )
-        sessionKey = sessionKeyFromResponse(sessionResult)
-        if (sessionKey) {
-          await invoke("middleware_chats_attach_session", {
-            input: { chatId: result.chat.id, sessionKey, spaceId: activeSpaceId ?? undefined },
-          })
-        }
-      }
-      if (!sessionKey) throw new Error("New chat did not return a sessionKey")
+
+      // Pre-generate the session + chat ids on the client so the optimistic
+      // user bubble + thinking state paint IMMEDIATELY on send, before any
+      // round-trip to the middleware. middleware_chats_create accepts both ids,
+      // so the chat is created with these exact ids and no reconciliation is
+      // needed once the request resolves.
+      const sessionKey = `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+      const chatId = `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
       const optimisticId = randomId()
       const optimisticMessages: OptimisticMsg[] = [{
@@ -2640,6 +2630,10 @@ function AppShell({
           size: a.size,
         })),
       }]
+      const createdChat = { id: chatId, name: fallbackName, sessionKey }
+      const sessionData = { chat: createdChat, sessionKey, title: fallbackName }
+
+      // ---- paint optimistically (synchronous, before any await) -------------
       activeRunRegistry.publish(sessionKey, {
         messages: optimisticMessages,
         streamStatus: "thinking",
@@ -2651,11 +2645,21 @@ function AppShell({
       setInitialMessages(optimisticMessages)
       setActiveTab("chat")
       setActiveTopic(null)
-      const createdChat = { id: result.chat.id, name: fallbackName, sessionKey }
-      const sessionData = { chat: createdChat, sessionKey, title: fallbackName }
-      resolvedChatCacheRef.current.set(result.chat.id, sessionData)
+      resolvedChatCacheRef.current.set(chatId, sessionData)
       setActiveChat(createdChat)
       setActiveSessionKey(sessionKey)
+      setActiveSessionTitle(fallbackName)
+      dispatchGroups({
+        type: "ADD_TAB",
+        groupId: targetGroupId,
+        tab: { id: `chat:${chatId}`, title: fallbackName, subtitle: "Chat", kind: "chat", chat: createdChat },
+      })
+      dispatchGroups({
+        type: "SET_SESSION_DATA",
+        groupId: targetGroupId,
+        sessionData,
+      })
+      window.history.pushState(null, "", routeUrl(`/${chatId}`))
       frontendLog("chat", "chat-rebuild.send.optimistic-render", {
         origin: "new-session-quick-send",
         timestamp: Date.now(),
@@ -2664,18 +2668,19 @@ function AppShell({
         optimisticId,
         optimisticCount: optimisticMessages.length,
       })
-      setActiveSessionTitle(fallbackName)
-      dispatchGroups({
-        type: "ADD_TAB",
-        groupId: targetGroupId,
-        tab: { id: `chat:${result.chat.id}`, title: fallbackName, subtitle: "Chat", kind: "chat", chat: createdChat },
-      })
-      dispatchGroups({
-        type: "SET_SESSION_DATA",
-        groupId: targetGroupId,
-        sessionData,
-      })
-      window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
+
+      // ---- create the chat/session on the middleware using our ids ----------
+      const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
+        "middleware_chats_create",
+        { input: { chatId, sessionKey, name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
+      )
+      if (!sessionKeyFromResponse(result)) {
+        // Defensive: server did not echo our sessionKey — ensure the gateway
+        // session/attachment exist before we send.
+        await invoke("middleware_chats_attach_session", {
+          input: { chatId, sessionKey, spaceId: activeSpaceId ?? undefined },
+        }).catch(() => {})
+      }
       // Fire-and-forget: model selection persists in the background; it must
       // not block the user's send. The gateway already accepts the send with
       // the prior session/default model and the model row is informational.

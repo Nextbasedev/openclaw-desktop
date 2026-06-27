@@ -58,6 +58,10 @@ let cachedConnectionKey: string | null = null
 
 const MODELS_REQUEST_TTL_MS = 3_000
 
+// Fired when the default model changes so every useModels() consumer updates
+// its selected model in place, without a full app reload.
+export const MODELS_CURRENT_CHANGED_EVENT = "openclaw:models-current-changed"
+
 function currentMiddlewareConnectionKey(): string | null {
   if (typeof window === "undefined") return null
   const url = localStorage.getItem("openclaw.middleware.url")?.trim() ?? ""
@@ -148,8 +152,34 @@ export function useModels() {
     }
   }, [load])
 
+  // Broadcast the selected model to all consumers without reloading the app.
+  useEffect(() => {
+    function handleCurrentChange(event: Event) {
+      const detail = (event as CustomEvent<{ currentModel?: string | null }>).detail
+      const next = detail && "currentModel" in detail ? detail.currentModel ?? null : cachedCurrent
+      setCurrentModel(next)
+    }
+    window.addEventListener(MODELS_CURRENT_CHANGED_EVENT, handleCurrentChange)
+    return () => window.removeEventListener(MODELS_CURRENT_CHANGED_EVENT, handleCurrentChange)
+  }, [])
+
   const ensureLoaded = useCallback(() => load(false), [load])
   const reload = useCallback(() => load(true), [load])
 
-  return { models, currentModel, loading, error, reload, ensureLoaded }
+  // Persist the new default on the middleware, then broadcast it so the whole
+  // app reflects the change immediately (no window.location.reload()).
+  const setDefaultModel = useCallback(async (modelId: string) => {
+    await invoke("middleware_models_set_default", { input: { modelId } })
+    cachedCurrent = modelId
+    setCurrentModel(modelId)
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent(MODELS_CURRENT_CHANGED_EVENT, {
+          detail: { currentModel: modelId },
+        }),
+      )
+    }
+  }, [])
+
+  return { models, currentModel, loading, error, reload, ensureLoaded, setDefaultModel }
 }
