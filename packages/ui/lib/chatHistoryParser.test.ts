@@ -277,7 +277,7 @@ describe("isTransientSlashCommandHistory", () => {
     )
   })
 
-  it("drops native slash command user echoes when parsing history", () => {
+  it("keeps native slash command user echoes when parsing history", () => {
     const parsed = parseChatHistory([
       { role: "user", content: [{ type: "text", text: "hello" }] },
       { role: "assistant", content: [{ type: "text", text: "hi" }] },
@@ -288,7 +288,13 @@ describe("isTransientSlashCommandHistory", () => {
 
     assert.deepEqual(
       parsed.messages.map((message) => [message.role, message.text]),
-      [["user", "hello"], ["assistant", "hi"], ["user", "/plan ship the UI"]],
+      [
+        ["user", "hello"],
+        ["assistant", "hi"],
+        ["user", "/new"],
+        ["user", "/status"],
+        ["user", "/plan ship the UI"],
+      ],
     )
   })
 })
