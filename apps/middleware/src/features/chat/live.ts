@@ -1,7 +1,7 @@
 import type { AppContext } from "../../app.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
-import { messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
+import { assistantAnswerTextFromMessage, messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import { classifyGatewayMessageSemanticType, messageHasAssistantAnswerText, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import type { OpenClawMessage, ProjectedMessage } from "./types.js";
 import type { ProjectedRun } from "./repo.runs.js";
@@ -374,7 +374,19 @@ export class ChatLiveIngest {
           messageId: confirmed?.messageId ?? projectedMessage.messageId,
           payload: {
             sessionKey,
-            message: emittedMessage,
+            // Mirror the assistant final's answer text into top-level `text` so
+            // the live-finalize patch carries text in the SAME field the live
+            // deltas used. The gateway sends finals with `text: ""` and the
+            // answer in content blocks; without this the live patch's
+            // message.text diverges from the delta shape. The client parser
+            // prefers a non-empty top-level `text` over content blocks, so this
+            // never double-counts text. Guarded to assistant finals only.
+            message:
+              !optimisticId &&
+              gatewayProjection.semanticType === "chat.assistant.final" &&
+              !(typeof emittedMessage?.text === "string" && emittedMessage.text.trim().length > 0)
+                ? { ...emittedMessage, text: assistantAnswerTextFromMessage(emittedMessage as Parameters<typeof textFromMessage>[0]) }
+                : emittedMessage,
             ...(optimisticId ? { optimisticId, gatewayMessageId: projectedMessage.messageId } : {}),
             ...(runForPatch?.runId ? { runId: runForPatch.runId } : optimistic?.runId ? { runId: optimistic.runId } : {}),
             messageSeq: emittedSeq,

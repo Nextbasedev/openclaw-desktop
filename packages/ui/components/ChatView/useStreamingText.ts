@@ -195,5 +195,18 @@ export function useStreamingText(
     }
   }, [target, streaming, mode])
 
+  // Display-level guarantee: when a row is NOT streaming, always surface the
+  // full target text. This complements the `animateText` flag safety-net in
+  // ChatView (which only clears the flag, not the reveal state). The reveal
+  // state machine can strand mid-animation in several ways the flag-clear does
+  // not heal: reduce-motion early return, target-replacement with
+  // canAnimate=false, dedupe/replace before reveal completes, or RAF starvation
+  // on a backgrounded tab. Without this, a finalized assistant message can keep
+  // showing partial/empty text (text "vanishes", only tool steps remain) until
+  // a full reload remounts the bubble. A non-streaming row has no animation to
+  // preserve, so showing the complete target is always correct.
+  if (!streaming) {
+    return { displayText: target, isRevealing: false }
+  }
   return { displayText: display, isRevealing }
 }

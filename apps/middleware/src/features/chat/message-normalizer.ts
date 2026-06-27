@@ -44,6 +44,33 @@ export function textFromMessage(message: OpenClawMessage): string {
   return "";
 }
 
+// Like textFromMessage, but ignores an empty top-level `text` and falls back to
+// the assistant answer text carried in content blocks. The gateway's canonical
+// assistant "final" message often arrives with `text: ""` and the real answer in
+// `content[].text`, while live deltas carry the answer in top-level `text`.
+// Use this when you need the actual answer text regardless of which shape the
+// gateway used (e.g. mirroring into the live patch payload so live-finalize
+// matches the reload/history render).
+export function assistantAnswerTextFromMessage(message: Parameters<typeof textFromMessage>[0]): string {
+  if (typeof message.text === "string" && message.text.trim().length > 0) return message.text;
+  const content = message.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((block) => {
+      if (typeof block === "string") return block;
+      if (isAttachmentLikeContentBlock(block)) return "";
+      if (isObject(block) && typeof block.text === "string") {
+        const type = typeof block.type === "string" ? block.type.trim().toLowerCase() : "text";
+        if (type === "text" || type === "markdown" || type === "output_text" || type === "assistant_text") {
+          return block.text;
+        }
+      }
+      return "";
+    }).join("");
+  }
+  return "";
+}
+
 // Keep in sync with OpenClaw's strip-inbound-meta timestamp envelope pattern.
 const LEADING_TIMESTAMP_PREFIX_RE = /^\[[A-Za-z]{3} \d{4}-\d{2}-\d{2} \d{2}:\d{2}[^\]]*\] */;
 const INBOUND_META_SENTINELS = [
