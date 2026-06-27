@@ -1635,6 +1635,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                     statusLabel: null,
                     idempotencyKey: input.idempotencyKey,
                     runId,
+                    ...(isSlashCommandText(rawMessage) ? { terminalWithoutAssistant: true } : {}),
                   },
                 }),
               });
