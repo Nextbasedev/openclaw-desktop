@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { invoke } from "@/lib/ipc"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
@@ -1657,6 +1658,18 @@ export function ChatView({
     setReplyTo(null)
   }
 
+  // Per-session model switch from the composer model menu. Without this the
+  // chat-box menu only updates the trigger label locally and never tells the
+  // gateway to change the active session model.
+  const handleModelSelect = useCallback(
+    async (modelId: string) => {
+      await invoke("middleware_chat_model_set", {
+        input: { sessionKey, modelId },
+      })
+    },
+    [sessionKey],
+  )
+
   const renderedMessages = useMemo(
     () => orderChatMessages(dedupeChatMessages(state.messages)),
     [state.messages]
@@ -3043,6 +3056,7 @@ export function ChatView({
           errorMessage={state.composerError}
           historyMessages={composerHistoryMessages}
           onSend={handleSend}
+          onModelSelect={handleModelSelect}
           disabled={state.loading}
           isGenerating={isGenerating}
           onAbort={handleAbort}
