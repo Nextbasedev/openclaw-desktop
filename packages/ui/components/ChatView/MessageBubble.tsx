@@ -54,6 +54,32 @@ import {
 } from "@/lib/chatAttachmentPreview"
 import { mergeChatAttachments, parseChatMediaDirectives } from "@/lib/chatMediaDirectives"
 
+function ReplyAttachmentPreview({ message }: { message: ChatMessage }) {
+  const attachment = message.replyTo?.attachments?.[0]
+  if (!attachment) return null
+  const kind = getChatAttachmentKind(attachment)
+  const href = chatAttachmentHref(attachment)
+  if (kind === "image") {
+    return href ? (
+      <img
+        src={href}
+        alt={attachment.name || "Replied image"}
+        className="size-10 shrink-0 rounded-md border border-border/40 object-cover"
+      />
+    ) : (
+      <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border/40 bg-muted/40 text-muted-foreground">
+        <LuImage className="size-4" />
+      </div>
+    )
+  }
+  return (
+    <div className="flex min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-border/40 bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground">
+      <LuFile className="size-3.5 shrink-0" />
+      <span className="max-w-20 truncate">{attachment.name || chatAttachmentTypeLabel(attachment)}</span>
+    </div>
+  )
+}
+
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
 type ApprovalPrompt = {
@@ -1089,13 +1115,14 @@ export const MessageBubble = memo(function MessageBubble({
               "mb-1 flex w-fit max-w-full cursor-pointer items-start gap-2 rounded-lg border border-b-0 border-border/20 bg-foreground/[0.03] px-2.5 pb-1.5 text-left transition-colors hover:bg-foreground/[0.06]"
             )}
           >
+            <ReplyAttachmentPreview message={message} />
             <div className="min-w-0 flex-1">
               <span className="text-[10px] font-medium text-muted-foreground/60">
                 {message.replyTo.role === "user" ? "You" : "Assistant"}
               </span>
               <p className="line-clamp-2 text-[12px] leading-snug text-foreground/50">
-                {message.replyTo.text.slice(0, 150)}
-                {message.replyTo.text.length > 150 ? "…" : ""}
+                {(message.replyTo.text || message.replyTo.attachments?.[0]?.name || (message.replyTo.attachments?.[0] ? chatAttachmentTypeLabel(message.replyTo.attachments[0]) : "Message")).slice(0, 150)}
+                {(message.replyTo.text || message.replyTo.attachments?.[0]?.name || "").length > 150 ? "…" : ""}
               </p>
             </div>
           </button>

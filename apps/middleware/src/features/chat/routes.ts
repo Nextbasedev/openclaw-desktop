@@ -58,6 +58,84 @@ function objectRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
+type ReplyAttachment = {
+  name: string;
+  mimeType?: string;
+  content?: string;
+  url?: string;
+  size?: number;
+};
+
+type NormalizedReplyTo = {
+  messageId: string;
+  role: "user" | "assistant";
+  text: string;
+  attachments?: ReplyAttachment[];
+};
+
+function stringField(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function normalizeReplyAttachment(value: unknown): ReplyAttachment | null {
+  const record = objectRecord(value);
+  if (!record) return null;
+  const name = stringField(record, "name") || stringField(record, "fileName") || stringField(record, "filename") || "attachment";
+  return {
+    name,
+    mimeType: stringField(record, "mimeType") || stringField(record, "mime_type"),
+    content: stringField(record, "content"),
+    url: stringField(record, "url"),
+    size: typeof record.size === "number" ? record.size : undefined,
+  };
+}
+
+function normalizeReplyTo(value: unknown): NormalizedReplyTo | null {
+  const record = objectRecord(value);
+  if (!record) return null;
+  const messageId = stringField(record, "messageId") || stringField(record, "id") || "";
+  const role = record.role === "user" || record.role === "assistant" ? record.role : "assistant";
+  const text = (stringField(record, "text") || stringField(record, "snippet") || "").replace(/\s+/g, " ").trim();
+  const attachments = Array.isArray(record.attachments)
+    ? record.attachments.map(normalizeReplyAttachment).filter((item): item is ReplyAttachment => Boolean(item))
+    : undefined;
+  if (!messageId && !text && !attachments?.length) return null;
+  return { messageId, role, text, attachments: attachments?.length ? attachments : undefined };
+}
+
+function quoteForGatewayReply(value: string) {
+  return value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+}
+
+function buildReplyAugmentedMessage(message: string, replyTo: NormalizedReplyTo | null) {
+  if (!replyTo) return message;
+  const sender = replyTo.role === "user" ? "User" : "Assistant";
+  const attachmentLines = (replyTo.attachments ?? []).map((attachment) => {
+    const mime = attachment.mimeType ? `, ${attachment.mimeType}` : "";
+    return `[Attachment: ${attachment.name}${mime}]`;
+  });
+  const quotedSource = [replyTo.text, ...attachmentLines].filter(Boolean).join("\n").trim() || `[${sender} message]`;
+  return `${quoteForGatewayReply(quotedSource)}\n\n${message}`;
+}
+
+function replyImageAttachmentsForGateway(replyTo: NormalizedReplyTo | null) {
+  if (!replyTo?.attachments?.length) return [];
+  return replyTo.attachments
+    .filter((attachment) => attachment.mimeType?.toLowerCase().startsWith("image/") && attachment.content)
+    .map((attachment) => ({
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      content: attachment.content,
+      encoding: "base64" as const,
+      size: attachment.size,
+    }));
+}
+
 function sessionContextFromGatewaySession(session: Record<string, unknown> | null): SessionContextUsage | null {
   if (!session) return null;
   const responseUsage = objectRecord(session.responseUsage);
@@ -1035,7 +1113,12 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
     log.info("send.accept.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), gatewaySetupDeferred: true });
 
-    const prepared = prepareMessageAndAttachments(rawMessage, input.attachments);
+    const replyTo = normalizeReplyTo(input.replyTo);
+    const gatewayMessage = buildReplyAugmentedMessage(rawMessage, replyTo);
+    const gatewayAttachmentsInput = replyTo
+      ? [...(Array.isArray(input.attachments) ? input.attachments : []), ...replyImageAttachmentsForGateway(replyTo)]
+      : input.attachments;
+    const prepared = prepareMessageAndAttachments(gatewayMessage, gatewayAttachmentsInput);
     const userVisibleAttachments = displayAttachments(input.attachments);
     log.info("send.prepared", {
       sessionKey: input.sessionKey,
@@ -1062,6 +1145,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       role: "user",
       text: rawMessage,
       ...(userVisibleAttachments ? { attachments: userVisibleAttachments } : {}),
+      ...(replyTo ? { replyTo } : {}),
       createdAt: nowIso,
       isOptimistic: true,
       __clientOptimistic: true,
@@ -1265,7 +1349,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             if (shouldEnsureGatewaySession) {
               const sessionCreateStartedAtMs = nowMs();
               log.info("session.create.start", { sessionKey: input.sessionKey, agentId: input.agentId || "main", hasLabel: Boolean(input.label), phase: "queued-before-send" });
-              const generatedLabel = await groqFileNameFromPrompt(prepared.message || input.label || "New Chat");
+              const generatedLabel = await groqFileNameFromPrompt(rawMessage || input.label || "New Chat");
               const suffix = (input.sessionKey.split(":").pop() || input.sessionKey).replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || Date.now().toString(36);
               await context.gateway.request("sessions.create", {
                 key: input.sessionKey,

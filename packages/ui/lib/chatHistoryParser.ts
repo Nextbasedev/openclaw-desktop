@@ -49,7 +49,7 @@ function extractReplyFromText(
       quoted.startsWith(msg.text.slice(0, 150))
     ) {
       return {
-        replyTo: { messageId: msg.messageId, role: msg.role, text: msg.text },
+        replyTo: { messageId: msg.messageId, role: msg.role, text: msg.text, attachments: msg.attachments },
         displayText,
       }
     }
@@ -128,6 +128,7 @@ export type RawHistoryMessage = {
   stopReason?: string | null
   isOptimistic?: boolean
   __clientOptimistic?: boolean
+  replyTo?: unknown
 }
 
 export type ParsedChatHistory = {
@@ -743,6 +744,35 @@ function readContentBlockAttachments(content: RawHistoryMessage["content"]): Cha
   return attachments.length > 0 ? attachments : undefined
 }
 
+function normalizeReplyTo(raw: unknown): ReplyTo | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined
+  const record = raw as Record<string, unknown>
+  const messageId = typeof record.messageId === "string" ? record.messageId : ""
+  const role = record.role === "user" || record.role === "assistant" ? record.role : "assistant"
+  const text = typeof record.text === "string"
+    ? record.text
+    : typeof record.snippet === "string"
+      ? record.snippet
+      : ""
+  const attachments = Array.isArray(record.attachments)
+    ? record.attachments.reduce<NonNullable<ReplyTo["attachments"]>>((items, item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return items
+        const attachment = item as Record<string, unknown>
+        const name = typeof attachment.name === "string" ? attachment.name : "attachment"
+        items.push({
+          name,
+          mimeType: typeof attachment.mimeType === "string" ? attachment.mimeType : undefined,
+          content: typeof attachment.content === "string" ? attachment.content : undefined,
+          url: typeof attachment.url === "string" ? attachment.url : undefined,
+          size: typeof attachment.size === "number" ? attachment.size : undefined,
+        })
+        return items
+      }, [])
+    : undefined
+  if (!messageId && !text && !attachments?.length) return undefined
+  return { messageId, role, text, attachments }
+}
+
 function readMessageAttachments(raw: RawHistoryMessage): ChatMessage["attachments"] {
   const fromTopLevel: NonNullable<ChatMessage["attachments"]> = []
   if (Array.isArray(raw.attachments)) {
@@ -916,7 +946,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           usage: item.usage,
           stopReason: item.stopReason,
           isOptimistic: Boolean(item.isOptimistic || item.__clientOptimistic),
-          replyTo: reply?.replyTo,
+          replyTo: normalizeReplyTo(item.replyTo) ?? reply?.replyTo,
           gatewayIndex: messageOrderSeq(item, gatewayOrderBase),
           runId: messageRunId(item),
           attachments,

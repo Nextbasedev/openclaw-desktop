@@ -1412,6 +1412,8 @@ export function ChatView({
             isOptimistic: true,
             sendStatus: "sending",
             attachments: composerAttachmentsToMessageAttachments(payload.attachments),
+            replyTo: payload.replyTo,
+            retryPayload: payload,
           }
 
       setSending(true)
@@ -1451,7 +1453,15 @@ export function ChatView({
         replyTo: payload.replyTo
           ? {
               messageId: payload.replyTo.messageId,
+              role: payload.replyTo.role,
               snippet: payload.replyTo.text.slice(0, 500),
+              attachments: payload.replyTo.attachments?.map((attachment) => ({
+                name: attachment.name,
+                mimeType: attachment.mimeType,
+                content: attachment.content,
+                url: attachment.url,
+                size: attachment.size,
+              })),
             }
           : undefined,
         autonomyMode: payload.autonomyMode ?? null,

@@ -401,7 +401,18 @@ export type SendChatV2Input = {
   attachments?: unknown
   idempotencyKey: string
   clientMessageId?: string
-  replyTo?: { messageId: string; snippet: string }
+  replyTo?: {
+    messageId: string
+    role?: "user" | "assistant"
+    snippet: string
+    attachments?: Array<{
+      name: string
+      mimeType?: string
+      content?: string
+      url?: string
+      size?: number
+    }>
+  }
   autonomyMode?: string | null
   execPolicy?: unknown
 }

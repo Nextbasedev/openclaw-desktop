@@ -87,6 +87,13 @@ export type ReplyTo = {
   messageId: string
   role: "user" | "assistant"
   text: string
+  attachments?: Array<{
+    name: string
+    mimeType?: string
+    content?: string
+    url?: string
+    size?: number
+  }>
   selections?: Array<{
     messageId: string
     text: string

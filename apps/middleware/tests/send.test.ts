@@ -216,6 +216,60 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("preserves reply metadata and sends replied message context to Gateway", async () => {
+    const app = await createApp(config("reply-context"));
+    const context = contextOf(app);
+    let gatewayMessage = "";
+    let gatewayAttachments: unknown[] | undefined;
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "chat.send") {
+        gatewayMessage = String(params?.message ?? "");
+        gatewayAttachments = Array.isArray(params?.attachments) ? params.attachments : undefined;
+        return { runId: "r1", status: "started" };
+      }
+      if (method === "chat.history") return { sessionKey: "s1", messages: [] };
+      return { ok: true };
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: {
+        sessionKey: "s1",
+        text: "Explain useEffect in more detail.",
+        idempotencyKey: "reply-key",
+        clientMessageId: "client-reply-1",
+        replyTo: {
+          messageId: "assistant-previous-1",
+          role: "assistant",
+          snippet: "Explain React Hooks.",
+          attachments: [{ name: "hooks.png", mimeType: "image/png", content: "aW1hZ2U=", size: 5 }],
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    await waitFor(() => gatewayMessage.length > 0);
+    expect(gatewayMessage).toContain("> Explain React Hooks.");
+    expect(gatewayMessage).toContain("> [Attachment: hooks.png, image/png]");
+    expect(gatewayMessage).toContain("Explain useEffect in more detail.");
+    expect(gatewayAttachments).toMatchObject([{ type: "image", fileName: "hooks.png", mimeType: "image/png" }]);
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json().messages[0]).toMatchObject({
+      role: "user",
+      text: "Explain useEffect in more detail.",
+      replyTo: {
+        messageId: "assistant-previous-1",
+        role: "assistant",
+        text: "Explain React Hooks.",
+        attachments: [{ name: "hooks.png", mimeType: "image/png" }],
+      },
+    });
+    await app.close();
+  });
+
   test("accepts and broadcasts optimistic send before Gateway session setup resolves", async () => {
     const app = await createApp(config("fast-accept-before-setup"));
     const context = contextOf(app);

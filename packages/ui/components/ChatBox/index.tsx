@@ -18,7 +18,7 @@ import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 import { GlassDialog } from "@/components/ui/GlassDialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
-import { LuChevronDown, LuSparkles, LuX } from "react-icons/lu"
+import { LuChevronDown, LuFile, LuImage, LuSparkles, LuX } from "react-icons/lu"
 import {
   execPolicyForAutonomyMode,
   stripComposerAttachment,
@@ -31,6 +31,37 @@ import type { Space } from "@/types/space"
 import { composerReducer, initialComposerState } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
 import { canRunSlashCommandWhileGenerating } from "@/lib/controlSlashCommands"
+import {
+  chatAttachmentHref,
+  chatAttachmentTypeLabel,
+  getChatAttachmentKind,
+} from "@/lib/chatAttachmentPreview"
+
+function ReplyAttachmentPreview({ replyTo }: { replyTo: ReplyTo }) {
+  const attachment = replyTo.attachments?.[0]
+  if (!attachment) return null
+  const kind = getChatAttachmentKind(attachment)
+  const href = chatAttachmentHref(attachment)
+  if (kind === "image") {
+    return href ? (
+      <img
+        src={href}
+        alt={attachment.name || "Replied image"}
+        className="size-11 shrink-0 rounded-lg border border-border/50 object-cover"
+      />
+    ) : (
+      <div className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/40 text-muted-foreground">
+        <LuImage className="size-4" />
+      </div>
+    )
+  }
+  return (
+    <div className="flex min-w-0 shrink-0 items-center gap-1.5 rounded-lg border border-border/50 bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground">
+      <LuFile className="size-3.5 shrink-0" />
+      <span className="max-w-24 truncate">{attachment.name || chatAttachmentTypeLabel(attachment)}</span>
+    </div>
+  )
+}
 
 type VoiceSettingsPayload = {
   settings?: {
@@ -700,12 +731,13 @@ export function ChatBox({
               className="overflow-hidden"
             >
               <div className="flex items-start gap-2 rounded-t-[22px] border-b border-border/60 bg-black/[0.02] px-3 pt-2.5 pb-2 dark:border-white/8 dark:bg-white/[0.03]">
+                <ReplyAttachmentPreview replyTo={replyTo} />
                 <div className="min-w-0 flex-1">
                   <span className="text-[11px] font-medium text-muted-foreground/70">
                     {replyTo.role === "user" ? "You" : "Assistant"}
                   </span>
                   <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-foreground/60">
-                    {replyTo.text}
+                    {replyTo.text || replyTo.attachments?.[0]?.name || (replyTo.attachments?.[0] ? chatAttachmentTypeLabel(replyTo.attachments[0]) : "Message")}
                   </p>
                 </div>
                 <button
