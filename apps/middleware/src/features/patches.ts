@@ -18,6 +18,13 @@ type PatchClient = {
   socket: WebSocket;
   connectedAtMs: number;
   lastSentCursor: number;
+  // Per-client session-interest routing (I6 cross-talk fix). `null` means the
+  // client has not declared any interest yet, so it receives EVERY patch — this
+  // keeps old/foreground clients that never send subscribe frames working
+  // (backward compatible, no stranding). Once a client sends a `subscribe`
+  // frame this becomes a Set and only matching sessionKeys are routed to it;
+  // patches with a null sessionKey (global) always deliver regardless.
+  interests: Set<string> | null;
 };
 
 export class PatchBus {
@@ -37,12 +44,63 @@ export class PatchBus {
     });
   }
 
+  /**
+   * Declare client interest in one or more sessions. The first subscribe flips
+   * the client from "receive all" (null) into filtered routing.
+   */
+  subscribeClient(clientId: string, sessionKeys: string[]) {
+    const client = this.clients.get(clientId);
+    if (!client) return;
+    if (client.interests === null) client.interests = new Set<string>();
+    let added = 0;
+    for (const key of sessionKeys) {
+      if (typeof key === "string" && key.length > 0 && !client.interests.has(key)) {
+        client.interests.add(key);
+        added++;
+      }
+    }
+    this.log.info("client.subscribe", { clientId, added, interests: client.interests.size });
+  }
+
+  /**
+   * Drop client interest in one or more sessions. A client that has unsubscribed
+   * from everything keeps an empty Set (receives only global patches) rather
+   * than reverting to receive-all — the unsubscribe was explicit.
+   */
+  unsubscribeClient(clientId: string, sessionKeys: string[]) {
+    const client = this.clients.get(clientId);
+    if (!client || client.interests === null) return;
+    let removed = 0;
+    for (const key of sessionKeys) {
+      if (client.interests.delete(key)) removed++;
+    }
+    this.log.info("client.unsubscribe", { clientId, removed, interests: client.interests.size });
+  }
+
+  /** Reset a client back to receive-all routing. */
+  resetClientInterest(clientId: string) {
+    const client = this.clients.get(clientId);
+    if (!client) return;
+    client.interests = null;
+    this.log.info("client.subscribe-all", { clientId });
+  }
+
   broadcast(patch: PatchPayload) {
     const frame = JSON.stringify({ type: "patch", patch });
     this.log.info("patch.broadcast", { cursor: patch.cursor, type: patch.type, sessionKey: patch.sessionKey, clients: this.clients.size });
     for (const client of [...this.clients.values()]) {
       if (client.socket.readyState !== client.socket.OPEN) {
         this.clients.delete(client.id);
+        continue;
+      }
+      // I6 routing: a client with a declared interest set only receives patches
+      // for sessions it subscribed to. Global (null sessionKey) patches always
+      // deliver. Clients with no declared interest (null) receive everything.
+      if (
+        client.interests !== null &&
+        patch.sessionKey !== null &&
+        !client.interests.has(patch.sessionKey)
+      ) {
         continue;
       }
       try {
@@ -63,6 +121,7 @@ export class PatchBus {
         id: client.id,
         connectedAtMs: client.connectedAtMs,
         lastSentCursor: client.lastSentCursor,
+        interests: client.interests === null ? null : [...client.interests],
       })),
     };
   }
@@ -123,9 +182,40 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
     const query = request.query as { afterCursor?: string };
     const afterCursor = Number.parseInt(query.afterCursor ?? "0", 10) || 0;
     const id = crypto.randomUUID();
-    const client = { id, socket, connectedAtMs: Date.now(), lastSentCursor: afterCursor };
+    const client = { id, socket, connectedAtMs: Date.now(), lastSentCursor: afterCursor, interests: null };
     context.patchBus.addClient(client);
     log.info("stream.connect", { clientId: id, afterCursor });
+    // I6 routing: clients may declare per-session interest so the bus stops
+    // fanning every patch to every socket (cross-talk + wasted work). The wire
+    // protocol is optional and additive — a client that never sends a frame
+    // keeps interests=null and receives all patches (backward compatible).
+    socket.on("message", (raw: WebSocket.RawData) => {
+      let msg: { type?: unknown; sessionKey?: unknown; sessionKeys?: unknown };
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      if (!msg || typeof msg !== "object") return;
+      const keys = Array.isArray(msg.sessionKeys)
+        ? msg.sessionKeys.filter((k): k is string => typeof k === "string")
+        : typeof msg.sessionKey === "string"
+          ? [msg.sessionKey]
+          : [];
+      switch (msg.type) {
+        case "subscribe":
+          context.patchBus.subscribeClient(id, keys);
+          break;
+        case "unsubscribe":
+          context.patchBus.unsubscribeClient(id, keys);
+          break;
+        case "subscribe-all":
+          context.patchBus.resetClientInterest(id);
+          break;
+        default:
+          break;
+      }
+    });
     // Do not subscribe every recent session on stream connect. The desktop can
     // easily have 80-100 recent chats; subscribing all of them makes Gateway
     // fan out every agent/chat event into middleware ingest work and creates a

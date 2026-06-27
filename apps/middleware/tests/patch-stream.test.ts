@@ -122,6 +122,116 @@ describe("patch stream", () => {
     ws.close();
   });
 
+  function collect(ws: WebSocket, ms: number): Promise<any[]> {
+    return new Promise((resolve) => {
+      const msgs: any[] = [];
+      const onMsg = (raw: WebSocket.RawData) => {
+        try { msgs.push(JSON.parse(raw.toString())); } catch { /* ignore */ }
+      };
+      ws.on("message", onMsg);
+      setTimeout(() => { ws.off("message", onMsg); resolve(msgs); }, ms);
+    });
+  }
+
+  async function waitForInterest(
+    app: Awaited<ReturnType<typeof createApp>>,
+    clientId: string,
+    sessionKey: string,
+    present: boolean,
+  ): Promise<void> {
+    for (let i = 0; i < 100; i++) {
+      const diag = (await app.inject({ method: "GET", url: "/api/diagnostics/patch-clients" })).json();
+      const entry = diag.patchBus.clientCursors.find((c: any) => c.id === clientId);
+      const has = Array.isArray(entry?.interests) && entry.interests.includes(sessionKey);
+      if (has === present) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error(`interest ${sessionKey} present=${present} never settled for ${clientId}`);
+  }
+
+  function patchOf(context: AppContext, sessionKey: string | null, n: number) {
+    const event = context.messages.appendProjectionEvent({ sessionKey: sessionKey ?? null, eventType: "chat.message.upsert", payload: { n } });
+    context.patchBus.broadcast({ cursor: event.cursor, type: event.eventType, sessionKey: event.sessionKey, payload: event.payload, createdAtMs: event.createdAtMs });
+  }
+
+  async function openClient(app: Awaited<ReturnType<typeof createApp>>): Promise<{ ws: WebSocket; clientId: string }> {
+    const address = app.server.address();
+    if (!address || typeof address === "string") throw new Error("missing server address");
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/stream/ws?afterCursor=0`);
+    const hello = await waitForMessage(ws);
+    return { ws, clientId: hello.clientId };
+  }
+
+  test("I6: routes live patches only to the client interested in that session", async () => {
+    const app = await createApp(config("route-split"));
+    apps.push(app);
+    const context = contextOf(app);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const a = await openClient(app);
+    const b = await openClient(app);
+    a.ws.send(JSON.stringify({ type: "subscribe", sessionKeys: ["s1"] }));
+    b.ws.send(JSON.stringify({ type: "subscribe", sessionKeys: ["s2"] }));
+    await waitForInterest(app, a.clientId, "s1", true);
+    await waitForInterest(app, b.clientId, "s2", true);
+    const collectedA = collect(a.ws, 250);
+    const collectedB = collect(b.ws, 250);
+    patchOf(context, "s1", 1);
+    patchOf(context, "s2", 2);
+    const [ra, rb] = await Promise.all([collectedA, collectedB]);
+    expect(ra.filter((m) => m.type === "patch").map((m) => m.patch.sessionKey)).toEqual(["s1"]);
+    expect(rb.filter((m) => m.type === "patch").map((m) => m.patch.sessionKey)).toEqual(["s2"]);
+    a.ws.close();
+    b.ws.close();
+  });
+
+  test("I6: a client that never subscribes still receives ALL patches (backward compatible)", async () => {
+    const app = await createApp(config("route-default-all"));
+    apps.push(app);
+    const context = contextOf(app);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const c = await openClient(app);
+    const collected = collect(c.ws, 250);
+    patchOf(context, "s1", 1);
+    patchOf(context, "s2", 2);
+    const sessions = (await collected).filter((m) => m.type === "patch").map((m) => m.patch.sessionKey);
+    expect(sessions).toEqual(["s1", "s2"]);
+    c.ws.close();
+  });
+
+  test("I6: global (null sessionKey) patches always deliver even to a filtered client", async () => {
+    const app = await createApp(config("route-global"));
+    apps.push(app);
+    const context = contextOf(app);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const c = await openClient(app);
+    c.ws.send(JSON.stringify({ type: "subscribe", sessionKeys: ["s1"] }));
+    await waitForInterest(app, c.clientId, "s1", true);
+    const collected = collect(c.ws, 250);
+    patchOf(context, null, 1); // global
+    patchOf(context, "s2", 2); // not subscribed -> dropped
+    const sessions = (await collected).filter((m) => m.type === "patch").map((m) => m.patch.sessionKey);
+    expect(sessions).toEqual([null]);
+    c.ws.close();
+  });
+
+  test("I6: unsubscribe removes a session from routing", async () => {
+    const app = await createApp(config("route-unsub"));
+    apps.push(app);
+    const context = contextOf(app);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const c = await openClient(app);
+    c.ws.send(JSON.stringify({ type: "subscribe", sessionKeys: ["s1", "s2"] }));
+    await waitForInterest(app, c.clientId, "s2", true);
+    c.ws.send(JSON.stringify({ type: "unsubscribe", sessionKeys: ["s2"] }));
+    await waitForInterest(app, c.clientId, "s2", false);
+    const collected = collect(c.ws, 250);
+    patchOf(context, "s1", 1);
+    patchOf(context, "s2", 2);
+    const sessions = (await collected).filter((m) => m.type === "patch").map((m) => m.patch.sessionKey);
+    expect(sessions).toEqual(["s1"]);
+    c.ws.close();
+  });
+
   test("broadcast sends new patches to connected websocket clients", async () => {
     const app = await createApp(config("broadcast"));
     apps.push(app);
