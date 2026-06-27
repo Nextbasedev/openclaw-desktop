@@ -37,6 +37,7 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
   { name: "reset", description: "Reset the current session", source: "native", scope: "both", acceptsArgs: false },
   { name: "new", description: "Start a new session", source: "native", scope: "both", acceptsArgs: false },
   { name: "stop", description: "Stop the current generation", source: "native", scope: "both", acceptsArgs: false },
+  { name: "status", description: "Show session status and model details", source: "native", scope: "both", acceptsArgs: false },
   { name: "plan", description: "Create a step-by-step plan", source: "native", scope: "text", acceptsArgs: true },
   { name: "search", description: "Search the web for information", source: "native", scope: "text", acceptsArgs: true },
   { name: "code", description: "Generate or explain code", source: "native", scope: "text", acceptsArgs: true },
