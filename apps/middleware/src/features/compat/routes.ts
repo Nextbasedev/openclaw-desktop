@@ -4885,7 +4885,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         } catch { /* session may already exist */ }
         const writeSpaceId = sessionWriteSpaceId(input);
         const chat = {
-          id: id("chat"),
+          // Honor a client-provided chat id so the UI can render the optimistic
+          // first message before this round-trip completes (no reconciliation).
+          id: String(input.chatId || id("chat")),
           name: displayName,
           sessionKey,
           spaceId: writeSpaceId,
