@@ -3689,26 +3689,20 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       if (sessionKey) sessionKeys.push(sessionKey);
     }
 
+    // Clean up local SQLite projections FIRST, atomically. All cross-table
+    // deletes for every session run inside a single transaction so a failure on
+    // any table rolls the whole batch back (no half-deleted sessions). Errors
+    // are propagated (no silent catch) so the caller sees a real 500 instead of
+    // a false success with orphaned rows. Compat state is only mutated after the
+    // DB delete succeeds, keeping the two stores consistent.
+    context.messages.deleteSessionProjections(sessionKeys);
+
     // Clear compat state (local only — do NOT touch Gateway sessions)
     compatState.chats = compatState.chats.filter((c) => !deletedIds.includes(c.id));
     compatState.sessions = compatState.sessions.filter(
       (s) => !sessionKeys.includes(s.sessionKey) && !sessionKeys.includes(s.key ?? "")
     );
     saveCompatState(context);
-
-    // Clean up local SQLite projections only
-    for (const sk of sessionKeys) {
-      try {
-        context.db.prepare("DELETE FROM v2_messages WHERE session_key = ?").run(sk);
-        context.db.prepare("DELETE FROM v2_runs WHERE session_key = ?").run(sk);
-        context.db.prepare("DELETE FROM v2_tool_calls WHERE session_key = ?").run(sk);
-        context.db.prepare("DELETE FROM v2_sessions WHERE session_key = ?").run(sk);
-        context.db.prepare("DELETE FROM v2_gateway_offsets WHERE session_key = ?").run(sk);
-        context.db.prepare("DELETE FROM v2_projection_events WHERE session_key = ?").run(sk);
-        context.db.prepare("DELETE FROM v2_chat_segments WHERE session_key = ?").run(sk);
-        context.db.prepare("DELETE FROM v2_archive_imports WHERE session_key = ?").run(sk);
-      } catch {}
-    }
 
     return { ok: true, deleted: deletedIds.length, sessionsCleaned: sessionKeys.length };
   });
@@ -4140,6 +4134,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     };
     const client = { write };
     cronSseClients.add(client);
+    reply.raw.write(": cron stream ready\n\n");
     write("cron.ready", { ok: true });
     const unsubscribe = context.gateway.onEvent((gatewayEvent) => {
       if (!gatewayEvent.event.startsWith("cron.")) return;
@@ -4318,13 +4313,14 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const message = String(input.message ?? input.text ?? input.prompt ?? "");
         if (!sessionKey || !message.trim()) return reply.code(400).send({ ok: false, error: { message: "sessionKey and message required" } });
         try {
+          const timeoutMs = Number(input.timeoutMs ?? 130_000);
+          const idempotencyKey = String(input.idempotencyKey ?? `compat:${sessionKey}:${Date.now()}:${Math.random().toString(36).slice(2)}`);
           const result = await context.gateway.request("chat.send", {
-            ...input,
             sessionKey,
             message,
-            text: undefined,
-            prompt: undefined,
-          }, Number(input.timeoutMs ?? 130_000));
+            timeoutMs,
+            idempotencyKey,
+          }, timeoutMs);
           return { ok: true, result, sessionKey };
         } catch (error) {
           return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Chat send failed" } });
@@ -4338,7 +4334,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const message = String(lastUser?.data?.text ?? "").trim();
         if (!message) return reply.code(404).send({ ok: false, error: { message: "No user message available to regenerate" } });
         try {
-          const result = await context.gateway.request("chat.send", { sessionKey, message, timeoutMs: input.timeoutMs ?? 130_000 }, Number(input.timeoutMs ?? 130_000));
+          const timeoutMs = Number(input.timeoutMs ?? 130_000);
+          const idempotencyKey = String(input.idempotencyKey ?? `compat-regen:${sessionKey}:${Date.now()}:${Math.random().toString(36).slice(2)}`);
+          const result = await context.gateway.request("chat.send", { sessionKey, message, timeoutMs, idempotencyKey }, timeoutMs);
           return { ok: true, result, sessionKey };
         } catch (error) {
           return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Regenerate failed" } });

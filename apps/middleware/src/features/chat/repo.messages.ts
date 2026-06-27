@@ -872,6 +872,42 @@ export class MessageRepository {
     `).run({ sessionKey, messageId }).changes;
   }
 
+  /**
+   * Atomically delete ALL local projection state for the given session keys.
+   * Every per-session, cross-table delete runs inside a SINGLE better-sqlite3
+   * transaction: if any table delete throws, the whole batch rolls back so we
+   * never leave a session half-deleted across the v2_* tables. The previous
+   * inline implementation ran each delete in a silent `try/catch {}`, which
+   * both swallowed errors and left orphaned rows on partial failure.
+   * Returns the number of rows removed per table.
+   */
+  deleteSessionProjections(sessionKeys: string[]): { sessions: number; rowsByTable: Record<string, number> } {
+    const tables = [
+      "v2_messages",
+      "v2_runs",
+      "v2_tool_calls",
+      "v2_sessions",
+      "v2_gateway_offsets",
+      "v2_projection_events",
+      "v2_chat_segments",
+      "v2_archive_imports",
+    ] as const;
+    const statements = tables.map((table) => ({
+      table,
+      stmt: this.db.prepare(`DELETE FROM ${table} WHERE session_key = @sessionKey`),
+    }));
+    const rowsByTable: Record<string, number> = Object.fromEntries(tables.map((table) => [table, 0]));
+    const tx = this.db.transaction((keys: string[]) => {
+      for (const sessionKey of keys) {
+        for (const { table, stmt } of statements) {
+          rowsByTable[table] += stmt.run({ sessionKey }).changes;
+        }
+      }
+    });
+    tx(sessionKeys);
+    return { sessions: sessionKeys.length, rowsByTable };
+  }
+
   findLatestLiveAssistantByText(sessionKey: string, text: string): ProjectedMessage | null {
     const row = this.db.prepare(`
       SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
