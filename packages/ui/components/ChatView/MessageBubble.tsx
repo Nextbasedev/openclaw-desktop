@@ -429,16 +429,20 @@ async function downloadAttachment(attachment: MessageAttachment) {
   if (!href) return
 
   try {
+    const { save } = await import("@tauri-apps/plugin-dialog")
+    const targetPath = await save({ defaultPath: attachment.name || "attachment" })
+    if (!targetPath) return
+
     const base64Data = await attachmentBase64Data(attachment, href)
     const { invoke } = await import("@/lib/ipc")
-    await invoke("save_attachment_to_downloads", {
-      filename: attachment.name || "attachment",
+    await invoke("save_attachment_to_path", {
+      path: targetPath,
       base64Data,
     })
     return
   } catch {
-    // Browser fallback. In the desktop app the Tauri command above saves
-    // directly to Downloads without opening a Save As dialog.
+    // Browser fallback. Desktop uses the Tauri save dialog above so the user can
+    // choose the destination.
   }
 
   const link = document.createElement("a")
