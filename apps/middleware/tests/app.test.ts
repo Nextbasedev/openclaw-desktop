@@ -501,8 +501,10 @@ describe("middleware app", () => {
 
     const saved = await app.inject({ method: "POST", url: "/api/commands/middleware_file_naming_groq_set", payload: { input: { apiKey: "gsk_test_key" } } });
     expect(saved.statusCode).toBe(200);
-    expect(saved.json().settings).toMatchObject({ connected: true, enabled: true, provider: "groq" });
-    expect(fs.readFileSync(path.join(home, ".openclaw", "openclaw.json"), "utf8")).toContain("gsk_test_key");
+    expect(saved.json().settings).toMatchObject({ connected: true, enabled: true, provider: "groq", keyPreview: "••••_key" });
+    const storedSecret = (app as typeof app & { v2Context: { db: Database.Database } }).v2Context.db.prepare("SELECT value_json FROM v2_secret_settings WHERE key = ?").get("file_naming.groq") as { value_json?: string } | undefined;
+    expect(storedSecret?.value_json).toContain("gsk_test_key");
+    expect(fs.readFileSync(path.join(home, ".openclaw", "openclaw.json"), "utf8")).not.toContain("gsk_test_key");
 
     const named = await app.inject({ method: "POST", url: "/api/commands/middleware_autonaming_quick", payload: { input: { prompt: "please build a TypeScript API client for Stripe invoices" } } });
     expect(named.statusCode).toBe(200);
@@ -511,7 +513,9 @@ describe("middleware app", () => {
 
     const removed = await app.inject({ method: "POST", url: "/api/commands/middleware_file_naming_groq_remove", payload: {} });
     expect(removed.statusCode).toBe(200);
-    expect(removed.json().settings).toMatchObject({ connected: false, enabled: false });
+    expect(removed.json().settings).toMatchObject({ connected: false, enabled: false, keyPreview: null });
+    const removedSecret = (app as typeof app & { v2Context: { db: Database.Database } }).v2Context.db.prepare("SELECT value_json FROM v2_secret_settings WHERE key = ?").get("file_naming.groq");
+    expect(removedSecret).toBeUndefined();
 
     fetchSpy.mockClear();
     const fallback = await app.inject({ method: "POST", url: "/api/commands/middleware_autonaming_quick", payload: { input: { prompt: "please build a TypeScript API client for Stripe invoices" } } });

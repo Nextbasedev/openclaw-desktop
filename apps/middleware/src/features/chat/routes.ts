@@ -853,11 +853,19 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
   const readOCPlatformConfig = (): Record<string, any> => {
     try { return JSON.parse(fs.readFileSync(openclawConfigPath(), "utf8")); } catch { return {}; }
   };
+  const readGroqFileNamingSetting = () => {
+    try {
+      const row = context.db.prepare("SELECT value_json FROM v2_secret_settings WHERE key = ?").get("file_naming.groq") as { value_json?: string } | undefined;
+      return row?.value_json ? JSON.parse(row.value_json) as Record<string, any> : undefined;
+    } catch { return undefined; }
+  };
   const fileNamingConfig = () => {
     const cfg = readOCPlatformConfig();
+    const stored = readGroqFileNamingSetting();
     const groq = cfg.tools?.fileNaming?.groq && typeof cfg.tools.fileNaming.groq === "object" ? cfg.tools.fileNaming.groq : {};
-    const apiKey = String(groq.apiKey || cfg.env?.vars?.GROQ_API_KEY_FILE_NAMING || "").trim();
-    return { enabled: groq.enabled !== false && Boolean(apiKey), apiKey, model: String(groq.model || "llama-3.1-8b-instant").trim() || "llama-3.1-8b-instant" };
+    const apiKey = String(stored?.apiKey || groq.apiKey || cfg.env?.vars?.GROQ_API_KEY_FILE_NAMING || "").trim();
+    const enabled = (stored ? stored.enabled !== false : groq.enabled !== false) && Boolean(apiKey);
+    return { enabled, apiKey, model: String(stored?.model || groq.model || "llama-3.1-8b-instant").trim() || "llama-3.1-8b-instant" };
   };
   const sanitizeGeneratedFileName = (value: unknown) => {
     const cleaned = String(value || "")
@@ -871,23 +879,27 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     if (extensionMatch?.[1]) return extensionMatch[1].slice(0, 60);
     const codeWordIndex = cleaned.search(/\b(?:javascript|typescript|const|let|var|function|import|require|class|return)\b/i);
     const filename = (codeWordIndex > 0 ? cleaned.slice(0, codeWordIndex) : cleaned).trim();
-    return filename.slice(0, 60);
+    if (/^(new chat|untitled|conversation)$/i.test(filename)) return "";
+    return filename.split(/\s+/).filter(Boolean).slice(0, 8).join(" ").slice(0, 60);
   };
   const groqFileNameFromPrompt = async (prompt: unknown) => {
     const text = String(prompt || "").replace(/\s+/g, " ").trim();
     if (!text) return fallbackFileNameFromPrompt(prompt);
     const naming = fileNamingConfig();
     if (!naming.enabled) return fallbackFileNameFromPrompt(prompt);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2_500);
     try {
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${naming.apiKey}` },
+        signal: controller.signal,
         body: JSON.stringify({
           model: naming.model,
           temperature: 0.2,
-          max_tokens: 16,
+          max_tokens: 24,
           messages: [
-            { role: "system", content: "Create a short, meaningful filename base from the user's first prompt. Return only 2-5 words or kebab-case words. Do not include code, explanations, quotes, trailing punctuation, or extra alternatives." },
+            { role: "system", content: "Create a concise, meaningful file/chat title from the user's first prompt. Return only 4-8 human-readable words. No quotes, invalid filename characters, generic names like New Chat/Untitled/Conversation, explanations, or alternatives." },
             { role: "user", content: text.slice(0, 2000) },
           ],
         }),
@@ -898,6 +910,8 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     } catch (error) {
       log.warn("file_naming.groq_failed", { ...errorMeta(error) });
       return fallbackFileNameFromPrompt(prompt);
+    } finally {
+      clearTimeout(timeout);
     }
   };
 
@@ -1251,7 +1265,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             if (shouldEnsureGatewaySession) {
               const sessionCreateStartedAtMs = nowMs();
               log.info("session.create.start", { sessionKey: input.sessionKey, agentId: input.agentId || "main", hasLabel: Boolean(input.label), phase: "queued-before-send" });
-              const generatedLabel = await groqFileNameFromPrompt(input.label || "New Chat");
+              const generatedLabel = await groqFileNameFromPrompt(prepared.message || input.label || "New Chat");
               const suffix = (input.sessionKey.split(":").pop() || input.sessionKey).replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || Date.now().toString(36);
               await context.gateway.request("sessions.create", {
                 key: input.sessionKey,

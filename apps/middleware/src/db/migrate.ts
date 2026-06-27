@@ -75,6 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_v2_projection_events_cursor ON v2_projection_even
 CREATE INDEX IF NOT EXISTS idx_v2_projection_events_session_cursor_non_bootstrap ON v2_projection_events(session_key, cursor) WHERE event_type != 'chat.bootstrap';
 CREATE TABLE IF NOT EXISTS v2_gateway_offsets (session_key TEXT PRIMARY KEY, last_openclaw_seq INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS v2_compat_state (key TEXT PRIMARY KEY, data_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS v2_secret_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL);
 `;
 
 function addColumnIfMissing(db: Database.Database, table: string, column: string, definition: string) {

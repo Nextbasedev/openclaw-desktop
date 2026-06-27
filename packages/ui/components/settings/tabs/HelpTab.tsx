@@ -141,6 +141,7 @@ type GroqFileNamingSettings = {
     enabled: boolean
     connected: boolean
     model: string
+    keyPreview?: string | null
   }
 }
 
@@ -195,9 +196,9 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
 
       <MiddlewareUpdateCard />
 
-      <GroqFileNamingCard />
-
       <V1SqliteMigrationCard />
+
+      <GroqFileNamingCard />
 
       <SessionMigrationCard platform="telegram" />
 
@@ -596,7 +597,7 @@ function GroqFileNamingCard() {
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-[13px] font-medium text-foreground">Groq file naming</h3>
+            <h3 className="text-[13px] font-medium text-foreground">AI File Name Generator (Groq)</h3>
             <span className={cn(
               "rounded-full px-2 py-0.5 text-[10px] font-medium",
               connected ? "bg-emerald-500/10 text-emerald-500" : "bg-black/[0.05] text-muted-foreground dark:bg-white/[0.06]",
@@ -610,6 +611,9 @@ function GroqFileNamingCard() {
           {settings?.model && connected && (
             <p className="mt-1 text-[10px] text-muted-foreground/70">Using {settings.model}</p>
           )}
+          {connected && settings?.keyPreview && (
+            <p className="mt-1 text-[10px] text-muted-foreground/70">Saved key: {settings.keyPreview}</p>
+          )}
         </div>
       </div>
 
@@ -621,11 +625,11 @@ function GroqFileNamingCard() {
           spellCheck={false}
           onChange={(event) => setApiKey(event.target.value)}
           disabled={busy !== null}
-          placeholder={connected ? "Paste a new key to replace the saved Groq key" : "Paste Groq API key"}
+          placeholder={connected && settings?.keyPreview ? settings.keyPreview : "Paste Groq API key"}
           className={HELP_FIELD_CLASS}
         />
         <button type="button" onClick={saveKey} disabled={busy !== null || !apiKey.trim()} className={HELP_PRIMARY_BUTTON_CLASS}>
-          {busy === "save" ? "Saving…" : connected ? "Replace key" : "Save key"}
+          {busy === "save" ? "Connecting…" : connected ? "Save/Connect" : "Save/Connect"}
         </button>
         <button type="button" onClick={removeKey} disabled={busy !== null || !connected} className={HELP_SECONDARY_BUTTON_CLASS}>
           {busy === "remove" ? "Removing…" : "Disconnect"}
@@ -635,7 +639,7 @@ function GroqFileNamingCard() {
       {connected && (
         <div className="mt-3 flex items-start gap-2 rounded-2xl bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-500">
           <LuCheck className="mt-0.5 shrink-0" size={14} />
-          <span>Groq is saved and enabled for first-prompt file naming.</span>
+          <span>Groq is saved and enabled for first-prompt file naming. The saved key remains available in masked form until you disconnect.</span>
         </div>
       )}
 
