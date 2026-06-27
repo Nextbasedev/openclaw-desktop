@@ -350,6 +350,27 @@ export class RunRepository {
     return Number(row?.count ?? 0);
   }
 
+  /**
+   * All persisted sessions_spawn tool-call rows, used to rehydrate sub-agent
+   * correlation state after a middleware restart (in-memory links are otherwise
+   * lost). result_meta_json carries the child session key once known.
+   */
+  listCreateTaskToolCalls(): Array<{ sessionKey: string; toolCallId: string; argsMetaJson: string | null; resultMetaJson: string | null; startedAtMs: number }> {
+    const rows = this.db.prepare(`
+      SELECT session_key, tool_call_id, args_meta_json, result_meta_json, started_at_ms
+      FROM v2_tool_calls
+      WHERE name = 'sessions_spawn'
+      ORDER BY started_at_ms ASC
+    `).all() as Array<{ session_key: string; tool_call_id: string; args_meta_json: string | null; result_meta_json: string | null; started_at_ms: number }>;
+    return rows.map((row) => ({
+      sessionKey: row.session_key,
+      toolCallId: row.tool_call_id,
+      argsMetaJson: row.args_meta_json ?? null,
+      resultMetaJson: row.result_meta_json ?? null,
+      startedAtMs: Number(row.started_at_ms ?? 0),
+    }));
+  }
+
   hasRunningTools(sessionKey: string, runId: string): boolean {
     const row = this.db.prepare(`
       SELECT 1 FROM v2_tool_calls

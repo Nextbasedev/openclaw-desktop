@@ -66,6 +66,9 @@ export async function createApp(config: MiddlewareConfig) {
     startedAtMs: Date.now(),
   };
   context.chatLive = new ChatLiveIngest(context);
+  // Restore sub-agent correlation links from persisted sessions_spawn rows so child
+  // activity re-links after a restart. Sync, idempotent, best-effort.
+  context.chatLive.rehydrateSubagentCorrelation();
   (app as typeof app & { v2Context?: AppContext }).v2Context = context;
 
   await app.register(cors, {

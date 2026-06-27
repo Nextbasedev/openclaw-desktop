@@ -184,6 +184,39 @@ export class ChatLiveIngest {
     this.log.info("optimistic.user.add", { sessionKey, messageId: message.id, pendingOptimistic: this.optimisticUsers.get(sessionKey)?.length ?? 0 });
   }
 
+  /**
+   * Restore sub-agent correlation links from persisted sessions_spawn tool-call
+   * rows. In-memory correlation state is wiped on restart; without this, child
+   * activity for a previously-spawned subagent never re-links (no child_activity
+   * patches). Idempotent and best-effort.
+   */
+  rehydrateSubagentCorrelation() {
+    try {
+      const rows = this.context.runs.listCreateTaskToolCalls();
+      if (rows.length === 0) return { spawns: 0, linked: 0, pending: 0 };
+      const entries = rows.map((row) => ({
+        parentSessionKey: row.sessionKey,
+        toolCallId: row.toolCallId,
+        childSessionKey: extractSubagentSessionKey(row.resultMetaJson) ?? undefined,
+        createdAtMs: row.startedAtMs,
+      }));
+      const result = this.subagents.rehydrate(entries);
+      this.log.info("subagent.correlation.rehydrated", { spawns: rows.length, ...result });
+      return { spawns: rows.length, ...result };
+    } catch (error) {
+      this.log.warn("subagent.correlation.rehydrate.fail", { ...errorMeta(error) });
+      return { spawns: 0, linked: 0, pending: 0 };
+    }
+  }
+
+  /** Read-only view of sub-agent correlation state (diagnostics + startup test). */
+  subagentStats() {
+    return this.subagents.stats();
+  }
+
+  // NOTE: dead-code candidate — currently has zero callers (only the singular
+  // ensureSessionSubscribed is wired, from routes.ts). Kept (preservation rule);
+  // do not remove without Krish's OK. Startup rehydrate is wired in createApp, NOT here.
   async ensureRecentSessionsSubscribed(limit = 100) {
     const sessionKeys = this.context.messages.listRecentSessionKeys(limit);
     if (sessionKeys.length === 0) return { attempted: 0, subscribed: this.subscribed.size };
