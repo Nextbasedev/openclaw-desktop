@@ -153,12 +153,15 @@ describe("upsertMessages collision order — late gateway user echo", () => {
     db.close();
   });
 
-  test("late user echo falls back to append when the assistant block is tight against the next user/system row", () => {
-    // Pathological case: a next user/system row already exists at seq 12 with
-    // assistant/tool packed at 10..11 — shifting by +1 would collide with the
-    // boundary user. The fix must fall back to the old append-to-end behavior
-    // in that degenerate case rather than violating the PK.
-    const db = openDatabase({ databasePath: testDbPath("tight-boundary-fallback") });
+  test("late user echo tight against the next user/system row keeps the user ABOVE its assistant (no inversion)", () => {
+    // Tight-boundary case: a next user/system row already exists at seq 12 with
+    // the run's assistant/tool packed at 10..11. The previous fallback appended
+    // the late user echo to the END (seq 13), rendering it AFTER its own
+    // assistant turn (and after the next turn) — a user-after-assistant
+    // INVERSION. The fix extends the negative-sentinel shift to the whole tail
+    // so the user keeps seq 10 and every later row (incl. the next-turn user)
+    // shifts +1, preserving relative order without violating the PK.
+    const db = openDatabase({ databasePath: testDbPath("tight-boundary-no-inversion") });
     const repo = new MessageRepository(db);
     const segment = repo.ensureActiveSegment({ sessionKey: "s1", sessionId: "sid-1" });
     const opts = { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq };
@@ -174,15 +177,23 @@ describe("upsertMessages collision order — late gateway user echo", () => {
     ], opts);
 
     const rows = repo.listMessages("s1");
-    // The next-user row at seq 12 must NOT be disturbed — it's the safety
-    // fallback. The late user echo gets appended to the end.
-    const userLate = rows.find((r) => r.messageId === "user-late");
-    expect(userLate).toBeDefined();
-    expect(userLate?.openclawSeq).toBeGreaterThanOrEqual(13);
-    expect(rows.find((r) => r.messageId === "user-next")?.openclawSeq).toBe(12);
-    expect(rows.find((r) => r.messageId === "assistant-1")?.openclawSeq).toBe(10);
-    expect(rows.find((r) => r.messageId === "tool-1")?.openclawSeq).toBe(11);
-    expect(late.upserted).toBe(1);
+    const seqOf = (id: string) => rows.find((r) => r.messageId === id)?.openclawSeq;
+
+    // Correct chronological order — the late user echo precedes its assistant,
+    // and the unrelated next turn keeps its RELATIVE position (just shifted +1).
+    expect(rows.map((r) => ({ seq: r.openclawSeq, messageId: r.messageId }))).toEqual([
+      { seq: 10, messageId: "user-late" },
+      { seq: 11, messageId: "assistant-1" },
+      { seq: 12, messageId: "tool-1" },
+      { seq: 13, messageId: "user-next" },
+    ]);
+    // The core invariant: the user is never below its own assistant.
+    expect(seqOf("user-late")!).toBeLessThan(seqOf("assistant-1")!);
+    // The insert plus every shifted tail row are written (>=1).
+    expect(late.upserted).toBeGreaterThanOrEqual(1);
+    // All shifted rows are surfaced so projection/SSE consumers see the moves.
+    const changed = late.changedMessages.map((m) => m.messageId).sort();
+    expect(changed).toEqual(["assistant-1", "tool-1", "user-late", "user-next"].sort());
 
     db.close();
   });

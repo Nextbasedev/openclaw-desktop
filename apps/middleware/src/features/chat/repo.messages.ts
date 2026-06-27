@@ -454,12 +454,16 @@ export class MessageRepository {
               openclawSeq,
             }) as { seq?: number | null } | undefined;
             const maxRow = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
-            const ceiling = boundary?.seq != null ? Number(boundary.seq) : Number(maxRow?.maxSeq ?? openclawSeq) + 1;
-            // Safety check: if the assistant/tool block is tightly packed up
-            // against the next user/system row (i.e. the row at ceiling - 1 is
-            // part of our shift range AND a row exists at ceiling), shifting
-            // would collide with the boundary row. Fall back to the old
-            // append-to-end behavior in that degenerate case.
+            let ceiling = boundary?.seq != null ? Number(boundary.seq) : Number(maxRow?.maxSeq ?? openclawSeq) + 1;
+            // If the assistant/tool block is tightly packed up against the next
+            // user/system row (a row exists at ceiling - 1), a bounded shift to
+            // `boundary.seq` would land the last shifted row on top of the
+            // boundary row. Previously we fell back to appending the user to the
+            // END, which rendered the user AFTER its own assistant turn (a
+            // user-after-assistant INVERSION). Instead, extend the shift to the
+            // whole tail (ceiling = maxSeq + 1): the late user keeps its seq and
+            // every later row — including the next-turn user/system boundary —
+            // moves +1, preserving relative order without violating the PK.
             const blockTightAgainstBoundary = boundary?.seq != null && (
               existingAtSeq.get({
                 sessionKey: message.sessionKey,
@@ -467,11 +471,9 @@ export class MessageRepository {
               }) as { message_id: string | null } | undefined
             ) != null;
             if (blockTightAgainstBoundary) {
-              const fallbackRow = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
-              const nextSeq = Math.max(openclawSeq, Number(fallbackRow?.maxSeq ?? 0)) + 1;
-              openclawSeq = nextSeq;
-              existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;
-            } else {
+              ceiling = Number(maxRow?.maxSeq ?? openclawSeq) + 1;
+            }
+            {
             shiftAssistantBlockToNegative.run({
               sessionKey: message.sessionKey,
               segmentId,
