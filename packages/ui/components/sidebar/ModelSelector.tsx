@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
 import { LuCheck, LuSearch } from "react-icons/lu"
 import { GlassDialog } from "@/components/ui/GlassDialog"
@@ -14,8 +13,15 @@ type Props = {
 }
 
 export function ModelSelector({ open, onOpenChange }: Props) {
-  const { models, currentModel: current, loading, error, reload, ensureLoaded } =
-    useModels()
+  const {
+    models,
+    currentModel: current,
+    loading,
+    error,
+    reload,
+    ensureLoaded,
+    setDefaultModel,
+  } = useModels()
   const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState("")
   const searchRef = useRef<HTMLInputElement>(null)
@@ -37,23 +43,20 @@ export function ModelSelector({ open, onOpenChange }: Props) {
   }, [open])
 
   async function handleSelect(modelId: string) {
-    if (modelId === current) {
+    const target = models.find((m) => `${m.provider}/${m.id}` === modelId)
+    if (target && isActiveModel(current, target)) {
       onOpenChange(false)
       return
     }
     setSaving(true)
     try {
-      await invoke("middleware_models_set_default", {
-        input: { modelId },
-      })
-      onOpenChange(false)
-      // Reload the whole app so the new default model is reflected everywhere
-      // (chat composer, footer trigger button, this dialog) from a single
-      // source of truth instead of patching each surface independently.
-      if (typeof window !== "undefined") {
-        window.location.reload()
-      }
+      // Persist + broadcast: every useModels() consumer (chat composer, footer
+      // trigger button, this dialog) updates its selected model in place, no
+      // app reload required.
+      await setDefaultModel(modelId)
     } catch {
+      // swallow; selection simply stays unchanged
+    } finally {
       setSaving(false)
       onOpenChange(false)
     }
