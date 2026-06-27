@@ -1098,6 +1098,28 @@ export function ChatView({
   }, [state.loading, state.messages, state.streamStatus])
 
   useEffect(() => {
+    if (isBackgroundSession || state.loading) return
+    if (state.streamStatus !== "thinking") return
+    if (!hasAssistantAnswerAfterLastUser(state.messages)) return
+    if (liveRunningTool(state.messages)) return
+
+    const timeout = window.setTimeout(() => {
+      setState((current) => {
+        if (current.streamStatus !== "thinking") return current
+        if (!hasAssistantAnswerAfterLastUser(current.messages)) return current
+        if (liveRunningTool(current.messages)) return current
+        return {
+          ...current,
+          streamStatus: "idle",
+          statusLabel: null,
+        }
+      })
+    }, 1200)
+
+    return () => window.clearTimeout(timeout)
+  }, [isBackgroundSession, state.loading, state.messages, state.streamStatus])
+
+  useEffect(() => {
     if (isBackgroundSession || streamCursor === null) return
     return openPatchStreamV2(streamCursor, (frame) => {
       if (frame.type !== "patch") return
