@@ -237,75 +237,6 @@ function readOpenClawVersion() {
   return globalVersion || null;
 }
 
-type MiddlewareSlashCommand = {
-  name: string;
-  nativeName?: string;
-  textAliases?: string[];
-  description: string;
-  category?: string;
-  source: "native" | "skill" | "plugin";
-  scope: "text" | "native" | "both";
-  acceptsArgs: boolean;
-  args?: unknown[];
-};
-
-function slashCommandString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function normalizeSlashCommand(value: unknown): MiddlewareSlashCommand | null {
-  const raw = value && typeof value === "object" && !Array.isArray(value) ? value as CompatRecord : null;
-  if (!raw) return null;
-  const name = slashCommandString(raw.name ?? raw.command ?? raw.id)?.replace(/^\//, "");
-  if (!name) return null;
-  const source = raw.source === "skill" || raw.source === "plugin" || raw.source === "native" ? raw.source : "native";
-  const scope = raw.scope === "text" || raw.scope === "native" || raw.scope === "both" ? raw.scope : "both";
-  const textAliases = Array.isArray(raw.textAliases)
-    ? raw.textAliases.map(slashCommandString).filter((item): item is string => Boolean(item)).map((item) => item.replace(/^\//, ""))
-    : Array.isArray(raw.aliases)
-      ? raw.aliases.map(slashCommandString).filter((item): item is string => Boolean(item)).map((item) => item.replace(/^\//, ""))
-      : undefined;
-  return {
-    name,
-    nativeName: slashCommandString(raw.nativeName)?.replace(/^\//, ""),
-    textAliases: textAliases?.length ? textAliases : undefined,
-    description: slashCommandString(raw.description) ?? slashCommandString(raw.label) ?? `/${name}`,
-    category: slashCommandString(raw.category),
-    source,
-    scope,
-    acceptsArgs: typeof raw.acceptsArgs === "boolean" ? raw.acceptsArgs : Boolean(raw.args || raw.parameters),
-    ...(Array.isArray(raw.args) ? { args: raw.args } : {}),
-  };
-}
-
-function extractSlashCommandsResponse(response: unknown): unknown[] | null {
-  const raw = response && typeof response === "object" && !Array.isArray(response) ? response as CompatRecord : null;
-  const payload = raw?.payload && typeof raw.payload === "object" && !Array.isArray(raw.payload) ? raw.payload as CompatRecord : null;
-  const commands = Array.isArray(raw?.commands)
-    ? raw.commands
-    : Array.isArray(payload?.commands)
-      ? payload.commands
-      : null;
-  return commands;
-}
-
-async function commandsListResponse(context: AppContext, input: CompatRecord) {
-  try {
-    const response = await context.gateway.request("commands.list", {
-      agentId: slashCommandString(input.agentId),
-      provider: slashCommandString(input.provider),
-      scope: input.scope === "native" || input.scope === "text" || input.scope === "both" ? input.scope : undefined,
-      includeArgs: typeof input.includeArgs === "boolean" ? input.includeArgs : undefined,
-    }, 10_000);
-    const commands = extractSlashCommandsResponse(response)?.map(normalizeSlashCommand).filter((item): item is MiddlewareSlashCommand => Boolean(item)) ?? [];
-    if (commands.length === 0) return { commands: [], source: "fallback" };
-    return { commands, source: "gateway" };
-  } catch (error) {
-    createLogger("compat").warn("commands.list.fallback", { error: error instanceof Error ? error.message : String(error) });
-    return { commands: [], source: "fallback" };
-  }
-}
-
 function isoFromMs(value: unknown, fallbackMs = Date.now()) {
   const ms = typeof value === "number" && Number.isFinite(value) ? value : fallbackMs;
   return new Date(ms).toISOString();
@@ -4593,7 +4524,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_memory_recall":
         return recallMemoryEntries();
       case "middleware_commands_list":
-        return commandsListResponse(context, input);
+        return { commands: [] };
       case "middleware_skills_discover":
         return skillsDiscover(input as Parameters<typeof skillsDiscover>[0]);
       case "middleware_skills_installed_local":
