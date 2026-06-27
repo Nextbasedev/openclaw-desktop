@@ -331,11 +331,32 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
           replayHasMore: frame.type === "hello" ? frame.replayHasMore : undefined,
         }, "debug")
         if (frame.type === "hello" && (frame.recovery === "bootstrap" || frame.replayWindowExceeded)) {
+          // Always suppress re-applying the partial replay window: an exceeded
+          // window means some intermediate patches are missing, so old running
+          // tool/user patches must not land without their later terminal ones.
           suppressReplayUntilCursor = Math.max(
             suppressReplayUntilCursor,
             connectionCursor + Math.max(0, frame.replayCount ?? 0),
           )
-          frontendLog("stream", "patch-stream.bootstrap-recovery", { afterCursor: connectionCursor, replayCount: frame.replayCount, replayHasMore: frame.replayHasMore }, "warn")
+          // I5: only a GENUINE epoch reset warrants a full chat-bootstrap-recovery
+          // (every mounted ChatView resetToLiveTail). A cursor that is merely
+          // BEHIND the replay window — including the initial shared-socket connect
+          // at afterCursor=0 — is NOT a reset: each ChatView self-bootstraps to
+          // the live tail, which already covers the window. Recovering there
+          // replays from 0 on every warm session switch (and feeds PERF-01).
+          // The server sends latestCursor exactly so the client can tell the two
+          // apart: a connect cursor AHEAD of latestCursor means our stored cursor
+          // belongs to a dead/rebuilt epoch and must reset.
+          const latestCursor = typeof frame.latestCursor === "number" ? frame.latestCursor : null
+          const isEpochReset = latestCursor !== null
+            ? connectionCursor > latestCursor
+            : connectionCursor > 0 // back-compat: pre-latestCursor servers
+          if (!isEpochReset) {
+            frontendLog("stream", "patch-stream.recovery-skipped-covered", { afterCursor: connectionCursor, latestCursor, replayCount: frame.replayCount }, "debug")
+            onFrame(frame)
+            return
+          }
+          frontendLog("stream", "patch-stream.bootstrap-recovery", { afterCursor: connectionCursor, latestCursor, replayCount: frame.replayCount, replayHasMore: frame.replayHasMore }, "warn")
           logChatStreamRecoveryDecision({
             targetSessionKey: null,
             activeSessionKey: null,
@@ -346,12 +367,14 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
             extra: {
               replayCount: frame.replayCount,
               replayHasMore: frame.replayHasMore,
+              latestCursor,
             },
           })
           window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
             detail: {
               reason: frame.replayWindowExceeded ? "replay-window-exceeded" : "stream-hello-recovery",
               cursor: connectionCursor,
+              latestCursor,
             },
           }))
           onFrame(frame)

@@ -152,6 +152,72 @@ describe("middleware client", () => {
     stop()
   })
 
+  it("A2: a replay-window-exceeded hello at afterCursor 0 does NOT dispatch bootstrap-recovery (warm switch)", async () => {
+    // The shared socket first connects at afterCursor=0; the server replies
+    // replayWindowExceeded=true (latest is far ahead). This is NOT an epoch
+    // reset — the client cursor (0) is behind, not ahead, of latestCursor, and
+    // every ChatView self-bootstraps to the live tail. The old code dispatched a
+    // full chat-bootstrap-recovery here, forcing resetToLiveTail on every view.
+    const data = new Map<string, string>([["openclaw.middleware.url", "http://127.0.0.1:8787"]])
+    const dispatched: Array<{ type: string; detail: unknown }> = []
+    vi.stubGlobal("window", {
+      location: { hostname: "localhost" }, console,
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn((e: { type: string; detail?: unknown }) => { dispatched.push({ type: e.type, detail: e.detail }); return true }),
+    })
+    vi.stubGlobal("localStorage", { getItem: vi.fn((key: string) => data.get(key) ?? null) })
+
+    const sockets: Array<{ onmessage?: (event: { data: string }) => void }> = []
+    class FakeWebSocket {
+      onmessage?: (event: { data: string }) => void
+      onopen?: () => void; onerror?: () => void; onclose?: (e: { code: number; wasClean: boolean }) => void
+      readyState = 1
+      constructor(_url: string) { sockets.push(this) }
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket)
+
+    const { openPatchStreamV2 } = await import("../client")
+    const frames: unknown[] = []
+    openPatchStreamV2(0, (f) => frames.push(f))
+    sockets[0].onmessage?.({ data: JSON.stringify({ type: "hello", clientId: "c1", afterCursor: 0, replayCount: 0, replayHasMore: true, replayWindowExceeded: true, recovery: "bootstrap", latestCursor: 125074 }) })
+
+    // The hello frame is still delivered to consumers, but NO recovery event.
+    expect(frames.some((f) => (f as { type?: string }).type === "hello")).toBe(true)
+    expect(dispatched.filter((d) => d.type === "openclaw:chat-bootstrap-recovery")).toHaveLength(0)
+  })
+
+  it("A2: a hello whose afterCursor is AHEAD of latestCursor (dead epoch) dispatches exactly one recovery", async () => {
+    const data = new Map<string, string>([["openclaw.middleware.url", "http://127.0.0.1:8787"]])
+    const dispatched: Array<{ type: string; detail: unknown }> = []
+    vi.stubGlobal("window", {
+      location: { hostname: "localhost" }, console,
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn((e: { type: string; detail?: unknown }) => { dispatched.push({ type: e.type, detail: e.detail }); return true }),
+    })
+    vi.stubGlobal("localStorage", { getItem: vi.fn((key: string) => data.get(key) ?? null) })
+
+    const sockets: Array<{ onmessage?: (event: { data: string }) => void }> = []
+    class FakeWebSocket {
+      onmessage?: (event: { data: string }) => void
+      onopen?: () => void; onerror?: () => void; onclose?: (e: { code: number; wasClean: boolean }) => void
+      readyState = 1
+      constructor(_url: string) { sockets.push(this) }
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket)
+
+    const { openPatchStreamV2 } = await import("../client")
+    // Stored/stream cursor 200000 is AHEAD of the server's latestCursor 125074 =>
+    // the projection store was rebuilt (dead epoch). This must recover.
+    openPatchStreamV2(200000, () => {})
+    sockets[0].onmessage?.({ data: JSON.stringify({ type: "hello", clientId: "c1", afterCursor: 200000, replayCount: 0, replayHasMore: true, replayWindowExceeded: true, recovery: "bootstrap", latestCursor: 125074 }) })
+
+    const recoveries = dispatched.filter((d) => d.type === "openclaw:chat-bootstrap-recovery")
+    expect(recoveries).toHaveLength(1)
+    expect((recoveries[0].detail as { latestCursor?: number }).latestCursor).toBe(125074)
+  })
+
   it("I1: shares ONE websocket across multiple subscribers and fans out frames", async () => {
     const data = new Map<string, string>([["openclaw.middleware.url", "http://127.0.0.1:8787"]])
     vi.stubGlobal("window", { location: { hostname: "localhost" }, console, addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() })
