@@ -3210,6 +3210,54 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("clears responding after final assistant text that includes completed tool transcript", () => {
+    seedGlobalChatSession({
+      sessionKey: "s-tools-final",
+      cursor: 20,
+      status: "streaming",
+      statusLabel: "Responding",
+      messages: [
+        { messageId: "u1", role: "user", text: "run 20 tool calls" },
+        {
+          messageId: "tools-live",
+          role: "assistant",
+          text: "",
+          toolCalls: [
+            { id: "tool-20", tool: "exec", status: "success", resultText: "toolcall 20" },
+          ],
+        },
+      ],
+      pendingTools: [],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 21,
+        type: "chat.message.upsert",
+        sessionKey: "s-tools-final",
+        createdAtMs: 21,
+        payload: {
+          semanticType: "chat.assistant.final",
+          messageId: "a-final",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "toolCall", id: "tool-20", name: "exec", input: { command: "printf 'toolcall 20\\n'" } },
+              { type: "toolResult", toolCallId: "tool-20", result: "toolcall 20" },
+              { type: "text", text: "Done — completed 20 tool calls successfully." },
+            ],
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s-tools-final")).toMatchObject({
+      status: "done",
+      statusLabel: null,
+    })
+  })
+
   test("warms React Query bootstrap cache from global store", () => {
     const client = createOpenClawQueryClient()
     seedGlobalChatSession({
