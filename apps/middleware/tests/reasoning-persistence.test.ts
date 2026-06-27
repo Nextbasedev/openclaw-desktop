@@ -107,6 +107,47 @@ describe("reasoning persistence", () => {
     await app.close();
   });
 
+  test("A5: a delta after a mid-stream restart grows from the persisted live row (no truncation)", async () => {
+    // Stable DB path shared across two app instances => a faithful restart.
+    const cfg = config("restart-truncation");
+
+    async function bootOn() {
+      const app = await createApp(cfg);
+      const context = contextOf(app);
+      let listener: (event: GatewayEvent) => void = () => undefined;
+      vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => { listener = cb; return () => true; });
+      vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+      await context.chatLive.ensureSessionSubscribed("s1");
+      return { app, context, emit: (event: GatewayEvent) => listener(event) };
+    }
+    const chatDelta = (delta: string): GatewayEvent => ({
+      type: "event", event: "chat",
+      payload: { sessionKey: "s1", runId: "run-1", data: { delta } },
+    } as unknown as GatewayEvent);
+    const liveTextOf = (context: AppContext) =>
+      (context.messages.findMessageById("s1", "live:run-1:assistant")?.data as { text?: string })?.text;
+
+    // App #1: stream two deltas into the persisted live row.
+    const a = await bootOn();
+    a.context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "streaming", statusLabel: "Streaming", startedAtMs: 100, updatedAtMs: 100 });
+    a.emit(chatDelta("Hello "));
+    a.emit(chatDelta("world"));
+    expect(liveTextOf(a.context)).toBe("Hello world"); // happy-path accumulation
+    await a.app.close();
+
+    // App #2: SAME db = restart. In-memory accumulator is empty but the
+    // persisted live row still holds "Hello world".
+    const b = await bootOn();
+    expect(b.context.chatLive.diagnostics().liveAssistantRuns).toBe(0); // baseline lost on restart
+    b.emit(chatDelta(" again"));
+    // Must GROW from the persisted base, not overwrite the row with just the delta.
+    expect(liveTextOf(b.context)).toBe("Hello world again");
+    // Once seeded, normal in-memory accumulation continues unchanged.
+    b.emit(chatDelta(" and more"));
+    expect(liveTextOf(b.context)).toBe("Hello world again and more");
+    await b.app.close();
+  });
+
   test("reasoning accumulation is cleared once the run is finalized", async () => {
     const { app, context, emit } = await setup("cleanup");
     emit(thinkingEvent({ delta: "thinking..." }));

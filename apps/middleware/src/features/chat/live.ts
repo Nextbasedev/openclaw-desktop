@@ -1069,6 +1069,28 @@ export class ChatLiveIngest {
       textFromLiveValue(payload.chunk);
   }
 
+  /**
+   * Accumulated live-assistant baseline for a run. Normally this is the
+   * in-memory accumulator. If it is absent — e.g. the middleware restarted
+   * mid-stream and lost its in-memory accumulators while the persisted
+   * `live:<runId>:assistant` row still holds the text already streamed — seed it
+   * from that persisted row so the next delta GROWS the accumulated text instead
+   * of replacing the whole row with just the delta (transient truncation until
+   * the next full frame / backfill). Happy path is unchanged: once an in-memory
+   * entry exists this returns it verbatim and never re-reads the row.
+   */
+  private liveAssistantBaseline(sessionKey: string, runId: string): string {
+    const existing = this.liveAssistantText.get(runId);
+    if (existing !== undefined) return existing;
+    const live = this.context.messages.findMessageById(sessionKey, `live:${runId}:assistant`);
+    const persisted = live && typeof live.data.text === "string" ? live.data.text : "";
+    if (persisted) {
+      this.liveAssistantText.set(runId, persisted);
+      this.log.info("live.assistant.baseline.seeded-from-persisted", { sessionKey, runId, length: persisted.length });
+    }
+    return persisted;
+  }
+
   private mergeLiveAssistantText(previous: string, incoming: string, isFullText: boolean) {
     const collapsedIncoming = this.collapseRepeatedLiveText(incoming);
     if (!previous || isFullText) return collapsedIncoming;
@@ -1146,7 +1168,7 @@ export class ChatLiveIngest {
     const hasText = typeof payload.text === "string";
     const incoming = hasText ? payload.text as string : this.extractLiveAssistantText(payload);
     if (typeof incoming !== "string") return;
-    const previous = this.liveAssistantText.get(run.runId) ?? "";
+    const previous = this.liveAssistantBaseline(sessionKey, run.runId);
     const next = this.mergeLiveAssistantText(previous, incoming, hasText);
     if (!next || next === previous) return;
     this.liveAssistantText.set(run.runId, next);
