@@ -145,6 +145,10 @@ export class ChatLiveIngest {
   private optimisticUsers = new Map<string, Array<{ id: string; text: string; runId?: string; idempotencyKey?: string; createdAtMs: number }>>();
   private recentlyConfirmedUsers = new Map<string, Array<{ id: string; text: string; runId?: string; idempotencyKey?: string; openclawSeq: number; confirmedAtMs: number }>>();
   private liveAssistantText = new Map<string, string>();
+  // Accumulated reasoning/thinking text per run. Persisted onto the live
+  // assistant message (as a `thinking` content block) so it survives
+  // re-bootstrap / reconnect / session-switch — the broadcast path is kept too.
+  private liveReasoningText = new Map<string, string>();
   private historyBackfillTimers = new Map<string, NodeJS.Timeout>();
   private readonly subagents = new SubagentCorrelation();
   private readonly log = createLogger("chat-live");
@@ -228,6 +232,8 @@ export class ChatLiveIngest {
       subscribedSessions: [...this.subscribed],
       listening: this.listening,
       optimisticUserSessions: this.optimisticUsers.size,
+      liveAssistantRuns: this.liveAssistantText.size,
+      liveReasoningRuns: this.liveReasoningText.size,
     };
   }
 
@@ -298,6 +304,9 @@ export class ChatLiveIngest {
             runId: associatedRun.runId,
           },
         };
+        // Carry accumulated reasoning forward so it is not lost when the live
+        // row is replaced by the canonical final (the gateway final may omit it).
+        projectedMessage.data = this.carryReasoningIntoFinal(projectedMessage.data, associatedRun.runId);
         normalized[0] = projectedMessage;
       }
     }
@@ -343,6 +352,7 @@ export class ChatLiveIngest {
     }
     if (projectedMessage.role === "assistant" && associatedRun) {
       this.liveAssistantText.delete(associatedRun.runId);
+      this.liveReasoningText.delete(associatedRun.runId);
     }
     const runForPatch = associatedRun ? this.context.runs.getRun(associatedRun.runId) : null;
     this.log.info("message.persist", {
@@ -725,6 +735,7 @@ export class ChatLiveIngest {
     }
     if (status === "error" || status === "failed") {
       this.liveAssistantText.delete(run.runId);
+      this.liveReasoningText.delete(run.runId);
       const statusLabel = liveErrorLabel(payload, data);
       const updated = this.context.runs.updateRunStatus(run.runId, "error", { statusLabel, error: payload.error ?? data.error ?? payload });
       if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.error");
@@ -768,6 +779,18 @@ export class ChatLiveIngest {
     const text = textFromLiveValue(data.text);
     const delta = textFromLiveValue(data.delta) ?? text;
     if (!text && !delta) return;
+    // Durable storage ALONGSIDE the broadcast below: accumulate the reasoning and
+    // persist it onto the live assistant row so a re-bootstrap (session switch) or
+    // reconnect past the patch-replay window restores it. Previously reasoning
+    // lived only in the patch log and was dropped on restore (analog of I3).
+    const previousReasoning = this.liveReasoningText.get(run.runId) ?? "";
+    const hasFull = typeof text === "string" && text.length > 0;
+    const incomingReasoning = (hasFull ? text : delta) as string;
+    const nextReasoning = this.mergeLiveAssistantText(previousReasoning, incomingReasoning, hasFull);
+    if (nextReasoning && nextReasoning !== previousReasoning) {
+      this.liveReasoningText.set(run.runId, nextReasoning);
+      this.upsertLiveAssistantRow(sessionKey, run);
+    }
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.reasoning.delta",
@@ -893,7 +916,9 @@ export class ChatLiveIngest {
         const liveMessage = this.context.messages.findMessageById(sessionKey, liveMessageId);
         if (liveMessage) {
           this.context.messages.deleteMessageById(sessionKey, liveMessageId);
+          finalAssistant.data = this.carryReasoningIntoFinal(finalAssistant.data, run.runId);
           this.liveAssistantText.delete(run.runId);
+          this.liveReasoningText.delete(run.runId);
           finalAssistant.data = {
             ...finalAssistant.data,
             __openclaw: {
@@ -1036,6 +1061,54 @@ export class ChatLiveIngest {
     return text;
   }
 
+  /**
+   * Build the persisted data for the synthetic `live:<runId>:assistant` row,
+   * embedding accumulated reasoning as a `thinking` content block when present
+   * so it is recoverable from a fresh bootstrap snapshot (the chatHistory parser
+   * lifts thinking blocks into `reasoningText`). The live broadcast payload stays
+   * text-only — in-flight reasoning is delivered separately via chat.reasoning.delta.
+   */
+  private buildLiveAssistantData(runId: string, text: string): Record<string, unknown> {
+    const messageId = `live:${runId}:assistant`;
+    const reasoning = this.liveReasoningText.get(runId) ?? "";
+    const data: Record<string, unknown> = {
+      id: messageId,
+      role: "assistant",
+      text,
+      __openclaw: { id: messageId, runId },
+    };
+    if (reasoning) data.content = [{ type: "thinking", text: reasoning }];
+    return data;
+  }
+
+  /** Upsert the live assistant row from current accumulated text + reasoning. */
+  private upsertLiveAssistantRow(sessionKey: string, run: ProjectedRun) {
+    const text = this.liveAssistantText.get(run.runId) ?? "";
+    const reasoning = this.liveReasoningText.get(run.runId) ?? "";
+    if (!text && !reasoning) return;
+    const messageId = `live:${run.runId}:assistant`;
+    const projectedSeq = this.context.messages.nextMessageSeq(sessionKey);
+    this.context.messages.upsertMessages([{
+      sessionKey,
+      openclawSeq: projectedSeq,
+      messageId,
+      role: "assistant",
+      data: this.buildLiveAssistantData(run.runId, text),
+      updatedAtMs: Date.now(),
+    }]);
+  }
+
+  /** Add a thinking block carrying accumulated reasoning if the final lacks one. */
+  private carryReasoningIntoFinal(data: Record<string, unknown>, runId: string): Record<string, unknown> {
+    const reasoning = this.liveReasoningText.get(runId) ?? "";
+    if (!reasoning) return data;
+    const content = Array.isArray(data.content) ? data.content : null;
+    const hasThinking = content?.some((block) => block && typeof block === "object" && (block as { type?: unknown }).type === "thinking");
+    if (hasThinking) return data;
+    const thinkingBlock = { type: "thinking", text: reasoning };
+    return { ...data, content: content ? [thinkingBlock, ...content] : [thinkingBlock] };
+  }
+
   private broadcastLiveAssistantText(sessionKey: string, run: ProjectedRun, payload: Record<string, unknown>) {
     const hasText = typeof payload.text === "string";
     const incoming = hasText ? payload.text as string : this.extractLiveAssistantText(payload);
@@ -1051,12 +1124,8 @@ export class ChatLiveIngest {
       openclawSeq: projectedSeq,
       messageId,
       role: "assistant",
-      data: {
-        id: messageId,
-        role: "assistant",
-        text: next,
-        __openclaw: { id: messageId, runId: run.runId },
-      },
+      // Persist with reasoning embedded so a switch/restore keeps both.
+      data: this.buildLiveAssistantData(run.runId, next),
       updatedAtMs: Date.now(),
     }]);
     const patch = this.context.messages.appendProjectionEvent({
