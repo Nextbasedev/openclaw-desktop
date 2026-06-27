@@ -450,27 +450,6 @@ function roleOrder(message: ChatMessage) {
   return message.role === "user" ? 0 : 1
 }
 
-function hasPositiveGatewayIndex(message: ChatMessage) {
-  const index = message.gatewayIndex
-  return typeof index === "number" && Number.isFinite(index) && index > 0
-}
-
-function shouldPreserveLocalUserAssistantOrder(a: ChatMessage, b: ChatMessage) {
-  if (a.role === b.role) return false
-  const user = a.role === "user" ? a : b.role === "user" ? b : null
-  const assistant = a.role === "assistant" ? a : b.role === "assistant" ? b : null
-  if (!user || !assistant) return false
-
-  // After /reload or delayed command output, a fresh user prompt can be visible
-  // locally before Gateway has assigned a reliable transcript seq. Older
-  // assistant/tool/status rows may already have seq/timestamps, and sorting by
-  // those canonical fields alone can move the assistant response above the
-  // prompt it answered. Until the user row has a positive gatewayIndex, treat
-  // the current array order as the turn anchor. Fully canonical history still
-  // uses gatewayIndex/timestamp ordering below.
-  return !hasPositiveGatewayIndex(user)
-}
-
 export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage[] {
   const sorted = messages
     .map((message, index) => ({ message, index }))
@@ -481,8 +460,6 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
       // assistant patch timestamps can sort below/over the user's new question
       // and make that question appear hidden.
       if (a.message.isOptimistic || b.message.isOptimistic) return a.index - b.index
-
-      if (shouldPreserveLocalUserAssistantOrder(a.message, b.message)) return a.index - b.index
 
       const aIndex = a.message.gatewayIndex
       const bIndex = b.message.gatewayIndex
