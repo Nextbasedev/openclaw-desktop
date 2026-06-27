@@ -1810,37 +1810,6 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s-premature-done")).toMatchObject({ status: "done", statusLabel: null })
   })
 
-  test("terminalWithoutAssistant done completes native slash command turns without assistant text", () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(1_000)
-    seedGlobalChatSession({
-      sessionKey: "s-native-slash-done",
-      cursor: 0,
-      status: "thinking",
-      statusLabel: "Thinking",
-      messages: [{ messageId: "user-1", role: "user", text: "/status" }],
-    })
-
-    vi.setSystemTime(1_500)
-    ingestGlobalChatPatchForTests({
-      type: "patch",
-      patch: {
-        cursor: 1,
-        type: "chat.status",
-        sessionKey: "s-native-slash-done",
-        createdAtMs: 1_500,
-        payload: {
-          semanticType: "chat.run.done",
-          runStatus: "done",
-          statusLabel: null,
-          terminalWithoutAssistant: true,
-        },
-      },
-    })
-
-    expect(getGlobalChatSession("s-native-slash-done")).toMatchObject({ status: "done", statusLabel: null })
-  })
-
   test("late same-turn streaming patches after assistant final do not resurrect generating state", () => {
     seedGlobalChatSession({
       sessionKey: "s-post-final",

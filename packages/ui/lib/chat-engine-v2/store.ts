@@ -1381,7 +1381,6 @@ function isBareDoneStatusPatch(frame: PatchFrame, status: StreamStatus) {
 
 function shouldDeferBareDoneStatus(state: SessionState, frame: PatchFrame, status: StreamStatus) {
   if (!isBareDoneStatusPatch(frame, status)) return false
-  if (patchPayload(frame)?.terminalWithoutAssistant === true) return false
   if (!ACTIVE_STATUSES.has(state.status)) return false
   if (!state.activityStartedAtMs) return false
   if (Date.now() - state.activityStartedAtMs > PREMATURE_DONE_GRACE_MS) return false
