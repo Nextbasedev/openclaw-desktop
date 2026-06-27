@@ -69,7 +69,7 @@ describe("middleware client", () => {
   })
 
   it("continues delivering live patches after backlog replay finishes", async () => {
-    const data = new Map<string, string>()
+    const data = new Map<string, string>([["openclaw.middleware.url", "http://127.0.0.1:8787"]])
     vi.stubGlobal("window", { location: { hostname: "localhost" }, console, addEventListener: vi.fn(), dispatchEvent: vi.fn() })
     vi.stubGlobal("localStorage", { getItem: vi.fn((key: string) => data.get(key) ?? null) })
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
@@ -106,8 +106,54 @@ describe("middleware client", () => {
     ])
   })
 
-  it("I1: shares ONE websocket across multiple subscribers and fans out frames", async () => {
+  it("A1: defers the websocket until a middleware connection is configured (no boot 1006 churn)", async () => {
+    // Boot before any connection is configured: localStorage has no middleware
+    // URL and no env override. The old behaviour opened a WebSocket to the
+    // DEFAULT url immediately, which 1006-churns until config hydrates. The fix
+    // waits for the connected event, then connects exactly once.
     const data = new Map<string, string>()
+    const listeners = new Map<string, Set<(e: unknown) => void>>()
+    const addEventListener = vi.fn((type: string, cb: (e: unknown) => void) => {
+      if (!listeners.has(type)) listeners.set(type, new Set())
+      listeners.get(type)!.add(cb)
+    })
+    const removeEventListener = vi.fn((type: string, cb: (e: unknown) => void) => {
+      listeners.get(type)?.delete(cb)
+    })
+    const dispatch = (type: string, detail?: unknown) => {
+      for (const cb of [...(listeners.get(type) ?? [])]) cb({ type, detail })
+    }
+    vi.stubGlobal("window", { location: { hostname: "localhost" }, console, addEventListener, removeEventListener, dispatchEvent: vi.fn() })
+    vi.stubGlobal("localStorage", { getItem: vi.fn((key: string) => data.get(key) ?? null), setItem: vi.fn((k: string, v: string) => { data.set(k, v) }) })
+    delete process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL
+
+    const sockets: Array<{ close: () => void }> = []
+    class FakeWebSocket {
+      onmessage?: (event: { data: string }) => void
+      onopen?: () => void
+      onerror?: () => void
+      onclose?: (event: { code: number; wasClean: boolean }) => void
+      readyState = 1
+      constructor(_url: string) { sockets.push(this) }
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket)
+
+    const { openPatchStreamV2 } = await import("../client")
+    const stop = openPatchStreamV2(0, () => {})
+    // No connection configured yet => no socket (was 1 before the fix).
+    expect(sockets).toHaveLength(0)
+
+    // Connection established + connected event => exactly one connect.
+    data.set("openclaw.middleware.url", "http://127.0.0.1:8787")
+    dispatch("openclaw:middleware-connected", { url: "http://127.0.0.1:8787" })
+    expect(sockets).toHaveLength(1)
+
+    stop()
+  })
+
+  it("I1: shares ONE websocket across multiple subscribers and fans out frames", async () => {
+    const data = new Map<string, string>([["openclaw.middleware.url", "http://127.0.0.1:8787"]])
     vi.stubGlobal("window", { location: { hostname: "localhost" }, console, addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() })
     vi.stubGlobal("localStorage", { getItem: vi.fn((key: string) => data.get(key) ?? null) })
 

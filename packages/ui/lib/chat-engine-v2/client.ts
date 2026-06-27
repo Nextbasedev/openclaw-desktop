@@ -6,12 +6,33 @@ import type { SessionTokenUsage } from "../sessionContextUsage"
 import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
 export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
+// Mirrors MIDDLEWARE_CONNECTION_CHANGED_EVENT in middleware-client.ts. Kept as a
+// local literal so the patch-stream gate does not depend on extra named imports.
+const MIDDLEWARE_CONNECTION_CHANGED_EVENT = "openclaw:middleware-connection-changed"
 const DEFAULT_MIDDLEWARE_URL = "http://127.0.0.1:8787"
 const CONNECTED_MIDDLEWARE_URL_KEY = "openclaw.middleware.url"
 const V2_URL_KEY = "openclaw.middleware.v2.url"
 
 function trimTrailingSlash(value: string) {
   return value.trim().replace(/\/+$/, "")
+}
+
+/**
+ * Whether a middleware target is actually configured. During boot, before
+ * pairing/detection populates localStorage, getMiddlewareUrl() still returns the
+ * DEFAULT loopback URL — opening a WebSocket to it before the middleware is
+ * reachable produces 1006 close churn + reconnect storms. The patch stream must
+ * wait for a real connection (localStorage URL or an explicit env override)
+ * before connecting. (I4 startup connection race.)
+ */
+function hasConfiguredMiddlewareUrl(): boolean {
+  if (typeof window !== "undefined") {
+    const connected = localStorage.getItem(CONNECTED_MIDDLEWARE_URL_KEY)?.trim()
+    if (connected) return true
+    const v2 = localStorage.getItem(V2_URL_KEY)?.trim()
+    if (v2) return true
+  }
+  return Boolean(process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL?.trim())
 }
 
 function isLoopbackHost(hostname: string) {
@@ -240,9 +261,34 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
   let cursor = Math.max(0, afterCursor)
   let reconnectAttempt = 0
   let suppressReplayUntilCursor = 0
+  let awaitingConnectionCleanup: (() => void) | null = null
+
+  // No middleware configured yet (boot race): instead of churning a WS against
+  // the default URL, wait once for the connection to be established, then connect.
+  const awaitConnectionThenConnect = () => {
+    if (typeof window === "undefined" || awaitingConnectionCleanup) return
+    frontendLog("stream", "patch-stream.await-connection", { afterCursor: cursor }, "debug")
+    const onReady = () => {
+      if (closedByCaller) return
+      if (!hasConfiguredMiddlewareUrl()) return // changed-event with no usable URL: keep waiting
+      awaitingConnectionCleanup?.()
+      connect()
+    }
+    window.addEventListener("openclaw:middleware-connected", onReady)
+    window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, onReady)
+    awaitingConnectionCleanup = () => {
+      window.removeEventListener("openclaw:middleware-connected", onReady)
+      window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, onReady)
+      awaitingConnectionCleanup = null
+    }
+  }
 
   const connect = () => {
     if (closedByCaller) return
+    if (!hasConfiguredMiddlewareUrl()) {
+      awaitConnectionThenConnect()
+      return
+    }
     const connectionCursor = cursor
     const url = new URL(`${getMiddlewareUrl()}/api/stream/ws`)
     url.searchParams.set("afterCursor", String(connectionCursor))
@@ -386,6 +432,7 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
 
   return () => {
     closedByCaller = true
+    awaitingConnectionCleanup?.()
     if (reconnectTimer) window.clearTimeout(reconnectTimer)
     if (healthCheckInterval) window.clearInterval(healthCheckInterval)
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", handleVisibilityChange)
