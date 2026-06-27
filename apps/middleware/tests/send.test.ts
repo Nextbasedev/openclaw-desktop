@@ -216,6 +216,36 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("duplicate send reusing the same idempotencyKey is deduped: no second user row, no re-dispatch", async () => {
+    const app = await createApp(config("idempotent-resend"));
+    const context = contextOf(app);
+    const gatewayRequest = vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      return method === "chat.send" ? { runId: "r1", status: "started" } : { ok: true };
+    });
+    // No clientMessageId provided, so it defaults to `client:<idempotencyKey>` —
+    // a stable id. A retried POST with the same key previously inserted a SECOND
+    // optimistic user row at a fresh seq (same message_id), which
+    // confirmOptimisticUser's LIMIT 1 lookup could never reconcile.
+    const payload = { sessionKey: "s1", text: "hello", idempotencyKey: "dupe-key" };
+
+    const first = await app.inject({ method: "POST", url: "/api/chat/send", payload });
+    expect(first.statusCode).toBe(200);
+    await waitFor(() => gatewayRequest.mock.calls.some((c) => c[0] === "chat.send"));
+
+    const second = await app.inject({ method: "POST", url: "/api/chat/send", payload });
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toMatchObject({ ok: true, accepted: true, idempotencyKey: "dupe-key" });
+    // let any (buggy) second dispatch settle
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const userRows = context.messages.listMessages("s1").filter((m) => m.role === "user");
+    expect(userRows).toHaveLength(1);
+    const chatSends = gatewayRequest.mock.calls.filter((c) => c[0] === "chat.send");
+    expect(chatSends).toHaveLength(1);
+
+    await app.close();
+  });
+
   test("accepts and broadcasts optimistic send before Gateway session setup resolves", async () => {
     const app = await createApp(config("fast-accept-before-setup"));
     const context = contextOf(app);

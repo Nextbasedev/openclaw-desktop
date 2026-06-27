@@ -979,6 +979,26 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const nowIso = new Date().toISOString();
     const runId = localRunId(input.idempotencyKey);
     const clientMessageId = input.clientMessageId || `client:${input.idempotencyKey}`;
+    // Idempotency: a send is uniquely identified by its stable run id
+    // (run:<idempotencyKey>) and the derived clientMessageId. If either already
+    // exists for this session, this POST is a duplicate/retry of an
+    // already-accepted send. Return the original acceptance instead of inserting
+    // a SECOND optimistic user row (which carries the same message_id at a fresh
+    // seq and could never be reconciled by confirmOptimisticUser's LIMIT-1
+    // lookup) and instead of re-dispatching a duplicate gateway chat.send.
+    const existingRun = context.runs.getRun(runId);
+    const existingUserRow = context.messages.findMessageById(input.sessionKey, clientMessageId);
+    if (existingRun || existingUserRow) {
+      log.info("send.idempotent.replay", {
+        sessionKey: input.sessionKey,
+        idempotencyKey: input.idempotencyKey,
+        runId,
+        clientMessageId,
+        runStatus: existingRun?.status ?? null,
+        hadUserRow: Boolean(existingUserRow),
+      });
+      return { ok: true, accepted: true, deduped: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, clientMessageId, runId };
+    }
     context.runs.upsertRun({
       runId,
       sessionKey: input.sessionKey,
