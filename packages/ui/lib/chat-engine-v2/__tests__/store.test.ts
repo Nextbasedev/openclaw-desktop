@@ -3258,6 +3258,39 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("clears responding when live assistant answer arrives without final semantic tag", () => {
+    seedGlobalChatSession({
+      sessionKey: "s-live-plain-final",
+      cursor: 30,
+      status: "streaming",
+      statusLabel: "Responding",
+      messages: [{ messageId: "u1", role: "user", text: "How good is open claw?" }],
+      pendingTools: [],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 31,
+        type: "chat.message.upsert",
+        sessionKey: "s-live-plain-final",
+        createdAtMs: 31,
+        payload: {
+          messageId: "a1",
+          message: {
+            role: "assistant",
+            text: "OpenClaw is quite good if your goal is an action-taking personal AI assistant, not just a chatbot.",
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s-live-plain-final")).toMatchObject({
+      status: "done",
+      statusLabel: null,
+    })
+  })
+
   test("warms React Query bootstrap cache from global store", () => {
     const client = createOpenClawQueryClient()
     seedGlobalChatSession({

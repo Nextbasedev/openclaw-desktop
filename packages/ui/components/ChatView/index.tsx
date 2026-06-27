@@ -261,6 +261,27 @@ function hasAssistantAnswerAfterLastUser(messages: ChatMessage[]) {
   )
 }
 
+function hasRunningVisibleTool(messages: ChatMessage[]) {
+  return messages.some((message) =>
+    message.role === "assistant" &&
+    message.toolCalls?.some((tool) => tool.status === "running")
+  )
+}
+
+function shouldSettleActiveStatusFromAssistantUpsert(params: {
+  currentStatus: StreamStatus
+  rawNextStatus: StreamStatus | null
+  semanticType: string
+  messages: ChatMessage[]
+}) {
+  if (!isActiveStreamStatus(params.currentStatus)) return false
+  if (params.rawNextStatus) return false
+  if (params.semanticType === "chat.assistant.delta" || params.semanticType === "chat.assistant.started") return false
+  if (!hasAssistantAnswerAfterLastUser(params.messages)) return false
+  if (hasRunningVisibleTool(params.messages)) return false
+  return true
+}
+
 function hasAssistantOutput(messages: ChatMessage[]) {
   return messages.some((message) =>
     message.role === "assistant" &&
@@ -1223,12 +1244,22 @@ export function ChatView({
             patchStatus: rawNextStatus,
           }, "debug")
         }
+        const settleFromAssistantUpsert = !suppressTerminalStatus && shouldSettleActiveStatusFromAssistantUpsert({
+          currentStatus: current.streamStatus,
+          rawNextStatus,
+          semanticType,
+          messages: orderedMessages,
+        })
         const nextStatus = suppressTerminalStatus
           ? current.streamStatus
-          : rawNextStatus ?? current.streamStatus
+          : settleFromAssistantUpsert
+            ? "done"
+            : rawNextStatus ?? current.streamStatus
         const nextStatusLabel = suppressTerminalStatus
           ? current.statusLabel
-          : patchStatus?.label ?? current.statusLabel
+          : settleFromAssistantUpsert
+            ? null
+            : patchStatus?.label ?? current.statusLabel
 
         // Detect if a NEW message was appended (length grew at the tail).
         const previousLength = current.messages.length
