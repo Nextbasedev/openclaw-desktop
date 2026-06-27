@@ -148,6 +148,40 @@ describe("reasoning persistence", () => {
     await b.app.close();
   });
 
+  test("A5b: a reasoning delta after a mid-stream restart grows from the persisted thinking block (no truncation)", async () => {
+    const cfg = config("restart-reasoning-truncation");
+
+    async function bootOn() {
+      const app = await createApp(cfg);
+      const context = contextOf(app);
+      let listener: (event: GatewayEvent) => void = () => undefined;
+      vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => { listener = cb; return () => true; });
+      vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+      await context.chatLive.ensureSessionSubscribed("s1");
+      return { app, context, emit: (event: GatewayEvent) => listener(event) };
+    }
+    const reasoningDeltaOf = (context: AppContext) =>
+      thinkingTextOf(context.messages.findMessageById("s1", "live:run-1:assistant"));
+
+    // App #1: stream two reasoning deltas into the persisted thinking block.
+    const a = await bootOn();
+    a.context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+    a.emit(thinkingEvent({ delta: "Let me " }));
+    a.emit(thinkingEvent({ delta: "reason" }));
+    expect(reasoningDeltaOf(a.context)).toBe("Let me reason"); // happy-path accumulation
+    await a.app.close();
+
+    // App #2: SAME db = restart. In-memory reasoning accumulator empty, but the
+    // persisted thinking block still holds "Let me reason".
+    const b = await bootOn();
+    expect(b.context.chatLive.diagnostics().liveReasoningRuns).toBe(0); // baseline lost on restart
+    b.emit(thinkingEvent({ delta: " carefully" }));
+    expect(reasoningDeltaOf(b.context)).toBe("Let me reason carefully"); // grew, not truncated
+    b.emit(thinkingEvent({ delta: " now" }));
+    expect(reasoningDeltaOf(b.context)).toBe("Let me reason carefully now"); // in-memory continues
+    await b.app.close();
+  });
+
   test("reasoning accumulation is cleared once the run is finalized", async () => {
     const { app, context, emit } = await setup("cleanup");
     emit(thinkingEvent({ delta: "thinking..." }));

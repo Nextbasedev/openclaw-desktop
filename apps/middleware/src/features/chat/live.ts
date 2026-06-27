@@ -816,7 +816,7 @@ export class ChatLiveIngest {
     // persist it onto the live assistant row so a re-bootstrap (session switch) or
     // reconnect past the patch-replay window restores it. Previously reasoning
     // lived only in the patch log and was dropped on restore (analog of I3).
-    const previousReasoning = this.liveReasoningText.get(run.runId) ?? "";
+    const previousReasoning = this.liveReasoningBaseline(sessionKey, run.runId);
     const hasFull = typeof text === "string" && text.length > 0;
     const incomingReasoning = (hasFull ? text : delta) as string;
     const nextReasoning = this.mergeLiveAssistantText(previousReasoning, incomingReasoning, hasFull);
@@ -1087,6 +1087,32 @@ export class ChatLiveIngest {
     if (persisted) {
       this.liveAssistantText.set(runId, persisted);
       this.log.info("live.assistant.baseline.seeded-from-persisted", { sessionKey, runId, length: persisted.length });
+    }
+    return persisted;
+  }
+
+  /**
+   * Accumulated live-reasoning baseline for a run. Sibling of
+   * liveAssistantBaseline: when the in-memory reasoning accumulator is absent
+   * (e.g. the middleware restarted mid-stream) but the persisted
+   * live:<runId>:assistant row still carries the reasoning in its `thinking`
+   * content block, seed from that block so the next reasoning delta grows from
+   * the persisted base instead of overwriting it with just the delta. Happy path
+   * unchanged: once an in-memory entry exists this returns it verbatim.
+   */
+  private liveReasoningBaseline(sessionKey: string, runId: string): string {
+    const existing = this.liveReasoningText.get(runId);
+    if (existing !== undefined) return existing;
+    const live = this.context.messages.findMessageById(sessionKey, `live:${runId}:assistant`);
+    const content = live && Array.isArray(live.data.content) ? live.data.content : null;
+    const persisted = content
+      ?.filter((block): block is { type: string; text?: unknown } =>
+        !!block && typeof block === "object" && (block as { type?: unknown }).type === "thinking")
+      .map((block) => (typeof block.text === "string" ? block.text : ""))
+      .join("") ?? "";
+    if (persisted) {
+      this.liveReasoningText.set(runId, persisted);
+      this.log.info("live.reasoning.baseline.seeded-from-persisted", { sessionKey, runId, length: persisted.length });
     }
     return persisted;
   }
