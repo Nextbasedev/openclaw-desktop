@@ -179,3 +179,208 @@ Collapsed 3 `openPatchStreamV2` openers into one shared multiplexer (`subscribeC
 9. **PERF-01/02/03** — measure TTFT/bootstrap, throttle hot-path logging.
 
 > Each issue executes under the 6-criteria sign-off: root cause fixed · implemented · no regressions · targeted tests · real runtime verified · clean/production-safe.
+
+---
+
+## Projection, sub-agent, routes & sync (gap-closing pass)
+
+> Date: 2026-06-27. Branch `fix-master`. Scope: the correctness-enforcement layer
+> the first pass under-covered — projection/normalization, sub-agent lifecycle,
+> route handler taxonomy/risk, and the second sync system + DB schema.
+> Method: direct source read end-to-end (file:line) + ran the existing test
+> suites for runtime evidence. Findings-only pass — **no code changed**.
+> Every finding tagged **[confirmed] / [suspected] / [unknown-risk]**.
+> Tests run this pass (all green, used as evidence, not as fixes):
+> `projection` 26 · `chat-projection-contract` 10 · `archived-tool-projection` 2 ·
+> `subagent-correlation` 4 · `live` 50 · `repo.messages.collision-order` 4 = **96 passing**.
+
+### Data path traced (1 user + 1 assistant + 1 tool + 1 sub-agent spawn)
+
+Gateway event → `ChatLiveIngest` (`features/chat/live.ts`) → normalize
+(`message-normalizer.ts`) + classify/project (`gateway-event-projector.ts`,
+re-exported via `message-semantics.ts`) → persist (`repo.messages.ts` /
+`repo.runs.ts`) → canonical patch (`projection.ts canonicalPatchPayload`) →
+`v2_projection_events` (AUTOINCREMENT cursor = global order) → `PatchHub.broadcast`
+→ UI. Bootstrap snapshot (`projection.ts buildChatBootstrapSnapshot`) reads
+`v2_messages` + `v2_runs` + `v2_tool_calls` for cache-restore / session-switch.
+
+### SPEC requirement verdicts
+
+**(a) user message always renders above its assistant reply**
+- **[confirmed]** Enforced in `repo.messages.upsertMessages` via the negative-sentinel
+  two-pass seq shift (`shiftAssistantBlockToNegative`/`...FromNegative`,
+  repo.messages.ts ~L443–520): when a late gateway user echo lands on a seq already
+  held by live assistant/tool rows, the assistant block is shifted +1 so the user
+  keeps the lower seq. Guarded to fire ONLY when the occupying row has live-run
+  identity (`runIdentityOf` or a `live:` messageId) so historical turns are never
+  reordered. Evidence: `repo.messages.collision-order.test.ts` 4/4 + `live.test.ts` 50/50.
+- **[suspected]** Degenerate fallback `blockTightAgainstBoundary` (repo.messages.ts ~L466):
+  when the assistant block is packed tight against the next user/system boundary row,
+  the shift is abandoned and the user is appended to the END (`maxSeq+1`) instead —
+  which renders the user AFTER its own assistant turn. Narrow, but a real ordering
+  inversion path with **no test** exercising the tight-boundary branch.
+
+**(b) tool / thinking / reasoning / artifacts / visualizations stay bound to the
+correct message under stream + reconnect + cache-restore + session-switch**
+- **[confirmed]** Tool calls bind to a message via `messageId`/`runId` in `v2_tool_calls`
+  (UNIQUE(session_key, tool_call_id)). Projected from BOTH `session.tool`/`agent` live
+  events and `extractToolEventsFromMessage` content blocks; deduped by
+  `toolProjectionUnchanged` inside a 30s replay window. Bootstrap scopes tools to the
+  active run while live, and session-wide (incl. runId-NULL archived tool cards) once
+  terminal — so historical tool cards survive switch/restore (`buildChatBootstrapSnapshot`).
+- **[confirmed] GAP — reasoning/thinking deltas are NOT persisted.** `handleAgentEvent`
+  thinking branch (live.ts ~L760) only `appendProjectionEvent("chat.reasoning.delta")`
+  + broadcasts; it never upserts into `v2_messages`, and `buildChatBootstrapSnapshot`
+  has no reasoning field. So in-flight reasoning text survives ONLY inside the
+  patch-replay window — a session switch that re-bootstraps (I5) or a reconnect past
+  the replay window DROPS accumulated reasoning from restore. This is the
+  reasoning-block analog of I3. (Preserve, don't remove — needs a persisted reasoning
+  store, not deletion.)
+- **[confirmed]** Live assistant streaming text IS durable: `broadcastLiveAssistantText`
+  writes a `live:<runId>:assistant` row to `v2_messages`, so assistant text survives
+  switch/restore via bootstrap and is later replaced in-place by the canonical final
+  during `backfillHistory` (`history.backfill.live-assistant.replaced`).
+- **[suspected]** `liveAssistantText` merge baseline is in-memory per-runId (`Map`).
+  On a middleware restart mid-stream the baseline resets to "" while the `live:` row
+  persists; the next delta `mergeLiveAssistantText("", delta, isFullText=false)` returns
+  only the delta and upserts THAT as full text → transient truncation of the live row
+  until the next full-text frame or backfill repairs it.
+
+**(c) generating / thinking / tool state survives session switch and restores**
+- **[confirmed]** Run status is durable in `v2_runs`; bootstrap re-derives
+  `runStatus`/`statusLabel`/`activeRun` via `findLatestPendingRun`/`latestRun`.
+  `repairStaleRunsOnStartup` finalizes orphaned pending runs after restart; running
+  tool state restored from `v2_tool_calls`.
+- **[suspected]** `runStatusLabel` (projection.ts ~L25) intentionally suppresses stale
+  "Thinking" on terminal runs but still passes an arbitrary `legacyLabel` through for
+  `error`/active states. Display-only, low risk.
+
+**Normalization / attachment correctness**
+- **[confirmed]** `textFromMessage` strips attachment-like blocks; `normalizeHistoryMessages`
+  drops non-user messages containing `<attached-file>` blocks, filters internal subagent
+  completion messages, and `collapseImageFallbackAttempts` dedups replayed image user
+  turns + removes intermediate provider-error attempts when a later fallback succeeds.
+- **[suspected]** `ATTACHED_FILE_BLOCK_RE` is a module-level `/g` regex used with `.test()`
+  in `containsAttachedFileBlock`; currently safe because it explicitly resets
+  `lastIndex = 0` first, but the stateful-`/g`-shared-instance pattern is a footgun
+  (any future `.test` caller missing the reset would intermittently false-negative).
+
+### Sub-agent lifecycle
+
+- **[confirmed]** `SubagentCorrelation` correlates `registerSpawn` (sessions_spawn start) with
+  `discoverChild` (subagent session key appears). Auto-links only when exactly ONE
+  candidate is pending; otherwise defers to `linkSpecific` from the sessions_spawn result's
+  `childSessionKey`. 5-min TTL sweep. `subagent-session.ts` key regexes use stateless
+  `.match()/.matchAll()` (no `/g` lastIndex hazard).
+- **[suspected] concurrent multi-spawn ambiguity.** With ≥2 sessions_spawn spawns pending in
+  one parent, `discoverChild`/`registerSpawn` refuse to auto-link and rely on the
+  sessions_spawn RESULT carrying a parseable `childSessionKey` (`extractSubagentSessionKey`).
+  If the result omits it (returns null), the spawn never links → `child_activity` patches
+  are never emitted for that subagent (shows started-but-unlinked). **No test** covers
+  concurrent multi-spawn.
+- **[confirmed] restart state-loss.** All correlation state is in-memory (`Map`s on the
+  `ChatLiveIngest`-owned `SubagentCorrelation`). On middleware restart, pending spawn
+  links are lost and are NOT rehydrated from `v2_tool_calls` sessions_spawn rows; re-linking
+  only happens if a fresh child event arrives while exactly one unlinked spawn exists.
+  Bounded (spawn_linked is re-emittable) but real.
+- **[suspected] slow leak.** `sweep` only deletes UNlinked spawns + TTL'd pending keys;
+  `subagentToSpawn` and LINKED `pendingSpawns` are never swept → one entry retained per
+  distinct subagent for the process lifetime.
+- **[confirmed] send-queue.ts cleanup is dead code.** `SessionSendQueue.run` stores the tail
+  as `previous.catch().then(() => current)`, which is never `=== current`, so
+  `if (this.tails.get(sessionKey) === current) this.tails.delete(...)` NEVER executes.
+  Effect: one resolved-Promise entry retained per distinct sessionKey for the process
+  lifetime (bounded leak) and `pendingSessions()` over-counts (returns distinct-sessions-
+  ever, not in-flight). Serialization correctness itself is intact. **No send-queue test exists.**
+
+### Routes (lighter pass)
+
+Handler taxonomy: `chat/routes.ts` = **11** handlers (send, abort, bootstrap, messages,
+tool-result, search, message, v1/message, exec-approval/resolve, media/local,
+session-context). `compat/routes.ts` = **42** HTTP handlers (23 GET / 16 POST / 1 PUT /
+2 DELETE) + cron SSE, spanning version/bootstrap/spaces/chats/projects/topics/sessions/
+repos+git/folders/workspace-fs/migrations/middleware-update/terminal/pairing. Confirms
+**BE-03** (god-file: direct DB + direct `fs` + compat-state JSON writes).
+
+Top-5 risk handlers:
+1. **[confirmed] `DELETE /api/chats`** (compat ~L3681): 8 cross-table `DELETE`s per session
+   inside a silent empty `catch {}`, NOT wrapped in a transaction → partial failure
+   orphans rows across `v2_*` tables and the error is swallowed (no signal).
+2. **[suspected] `POST /api/chat/send`** (chat ~L944): no early idempotency dedup. A retried
+   POST reusing the same `idempotencyKey` re-runs `insertOptimisticMessage` at a new seq
+   with the SAME messageId → a second optimistic user row that `confirmOptimisticUser`
+   (LIMIT 1 by messageId) won't reconcile → orphan optimistic row. Requires a client
+   retry with a reused key (client normally rotates keys).
+3. **[suspected] `PUT/DELETE/POST /api/workspace/file|move|mkdir`**: path traversal IS
+   correctly blocked by `safeJoin` (verified: rejects any resolve outside root). Residual:
+   no symlink resolution (a symlink under root could escape); errors collapsed to generic
+   500/404 (acceptable).
+4. **[unknown-risk] `POST /api/repos/git/checkout` + `POST /api/terminal/spawn`**: execute
+   git / spawn processes from request input; arg-injection/escaping not traced this pass.
+5. **[unknown-risk] `POST /api/migration/{telegram,discord,v1-sqlite}/import`**: bulk DB
+   writes from external files; transaction scope + dedup not traced this pass.
+- **[confirmed]** Error-handling is split: `chat/routes` wraps gateway calls and rethrows via
+  `HttpError`; compat fs/db handlers favor empty `catch {}` (silent swallow) — a repeated
+  pattern, not a one-off.
+
+### Sync (`packages/server/src/sync`) + DB schema/migrations
+
+- **[confirmed]** `packages/server` is a SEPARATE backend (Express, `JARVIS_SERVER_PORT`
+  default 4000, launched via `dev:web`/`build:server`) — the **web** deployment, NOT the
+  Tauri desktop path (Fastify `apps/middleware` :8787). No `package.json` and no src under
+  `apps/middleware`, `packages/ui`, or `packages/desktop` imports `packages/server`
+  (grep-verified). So on the desktop the entire `anchor/outbox/pull` layer is inert. This
+  is the concrete shape of **ARCH-02**: two persistence systems = two deployment targets,
+  not two layers in one runtime.
+- **[confirmed]** Sync is last-writer-wins by ISO-string compare (`isNewer = a > b`,
+  pull.ts). Correct only while every writer emits identical-precision UTC ISO8601; mixed
+  precision/offset would mis-order. **[suspected]** fragility.
+- **[confirmed]** `applyProject` delete cascade (pull.ts ~L37) runs 4 sequential `DELETE`s
+  with NO transaction → crash mid-cascade leaves partial state (same non-atomic pattern as
+  compat `DELETE /api/chats`).
+- **[suspected]** `engine.startSyncEngine` adds a `gatewayEvents.on("connected")` listener
+  that `stopSyncEngine` never removes → a stop→start cycle leaks a listener and
+  double-fires `tick`/`pullTick`.
+- **[suspected]** `outbox.markFailed` backs off exponentially (cap 60s) but has NO
+  max-attempts/dead-letter → a permanently failing op retries forever. May be intentional.
+- **[suspected]** `outbox.enqueue` does DELETE+INSERT without a tx (sync better-sqlite3, so
+  crash-window only). Low.
+- **[confirmed] schema/comment mismatch.** `migrate.ts` defines
+  `v2_messages PRIMARY KEY (session_key, openclaw_seq)` (segment_id is ADDed later via
+  ALTER, NOT in the PK). But `upsertMessages` comment (repo.messages.ts ~L308) asserts
+  "SQLite enforces the (session_key, segment_id, openclaw_seq) PRIMARY KEY." The real
+  `ON CONFLICT(session_key, openclaw_seq)` matches the ACTUAL pk so behavior is correct,
+  but the comment is wrong and misleads reasoning about the shift logic — collisions across
+  segments are prevented by `baseSeq` offsetting, not by the PK.
+- **[confirmed-sound]** `SCHEMA_VERSION = 2`; migration idempotent
+  (`CREATE TABLE IF NOT EXISTS`, `addColumnIfMissing`, `backfillLegacyMessageSegments`),
+  forward-only (no down-migrations). `v2_projection_events.cursor AUTOINCREMENT` = the
+  monotonic global-order contract; `v2_tool_calls UNIQUE(session_key, tool_call_id)` and the
+  segment indexes back the projection queries.
+
+### Dead-code candidates (import-graph proof — DO NOT remove this pass)
+
+1. **`apps/middleware/.../chat/subagent-session.ts` → `extractSubagentSessionKeys`** (plural):
+   zero middleware consumers. The UI uses its OWN copy `packages/ui/lib/subagentSession.ts`
+   (5 UI import sites); the middleware copy is never imported in-runtime. Duplicated module.
+2. **`message-semantics.ts` → `classifyChatMessageSemanticType`** (re-export alias): zero
+   consumers repo-wide. Only `normalizePatchSemanticType` is consumed (by `projection.ts`);
+   the other re-exports (`messageHasToolCall`, `messageHasVisibleText`, `toolCallBlocks`) are
+   imported directly from `gateway-event-projector.ts` — so `message-semantics.ts` is a
+   one-function indirection + dead aliases.
+3. **(carried from ARCH-01, not re-verified this pass)** `store.ts trimSessionMessageWindow`
+   reportedly has no ChatView caller.
+
+### Area confidence (honest; no fake-green)
+
+| Area | This pass | Basis |
+|------|-----------|-------|
+| Projection / normalization | **85%** | end-to-end read + 96 passing tests; gaps: tight-boundary shift branch + reasoning persistence untested |
+| Sub-agent lifecycle | **75%** | logic read + 4 tests; concurrent multi-spawn + restart-rehydrate uncovered |
+| Routes (chat + compat) | **55%** | taxonomy complete, top-5 risks identified; git/terminal/migration handlers NOT traced |
+| Sync (anchor/outbox/pull) + DB schema | **70%** | proven inert on desktop + schema verified; web-path LWW/cascade not runtime-exercised |
+| **Overall master inventory** | **~72%** (was ~60%) | enforcement layer now mapped; remaining gap = untraced exec/migration routes + live reasoning/restore behavior |
+
+> Gate: 6-criteria sign-off unchanged. These are findings, not fixes — none have been
+> implemented, so none claim "fixed/verified". The confidence numbers are coverage of the
+> AUDIT, not of any remediation.
