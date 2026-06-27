@@ -1443,4 +1443,54 @@ describe("middleware app", () => {
     expect(output).not.toContain("token=secret");
     await app.close();
   });
+
+  test("middleware_commands_list returns Gateway slash commands when available", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    const request = vi.spyOn(context.gateway, "request").mockResolvedValue({
+      commands: [
+        {
+          name: "/status",
+          description: "Show live status",
+          category: "native",
+          source: "native",
+          scope: "native",
+          acceptsArgs: false,
+          textAliases: ["/health"],
+        },
+        {
+          name: "deploy",
+          label: "Deploy helper",
+          source: "plugin",
+          scope: "text",
+          args: [{ name: "target" }],
+        },
+      ],
+    });
+
+    const res = await app.inject({ method: "POST", url: "/api/commands/middleware_commands_list", payload: { input: { agentId: "main", includeArgs: true } } });
+
+    expect(res.statusCode).toBe(200);
+    expect(request).toHaveBeenCalledWith("commands.list", expect.objectContaining({ agentId: "main", includeArgs: true }), 10_000);
+    expect(res.json()).toMatchObject({
+      source: "gateway",
+      commands: [
+        { name: "status", description: "Show live status", source: "native", scope: "native", acceptsArgs: false, textAliases: ["health"] },
+        { name: "deploy", description: "Deploy helper", source: "plugin", scope: "text", acceptsArgs: true },
+      ],
+    });
+    await app.close();
+  });
+
+  test("middleware_commands_list falls back when Gateway commands are unavailable or invalid", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ commands: [{ description: "missing name" }] });
+
+    const res = await app.inject({ method: "POST", url: "/api/commands/middleware_commands_list", payload: { input: {} } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ commands: [], source: "fallback" });
+    await app.close();
+  });
 });
