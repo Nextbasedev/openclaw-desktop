@@ -1332,11 +1332,7 @@ function isAssistantFinalTextMessage(frame: PatchFrame) {
   if (frame.patch.type !== "chat.assistant.final" && semanticType !== "chat.assistant.final") return false
   const message = patchMessage(frame)
   if (!message || message.role !== "assistant") return false
-  // Final assistant messages can legitimately include the completed tool
-  // transcript plus the final answer in one payload. Do not reject those here;
-  // shouldFinalizeOnAssistantFinalText gates on hasActiveToolOrSubagent after
-  // activity/tool state has been applied, so running tools still keep the
-  // composer in Responding while completed tool transcripts can settle.
+  if (toolCallBlocks(message).length > 0) return false
   return textFromUnknown(message.text ?? message.content).trim().length > 0
 }
 
