@@ -37,30 +37,37 @@ import {
   getChatAttachmentKind,
 } from "@/lib/chatAttachmentPreview"
 
+function cleanReplyPreviewText(text: string) {
+  return text
+    .replace(/\s*\[(?:Attachment|Attached images?|Attached files?|Attached file):[^\]]*\]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function replyPreviewText(replyTo: ReplyTo) {
+  const cleaned = cleanReplyPreviewText(replyTo.text)
+  return cleaned || replyTo.attachments?.[0]?.name || (replyTo.attachments?.[0] ? chatAttachmentTypeLabel(replyTo.attachments[0]) : "Message")
+}
+
 function ReplyAttachmentPreview({ replyTo }: { replyTo: ReplyTo }) {
   const attachments = replyTo.attachments ?? []
-  const imageAttachment = attachments.find((attachment) => getChatAttachmentKind(attachment) === "image")
-  const attachment = imageAttachment ?? attachments[0]
+  const renderableImageAttachment = attachments.find((attachment) => getChatAttachmentKind(attachment) === "image" && Boolean(chatAttachmentHref(attachment)))
+  const nonImageAttachment = attachments.find((attachment) => getChatAttachmentKind(attachment) !== "image")
+  const attachment = renderableImageAttachment ?? nonImageAttachment
   if (!attachment) return null
   const kind = getChatAttachmentKind(attachment)
   const href = chatAttachmentHref(attachment)
-  const extraImageCount = imageAttachment
+  const extraImageCount = renderableImageAttachment
     ? Math.max(0, attachments.filter((item) => getChatAttachmentKind(item) === "image").length - 1)
     : 0
-  if (kind === "image") {
+  if (kind === "image" && href) {
     return (
       <div className="relative size-12 shrink-0 overflow-hidden rounded-xl border border-border/50 bg-muted/40">
-        {href ? (
-          <img
-            src={href}
-            alt={attachment.name || "Replied image"}
-            className="size-full object-cover"
-          />
-        ) : (
-          <div className="flex size-full items-center justify-center text-muted-foreground">
-            <LuImage className="size-4" />
-          </div>
-        )}
+        <img
+          src={href}
+          alt={attachment.name || "Replied image"}
+          className="size-full object-cover"
+        />
         {extraImageCount > 0 ? (
           <span className="absolute bottom-0.5 right-0.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white">
             +{extraImageCount}
@@ -751,7 +758,7 @@ export function ChatBox({
                     {replyTo.role === "user" ? "You" : "Assistant"}
                   </span>
                   <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-foreground/60">
-                    {replyTo.text || replyTo.attachments?.[0]?.name || (replyTo.attachments?.[0] ? chatAttachmentTypeLabel(replyTo.attachments[0]) : "Message")}
+                    {replyPreviewText(replyTo)}
                   </p>
                 </div>
                 <button
