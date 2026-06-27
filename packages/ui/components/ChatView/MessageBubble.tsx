@@ -297,6 +297,113 @@ function attachmentTextContent(attachment: MessageAttachment) {
   return attachment.content
 }
 
+function attachmentCopyText(attachment: MessageAttachment, href: string | null) {
+  const textContent = attachmentTextContent(attachment)
+  if (textContent !== null) return textContent
+  return href ?? attachment.content ?? attachment.name
+}
+
+async function copyAttachmentToClipboard(attachment: MessageAttachment) {
+  const href = chatAttachmentHref(attachment)
+  const mimeType = attachment.mimeType?.toLowerCase() ?? ""
+
+  if (href && mimeType.startsWith("image/") && typeof ClipboardItem !== "undefined") {
+    try {
+      const response = await fetch(href)
+      const blob = await response.blob()
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type || mimeType]: blob })])
+      return
+    } catch {
+      // Fall back to copying the URL/text below when rich image clipboard access
+      // is unavailable in the current browser/webview.
+    }
+  }
+
+  await navigator.clipboard.writeText(attachmentCopyText(attachment, href))
+}
+
+function downloadAttachment(attachment: MessageAttachment) {
+  const href = chatAttachmentHref(attachment)
+  if (!href) return
+
+  const link = document.createElement("a")
+  link.href = href
+  link.download = attachment.name || "attachment"
+  link.rel = "noreferrer"
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
+function AttachmentActionButton({
+  label,
+  onClick,
+  children,
+  className: cls,
+}: {
+  label: string
+  onClick: () => void | Promise<void>
+  children: ReactNode
+  className?: string
+}) {
+  const [done, setDone] = useState(false)
+
+  const handleClick = useCallback(async (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    await onClick()
+    setDone(true)
+    setTimeout(() => setDone(false), 1600)
+  }, [onClick])
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={cn(
+        "inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/30 bg-background/85 text-foreground/70 shadow-sm backdrop-blur transition-colors hover:bg-background hover:text-foreground",
+        cls
+      )}
+      aria-label={label}
+      title={label}
+    >
+      {done ? <LuCheck className="size-4 text-emerald-400" /> : children}
+    </button>
+  )
+}
+
+function AttachmentActions({
+  attachment,
+  compact = false,
+}: {
+  attachment: MessageAttachment
+  compact?: boolean
+}) {
+  const href = chatAttachmentHref(attachment)
+  const canDownload = Boolean(href)
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <AttachmentActionButton
+        label={`Copy ${attachment.name || "attachment"}`}
+        onClick={() => copyAttachmentToClipboard(attachment)}
+        className={compact ? "size-7" : undefined}
+      >
+        <LuCopy className={compact ? "size-3.5" : "size-4"} />
+      </AttachmentActionButton>
+      {canDownload && (
+        <AttachmentActionButton
+          label={`Download ${attachment.name || "attachment"}`}
+          onClick={() => downloadAttachment(attachment)}
+          className={compact ? "size-7" : undefined}
+        >
+          <LuDownload className={compact ? "size-3.5" : "size-4"} />
+        </AttachmentActionButton>
+      )}
+    </div>
+  )
+}
+
 function AttachmentFileIcon({ kind }: { kind: "pdf" | "file" }) {
   if (kind === "pdf") return <LuFileText className="size-4" />
   return <LuFile className="size-4" />
@@ -317,13 +424,14 @@ function ImageAttachmentCard({
   const [failed, setFailed] = useState(false)
 
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="block max-w-full cursor-pointer overflow-hidden rounded-xl text-left"
-      aria-label={`Preview attachment ${attachment.name}`}
-    >
-      <div className="relative flex min-h-32 max-h-80 w-full max-w-md items-center justify-center overflow-hidden rounded-xl bg-black/10">
+    <div className="group relative block max-w-full overflow-hidden rounded-xl text-left">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="block max-w-full cursor-pointer overflow-hidden rounded-xl text-left"
+        aria-label={`Preview attachment ${attachment.name}`}
+      >
+        <div className="relative flex min-h-32 max-h-80 w-full max-w-md items-center justify-center overflow-hidden rounded-xl bg-black/10">
         {href && !loaded && !failed && (
           <div
             className={cn(
@@ -360,8 +468,12 @@ function ImageAttachmentCard({
             )}
           />
         )}
+        </div>
+      </button>
+      <div className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        <AttachmentActions attachment={attachment} compact />
       </div>
-    </button>
+    </div>
   )
 }
 
@@ -478,12 +590,17 @@ function AttachmentPreviewDialog({
         style={{ transformOrigin }}
       >
         <DialogHeader className="border-b border-border/25 px-5 py-4 pr-14">
-          <DialogTitle className="truncate text-[15px] font-semibold">
-            {attachment.name}
-          </DialogTitle>
-          <DialogDescription className="text-[12px]">
-            {attachmentLabel(attachment)}
-          </DialogDescription>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <DialogTitle className="truncate text-[15px] font-semibold">
+                {attachment.name}
+              </DialogTitle>
+              <DialogDescription className="text-[12px]">
+                {attachmentLabel(attachment)}
+              </DialogDescription>
+            </div>
+            <AttachmentActions attachment={attachment} />
+          </div>
         </DialogHeader>
         <div className="max-h-[calc(86vh-8rem)] min-h-48 overflow-auto p-5">
           {mimeType.startsWith("image/") && href ? (
@@ -507,16 +624,7 @@ function AttachmentPreviewDialog({
               <p className="text-[13px] text-muted-foreground">
                 Preview is not available for this file type.
               </p>
-              <a
-                href={href}
-                target="_blank"
-                rel="noreferrer"
-                download={attachment.url ? undefined : attachment.name}
-                className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-[13px] font-medium text-background transition-opacity hover:opacity-85"
-              >
-                <LuDownload className="size-4" />
-                Open file
-              </a>
+              <AttachmentActions attachment={attachment} />
             </div>
           ) : (
             <div className="flex min-h-48 flex-col items-center justify-center gap-2 rounded-xl border border-border/30 bg-foreground/[0.03] text-center">
@@ -573,44 +681,49 @@ function MessageAttachments({
           const key = `${attachment.name}-${index}`
           const fileKind = kind === "pdf" ? "pdf" : "file"
           const card = (
-            <button
-              type="button"
-              onClick={(event) => setSelectedPreview({ attachment, origin: previewOriginFromEvent(event) })}
+            <div
               className={cn(
-                "flex max-w-full cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
+                "flex max-w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
                 isUser
                   ? "border-white/10 bg-black/15 text-white hover:border-white/20"
                   : "border-border/35 bg-foreground/[0.03] text-foreground hover:border-border/60"
               )}
-              aria-label={`Preview attachment ${attachment.name}`}
             >
-              <div
-                className={cn(
-                  "flex size-9 shrink-0 items-center justify-center rounded-lg",
-                  kind === "pdf"
-                    ? "bg-red-400/12 text-red-200"
-                    : isUser
-                      ? "bg-white/10 text-white/75"
-                      : "bg-muted/45 text-muted-foreground"
-                )}
+              <button
+                type="button"
+                onClick={(event) => setSelectedPreview({ attachment, origin: previewOriginFromEvent(event) })}
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+                aria-label={`Preview attachment ${attachment.name}`}
               >
-                <AttachmentFileIcon kind={fileKind} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] leading-snug font-medium">
-                  {attachment.name}
-                </p>
-                <p
+                <div
                   className={cn(
-                    "truncate text-[11px]",
-                    isUser ? "text-white/60" : "text-muted-foreground"
+                    "flex size-9 shrink-0 items-center justify-center rounded-lg",
+                    kind === "pdf"
+                      ? "bg-red-400/12 text-red-200"
+                      : isUser
+                        ? "bg-white/10 text-white/75"
+                        : "bg-muted/45 text-muted-foreground"
                   )}
                 >
-                  {attachmentLabel(attachment)}
-                </p>
-              </div>
-              <LuChevronRight className="size-4 shrink-0 opacity-55" />
-            </button>
+                  <AttachmentFileIcon kind={fileKind} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] leading-snug font-medium">
+                    {attachment.name}
+                  </p>
+                  <p
+                    className={cn(
+                      "truncate text-[11px]",
+                      isUser ? "text-white/60" : "text-muted-foreground"
+                    )}
+                  >
+                    {attachmentLabel(attachment)}
+                  </p>
+                </div>
+                <LuChevronRight className="size-4 shrink-0 opacity-55" />
+              </button>
+              <AttachmentActions attachment={attachment} compact />
+            </div>
           )
 
           return <div key={key}>{card}</div>
