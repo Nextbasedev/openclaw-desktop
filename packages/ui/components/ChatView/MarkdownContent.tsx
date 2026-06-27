@@ -193,6 +193,31 @@ function plainTextFromChildren(children: React.ReactNode): string {
   return parts.join("")
 }
 
+// Shared block-code heuristic: used both by the `code` renderer (to decide
+// whether an inline-code node becomes a block <CodeBlock>) and by
+// hasBlockChildren (to know, BEFORE choosing the paragraph wrapper, whether a
+// code child will render as a block <div>). Keeping a single source of truth is
+// what closes I7: previously the renderer could emit a block <div> that the
+// paragraph-wrapper detection didn't anticipate.
+function isBlockCode(text: string, className?: string): boolean {
+  const match = /language-(\w+)/.exec(className || "")
+  return Boolean(match) ||
+    text.includes("\n") ||
+    /[┌┐└┘│─├┤┬┴┼╔╗╚╝║═╠╣╦╩╬]/.test(text) ||
+    (text.length > 60 && /[{[\]()→←↑↓|>]/.test(text))
+}
+
+function MarkdownCode(props: { className?: string; children?: React.ReactNode }) {
+  const { className, children, ...rest } = props
+  const text = String(children)
+  const match = /language-(\w+)/.exec(className || "")
+  if (isBlockCode(text, className)) {
+    if (match?.[1] === "mermaid") return <MermaidBlock code={text} />
+    return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
+  }
+  return <code className="break-words rounded-md border border-[#d4d4d4] bg-[#f3f3f3] px-1.5 py-0.5 text-[0.85em] font-mono text-[#a31515] [overflow-wrap:anywhere] dark:border-[#3c3c3c]/55 dark:bg-[#1e1e1e] dark:text-[#ce9178]" {...rest}>{children}</code>
+}
+
 function hasBlockChildren(children: React.ReactNode): boolean {
   const parts = React.Children.toArray(children)
   return parts.some((child) => {
@@ -201,6 +226,13 @@ function hasBlockChildren(children: React.ReactNode): boolean {
     if (typeof type === "string" && ["div", "pre", "table", "ul", "ol", "blockquote", "hr", "figure"].includes(type)) return true
     // CodeBlock and other custom components render as div/pre
     if (typeof type === "function" && (type.name === "CodeBlock" || type.name === "MermaidBlock")) return true
+    // An inline-code child that the code renderer will upgrade to a block
+    // <CodeBlock>/<MermaidBlock> (a <div>). Detect it here so the paragraph is
+    // emitted as a <div>, not a <p> wrapping a <div> (I7 hydration error).
+    if (type === MarkdownCode) {
+      const codeProps = child.props as { className?: string; children?: React.ReactNode }
+      if (isBlockCode(String(codeProps.children ?? ""), codeProps.className)) return true
+    }
     return false
   })
 }
@@ -234,17 +266,7 @@ function MarkdownParagraph({
 
 const mdComponents = {
   pre({ children }: { children?: React.ReactNode }) { return <>{children}</> },
-  code(props: { className?: string; children?: React.ReactNode }) {
-    const { className, children, ...rest } = props
-    const text = String(children)
-    const match = /language-(\w+)/.exec(className || "")
-    const isBlock = match || text.includes("\n") || /[┌┐└┘│─├┤┬┴┼╔╗╚╝║═╠╣╦╩╬]/.test(text) || (text.length > 60 && /[{[\]()→←↑↓|>]/.test(text))
-    if (isBlock) {
-      if (match?.[1] === "mermaid") return <MermaidBlock code={text} />
-      return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
-    }
-    return <code className="break-words rounded-md border border-[#d4d4d4] bg-[#f3f3f3] px-1.5 py-0.5 text-[0.85em] font-mono text-[#a31515] [overflow-wrap:anywhere] dark:border-[#3c3c3c]/55 dark:bg-[#1e1e1e] dark:text-[#ce9178]" {...rest}>{children}</code>
-  },
+  code: MarkdownCode,
   table({ children }: { children?: React.ReactNode }) {
     return (<div className="my-2 max-w-full overflow-hidden rounded-lg border border-border/50"><div className="max-w-full overflow-x-auto"><table className="w-full border-separate border-spacing-0 text-[13px]">{children}</table></div></div>)
   },
