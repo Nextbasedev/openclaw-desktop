@@ -40,6 +40,17 @@ type SlashCommandEntry = {
   acceptsArgs: boolean;
 };
 
+const DESKTOP_NATIVE_SLASH_COMMANDS: SlashCommandEntry[] = [
+  {
+    name: "status",
+    description: "Show the current OpenClaw session status",
+    category: "system",
+    source: "native",
+    scope: "native",
+    acceptsArgs: false,
+  },
+];
+
 function isSlashCommandEntry(value: unknown): value is SlashCommandEntry {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
@@ -48,6 +59,19 @@ function isSlashCommandEntry(value: unknown): value is SlashCommandEntry {
     && (item.source === "native" || item.source === "skill" || item.source === "plugin")
     && (item.scope === "text" || item.scope === "native" || item.scope === "both")
     && typeof item.acceptsArgs === "boolean";
+}
+
+function slashCommandMatchesScope(command: SlashCommandEntry, scope: unknown) {
+  if (scope !== "native" && scope !== "text" && scope !== "both") return true;
+  return command.scope === scope || command.scope === "both" || scope === "both";
+}
+
+function withDesktopNativeCommands(commands: SlashCommandEntry[], input: CompatRecord) {
+  const seen = new Set(commands.map((command) => command.name.toLowerCase()));
+  const supplemental = DESKTOP_NATIVE_SLASH_COMMANDS
+    .filter((command) => slashCommandMatchesScope(command, input.scope))
+    .filter((command) => !seen.has(command.name.toLowerCase()));
+  return [...commands, ...supplemental];
 }
 
 async function dynamicCommandsList(context: AppContext, input: CompatRecord) {
@@ -64,10 +88,10 @@ async function dynamicCommandsList(context: AppContext, input: CompatRecord) {
     const commands = payload && typeof payload === "object" && Array.isArray((payload as { commands?: unknown }).commands)
       ? (payload as { commands: unknown[] }).commands.filter(isSlashCommandEntry)
       : [];
-    return { commands };
+    return { commands: withDesktopNativeCommands(commands, input) };
   } catch (error) {
     createLogger("compat").warn("commands.list.failed", { error: error instanceof Error ? error.message : String(error) });
-    return { commands: [] };
+    return { commands: withDesktopNativeCommands([], input) };
   }
 }
 const shortSessionId = (sessionKey: string) => (sessionKey.split(":").pop() || sessionKey).replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || Date.now().toString(36);
