@@ -1,6 +1,15 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect, useMemo, memo, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+  memo,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
@@ -52,17 +61,26 @@ import {
   chatAttachmentTypeLabel,
   getChatAttachmentKind,
 } from "@/lib/chatAttachmentPreview"
-import { mergeChatAttachments, parseChatMediaDirectives } from "@/lib/chatMediaDirectives"
+import {
+  mergeChatAttachments,
+  parseChatMediaDirectives,
+} from "@/lib/chatMediaDirectives"
 
 function ReplyAttachmentPreview({ message }: { message: ChatMessage }) {
   const attachments = message.replyTo?.attachments ?? []
-  const imageAttachment = attachments.find((attachment) => getChatAttachmentKind(attachment) === "image")
+  const imageAttachment = attachments.find(
+    (attachment) => getChatAttachmentKind(attachment) === "image"
+  )
   const attachment = imageAttachment ?? attachments[0]
   if (!attachment) return null
   const kind = getChatAttachmentKind(attachment)
   const href = chatAttachmentHref(attachment)
   const extraImageCount = imageAttachment
-    ? Math.max(0, attachments.filter((item) => getChatAttachmentKind(item) === "image").length - 1)
+    ? Math.max(
+        0,
+        attachments.filter((item) => getChatAttachmentKind(item) === "image")
+          .length - 1
+      )
     : 0
   if (kind === "image") {
     return (
@@ -79,7 +97,7 @@ function ReplyAttachmentPreview({ message }: { message: ChatMessage }) {
           </div>
         )}
         {extraImageCount > 0 ? (
-          <span className="absolute bottom-0.5 right-0.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white">
+          <span className="absolute right-0.5 bottom-0.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] leading-none font-medium text-white">
             +{extraImageCount}
           </span>
         ) : null}
@@ -89,7 +107,9 @@ function ReplyAttachmentPreview({ message }: { message: ChatMessage }) {
   return (
     <div className="flex min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-border/40 bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground">
       <LuFile className="size-3.5 shrink-0" />
-      <span className="max-w-20 truncate">{attachment.name || chatAttachmentTypeLabel(attachment)}</span>
+      <span className="max-w-20 truncate">
+        {attachment.name || chatAttachmentTypeLabel(attachment)}
+      </span>
     </div>
   )
 }
@@ -311,34 +331,106 @@ function attachmentTextContent(attachment: MessageAttachment) {
   return attachment.content
 }
 
-function attachmentCopyText(attachment: MessageAttachment, href: string | null) {
+function attachmentCopyText(attachment: MessageAttachment) {
   const textContent = attachmentTextContent(attachment)
   if (textContent !== null) return textContent
-  return href ?? attachment.content ?? attachment.name
+  return attachment.name
+}
+
+async function convertImageBlobToPngBlob(blob: Blob) {
+  const bitmap = await createImageBitmap(blob)
+  try {
+    const canvas = document.createElement("canvas")
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const context = canvas.getContext("2d")
+    if (!context) throw new Error("Canvas rendering is unavailable")
+    context.drawImage(bitmap, 0, 0)
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((pngBlob) => {
+        if (pngBlob) resolve(pngBlob)
+        else reject(new Error("Image conversion failed"))
+      }, "image/png")
+    })
+  } finally {
+    bitmap.close?.()
+  }
+}
+
+async function copyImageAttachmentToClipboard(href: string) {
+  if (typeof ClipboardItem === "undefined") {
+    throw new Error("Image clipboard is unavailable")
+  }
+
+  const response = await fetch(href)
+  const blob = await response.blob()
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({ [blob.type || "image/png"]: blob }),
+    ])
+  } catch {
+    const pngBlob = await convertImageBlobToPngBlob(blob)
+    await navigator.clipboard.write([
+      new ClipboardItem({ "image/png": pngBlob }),
+    ])
+  }
 }
 
 async function copyAttachmentToClipboard(attachment: MessageAttachment) {
   const href = chatAttachmentHref(attachment)
   const mimeType = attachment.mimeType?.toLowerCase() ?? ""
 
-  if (href && mimeType.startsWith("image/") && typeof ClipboardItem !== "undefined") {
-    try {
-      const response = await fetch(href)
-      const blob = await response.blob()
-      await navigator.clipboard.write([new ClipboardItem({ [blob.type || mimeType]: blob })])
-      return
-    } catch {
-      // Fall back to copying the URL/text below when rich image clipboard access
-      // is unavailable in the current browser/webview.
-    }
+  if (href && mimeType.startsWith("image/")) {
+    await copyImageAttachmentToClipboard(href)
+    return
   }
 
-  await navigator.clipboard.writeText(attachmentCopyText(attachment, href))
+  await navigator.clipboard.writeText(attachmentCopyText(attachment))
 }
 
-function downloadAttachment(attachment: MessageAttachment) {
+function blobToBase64(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const value = String(reader.result ?? "")
+      resolve(value.includes(",") ? (value.split(",").pop() ?? "") : value)
+    }
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Failed to read file"))
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function attachmentBase64Data(
+  attachment: MessageAttachment,
+  href: string
+) {
+  if (attachment.content) {
+    return attachment.content.includes(",")
+      ? (attachment.content.split(",").pop() ?? "")
+      : attachment.content
+  }
+
+  const response = await fetch(href)
+  return blobToBase64(await response.blob())
+}
+
+async function downloadAttachment(attachment: MessageAttachment) {
   const href = chatAttachmentHref(attachment)
   if (!href) return
+
+  try {
+    const base64Data = await attachmentBase64Data(attachment, href)
+    const { invoke } = await import("@/lib/ipc")
+    await invoke("save_attachment_to_downloads", {
+      filename: attachment.name || "attachment",
+      base64Data,
+    })
+    return
+  } catch {
+    // Browser fallback. In the desktop app the Tauri command above saves
+    // directly to Downloads without opening a Save As dialog.
+  }
 
   const link = document.createElement("a")
   link.href = href
@@ -362,13 +454,16 @@ function AttachmentActionButton({
 }) {
   const [done, setDone] = useState(false)
 
-  const handleClick = useCallback(async (event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    await onClick()
-    setDone(true)
-    setTimeout(() => setDone(false), 1600)
-  }, [onClick])
+  const handleClick = useCallback(
+    async (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+      await onClick()
+      setDone(true)
+      setTimeout(() => setDone(false), 1600)
+    },
+    [onClick]
+  )
 
   return (
     <button
@@ -438,14 +533,13 @@ function ImageAttachmentCard({
   const [failed, setFailed] = useState(false)
 
   return (
-    <div className="group relative block max-w-full overflow-hidden rounded-xl text-left">
-      <button
-        type="button"
-        onClick={onOpen}
-        className="block max-w-full cursor-pointer overflow-hidden rounded-xl text-left"
-        aria-label={`Preview attachment ${attachment.name}`}
-      >
-        <div className="relative flex min-h-32 max-h-80 w-full max-w-md items-center justify-center overflow-hidden rounded-xl bg-black/10">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="block max-w-full cursor-pointer overflow-hidden rounded-xl text-left"
+      aria-label={`Preview attachment ${attachment.name}`}
+    >
+      <div className="relative flex max-h-80 min-h-32 w-full max-w-md items-center justify-center overflow-hidden rounded-xl bg-black/10">
         {href && !loaded && !failed && (
           <div
             className={cn(
@@ -482,12 +576,8 @@ function ImageAttachmentCard({
             )}
           />
         )}
-        </div>
-      </button>
-      <div className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-        <AttachmentActions attachment={attachment} compact />
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -498,19 +588,30 @@ function ImageAttachmentStack({
 }: {
   attachments: MessageAttachment[]
   isUser: boolean
-  onOpen: (attachment: MessageAttachment, event: ReactMouseEvent<HTMLButtonElement>) => void
+  onOpen: (
+    attachment: MessageAttachment,
+    event: ReactMouseEvent<HTMLButtonElement>
+  ) => void
 }) {
   const imageCount = attachments.length
-  const cardWidth = imageCount <= 3 ? 112 : imageCount <= 5 ? 96 : imageCount <= 8 ? 82 : 70
-  const cardHeight = imageCount <= 3 ? 144 : imageCount <= 5 ? 132 : imageCount <= 8 ? 118 : 104
-  const step = imageCount <= 3 ? 62 : imageCount <= 5 ? 52 : imageCount <= 8 ? 42 : 34
+  const cardWidth =
+    imageCount <= 3 ? 112 : imageCount <= 5 ? 96 : imageCount <= 8 ? 82 : 70
+  const cardHeight =
+    imageCount <= 3 ? 144 : imageCount <= 5 ? 132 : imageCount <= 8 ? 118 : 104
+  const step =
+    imageCount <= 3 ? 62 : imageCount <= 5 ? 52 : imageCount <= 8 ? 42 : 34
   const stackWidth = cardWidth + Math.max(0, imageCount - 1) * step + 10
   const stackHeight = cardHeight + 32
   const rotations = [-7, 4, -2, 6, -5, 3, -4, 5, -3, 4]
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
 
   return (
-    <div className={cn("flex max-w-full", isUser ? "justify-end" : "justify-start")}>
+    <div
+      className={cn(
+        "flex max-w-full",
+        isUser ? "justify-end" : "justify-start"
+      )}
+    >
       <div
         className="relative max-w-full"
         style={{ width: Math.min(stackWidth, 430), height: stackHeight }}
@@ -520,9 +621,10 @@ function ImageAttachmentStack({
           const isTop = index === imageCount - 1
           const isHovered = hoveredIndex === index
           const baseY = isTop ? -8 : index % 2 === 0 ? 8 : 0
-          const left = imageCount > 1 && stackWidth > 430
-            ? (index * (430 - cardWidth)) / (imageCount - 1)
-            : index * step
+          const left =
+            imageCount > 1 && stackWidth > 430
+              ? (index * (430 - cardWidth)) / (imageCount - 1)
+              : index * step
 
           return (
             <button
@@ -593,7 +695,8 @@ function AttachmentPreviewDialog({
 
   const { attachment, origin } = selection
   const href = chatAttachmentHref(attachment)
-  const mimeType = attachment.mimeType?.toLowerCase() ?? "application/octet-stream"
+  const mimeType =
+    attachment.mimeType?.toLowerCase() ?? "application/octet-stream"
   const textContent = attachmentTextContent(attachment)
   const transformOrigin = `calc(${origin.x}px - 50vw + 50%) calc(${origin.y}px - 50vh + 50%)`
 
@@ -619,15 +722,27 @@ function AttachmentPreviewDialog({
         <div className="max-h-[calc(86vh-8rem)] min-h-48 overflow-auto p-5">
           {mimeType.startsWith("image/") && href ? (
             // eslint-disable-next-line @next/next/no-img-element -- Dialog previews authenticated middleware/data URLs directly.
-            <img src={href} alt={attachment.name} className="mx-auto max-h-[68vh] max-w-full rounded-xl object-contain" />
+            <img
+              src={href}
+              alt={attachment.name}
+              className="mx-auto max-h-[68vh] max-w-full rounded-xl object-contain"
+            />
           ) : mimeType.startsWith("video/") && href ? (
-            <video src={href} controls className="max-h-[68vh] w-full rounded-xl bg-black" />
+            <video
+              src={href}
+              controls
+              className="max-h-[68vh] w-full rounded-xl bg-black"
+            />
           ) : mimeType.startsWith("audio/") && href ? (
             <div className="rounded-2xl border border-border/30 bg-foreground/[0.03] p-4">
               <audio src={href} controls className="w-full" />
             </div>
           ) : mimeType === "application/pdf" && href ? (
-            <iframe src={href} title={attachment.name} className="h-[68vh] w-full rounded-xl border border-border/30 bg-background" />
+            <iframe
+              src={href}
+              title={attachment.name}
+              className="h-[68vh] w-full rounded-xl border border-border/30 bg-background"
+            />
           ) : textContent !== null ? (
             <pre className="max-h-[68vh] overflow-auto rounded-xl border border-border/30 bg-black/20 p-4 text-[12px] leading-relaxed whitespace-pre-wrap text-foreground">
               {textContent || "No text content available."}
@@ -661,11 +776,16 @@ function MessageAttachments({
   attachments?: ChatMessage["attachments"]
   isUser: boolean
 }) {
-  const [selectedPreview, setSelectedPreview] = useState<AttachmentPreviewSelection | null>(null)
+  const [selectedPreview, setSelectedPreview] =
+    useState<AttachmentPreviewSelection | null>(null)
   if (!attachments || attachments.length === 0) return null
 
-  const imageAttachments = attachments.filter((attachment) => getChatAttachmentKind(attachment) === "image")
-  const otherAttachments = attachments.filter((attachment) => getChatAttachmentKind(attachment) !== "image")
+  const imageAttachments = attachments.filter(
+    (attachment) => getChatAttachmentKind(attachment) === "image"
+  )
+  const otherAttachments = attachments.filter(
+    (attachment) => getChatAttachmentKind(attachment) !== "image"
+  )
 
   return (
     <>
@@ -680,14 +800,24 @@ function MessageAttachments({
             attachment={imageAttachments[0]}
             href={chatAttachmentHref(imageAttachments[0]) ?? ""}
             isUser={isUser}
-            onOpen={(event) => setSelectedPreview({ attachment: imageAttachments[0], origin: previewOriginFromEvent(event) })}
+            onOpen={(event) =>
+              setSelectedPreview({
+                attachment: imageAttachments[0],
+                origin: previewOriginFromEvent(event),
+              })
+            }
           />
         )}
         {imageAttachments.length > 1 && (
           <ImageAttachmentStack
             attachments={imageAttachments}
             isUser={isUser}
-            onOpen={(attachment, event) => setSelectedPreview({ attachment, origin: previewOriginFromEvent(event) })}
+            onOpen={(attachment, event) =>
+              setSelectedPreview({
+                attachment,
+                origin: previewOriginFromEvent(event),
+              })
+            }
           />
         )}
         {otherAttachments.map((attachment, index) => {
@@ -705,7 +835,12 @@ function MessageAttachments({
             >
               <button
                 type="button"
-                onClick={(event) => setSelectedPreview({ attachment, origin: previewOriginFromEvent(event) })}
+                onClick={(event) =>
+                  setSelectedPreview({
+                    attachment,
+                    origin: previewOriginFromEvent(event),
+                  })
+                }
                 className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
                 aria-label={`Preview attachment ${attachment.name}`}
               >
@@ -763,13 +898,15 @@ function ResponseMetadata({ message }: { message: ChatMessage }) {
   const rows = [
     message.model ? ["Model", message.model] : null,
     ...(usage
-      ? ([
-          ["Input", usage.input],
-          ["Output", usage.output],
-          ["Cache read", usage.cacheRead],
-          ["Cache write", usage.cacheWrite],
-          ["Total", usage.total],
-        ] satisfies Array<[string, number | null | undefined]>).map(([label, value]) =>
+      ? (
+          [
+            ["Input", usage.input],
+            ["Output", usage.output],
+            ["Cache read", usage.cacheRead],
+            ["Cache write", usage.cacheWrite],
+            ["Total", usage.total],
+          ] satisfies Array<[string, number | null | undefined]>
+        ).map(([label, value]) =>
           typeof value === "number" && value > 0
             ? [label, value.toLocaleString()]
             : null
@@ -783,7 +920,7 @@ function ResponseMetadata({ message }: { message: ChatMessage }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground/45 transition-colors hover:bg-black/[0.045] hover:text-muted-foreground dark:hover:bg-white/[0.06] cursor-pointer"
+          className="cursor-pointer rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground/45 transition-colors hover:bg-black/[0.045] hover:text-muted-foreground dark:hover:bg-white/[0.06]"
           aria-label="Response details"
         >
           {[message.model, total ? `${total} tokens` : null]
@@ -798,10 +935,10 @@ function ResponseMetadata({ message }: { message: ChatMessage }) {
         className={cn(
           "w-64 gap-0 overflow-hidden rounded-2xl border-0 p-1.5 ring-0",
           "bg-[var(--glass-bg)] backdrop-blur-[40px] backdrop-saturate-[180%]",
-          "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+          "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]"
         )}
       >
-        <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/55">
+        <div className="px-2 py-1.5 text-[10px] font-medium tracking-[0.14em] text-muted-foreground/55 uppercase">
           Response details
         </div>
         <div className="space-y-0.5">
@@ -840,7 +977,7 @@ function BranchNav({
         type="button"
         disabled={current <= 1}
         onClick={() => onSwitch(current - 2)}
-        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-foreground dark:hover:text-white disabled:cursor-default disabled:opacity-30"
+        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-30 dark:hover:text-white"
       >
         <LuChevronLeft className="size-3.5" />
       </button>
@@ -851,7 +988,7 @@ function BranchNav({
         type="button"
         disabled={current >= total}
         onClick={() => onSwitch(current)}
-        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-foreground dark:hover:text-white disabled:cursor-default disabled:opacity-30"
+        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-30 dark:hover:text-white"
       >
         <LuChevronRight className="size-3.5" />
       </button>
@@ -879,8 +1016,15 @@ interface MessageBubbleProps {
   onExport?: (messageId: string) => void
   onTextAnimationComplete?: (messageId: string) => void
   onFork?: (messageId: string) => void
-  onResolveApproval?: (approvalId: string, decision: ApprovalDecision) => Promise<void> | void
-  onAskSelectedText?: (messageId: string, text: string, comment?: string) => void
+  onResolveApproval?: (
+    approvalId: string,
+    decision: ApprovalDecision
+  ) => Promise<void> | void
+  onAskSelectedText?: (
+    messageId: string,
+    text: string,
+    comment?: string
+  ) => void
   referencedTexts?: string[]
   isPinned?: boolean
   reaction?: "up" | "down"
@@ -967,15 +1111,22 @@ export const MessageBubble = memo(function MessageBubble({
   // catches up. During heavy tool runs the row may remount while patch/history
   // reconciliation is active; only animate the first local sending state, not
   // every later remount of an already-acknowledged optimistic row.
-  const shouldAnimateSend = isUser && message.isOptimistic && message.sendStatus === "sending"
+  const shouldAnimateSend =
+    isUser && message.isOptimistic && message.sendStatus === "sending"
   const hideAssistantActions =
     !isUser && (Boolean(isActivelyStreaming) || Boolean(suppressActions))
   const mediaDirectives = useMemo(
-    () => (!isUser && !isAssistantError ? parseChatMediaDirectives(message.text) : null),
+    () =>
+      !isUser && !isAssistantError
+        ? parseChatMediaDirectives(message.text)
+        : null,
     [isAssistantError, isUser, message.text]
   )
   const renderedAssistantText = mediaDirectives?.text ?? message.text
-  const renderedAttachments = mergeChatAttachments(message.attachments, mediaDirectives?.attachments)
+  const renderedAttachments = mergeChatAttachments(
+    message.attachments,
+    mediaDirectives?.attachments
+  )
   const isStatusSnapshot = !isUser && isAssistantStatusSnapshot(message.text)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState("")
@@ -1061,27 +1212,36 @@ export const MessageBubble = memo(function MessageBubble({
     setSelectedTextMenu((current) => ({ ...current, open: false }))
   }, [])
 
-  const handleSelectedTextContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    if (isUser || isStatusSnapshot || !messageBodyRef.current) return
+  const handleSelectedTextContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (isUser || isStatusSnapshot || !messageBodyRef.current) return
 
-    const selection = window.getSelection()
-    const selectedText = selection?.toString().trim()
-    if (!selection || !selectedText || selection.rangeCount === 0) return
+      const selection = window.getSelection()
+      const selectedText = selection?.toString().trim()
+      if (!selection || !selectedText || selection.rangeCount === 0) return
 
-    const body = messageBodyRef.current
-    const anchorNode = selection.anchorNode
-    const focusNode = selection.focusNode
-    if (!anchorNode || !focusNode || !body.contains(anchorNode) || !body.contains(focusNode)) return
+      const body = messageBodyRef.current
+      const anchorNode = selection.anchorNode
+      const focusNode = selection.focusNode
+      if (
+        !anchorNode ||
+        !focusNode ||
+        !body.contains(anchorNode) ||
+        !body.contains(focusNode)
+      )
+        return
 
-    event.preventDefault()
-    event.stopPropagation()
-    setSelectedTextMenu({
-      open: true,
-      x: Math.min(event.clientX, window.innerWidth - 188),
-      y: Math.min(event.clientY, window.innerHeight - 132),
-      text: selectedText,
-    })
-  }, [isStatusSnapshot, isUser])
+      event.preventDefault()
+      event.stopPropagation()
+      setSelectedTextMenu({
+        open: true,
+        x: Math.min(event.clientX, window.innerWidth - 188),
+        y: Math.min(event.clientY, window.innerHeight - 132),
+        text: selectedText,
+      })
+    },
+    [isStatusSnapshot, isUser]
+  )
 
   const copySelectedText = useCallback(async () => {
     const text = selectedTextMenu.text
@@ -1173,7 +1333,13 @@ export const MessageBubble = memo(function MessageBubble({
       document.removeEventListener("touchend", handlePointerUp)
       document.removeEventListener("selectionchange", handleSelectionChange)
     }
-  }, [isUser, isStatusSnapshot, onAskSelectedText, selectionAction, updateSelectionAction])
+  }, [
+    isUser,
+    isStatusSnapshot,
+    onAskSelectedText,
+    selectionAction,
+    updateSelectionAction,
+  ])
 
   useEffect(() => {
     if (!selectedTextMenu.open) return
@@ -1235,7 +1401,9 @@ export const MessageBubble = memo(function MessageBubble({
             type="button"
             onClick={() => {
               document
-                .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(message.replyTo!.messageId)}"]`)
+                .querySelector<HTMLElement>(
+                  `[data-message-id="${CSS.escape(message.replyTo!.messageId)}"]`
+                )
                 ?.scrollIntoView({ behavior: "smooth", block: "center" })
             }}
             className={cn(
@@ -1248,8 +1416,20 @@ export const MessageBubble = memo(function MessageBubble({
                 {message.replyTo.role === "user" ? "You" : "Assistant"}
               </span>
               <p className="line-clamp-2 text-[12px] leading-snug text-foreground/50">
-                {(message.replyTo.text || message.replyTo.attachments?.[0]?.name || (message.replyTo.attachments?.[0] ? chatAttachmentTypeLabel(message.replyTo.attachments[0]) : "Message")).slice(0, 150)}
-                {(message.replyTo.text || message.replyTo.attachments?.[0]?.name || "").length > 150 ? "…" : ""}
+                {(
+                  message.replyTo.text ||
+                  message.replyTo.attachments?.[0]?.name ||
+                  (message.replyTo.attachments?.[0]
+                    ? chatAttachmentTypeLabel(message.replyTo.attachments[0])
+                    : "Message")
+                ).slice(0, 150)}
+                {(
+                  message.replyTo.text ||
+                  message.replyTo.attachments?.[0]?.name ||
+                  ""
+                ).length > 150
+                  ? "…"
+                  : ""}
               </p>
             </div>
           </button>
@@ -1296,7 +1476,11 @@ export const MessageBubble = memo(function MessageBubble({
             {(!isUser || message.text.trim() || userSlashCommandName) && (
               <div
                 ref={messageBodyRef}
-                onMouseDown={isStatusSnapshot ? (event) => event.preventDefault() : undefined}
+                onMouseDown={
+                  isStatusSnapshot
+                    ? (event) => event.preventDefault()
+                    : undefined
+                }
                 onMouseUp={updateSelectionAction}
                 onKeyUp={updateSelectionAction}
                 onContextMenu={handleSelectedTextContextMenu}
@@ -1309,71 +1493,75 @@ export const MessageBubble = memo(function MessageBubble({
                       ? "rounded-2xl bg-muted px-4 py-2.5 text-foreground shadow-sm"
                       : isAssistantError
                         ? "w-full px-2 text-red-300"
-                      : "w-full px-2 text-foreground"
+                        : "w-full px-2 text-foreground"
                 )}
               >
-              {shouldAnimateSlashCommandBorder && (
-                <>
-                  <motion.span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute top-2 right-0 bottom-2 w-px bg-foreground/60"
-                    initial={{ scaleY: 0, opacity: 0, originY: 0 }}
-                    animate={{ scaleY: 1, opacity: [0, 0.95, 0] }}
-                    transition={{ duration: 0.48, ease: "easeOut" }}
-                  />
-                  <motion.span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute right-2 bottom-0 h-px bg-foreground/60"
-                    initial={{ width: 0, opacity: 0 }}
-                    animate={{
-                      width: "calc(100% - 1rem)",
-                      opacity: [0, 0.95, 0],
-                    }}
-                    transition={{ duration: 0.4, delay: 0.34, ease: "easeOut" }}
-                  />
-                </>
-              )}
-              {isUser && userSlashCommandName ? (
-                <div className="flex items-center gap-1.5">
-                  <span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
-                    <LuTerminal className="size-3.5" />
-                  </span>
-                  <code className="min-w-0 font-mono text-[13.5px] leading-6 tracking-[-0.01em] [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-foreground">
-                    {message.text}
-                  </code>
-                </div>
-              ) : isUser ? (
-                <p className="[overflow-wrap:anywhere] break-words whitespace-pre-wrap">
-                  {message.text}
-                </p>
-              ) : approvalPrompt ? (
-                <ApprovalPromptCard
-                  approval={approvalPrompt}
-                  onResolve={onResolveApproval}
-                />
-              ) : isAssistantError ? (
-                <div
-                  className={cn(
-                    "max-w-full min-w-0 overflow-hidden",
-                    isRevealingAssistantError && "streaming-text"
-                  )}
-                >
+                {shouldAnimateSlashCommandBorder && (
+                  <>
+                    <motion.span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute top-2 right-0 bottom-2 w-px bg-foreground/60"
+                      initial={{ scaleY: 0, opacity: 0, originY: 0 }}
+                      animate={{ scaleY: 1, opacity: [0, 0.95, 0] }}
+                      transition={{ duration: 0.48, ease: "easeOut" }}
+                    />
+                    <motion.span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute right-2 bottom-0 h-px bg-foreground/60"
+                      initial={{ width: 0, opacity: 0 }}
+                      animate={{
+                        width: "calc(100% - 1rem)",
+                        opacity: [0, 0.95, 0],
+                      }}
+                      transition={{
+                        duration: 0.4,
+                        delay: 0.34,
+                        ease: "easeOut",
+                      }}
+                    />
+                  </>
+                )}
+                {isUser && userSlashCommandName ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
+                      <LuTerminal className="size-3.5" />
+                    </span>
+                    <code className="min-w-0 font-mono text-[13.5px] leading-6 tracking-[-0.01em] [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-foreground">
+                      {message.text}
+                    </code>
+                  </div>
+                ) : isUser ? (
                   <p className="[overflow-wrap:anywhere] break-words whitespace-pre-wrap">
-                    {displayedAssistantErrorText}
+                    {message.text}
                   </p>
-                </div>
-              ) : (
-                <MarkdownContent
-                  text={renderedAssistantText}
-                  embeds={message.embeds}
-                  streaming={Boolean(animateAssistantText)}
-                  revealMode="buffered"
-                  highlightTexts={referencedTexts}
-                  onRevealComplete={() =>
-                    onTextAnimationComplete?.(message.messageId)
-                  }
-                />
-              )}
+                ) : approvalPrompt ? (
+                  <ApprovalPromptCard
+                    approval={approvalPrompt}
+                    onResolve={onResolveApproval}
+                  />
+                ) : isAssistantError ? (
+                  <div
+                    className={cn(
+                      "max-w-full min-w-0 overflow-hidden",
+                      isRevealingAssistantError && "streaming-text"
+                    )}
+                  >
+                    <p className="[overflow-wrap:anywhere] break-words whitespace-pre-wrap">
+                      {displayedAssistantErrorText}
+                    </p>
+                  </div>
+                ) : (
+                  <MarkdownContent
+                    text={renderedAssistantText}
+                    embeds={message.embeds}
+                    streaming={Boolean(animateAssistantText)}
+                    revealMode="buffered"
+                    highlightTexts={referencedTexts}
+                    onRevealComplete={() =>
+                      onTextAnimationComplete?.(message.messageId)
+                    }
+                  />
+                )}
                 {!isUser && (
                   <MessageAttachments
                     attachments={renderedAttachments}
@@ -1412,7 +1600,7 @@ export const MessageBubble = memo(function MessageBubble({
                     "z-[9999] w-44 rounded-2xl p-1.5",
                     "border border-black/70 bg-[var(--glass-bg)]",
                     "backdrop-blur-[40px] backdrop-saturate-[180%]",
-                    "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+                    "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]"
                   )}
                 >
                   {onReply && (
@@ -1622,9 +1810,7 @@ export const MessageBubble = memo(function MessageBubble({
                   </div>
                 )}
                 <CopyButton text={message.text} />
-                {(onPin ||
-                  onReply ||
-                  onFork) && (
+                {(onPin || onReply || onFork) && (
                   <Popover
                     open={popoverOpen}
                     onOpenChange={onPopoverOpenChange}
@@ -1646,7 +1832,7 @@ export const MessageBubble = memo(function MessageBubble({
                         "w-44 gap-0 rounded-2xl p-1.5 ring-0",
                         "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
                         "backdrop-blur-[40px] backdrop-saturate-[180%]",
-                        "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+                        "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]"
                       )}
                     >
                       {onPin && (
@@ -1729,7 +1915,8 @@ function messageBubbleAreEqual(
   next: MessageBubbleProps
 ): boolean {
   return (
-    messageRenderSignature(prev.message) === messageRenderSignature(next.message) &&
+    messageRenderSignature(prev.message) ===
+      messageRenderSignature(next.message) &&
     prev.isGenerating === next.isGenerating &&
     prev.isActivelyStreaming === next.isActivelyStreaming &&
     prev.animateAssistantText === next.animateAssistantText &&
@@ -1738,7 +1925,8 @@ function messageBubbleAreEqual(
     prev.reaction === next.reaction &&
     prev.suppressActions === next.suppressActions &&
     prev.afterContent === next.afterContent &&
-    (prev.referencedTexts ?? []).join("\u0000") === (next.referencedTexts ?? []).join("\u0000")
+    (prev.referencedTexts ?? []).join("\u0000") ===
+      (next.referencedTexts ?? []).join("\u0000")
   )
 }
 
