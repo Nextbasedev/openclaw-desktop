@@ -14,46 +14,50 @@ type Props = {
 }
 
 export function ModelSelector({ open, onOpenChange }: Props) {
-  const { models, currentModel: current, loading, error, reload } = useModels()
+  const { models, currentModel: current, loading, error, reload, ensureLoaded } =
+    useModels()
   const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState("")
   const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (open) {
-      setQuery("")
-      reload()
-      setTimeout(() => searchRef.current?.focus(), 50)
+    if (!open) return
+    setQuery("")
+    // Use the already-loaded list (loaded once on app start / connection change).
+    // Only force a refetch when the cache looks degenerate (empty, or just the
+    // synthesized current-model entry) so the list never opens blank.
+    if (models.length <= 1) {
+      void reload()
+    } else {
+      void ensureLoaded()
     }
-  }, [reload, open])
+    const t = setTimeout(() => searchRef.current?.focus(), 50)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   async function handleSelect(modelId: string) {
+    if (modelId === current) {
+      onOpenChange(false)
+      return
+    }
     setSaving(true)
     try {
       await invoke("middleware_models_set_default", {
         input: { modelId },
       })
-      await reload()
+      onOpenChange(false)
+      // Reload the whole app so the new default model is reflected everywhere
+      // (chat composer, footer trigger button, this dialog) from a single
+      // source of truth instead of patching each surface independently.
+      if (typeof window !== "undefined") {
+        window.location.reload()
+      }
     } catch {
-    } finally {
       setSaving(false)
       onOpenChange(false)
     }
   }
-
-  const currentModel = models.find((m) => isActiveModel(current, m))
-  const label = currentModel?.name ?? current ?? "Select model"
-  const currentDisplayModel =
-    currentModel ??
-    (current
-      ? {
-          id: current.includes("/") ? current.split(/\/(.+)/)[1] : current,
-          name: current.includes("/") ? current.split(/\/(.+)/)[1] : current,
-          provider: current.includes("/")
-            ? current.split(/\/(.+)/)[0]
-            : "custom",
-        }
-      : null)
 
   const unique = models.filter(
     (m, i, arr) =>
@@ -75,27 +79,7 @@ export function ModelSelector({ open, onOpenChange }: Props) {
       title="Switch model"
       className="w-[min(460px,calc(100vw-32px))]"
     >
-      <div className="-mx-1 -mt-1 border-b border-black/[0.06] px-1 pb-4 dark:border-white/[0.07]">
-        <div className="flex items-center gap-3 rounded-2xl bg-black/[0.025] px-3 py-2.5 dark:bg-white/[0.035]">
-          <ModelLogo model={currentDisplayModel} modelId={current} size="sm" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] font-medium text-foreground">
-              {label}
-            </p>
-            <p className="truncate text-[11px] text-muted-foreground/60">
-              Current model
-              {currentDisplayModel?.provider
-                ? ` · ${currentDisplayModel.provider}`
-                : ""}
-            </p>
-          </div>
-          <span className="rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-medium text-emerald-500 dark:text-emerald-300">
-            Active
-          </span>
-        </div>
-      </div>
-
-      <div className="py-4">
+      <div className="pt-1 pb-4">
         <div className="relative rounded-xl border border-black/[0.06] bg-black/[0.03] transition-colors focus-within:border-black/[0.12] focus-within:bg-black/[0.045] dark:border-white/[0.08] dark:bg-white/[0.035] dark:focus-within:border-white/[0.14] dark:focus-within:bg-white/[0.05]">
           <LuSearch
             size={14}
