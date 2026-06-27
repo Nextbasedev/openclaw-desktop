@@ -4870,7 +4870,12 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_chats_create": {
         const sessionKey = String(input.sessionKey || `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
         const timestamp = nowIso();
-        const displayName = await groqFileNameFromPrompt(input.name || "New Chat", context);
+        // Use the instant local fallback name so chat creation (and therefore
+        // the optimistic first-message render on the client) is not blocked by
+        // a Groq labeling HTTP call (up to 2.5s). The client auto-renames the
+        // chat with a better title immediately after the first send, so the
+        // final user-visible name is unchanged.
+        const displayName = fallbackFileNameFromPrompt(input.name || "New Chat");
         try {
           await context.gateway.request("sessions.create", {
             key: sessionKey,
