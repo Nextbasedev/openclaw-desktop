@@ -505,6 +505,48 @@ function preserveUserAttachmentsFromReplacedMessages(
   })
 }
 
+function preserveConfirmedUserPosition(
+  state: ApplyPatchState,
+  messages: ChatMessage[],
+  incoming: ChatMessage[],
+  optimisticId: string | null,
+  canonicalMessageId: string | null,
+) {
+  if (!optimisticId) return messages
+  const optimisticIndex = state.messages.findIndex(
+    (message) => message.role === "user" && message.messageId === optimisticId,
+  )
+  if (optimisticIndex < 0) return messages
+
+  const incomingUserIds = new Set(
+    incoming
+      .filter((message) => message.role === "user")
+      .map((message) => message.messageId),
+  )
+  if (canonicalMessageId) incomingUserIds.add(canonicalMessageId)
+  if (incomingUserIds.size === 0) return messages
+
+  const confirmedIndex = messages.findIndex(
+    (message) => message.role === "user" && incomingUserIds.has(message.messageId),
+  )
+  if (confirmedIndex < 0) return messages
+
+  const originalIndexById = new Map(
+    state.messages.map((message, index) => [message.messageId, index] as const),
+  )
+  const targetIndex = messages.findIndex((message, index) => {
+    if (index === confirmedIndex) return false
+    const originalIndex = originalIndexById.get(message.messageId)
+    return typeof originalIndex === "number" && originalIndex > optimisticIndex
+  })
+  if (targetIndex < 0 || confirmedIndex < targetIndex) return messages
+
+  const next = [...messages]
+  const [confirmed] = next.splice(confirmedIndex, 1)
+  next.splice(targetIndex, 0, confirmed)
+  return next
+}
+
 function preserveOptimisticUserDisplayFromBlankConfirmation(
   state: ApplyPatchState,
   incoming: ChatMessage[],
@@ -718,8 +760,15 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
       ? { ...item, animateText: true }
       : item
   )
+  const mergedMessages = mergeToolOnlyAssistantMessages(baseMessages, animated, frame)
   return {
     cursor: frame.patch.cursor,
-    messages: dedupeChatMessages(mergeToolOnlyAssistantMessages(baseMessages, animated, frame)),
+    messages: dedupeChatMessages(preserveConfirmedUserPosition(
+      state,
+      mergedMessages,
+      animated,
+      optimisticId,
+      canonicalMessageId,
+    )),
   }
 }

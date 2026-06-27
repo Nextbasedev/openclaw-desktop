@@ -603,6 +603,72 @@ describe("applyChatPatch", () => {
     expect(confirmed.messages[0]).toMatchObject({ messageId: "client-1", role: "user", text: "good night now" })
   })
 
+  test("keeps confirmed user before assistant when confirmation arrives after response", () => {
+    const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.created",
+          messageId: "client-1",
+          message: {
+            role: "user",
+            text: "Hello",
+            isOptimistic: true,
+            __clientOptimistic: true,
+            __openclaw: { id: "client-1" },
+          },
+        },
+        createdAtMs: 1,
+      },
+    })
+
+    const withAssistant = applyChatPatch(withOptimistic, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.delta",
+          runId: "run-1",
+          messageId: "assistant-1",
+          message: {
+            role: "assistant",
+            text: "Hello again!",
+            __openclaw: { id: "assistant-1", seq: 2, runId: "run-1" },
+          },
+        },
+        createdAtMs: 2,
+      },
+    })
+
+    const confirmed = applyChatPatch(withAssistant, {
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.confirmed",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.confirmed",
+          messageId: "client-1",
+          optimisticId: "client-1",
+          message: {
+            role: "user",
+            text: "Hello",
+            __openclaw: { id: "gateway-user-1", seq: 1, runId: "run-1" },
+          },
+        },
+        createdAtMs: 3,
+      },
+    })
+
+    expect(confirmed.messages.map((message) => message.role)).toEqual(["user", "assistant"])
+    expect(confirmed.messages.map((message) => message.text)).toEqual(["Hello", "Hello again!"])
+  })
+
 
   test("keeps optimistic user attachment previews when confirmed patch omits attachments", () => {
     const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
