@@ -4378,6 +4378,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const write = (event: string, payload: CompatRecord) => {
       reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
     };
+    // Keep the first line compatible with the desktop smoke test while
+    // preserving the structured cron.ready SSE event used by clients.
+    reply.raw.write(": cron stream ready\n\n");
     const client = { write };
     cronSseClients.add(client);
     write("cron.ready", { ok: true });
@@ -4567,13 +4570,15 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const message = String(input.message ?? input.text ?? input.prompt ?? "");
         if (!sessionKey || !message.trim()) return reply.code(400).send({ ok: false, error: { message: "sessionKey and message required" } });
         try {
+          const timeoutMs = Number(input.timeoutMs ?? 130_000);
           const result = await context.gateway.request("chat.send", {
-            ...input,
             sessionKey,
             message,
-            text: undefined,
-            prompt: undefined,
-          }, Number(input.timeoutMs ?? 130_000));
+            idempotencyKey: String(input.idempotencyKey ?? `compat:${sessionKey}:${crypto.randomUUID()}`),
+            timeoutMs,
+            ...(typeof input.model === "string" ? { model: input.model } : {}),
+            ...(typeof input.cwd === "string" ? { cwd: input.cwd } : {}),
+          }, timeoutMs);
           return { ok: true, result, sessionKey };
         } catch (error) {
           return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Chat send failed" } });

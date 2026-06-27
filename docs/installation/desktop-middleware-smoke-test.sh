@@ -86,7 +86,8 @@ CRON_JOB_ID="$(printf '%s' "$CRON_CREATE" | node -e "const b=JSON.parse(require(
 [[ -n "$CRON_JOB_ID" ]] || { echo "BLOCKER: cron job id missing" >&2; exit 1; }
 curl_json POST /api/commands/middleware_cron_list_jobs '{"input":{}}' >/dev/null
 curl_json POST /api/commands/middleware_cron_list_runs "{\"input\":{\"jobId\":\"$CRON_JOB_ID\"}}" >/dev/null
-if ! timeout 3s curl -fsS -N "$BASE_URL/api/stream/cron" -H "Authorization: Bearer $TOKEN" | head -n 1 | grep -q 'cron stream ready'; then
+CRON_READY_LINE="$({ set +o pipefail; timeout 3s curl -fsS -N "$BASE_URL/api/stream/cron" -H "Authorization: Bearer $TOKEN" | head -n 1; } 2>/dev/null || true)"
+if ! grep -q 'cron stream ready' <<<"$CRON_READY_LINE"; then
   echo "BLOCKER: cron event stream did not open" >&2
   exit 1
 fi
