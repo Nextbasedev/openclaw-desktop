@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { createApp } from "../src/app.js";
 import type { AppContext } from "../src/app.js";
 import type { MiddlewareConfig } from "../src/config/env.js";
-import { listPatchesAfter } from "../src/features/patches.js";
+import { listPatchesAfter, PatchBus } from "../src/features/patches.js";
 
 const apps: Array<Awaited<ReturnType<typeof createApp>>> = [];
 
@@ -230,6 +230,57 @@ describe("patch stream", () => {
     const sessions = (await collected).filter((m) => m.type === "patch").map((m) => m.patch.sessionKey);
     expect(sessions).toEqual(["s1"]);
     c.ws.close();
+  });
+
+  function fakeSocket(bufferedAmount: number) {
+    return {
+      OPEN: 1,
+      readyState: 1,
+      bufferedAmount,
+      sent: [] as string[],
+      closed: false,
+      closeCode: undefined as number | undefined,
+      send(frame: string) { this.sent.push(frame); },
+      close(code?: number) { this.closed = true; this.closeCode = code; },
+      once(_event: string, _cb: () => void) { /* capture not needed for these tests */ },
+    };
+  }
+
+  test("BE-01: evicts a client past the send-buffer high-water mark; healthy clients still receive the patch", () => {
+    const bus = new PatchBus(100); // 100-byte high-water mark
+    const slow = fakeSocket(5000); // far over the mark
+    const healthy = fakeSocket(0);
+    bus.addClient({ id: "slow", socket: slow as any, connectedAtMs: Date.now(), lastSentCursor: 0, interests: null });
+    bus.addClient({ id: "healthy", socket: healthy as any, connectedAtMs: Date.now(), lastSentCursor: 0, interests: null });
+
+    bus.broadcast({ cursor: 1, type: "chat.message.upsert", sessionKey: "s1", payload: {}, createdAtMs: Date.now() });
+
+    expect(slow.closed).toBe(true);
+    expect(slow.closeCode).toBe(1013); // try-again-later
+    expect(slow.sent).toHaveLength(0); // never sent to the stalled socket
+    expect(healthy.closed).toBe(false);
+    expect(healthy.sent).toHaveLength(1); // healthy client unaffected
+    expect(bus.diagnostics().clients).toBe(1);
+  });
+
+  test("BE-01: a client exactly AT the high-water mark is not evicted (boundary)", () => {
+    const bus = new PatchBus(100);
+    const atMark = fakeSocket(100);
+    bus.addClient({ id: "at", socket: atMark as any, connectedAtMs: Date.now(), lastSentCursor: 0, interests: null });
+    bus.broadcast({ cursor: 1, type: "x", sessionKey: "s1", payload: {}, createdAtMs: Date.now() });
+    expect(atMark.closed).toBe(false);
+    expect(atMark.sent).toHaveLength(1);
+    expect(bus.diagnostics().clients).toBe(1);
+  });
+
+  test("BE-01: backpressure eviction applies even when the patch is not routed to the stalled client", () => {
+    const bus = new PatchBus(100);
+    const slow = fakeSocket(5000);
+    bus.addClient({ id: "slow", socket: slow as any, connectedAtMs: Date.now(), lastSentCursor: 0, interests: new Set(["other-session"]) });
+    // patch is for s1, which the stalled client is NOT subscribed to
+    bus.broadcast({ cursor: 1, type: "x", sessionKey: "s1", payload: {}, createdAtMs: Date.now() });
+    expect(slow.closed).toBe(true);
+    expect(bus.diagnostics().clients).toBe(0);
   });
 
   test("broadcast sends new patches to connected websocket clients", async () => {

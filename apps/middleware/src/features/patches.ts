@@ -27,9 +27,25 @@ type PatchClient = {
   interests: Set<string> | null;
 };
 
+/**
+ * Per-client send-buffer high-water mark (bytes). broadcast() is fire-and-forget
+ * (socket.send queues into the OS/ws buffer), so a slow-but-OPEN client that
+ * never drains would accumulate unbounded memory on the server (BE-01). When a
+ * client's bufferedAmount exceeds this, it is evicted (closed 1013) and lets the
+ * client reconnect and catch up from its afterCursor via REST/hello replay.
+ * 8 MiB tolerates a normal burst of large canonical-message patches while still
+ * bounding a genuinely stuck socket.
+ */
+export const DEFAULT_PATCH_CLIENT_HIGH_WATER_BYTES = 8 * 1024 * 1024;
+
 export class PatchBus {
   private clients = new Map<string, PatchClient>();
   private readonly log = createLogger("patch-stream");
+  private readonly highWaterBytes: number;
+
+  constructor(highWaterBytes: number = DEFAULT_PATCH_CLIENT_HIGH_WATER_BYTES) {
+    this.highWaterBytes = highWaterBytes;
+  }
 
   addClient(client: PatchClient) {
     this.clients.set(client.id, client);
@@ -91,6 +107,19 @@ export class PatchBus {
     for (const client of [...this.clients.values()]) {
       if (client.socket.readyState !== client.socket.OPEN) {
         this.clients.delete(client.id);
+        continue;
+      }
+      // BE-01 backpressure: evict any client whose unsent send buffer has grown
+      // past the high-water mark. Checked before routing so a stalled socket is
+      // reclaimed even on patches it isn't subscribed to. Only the offending
+      // socket is affected; healthy clients still get every patch below. The
+      // evicted client reconnects (onclose -> reconnect) and catches up from its
+      // afterCursor, so no patches are lost — just re-delivered on reconnect.
+      const buffered = typeof client.socket.bufferedAmount === "number" ? client.socket.bufferedAmount : 0;
+      if (buffered > this.highWaterBytes) {
+        this.clients.delete(client.id);
+        this.log.warn("client.evict.backpressure", { clientId: client.id, bufferedAmount: buffered, highWaterBytes: this.highWaterBytes, lastSentCursor: client.lastSentCursor });
+        try { client.socket.close(1013, "backpressure"); } catch { /* noop */ }
         continue;
       }
       // I6 routing: a client with a declared interest set only receives patches
