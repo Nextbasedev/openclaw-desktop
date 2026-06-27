@@ -55,20 +55,34 @@ import {
 import { mergeChatAttachments, parseChatMediaDirectives } from "@/lib/chatMediaDirectives"
 
 function ReplyAttachmentPreview({ message }: { message: ChatMessage }) {
-  const attachment = message.replyTo?.attachments?.[0]
+  const attachments = message.replyTo?.attachments ?? []
+  const imageAttachment = attachments.find((attachment) => getChatAttachmentKind(attachment) === "image")
+  const attachment = imageAttachment ?? attachments[0]
   if (!attachment) return null
   const kind = getChatAttachmentKind(attachment)
   const href = chatAttachmentHref(attachment)
+  const extraImageCount = imageAttachment
+    ? Math.max(0, attachments.filter((item) => getChatAttachmentKind(item) === "image").length - 1)
+    : 0
   if (kind === "image") {
-    return href ? (
-      <img
-        src={href}
-        alt={attachment.name || "Replied image"}
-        className="size-10 shrink-0 rounded-md border border-border/40 object-cover"
-      />
-    ) : (
-      <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border/40 bg-muted/40 text-muted-foreground">
-        <LuImage className="size-4" />
+    return (
+      <div className="relative size-11 shrink-0 overflow-hidden rounded-lg border border-border/40 bg-muted/40">
+        {href ? (
+          <img
+            src={href}
+            alt={attachment.name || "Replied image"}
+            className="size-full object-cover"
+          />
+        ) : (
+          <div className="flex size-full items-center justify-center text-muted-foreground">
+            <LuImage className="size-4" />
+          </div>
+        )}
+        {extraImageCount > 0 ? (
+          <span className="absolute bottom-0.5 right-0.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white">
+            +{extraImageCount}
+          </span>
+        ) : null}
       </div>
     )
   }
