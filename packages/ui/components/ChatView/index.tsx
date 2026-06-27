@@ -1340,7 +1340,7 @@ export function ChatView({
     if (!text && !payload.attachments?.length) return
     const hasAttachments = (payload.attachments?.length ?? 0) > 0
     const isStopCommand = !hasAttachments && !payload.replyTo && isStopSlashCommand(text)
-    const hideOptimisticUserEcho = !hasAttachments && !payload.replyTo && isHistoryHiddenSlashCommand(text)
+    const isNativeSlashCommand = !hasAttachments && !payload.replyTo && isHistoryHiddenSlashCommand(text)
     if (isGenerating && !payload.runWhileGenerating && !isStopCommand) {
       if (!canEnqueueChatMessage(queuedMessagesRef.current)) {
         const message = `Queue limit reached. Max ${MAX_QUEUED_CHAT_MESSAGES} messages can be queued.`
@@ -1402,19 +1402,19 @@ export function ChatView({
 
       optimisticId = randomId()
       shouldFollowScrollRef.current = true
-      const optimisticMessage: ChatMessage | null = hideOptimisticUserEcho
-        ? null
-        : {
-            messageId: optimisticId,
-            role: "user",
-            text,
-            createdAt: new Date().toISOString(),
-            isOptimistic: true,
-            sendStatus: "sending",
-            attachments: composerAttachmentsToMessageAttachments(payload.attachments),
-            replyTo: payload.replyTo,
-            retryPayload: payload,
-          }
+      const optimisticMessage: ChatMessage = {
+        messageId: optimisticId,
+        role: "user",
+        text,
+        createdAt: new Date().toISOString(),
+        isOptimistic: true,
+        sendStatus: "sending",
+        attachments: isNativeSlashCommand
+          ? undefined
+          : composerAttachmentsToMessageAttachments(payload.attachments),
+        replyTo: isNativeSlashCommand ? undefined : payload.replyTo,
+        retryPayload: payload,
+      }
 
       setSending(true)
       setState((current) => ({
@@ -1467,6 +1467,16 @@ export function ChatView({
         autonomyMode: payload.autonomyMode ?? null,
         execPolicy: payload.execPolicy ?? undefined,
       })
+      if (isNativeSlashCommand && optimisticId) {
+        setState((current) => ({
+          ...current,
+          messages: current.messages.map((item) =>
+            item.messageId === optimisticId
+              ? { ...item, sendStatus: undefined, sendError: null }
+              : item,
+          ),
+        }))
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Message failed to send."
       if (optimisticId) {
