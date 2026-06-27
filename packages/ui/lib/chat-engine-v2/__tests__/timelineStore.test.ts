@@ -259,6 +259,43 @@ describe("ChatTimelineStore", () => {
       ])
     })
 
+    it("keeps locally anchored user before assistant after reload restored command rows", () => {
+      store.applyBootstrap([
+        { ...msg("slash-status", "/status", 1, "user"), createdAt: "2026-06-27T10:01:00.000Z" },
+        { ...msg("status-output", "OpenClaw 2026.4.23", 2, "assistant"), createdAt: "2026-06-27T10:01:01.000Z", model: "gateway-injected" },
+        { ...msg("slash-reload", "/reload", 3, "user"), createdAt: "2026-06-27T10:01:05.000Z" },
+        { ...msg("reload-tools", "", 4, "assistant"), createdAt: "2026-06-27T10:01:06.000Z", toolCalls: [{ id: "read-memory", tool: "read", status: "success" }] },
+      ], 10)
+      store.flushSync()
+
+      // This mirrors a user prompt that is already visible locally after a
+      // reload, but has not received a trustworthy canonical Gateway seq yet.
+      store.applyPatchMessage({
+        messageId: "client-hello",
+        role: "user",
+        text: "Hello",
+        createdAt: "2026-06-27T10:07:00.000Z",
+      } as ChatMessage, 11)
+
+      // The assistant row may arrive with older canonical ordering metadata
+      // from command/reload reconciliation. It must still render below the
+      // prompt it answered.
+      store.applyPatchMessage({
+        ...msg("assistant-hello", "Hey! I'm here — what do you need help with?", 4, "assistant"),
+        createdAt: "2026-06-27T10:01:07.000Z",
+      }, 12)
+      store.flushSync()
+
+      expect(store.getSnapshot().messages.map((message) => `${message.role}:${message.text}`)).toEqual([
+        "user:/status",
+        "assistant:OpenClaw 2026.4.23",
+        "user:/reload",
+        "assistant:",
+        "user:Hello",
+        "assistant:Hey! I'm here — what do you need help with?",
+      ])
+    })
+
     it("confirms optimistic with gateway echo", () => {
       store.applyOptimistic(msg("opt-1", "sending...", 100, "user"))
       store.flushSync()
