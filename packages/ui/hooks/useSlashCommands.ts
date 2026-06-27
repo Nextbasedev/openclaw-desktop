@@ -31,21 +31,6 @@ type DiscoverResponse = {
   results: LocalSkillEntry[]
 }
 
-const FALLBACK_COMMANDS: SlashCommand[] = [
-  { name: "help", description: "Show available commands", source: "native", scope: "both", acceptsArgs: false },
-  { name: "clear", description: "Clear conversation history", source: "native", scope: "both", acceptsArgs: false },
-  { name: "reset", description: "Reset the current session", source: "native", scope: "both", acceptsArgs: false },
-  { name: "new", description: "Start a new session", source: "native", scope: "both", acceptsArgs: false },
-  { name: "stop", description: "Stop the current generation", source: "native", scope: "both", acceptsArgs: false },
-  { name: "plan", description: "Create a step-by-step plan", source: "native", scope: "text", acceptsArgs: true },
-  { name: "search", description: "Search the web for information", source: "native", scope: "text", acceptsArgs: true },
-  { name: "code", description: "Generate or explain code", source: "native", scope: "text", acceptsArgs: true },
-  { name: "summarize", description: "Summarize content or conversation", source: "native", scope: "text", acceptsArgs: true },
-  { name: "debug", description: "Debug code or errors", source: "native", scope: "text", acceptsArgs: true },
-  { name: "explain", description: "Explain a concept or code", source: "native", scope: "text", acceptsArgs: true },
-  { name: "review", description: "Review code for issues", source: "native", scope: "text", acceptsArgs: true },
-]
-
 let cachedCommands: SlashCommand[] | null = null
 
 function mapLocalSkill(skill: LocalSkillEntry): SlashCommand {
@@ -80,7 +65,7 @@ function fetchInstalledSkills(): Promise<SlashCommand[]> {
 
 export function useSlashCommands() {
   const [commands, setCommands] = useState<SlashCommand[]>(
-    cachedCommands ?? FALLBACK_COMMANDS,
+    cachedCommands ?? [],
   )
   const [installedSkills, setInstalledSkills] = useState<
     SlashCommand[]
@@ -100,11 +85,13 @@ export function useSlashCommands() {
           cachedCommands = res.commands
           setCommands(res.commands)
         } else {
-          cachedCommands = FALLBACK_COMMANDS
+          cachedCommands = []
+          setCommands([])
         }
       })
       .catch(() => {
-        cachedCommands = FALLBACK_COMMANDS
+        cachedCommands = []
+        setCommands([])
       })
       .finally(() => setLoading(false))
   }

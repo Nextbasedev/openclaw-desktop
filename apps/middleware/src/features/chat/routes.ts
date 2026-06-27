@@ -819,6 +819,10 @@ const execPolicyBody = z.union([
   }).strict(),
 ]);
 
+function isSlashCommandText(text: string) {
+  return /^\/[A-Za-z0-9_-]+(?:@[A-Za-z0-9_]+)?(?:\s|$)/.test(text.trim());
+}
+
 function isStopCommandText(text: string) {
   return /^\/stop(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(text.trim());
 }
@@ -1154,7 +1158,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         clientMessageId,
         idempotencyKey: input.idempotencyKey,
         runId,
-        ...(userVisibleAttachments ? { preserveDisplayText: true } : {}),
+        ...(userVisibleAttachments || isSlashCommandText(rawMessage) ? { preserveDisplayText: true } : {}),
       },
     };
     context.chatLive.addOptimisticUser(input.sessionKey, {
@@ -1427,6 +1431,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               return null;
             });
             let currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null = null;
+            let userMessageConfirmed = false;
             if (history?.messages?.length) {
               const segment = context.messages.ensureActiveSegment({
                 sessionKey: input.sessionKey,
@@ -1447,8 +1452,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 : null;
               const currentUserSeq = confirmedUser?.openclawSeq ?? (gatewayUserEcho ? projectSeq(gatewayUserEcho) : liveConfirmedCurrentUserSeq);
               const currentGatewayUserSeq = gatewayUserEcho?.openclawSeq ?? null;
+              userMessageConfirmed = Boolean(gatewayUserEcho) || liveConfirmedCurrentUserSeq !== null;
               currentHistory = {
-                currentUserRepresented: Boolean(gatewayUserEcho) || liveConfirmedCurrentUserSeq !== null,
+                currentUserRepresented: userMessageConfirmed,
                 assistantAfterCurrentUser: currentGatewayUserSeq !== null
                   ? normalized.some((message) => message.openclawSeq > currentGatewayUserSeq && assistantHasVisibleAnswer(message))
                   : liveConfirmedCurrentUserSeq !== null
@@ -1560,6 +1566,55 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                   createdAtMs: historyEvent.createdAtMs,
                 });
                 log.info("patch.broadcast", { sessionKey: input.sessionKey, type: historyEvent.eventType, cursor: historyEvent.cursor, messageSeq: projected.openclawSeq, role: projected.role, runId });
+              }
+            }
+
+            if (!userMessageConfirmed && isSlashCommandText(rawMessage)) {
+              const localConfirmedUser = context.messages.confirmOptimisticUser(input.sessionKey, clientMessageId, {
+                sessionKey: input.sessionKey,
+                openclawSeq: optimisticSeq,
+                gatewaySeq: optimisticSeq,
+                messageId: `local:${clientMessageId}`,
+                role: "user",
+                data: {
+                  ...clientMessage,
+                  isOptimistic: false,
+                  __clientOptimistic: false,
+                },
+                updatedAtMs: Date.now(),
+              });
+              if (localConfirmedUser) {
+                userMessageConfirmed = true;
+                currentHistory = {
+                  currentUserRepresented: true,
+                  assistantAfterCurrentUser: currentHistory?.assistantAfterCurrentUser ?? false,
+                };
+                const localConfirmedEvent = context.messages.appendProjectionEvent({
+                  sessionKey: input.sessionKey,
+                  eventType: "chat.message.confirmed",
+                  payload: canonicalPatchPayload({
+                    sessionKey: input.sessionKey,
+                    semanticType: "chat.user.confirmed",
+                    run: context.runs.getRun(runId),
+                    messageId: localConfirmedUser.messageId,
+                    payload: {
+                      sessionKey: input.sessionKey,
+                      message: localConfirmedUser.data,
+                      messageSeq: localConfirmedUser.openclawSeq,
+                      optimisticId: clientMessageId,
+                      gatewayMessageId: null,
+                      runId,
+                    },
+                  }),
+                });
+                context.patchBus.broadcast({
+                  cursor: localConfirmedEvent.cursor,
+                  type: localConfirmedEvent.eventType,
+                  sessionKey: localConfirmedEvent.sessionKey,
+                  payload: localConfirmedEvent.payload,
+                  createdAtMs: localConfirmedEvent.createdAtMs,
+                });
+                log.info("optimistic.user.confirmed_local_slash", { sessionKey: input.sessionKey, optimisticId: clientMessageId, runId });
               }
             }
 

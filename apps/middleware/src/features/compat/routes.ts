@@ -28,6 +28,48 @@ type CompatRecord = Record<string, any>;
 
 const nowIso = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+type SlashCommandEntry = {
+  name: string;
+  nativeName?: string;
+  textAliases?: string[];
+  description: string;
+  category?: string;
+  source: "native" | "skill" | "plugin";
+  scope: "text" | "native" | "both";
+  acceptsArgs: boolean;
+};
+
+function isSlashCommandEntry(value: unknown): value is SlashCommandEntry {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  return typeof item.name === "string"
+    && typeof item.description === "string"
+    && (item.source === "native" || item.source === "skill" || item.source === "plugin")
+    && (item.scope === "text" || item.scope === "native" || item.scope === "both")
+    && typeof item.acceptsArgs === "boolean";
+}
+
+async function dynamicCommandsList(context: AppContext, input: CompatRecord) {
+  try {
+    const response = await context.gateway.request<unknown>("commands.list", {
+      agentId: typeof input.agentId === "string" ? input.agentId : undefined,
+      provider: typeof input.provider === "string" ? input.provider : undefined,
+      scope: input.scope === "native" || input.scope === "text" || input.scope === "both" ? input.scope : undefined,
+      includeArgs: typeof input.includeArgs === "boolean" ? input.includeArgs : undefined,
+    }, 5_000);
+    const payload = response && typeof response === "object" && "payload" in response
+      ? (response as { payload?: unknown }).payload
+      : response;
+    const commands = payload && typeof payload === "object" && Array.isArray((payload as { commands?: unknown }).commands)
+      ? (payload as { commands: unknown[] }).commands.filter(isSlashCommandEntry)
+      : [];
+    return { commands };
+  } catch (error) {
+    createLogger("compat").warn("commands.list.failed", { error: error instanceof Error ? error.message : String(error) });
+    return { commands: [] };
+  }
+}
 const shortSessionId = (sessionKey: string) => (sessionKey.split(":").pop() || sessionKey).replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || Date.now().toString(36);
 const isMissingApprovalError = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
@@ -4524,7 +4566,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_memory_recall":
         return recallMemoryEntries();
       case "middleware_commands_list":
-        return { commands: [] };
+        return dynamicCommandsList(context, input);
       case "middleware_skills_discover":
         return skillsDiscover(input as Parameters<typeof skillsDiscover>[0]);
       case "middleware_skills_installed_local":
