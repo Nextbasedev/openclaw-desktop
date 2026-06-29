@@ -1904,7 +1904,18 @@ export function ChatView({
     [renderedMessages]
   )
   const promptPreview = initialPrompt?.trim()
-  const isGenerating = isActiveStreamStatus(state.streamStatus)
+  // A terminal stream status can land while the agent is still executing tools
+  // in a multi-step turn (preamble text -> tools -> final answer). If we keyed
+  // "generating" purely off streamStatus we would hide the loader and show the
+  // message action buttons mid-run while tool cards are still streaming in.
+  // Treat the run as still generating while a current-turn tool is genuinely
+  // running. liveRunningTool is already scoped to the active turn and excludes
+  // long-lived orchestration tools (sessions_spawn/subagents/sessions_yield), and a
+  // genuine terminal status finalizes running tools
+  // (finalizeActiveToolsForTerminalStatus), so a truly-complete turn has no
+  // running tool left to pin this on -> it cannot get stuck on the loader.
+  const hasActiveTurnTool = liveRunningTool(renderedMessages) !== null
+  const isGenerating = isActiveStreamStatus(state.streamStatus) || hasActiveTurnTool
 
   useEffect(() => {
     if (isGenerating || sending || state.loading || queueDrainInFlightRef.current) return
