@@ -9,7 +9,6 @@ import type {
 import { extractText } from "../components/ChatView/utils"
 import { extractSubagentSessionKey, extractSubagentSessionKeys } from "./subagentSession"
 import { mergeAssistantText } from "./chatMessageDedupe"
-import { isHistoryHiddenSlashCommand } from "./controlSlashCommands"
 import { buildInboundMediaUrl } from "./middlewareMedia"
 
 const BLOCKQUOTE_RE = /^((?:>[^\n]*(?:\n|$))+)\n([\s\S]+)$/
@@ -49,7 +48,12 @@ function extractReplyFromText(
       quoted.startsWith(msg.text.slice(0, 150))
     ) {
       return {
-        replyTo: { messageId: msg.messageId, role: msg.role, text: msg.text, attachments: msg.attachments },
+        replyTo: {
+          messageId: msg.messageId,
+          role: msg.role,
+          text: msg.text,
+          ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
+        },
         displayText,
       }
     }
@@ -934,8 +938,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           }
         }
       }
-      const hideSlashCommandEcho = !attachments?.length && isHistoryHiddenSlashCommand(text)
-      if ((text || (attachments && attachments.length > 0)) && !hideSlashCommandEcho) {
+      if (text || (attachments && attachments.length > 0)) {
         const reply = extractReplyFromText(text, messages)
         messages.push({
           messageId: messageId(item),

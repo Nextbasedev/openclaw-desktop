@@ -29,10 +29,7 @@ import type { ReplyTo } from "@/components/ChatView/types"
 import type { Space } from "@/types/space"
 import { composerReducer, initialComposerState } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
-import {
-  canRunSlashCommandWhileGenerating,
-  isStopSlashCommand,
-} from "@/lib/controlSlashCommands"
+import { isStopSlashCommand } from "@/lib/controlSlashCommands"
 
 type VoiceSettingsPayload = {
   settings?: {
@@ -184,10 +181,7 @@ export function ChatBox({
   const showSendWhileGenerating = Boolean(
     isGenerating && (input.trim().length > 0 || attachments.length > 0)
   )
-  const canSendWithoutInterruptingGeneration = Boolean(
-    showSendWhileGenerating &&
-    (!input.trim().startsWith("/") || canRunSlashCommandWhileGenerating(input, commands))
-  )
+  const canSendWithoutInterruptingGeneration = false
   const {
     state: voiceState,
     isSupported: recorderSupported,

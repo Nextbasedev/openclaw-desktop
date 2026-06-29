@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { canRunSlashCommandWhileGenerating, getSlashCommandName, isHistoryHiddenSlashCommand, isStopSlashCommand } from "./controlSlashCommands"
+import { canRunSlashCommandWhileGenerating, getSlashCommandName, isStopSlashCommand } from "./controlSlashCommands"
 import type { SlashCommand } from "@/hooks/useSlashCommands"
 
 const commands: SlashCommand[] = [
@@ -29,10 +29,4 @@ describe("control slash commands", () => {
     expect(isStopSlashCommand("/status")).toBe(false)
   })
 
-  it("hides native control slash commands from chat history", () => {
-    expect(isHistoryHiddenSlashCommand("/new")).toBe(true)
-    expect(isHistoryHiddenSlashCommand("/reset")).toBe(true)
-    expect(isHistoryHiddenSlashCommand("/status")).toBe(true)
-    expect(isHistoryHiddenSlashCommand("/plan ship the UI")).toBe(false)
-  })
 })
