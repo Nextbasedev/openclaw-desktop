@@ -535,20 +535,31 @@ body {
 
 .streaming-text {
   transition: none;
-  /* Soft, GPU-composited fade at the writing edge so streamed text gently
-     "materializes" instead of popping in character-by-character. This is a pure
-     CSS mask that simply follows the content — no per-frame JS, no markdown
-     re-render interaction — so it stays smooth and never lags. */
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1em), rgba(0, 0, 0, 0.3) 100%);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 1em), rgba(0, 0, 0, 0.3) 100%);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
 }
 
 .streaming-text> :last-child {
   transform-origin: left bottom;
   animation: none;
   will-change: auto;
+}
+
+/* Fade mode: each newly-streamed word fades in once. Only words that just
+   mounted animate (react-markdown reuses the stable prefix), so settled text is
+   untouched and there is no per-frame work. Fast (260ms) per word. */
+.md-stream-word {
+  animation: md-word-fade 260ms ease-out both;
+}
+
+@keyframes md-word-fade {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
 }
 
 @keyframes stream-update-fade {
@@ -643,10 +654,12 @@ body {
 
   .streaming-text,
   .streaming-text> :last-child,
-  .streaming-text> :last-child::after {
+  .streaming-text> :last-child::after,
+  .md-stream-word {
     animation: none;
     transition: none;
     filter: none;
+    opacity: 1;
     -webkit-mask-image: none;
     mask-image: none;
   }
