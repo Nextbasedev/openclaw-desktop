@@ -754,21 +754,15 @@ function assistantHasVisibleAnswer(message: ProjectedMessage) {
 }
 
 function gatewaySendCompleted(
-  result: Record<string, unknown>,
+  _result: Record<string, unknown>,
   currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null,
-  options: { allowTerminalStatus?: boolean } = {},
 ) {
   // Gateway chat.send can return a terminal status before the final assistant
   // message has reached chat.history/session.message. Do not broadcast done until
   // the current user echo and a visible assistant answer after it are both projected.
-  // Otherwise the UI briefly hides Thinking, jumps the list, then receives the
-  // answer a few seconds later.
-  if (currentHistory?.currentUserRepresented && currentHistory.assistantAfterCurrentUser) return true;
-  // Native slash commands (e.g. /status) may not produce a normal Gateway user
-  // echo/assistant-history pair. Once Gateway reports a terminal status and the
-  // local slash user has been confirmed, finalize the run so the desktop does
-  // not stay stuck in Writing/Thinking and block the next slash command.
-  return Boolean(options.allowTerminalStatus && currentHistory?.currentUserRepresented && runStatusFromGateway(result.status) === "done");
+  // This is especially important for native slash commands: completing right after
+  // the local slash user is confirmed can leave a /status bubble with no answer.
+  return Boolean(currentHistory?.currentUserRepresented && currentHistory.assistantAfterCurrentUser);
 }
 
 function localRunId(idempotencyKey: string) {
@@ -1627,7 +1621,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               }
             }
 
-            if (gatewaySendCompleted(result, currentHistory, { allowTerminalStatus: isSlashCommandText(rawMessage) })) {
+            if (gatewaySendCompleted(result, currentHistory)) {
               context.runs.updateRunStatus(runId, "done", { statusLabel: null });
               const doneRun = context.runs.getRun(runId);
               const doneEvent = context.messages.appendProjectionEvent({
@@ -1669,7 +1663,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               log.info("status.broadcast", { sessionKey: input.sessionKey, type: doneEvent.eventType, cursor: doneEvent.cursor, status: "done", idempotencyKey: input.idempotencyKey });
             }
 
-            log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: gatewaySendCompleted(result, currentHistory, { allowTerminalStatus: isSlashCommandText(rawMessage) }), status: typeof result.status === "string" ? result.status : undefined });
+            log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: gatewaySendCompleted(result, currentHistory), status: typeof result.status === "string" ? result.status : undefined });
             return { ok: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, ...result };
           } catch (error) {
             context.runs.updateRunStatus(runId, "error", { statusLabel: error instanceof Error ? error.message : "Message failed", error: errorMeta(error) });
