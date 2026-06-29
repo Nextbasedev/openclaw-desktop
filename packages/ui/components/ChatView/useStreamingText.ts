@@ -5,15 +5,17 @@ import { useEffect, useRef, useState } from "react"
 const MIN_FRAME_MS = 16
 const MAX_FRAME_MS = 80
 const MAX_CHARS_PER_FRAME = 180
+const MIN_CHARS_PER_SECOND = 140
+const MAX_CHARS_PER_SECOND = 2_400
 
 export function charsPerSecondForBacklog(backlog: number): number {
-  if (backlog > 2_400) return 2_400
-  if (backlog > 1_200) return 1_600
-  if (backlog > 640) return 950
-  if (backlog > 320) return 620
-  if (backlog > 120) return 360
-  if (backlog > 40) return 220
-  return 120
+  if (backlog <= 0) return MIN_CHARS_PER_SECOND
+  // Continuous, gently accelerating pace. A larger backlog reveals faster so we
+  // never fall far behind the model, but the speed now changes smoothly instead
+  // of snapping between fixed tiers — the old tiered curve made the reveal
+  // visibly stutter (speed jumps) as the backlog crossed each threshold.
+  const paced = MIN_CHARS_PER_SECOND + backlog * 0.82
+  return Math.min(MAX_CHARS_PER_SECOND, Math.round(paced))
 }
 
 export function nextRevealLength({
