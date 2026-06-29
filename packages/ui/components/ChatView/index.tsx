@@ -34,7 +34,7 @@ import {
   takeNextQueuedChatMessage,
   type QueuedChatMessage,
 } from "@/lib/chatSendQueue"
-import { isStopSlashCommand } from "@/lib/controlSlashCommands"
+import { getSlashCommandName, isStopSlashCommand } from "@/lib/controlSlashCommands"
 import { frontendLog } from "@/lib/clientLogs"
 import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
@@ -1341,7 +1341,12 @@ export function ChatView({
     if (!text && !payload.attachments?.length) return
     const hasAttachments = (payload.attachments?.length ?? 0) > 0
     const isStopCommand = !hasAttachments && !payload.replyTo && isStopSlashCommand(text)
-    if (isGenerating && !payload.runWhileGenerating && !isStopCommand) {
+    const latestUserMessage = [...state.messages].reverse().find((message) => message.role === "user")
+    const activeRunIsSlashCommand = Boolean(
+      isGenerating && latestUserMessage?.text && getSlashCommandName(latestUserMessage.text)
+    )
+    const canBypassQueue = Boolean(payload.runWhileGenerating && !activeRunIsSlashCommand)
+    if (isGenerating && !canBypassQueue && !isStopCommand) {
       if (!canEnqueueChatMessage(queuedMessagesRef.current)) {
         const message = `Queue limit reached. Max ${MAX_QUEUED_CHAT_MESSAGES} messages can be queued.`
         setState((current) => ({ ...current, composerError: message }))
