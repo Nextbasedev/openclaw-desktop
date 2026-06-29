@@ -1,4 +1,15 @@
 const { spawn } = require("node:child_process");
+const { mkdirSync, writeFileSync } = require("node:fs");
+const http = require("node:http");
+const os = require("node:os");
+const path = require("node:path");
+
+const uiDevUrl = "http://127.0.0.1:3000";
+const uiDevDisplayUrl = "http://localhost:3000";
+const tauriDevConfigPath = path.join(
+  os.tmpdir(),
+  "openclaw-tauri-dev.config.json",
+);
 
 function spawnPnpm(args, name) {
   const command = process.platform === "win32" ? "cmd.exe" : "pnpm";
@@ -72,14 +83,96 @@ function watch(child, name, { exitOnClean = true } = {}) {
   });
 }
 
+function checkNextServer() {
+  return new Promise((resolve) => {
+    const request = http.get(uiDevUrl, { timeout: 2000 }, (response) => {
+      const poweredBy = response.headers["x-powered-by"];
+      response.resume();
+      resolve(poweredBy === "Next.js");
+    });
+
+    request.on("error", () => resolve(false));
+    request.on("timeout", () => {
+      request.destroy();
+      resolve(false);
+    });
+  });
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function writeTauriDevConfig() {
+  mkdirSync(path.dirname(tauriDevConfigPath), { recursive: true });
+  writeFileSync(
+    tauriDevConfigPath,
+    JSON.stringify(
+      {
+        build: {
+          beforeDevCommand: null,
+        },
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function waitForNextServer() {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    if (await checkNextServer()) {
+      return true;
+    }
+
+    await delay(500);
+  }
+
+  return false;
+}
+
 process.on("SIGINT", () => shutdown(0, "SIGINT"));
 process.on("SIGTERM", () => shutdown(0, "SIGTERM"));
 
-const ui = spawnPnpm(["run", "dev:ui"], "UI dev server");
-const middlewareV2 = spawnPnpm(
-  ["--filter", "@openclaw/desktop-middleware", "dev"],
-  "middleware dev server",
-);
+async function main() {
+  console.log("Starting OpenClaw Desktop dev stack.");
 
-watch(ui, "UI dev server");
-watch(middlewareV2, "middleware dev server");
+  const ui = spawnPnpm(["run", "dev:ui"], "UI dev server");
+  const middlewareV2 = spawnPnpm(
+    ["--filter", "@openclaw/desktop-middleware", "dev"],
+    "middleware dev server",
+  );
+
+  watch(ui, "UI dev server", { exitOnClean: false });
+  watch(middlewareV2, "middleware dev server");
+
+  console.log(`Waiting for UI dev server on ${uiDevDisplayUrl}...`);
+  if (!(await waitForNextServer())) {
+    console.error(`Timed out waiting for ${uiDevDisplayUrl}.`);
+    shutdown(1);
+    return;
+  }
+
+  if (shuttingDown) return;
+
+  writeTauriDevConfig();
+  console.log("UI is ready. Starting Tauri desktop shell.");
+  const tauri = spawnPnpm(
+    [
+      "--filter",
+      "desktop",
+      "tauri",
+      "dev",
+      "--config",
+      tauriDevConfigPath,
+    ],
+    "Tauri desktop shell",
+  );
+
+  watch(tauri, "Tauri desktop shell");
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  shutdown(1);
+});
