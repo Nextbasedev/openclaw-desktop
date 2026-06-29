@@ -414,7 +414,7 @@ function generatingStatusText(status: StreamStatus, statusLabel: string | null, 
   if (status === "running") return statusLabel ? `Running - ${statusLabel}...` : "Running..."
   if (status === "collect") return statusLabel ? `Collecting - ${statusLabel}...` : "Collecting..."
   if (status === "tool_running") return `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
-  if (status === "streaming") return "Responding..."
+  if (status === "streaming") return "Writing..."
   if (status === "stopping") return "Stopping..."
   if (status === "restarting") return "Restarting..."
   return statusLabel ? `${statusLabel}...` : "Thinking - waiting for the next event..."
@@ -1997,10 +1997,12 @@ export function ChatView({
   const statusText = isGenerating
     ? generatingStatusText(state.streamStatus, state.statusLabel, liveTool)
     : null
-  // Keep the active-run indicator visible until the stream reaches a terminal
-  // status. A response can already contain assistant text/reasoning while the
-  // model or tool loop is still running; hiding this row in that state makes
-  // the chat look idle even though Stop/progress is still active.
+  // Keep the active-run indicator visible continuously until the stream reaches
+  // a terminal status. A response can already contain assistant text/reasoning
+  // while the model or tool loop is still running; hiding this row in that state
+  // (e.g. during a pause between tokens) makes the chat look idle / done even
+  // though generation is still in progress. The loader must persist until the
+  // response is actually complete.
   const showThinkingState = isGenerating
   const latestRenderedUserIndex = useMemo(() => {
     for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
