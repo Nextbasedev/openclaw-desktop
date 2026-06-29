@@ -50,6 +50,14 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
 
 let cachedCommands: SlashCommand[] | null = null
 
+function mergeEssentialCommands(commands: SlashCommand[]) {
+  const byName = new Map(commands.map((command) => [command.name, command]))
+  for (const command of FALLBACK_COMMANDS) {
+    if (!byName.has(command.name)) byName.set(command.name, command)
+  }
+  return Array.from(byName.values())
+}
+
 function mapLocalSkill(skill: LocalSkillEntry): SlashCommand {
   return {
     name: skill.slug,
@@ -99,8 +107,8 @@ export function useSlashCommands() {
     invoke<CommandsResponse>("middleware_commands_list", {})
       .then((res) => {
         if (res.commands && res.commands.length > 0) {
-          cachedCommands = res.commands
-          setCommands(res.commands)
+          cachedCommands = mergeEssentialCommands(res.commands)
+          setCommands(cachedCommands)
         } else {
           cachedCommands = FALLBACK_COMMANDS
           setCommands(FALLBACK_COMMANDS)
