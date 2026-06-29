@@ -1868,6 +1868,134 @@ describe("global V2 chat engine store", () => {
     expect(state?.messages.at(-1)).toMatchObject({ role: "assistant", text: "final answer with tail" })
   })
 
+  // Regression: assistant PREAMBLE text emitted before tool calls must NOT be
+  // mistaken for the run's final answer. Previously a `chat.assistant.final`
+  // preamble text patch (no tool blocks, no terminal runStatus) tripped a
+  // client-side text-based finalization heuristic, flipping the run to "done"
+  // mid-turn. The subsequent tool patches + the real final answer were then
+  // suppressed as post-final/stale and only appeared after a manual reload
+  // (SQLite re-bootstrap). This feeds a realistic preamble -> tools -> final
+  // patch sequence and asserts the tool stack AND the real final answer render
+  // live, status ends terminal, and there is no premature mid-run "done".
+  test("preamble text before tool calls does not prematurely finalize; tools and final answer render live", () => {
+    const sessionKey = "s-preamble-live"
+    const ACTIVE = new Set(["queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting"])
+
+    seedGlobalChatSession({
+      sessionKey,
+      cursor: 0,
+      status: "thinking",
+      statusLabel: "Thinking",
+      messages: [{ messageId: "u1", role: "user", text: "run a safe mixed sweep" }],
+    })
+
+    // 1) Assistant PREAMBLE text, classified by the gateway as an assistant
+    //    "final" message but carrying an ACTIVE run-status (middleware keeps the
+    //    run alive because tool calls are coming next).
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey,
+        createdAtMs: 1_000,
+        payload: {
+          semanticType: "chat.assistant.final",
+          runStatus: "streaming",
+          statusLabel: "Streaming",
+          message: { role: "assistant", text: "Running a safe mixed sweep\u2026", __openclaw: { id: "a-preamble" } },
+        },
+      },
+    })
+
+    // The preamble must NOT finalize the run.
+    const afterPreamble = getGlobalChatSession(sessionKey)!
+    expect(afterPreamble.status).not.toBe("done")
+    expect(ACTIVE.has(afterPreamble.status)).toBe(true)
+    expect(afterPreamble.messages.some((m) => m.role === "assistant" && m.text.includes("Running a safe mixed sweep"))).toBe(true)
+
+    // 2) Tool stack starts streaming live.
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.tool.started",
+        sessionKey,
+        createdAtMs: 1_100,
+        payload: {
+          semanticType: "chat.tool.started",
+          runStatus: "tool_running",
+          statusLabel: "read",
+          toolCall: { toolCallId: "tool-read", name: "read", status: "running", phase: "start", startedAtMs: 1_100 },
+        },
+      },
+    })
+
+    const afterToolStart = getGlobalChatSession(sessionKey)!
+    expect(afterToolStart.status).toBe("tool_running")
+    const toolVisibleLive =
+      afterToolStart.pendingTools.some((t) => t.id === "tool-read") ||
+      afterToolStart.messages.some((m) => m.toolCalls?.some((t) => t.id === "tool-read"))
+    expect(toolVisibleLive).toBe(true)
+
+    // 3) Tool completes live.
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.tool.result",
+        sessionKey,
+        createdAtMs: 1_200,
+        payload: {
+          semanticType: "chat.tool.result",
+          runStatus: "thinking",
+          statusLabel: "Thinking",
+          toolCall: { toolCallId: "tool-read", name: "read", status: "success", phase: "result", startedAtMs: 1_100, finishedAtMs: 1_200 },
+        },
+      },
+    })
+    expect(getGlobalChatSession(sessionKey)!.status).not.toBe("done")
+
+    // 4) The REAL final answer arrives carrying the terminal runStatus.
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 4,
+        type: "chat.message.upsert",
+        sessionKey,
+        createdAtMs: 1_300,
+        payload: {
+          semanticType: "chat.assistant.final",
+          runStatus: "done",
+          statusLabel: null,
+          message: { role: "assistant", text: "Swept 3 items \u2014 all clean.", __openclaw: { id: "a-final" } },
+        },
+      },
+    })
+
+    // 5) Redundant terminal status (matches the live patch-bus ordering).
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 5,
+        type: "chat.status",
+        sessionKey,
+        createdAtMs: 1_400,
+        payload: { semanticType: "chat.run.done", runStatus: "done", statusLabel: null },
+      },
+    })
+
+    const final = getGlobalChatSession(sessionKey)!
+    expect(final.status).toBe("done")
+    // The real final answer rendered live (no reload needed).
+    expect(final.messages.some((m) => m.role === "assistant" && m.text.includes("Swept 3 items"))).toBe(true)
+    // The tool stack is still present and resolved.
+    const finalTool =
+      final.messages.flatMap((m) => m.toolCalls ?? []).find((t) => t.id === "tool-read") ??
+      final.pendingTools.find((t) => t.id === "tool-read")
+    expect(finalTool?.status).toBe("success")
+  })
+
   test("active run and canonical tool patch drive visible running/tool state", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
@@ -3176,7 +3304,11 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
-  test("clears streaming loader when final assistant text arrives without a separate done status", () => {
+  test("clears streaming loader when the final assistant message carries the terminal runStatus", () => {
+    // Contract: completion is driven by the explicit run-status that middleware
+    // attaches to (or emits after) the final assistant text — never inferred
+    // from the text content itself. The gateway/middleware always carries the
+    // terminal runStatus on the assistant final patch when no tools remain.
     seedGlobalChatSession({
       sessionKey: "s1",
       cursor: 10,
@@ -3194,6 +3326,8 @@ describe("global V2 chat engine store", () => {
         createdAtMs: 11,
         payload: {
           semanticType: "chat.assistant.final",
+          runStatus: "done",
+          statusLabel: null,
           messageId: "a1",
           message: { role: "assistant", text: "Doing well — steady and ready." },
         },

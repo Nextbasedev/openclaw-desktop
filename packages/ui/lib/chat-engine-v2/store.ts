@@ -24,8 +24,6 @@ export type SessionState = {
   spawnedSubagents: SpawnedSubagent[]
   lastPatchAtMs: number
   activityStartedAtMs: number
-  deferredDoneUntilAssistant: boolean
-  finalizedAssistantAtMs: number
 }
 
 type Listener = (state: SessionState, frame?: PatchFrame) => void
@@ -44,7 +42,6 @@ const ACTIVE_STATUSES = new Set<StreamStatus>([
 const STALE_ACTIVE_RUN_MS = 5 * 60 * 1000
 const STALE_RUNNING_TOOL_PATCH_MS = 30 * 60 * 1000
 const PREMATURE_DONE_GRACE_MS = 10 * 1000
-const POST_FINAL_ACTIVE_STATUS_GRACE_MS = 30 * 1000
 const PREMATURE_DONE_AFTER_TEXT_GRACE_MS = 2 * 1000
 
 function isTerminalOrIdleStatus(status: StreamStatus) {
@@ -84,13 +81,11 @@ function cloneState(state: SessionState): SessionState {
     spawnedSubagents: state.spawnedSubagents,
     lastPatchAtMs: state.lastPatchAtMs,
     activityStartedAtMs: state.activityStartedAtMs,
-    deferredDoneUntilAssistant: state.deferredDoneUntilAssistant,
-    finalizedAssistantAtMs: state.finalizedAssistantAtMs,
   }
 }
 
 function defaultState(): SessionState {
-  return { cursor: 0, messages: [], historyCoverage: "none", messageCount: null, status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0, deferredDoneUntilAssistant: false, finalizedAssistantAtMs: 0 }
+  return { cursor: 0, messages: [], historyCoverage: "none", messageCount: null, status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0 }
 }
 
 function normalizedSpawnText(value: string | null | undefined) {
@@ -1269,15 +1264,8 @@ function maybeFinalizeAnsweredRun(state: SessionState, patchType: string) {
   state.status = "done"
   state.statusLabel = null
   state.activityStartedAtMs = 0
-  state.deferredDoneUntilAssistant = false
   finalizeActiveToolsForTerminalStatus(state, "done")
   return true
-}
-
-function isTerminalMessageStatusPatch(frame: PatchFrame, status: StreamStatus) {
-  if (status !== "done") return false
-  if (!isMessagePatchType(frame.patch.type) && !isMessagePatchType(patchSemanticType(frame))) return false
-  return Boolean(patchMessage(frame))
 }
 
 function hasTerminalToolPatch(frame: PatchFrame) {
@@ -1336,23 +1324,6 @@ function isAssistantFinalTextMessage(frame: PatchFrame) {
   return textFromUnknown(message.text ?? message.content).trim().length > 0
 }
 
-function shouldFinalizeOnAssistantFinalText(state: SessionState, frame: PatchFrame) {
-  if (!ACTIVE_STATUSES.has(state.status)) return false
-  if (!isAssistantFinalTextMessage(frame)) return false
-  if (hasActiveToolOrSubagent(state)) return false
-  return true
-}
-
-function shouldIgnorePostFinalActiveStatus(state: SessionState, frame: PatchFrame, status: StreamStatus) {
-  if (!ACTIVE_STATUSES.has(status)) return false
-  if (!state.finalizedAssistantAtMs) return false
-  if (Date.now() - state.finalizedAssistantAtMs > POST_FINAL_ACTIVE_STATUS_GRACE_MS) return false
-  if (isUserMessagePatch(frame)) return false
-  if (patchPayload(frame)?.toolCall) return false
-  if (!hasAssistantAnswerAfterLatestUser(state)) return false
-  return true
-}
-
 function isAssistantErrorMessagePatch(frame: PatchFrame) {
   const message = patchMessage(frame)
   if (!message || message.role !== "assistant") return false
@@ -1379,6 +1350,16 @@ function isBareDoneStatusPatch(frame: PatchFrame, status: StreamStatus) {
   return !payload?.message && !payload?.toolCall
 }
 
+// Blink protection: ignore a *bare* terminal "done" chat.status that arrives
+// before the final assistant text of the SAME active turn. The explicit
+// chat.status remains the source of truth for completion, but middleware emits
+// the authoritative terminal status WITH or AFTER the final assistant text
+// (verified in apps/middleware/src/features/chat/live.ts). A bare done that
+// races ahead of that final text would otherwise flip the composer/status area
+// to "complete" and then visibly blink when the trailing text/tool patches
+// land. This guard only defers a status-only `done` frame; it never suppresses
+// tool patches or assistant text, so it does not affect live tool/answer
+// rendering. Time-bounded so a genuine terminal done always lands.
 function shouldDeferBareDoneStatus(state: SessionState, frame: PatchFrame, status: StreamStatus) {
   if (!isBareDoneStatusPatch(frame, status)) return false
   if (!ACTIVE_STATUSES.has(state.status)) return false
@@ -1573,7 +1554,6 @@ function applyStaleMatchingToolPatch(state: SessionState, frame: PatchFrame) {
     state.status = patchStatus.status
     state.statusLabel = normalizeStatusLabel(state.status, patchStatus.label)
     state.activityStartedAtMs = 0
-    state.deferredDoneUntilAssistant = false
     finalizeActiveToolsForTerminalStatus(state, state.status)
   } else {
     reconcileVisibleActiveStatus(state)
@@ -1752,41 +1732,26 @@ function handlePatch(frame: PatchFrame) {
       // still carry an old activeRun/runStatus:"thinking" projection. Do not
       // resurrect completed chats into a permanent spinner unless the patch is
       // a real new user turn, live assistant delta, or tool/subagent activity.
-    } else if (shouldIgnorePostFinalActiveStatus(state, frame, patchStatus.status)) {
-      // Some providers emit chat.assistant.final before the tail of the same
-      // assistant message/status stream. Keep accepting message upserts below,
-      // but do not flip the whole chat back to "streaming" after we already
-      // finalized the visible assistant turn — that makes the composer/status
-      // area and message animation blink after completion.
-      frontendLog("status", "global-chat-session.post-final-active-skip", {
-        sessionKey,
-        attemptedStatus: patchStatus.status,
-        patchCursor: frame.patch.cursor,
-        patchType: frame.patch.type,
-        finalizedAgoMs: Date.now() - state.finalizedAssistantAtMs,
-      }, "debug")
     } else if (shouldDeferBareDoneStatus(state, frame, patchStatus.status)) {
-      state.deferredDoneUntilAssistant = true
-    } else if (
-      ACTIVE_STATUSES.has(state.status) &&
-      isTerminalMessageStatusPatch(frame, patchStatus.status) &&
-      (!isAssistantFinalTextMessage(frame) || !hasActiveToolOrSubagent(state)) &&
-      !hasTerminalToolPatch(frame)
-    ) {
-      // Tool-only / partial message projection patches can carry runStatus:"done"
-      // before the final assistant text arrives. Defer those, but accept the
-      // final assistant text patch itself: middleware does not always emit a
-      // second status-only "done" frame after that websocket message.
-      state.deferredDoneUntilAssistant = true
+      // Defer only a *bare* status-only "done" that races ahead of the final
+      // assistant text of the active turn (blink protection). The real
+      // terminal status carried with/after that final text still finalizes.
     } else {
+      // The explicit run-status carried by chat.status / chat.* patches is the
+      // single source of truth for active vs terminal. We do NOT infer
+      // terminal/final from assistant text content, and (apart from the bounded
+      // bare-done blink guard above) we do NOT defer or suppress
+      // middleware-authoritative status transitions. Middleware emits the
+      // terminal "done" status only after the final assistant text (and when no
+      // tools are still running), so trusting it directly keeps tool cards and
+      // the final answer rendering live without re-introducing the
+      // post-completion status blink.
       if (!state.activityStartedAtMs && ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = Date.now()
       if (!ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = 0
       const beginsNewTurn = ACTIVE_STATUSES.has(patchStatus.status) &&
         (!ACTIVE_STATUSES.has(previousStatus) || isUserMessagePatch(frame))
       state.status = patchStatus.status
       state.statusLabel = normalizeStatusLabel(state.status, patchStatus.label)
-      state.deferredDoneUntilAssistant = false
-      if (ACTIVE_STATUSES.has(state.status)) state.finalizedAssistantAtMs = 0
       if (beginsNewTurn) resetDetachedActivityForNewTurn(state)
     }
   } else if (patchImpliesActiveRun(frame) && !ACTIVE_STATUSES.has(state.status)) {
@@ -1797,7 +1762,6 @@ function handlePatch(frame: PatchFrame) {
     state.statusLabel = normalizeStatusLabel(state.status, "Thinking")
   }
   if (isUserMessagePatch(frame)) {
-    state.finalizedAssistantAtMs = 0
     resetDetachedActivityForNewTurn(state)
   }
   const previousMessages = state.messages
@@ -1818,21 +1782,11 @@ function handlePatch(frame: PatchFrame) {
     state.status = "error"
     state.statusLabel = null
     state.activityStartedAtMs = 0
-    state.deferredDoneUntilAssistant = false
-    state.finalizedAssistantAtMs = 0
     markLatestAssistantErrorForReveal(state)
   }
   reconcileVisibleActiveStatus(state)
-  const finalizedOnAssistantFinal = shouldFinalizeOnAssistantFinalText(state, frame)
-  if (finalizedOnAssistantFinal) {
-    state.status = "done"
-    state.statusLabel = null
-    state.activityStartedAtMs = 0
-    state.deferredDoneUntilAssistant = false
-    state.finalizedAssistantAtMs = Date.now()
-  }
   if (isTerminalOrIdleStatus(state.status)) finalizeActiveToolsForTerminalStatus(state, state.status)
-  const autoFinalized = finalizedOnAssistantFinal || maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
+  const autoFinalized = maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
   if (previousStatus !== state.status) {
     frontendLog("status", "global-chat-session.status-change", {
       sessionKey,
@@ -2040,12 +1994,10 @@ export function seedGlobalChatSession(params: {
       ? (wasActive && state.activityStartedAtMs ? state.activityStartedAtMs : now)
       : 0
     if (ACTIVE_STATUSES.has(params.status)) state.lastPatchAtMs = now
-    state.finalizedAssistantAtMs = ACTIVE_STATUSES.has(params.status) ? 0 : state.finalizedAssistantAtMs
   }
   if (!shouldPreserveLocalActivity) {
     if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
     if (params.status) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
-    if (params.status) state.deferredDoneUntilAssistant = false
     if (params.pendingTools) state.pendingTools = params.pendingTools
     if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
     if (params.spawnedSubagents) state.spawnedSubagents = dedupeSpawnedSubagents(params.spawnedSubagents)
@@ -2080,32 +2032,18 @@ export function updateGlobalChatSessionActivity(params: {
   if (params.spawnedSubagents) state.spawnedSubagents = dedupeSpawnedSubagents(params.spawnedSubagents)
   let appliedStatus = false
   if (params.status) {
-    if (
-      ACTIVE_STATUSES.has(params.status) &&
-      state.finalizedAssistantAtMs &&
-      Date.now() - state.finalizedAssistantAtMs <= POST_FINAL_ACTIVE_STATUS_GRACE_MS &&
-      hasAssistantAnswerAfterLatestUser(state)
-    ) {
-      frontendLog("status", "global-chat-session.post-final-activity-skip", {
-        sessionKey: params.sessionKey,
-        attemptedStatus: params.status,
-        finalizedAgoMs: Date.now() - state.finalizedAssistantAtMs,
-      }, "debug")
-    } else {
-      const wasActive = ACTIVE_STATUSES.has(state.status)
-      state.status = params.status
-      appliedStatus = true
-      const now = Date.now()
-      state.activityStartedAtMs = ACTIVE_STATUSES.has(params.status)
-        ? (wasActive && state.activityStartedAtMs ? state.activityStartedAtMs : now)
-        : 0
-      if (ACTIVE_STATUSES.has(params.status)) state.lastPatchAtMs = now
-      if (ACTIVE_STATUSES.has(params.status)) state.finalizedAssistantAtMs = 0
-    }
+    // Explicit run-status is authoritative; apply it directly.
+    const wasActive = ACTIVE_STATUSES.has(state.status)
+    state.status = params.status
+    appliedStatus = true
+    const now = Date.now()
+    state.activityStartedAtMs = ACTIVE_STATUSES.has(params.status)
+      ? (wasActive && state.activityStartedAtMs ? state.activityStartedAtMs : now)
+      : 0
+    if (ACTIVE_STATUSES.has(params.status)) state.lastPatchAtMs = now
   }
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
   if (appliedStatus) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
-  if (appliedStatus) state.deferredDoneUntilAssistant = false
   if (appliedStatus) finalizeActiveToolsForTerminalStatus(state, state.status)
   frontendLog("status", "global-chat-session.activity-update", {
     sessionKey: params.sessionKey,
@@ -2128,8 +2066,6 @@ export function sweepStaleGlobalChatSessions(nowMs = Date.now(), staleMs = STALE
     state.statusLabel = null
     state.activityStartedAtMs = 0
     state.lastPatchAtMs = nowMs
-    state.deferredDoneUntilAssistant = false
-    state.finalizedAssistantAtMs = 0
     state.pendingTools = state.pendingTools.map((tool) =>
       tool.status === "running"
         ? { ...tool, status: "error", resultText: tool.resultText ?? "Timed out waiting for tool result." }
