@@ -414,35 +414,10 @@ function generatingStatusText(status: StreamStatus, statusLabel: string | null, 
   if (status === "running") return statusLabel ? `Running - ${statusLabel}...` : "Running..."
   if (status === "collect") return statusLabel ? `Collecting - ${statusLabel}...` : "Collecting..."
   if (status === "tool_running") return `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
-  if (status === "streaming") return "Responding..."
+  if (status === "streaming") return "Writing..."
   if (status === "stopping") return "Stopping..."
   if (status === "restarting") return "Restarting..."
   return statusLabel ? `${statusLabel}...` : "Thinking - waiting for the next event..."
-}
-
-// How long the streaming tail must be quiet before we visually settle the
-// "Responding…" indicator. The gateway delivers its terminal `done` a few
-// hundred ms after the last token (persisted-message latency), so without this
-// the spinner lingers after the answer is already fully on screen.
-const STREAMING_TAIL_SETTLE_MS = 220
-
-// True only in the final streaming tail: the assistant's answer text is already
-// fully rendered and nothing is actively running. In this state the run is
-// merely awaiting the gateway's terminal `done`, so the indicator can settle
-// early. This NEVER changes the run status or suppresses any patch (purely a
-// visual debounce) — tool/thinking states keep the indicator, and any new
-// activity re-shows it — so it cannot reintroduce premature-finalization bugs.
-export function isStreamingTailSettled(
-  status: StreamStatus,
-  messages: ChatMessage[],
-  liveTool: InlineToolCall | null,
-) {
-  if (status !== "streaming") return false
-  if (liveTool) return false
-  const last = messages[messages.length - 1]
-  if (!last || last.role !== "assistant") return false
-  if (last.toolCalls?.some((tool) => tool.status === "running")) return false
-  return last.text.trim().length > 0
 }
 
 function shouldAnimateAssistantMessage(params: {
@@ -2021,31 +1996,13 @@ export function ChatView({
   const statusText = isGenerating
     ? generatingStatusText(state.streamStatus, state.statusLabel, liveTool)
     : null
-  // Visually settle the "Responding…" indicator once the streaming tail goes
-  // quiet (answer fully rendered, no tool running) for a short debounce, instead
-  // of waiting the extra few hundred ms for the gateway's terminal `done`. This
-  // is purely cosmetic: the run status, patches and Stop affordance are
-  // untouched; any new delta/tool/status re-shows it immediately.
-  const [streamingTailSettled, setStreamingTailSettled] = useState(false)
-  const tailSettleCandidate = isGenerating && isStreamingTailSettled(state.streamStatus, renderedMessages, liveTool)
-  useEffect(() => {
-    if (!tailSettleCandidate) {
-      setStreamingTailSettled(false)
-      return
-    }
-    // New activity arrived (or we just entered the tail) — show, then settle
-    // only after the stream stays quiet for the debounce window.
-    setStreamingTailSettled(false)
-    const timer = setTimeout(() => setStreamingTailSettled(true), STREAMING_TAIL_SETTLE_MS)
-    return () => clearTimeout(timer)
-  }, [tailSettleCandidate, state.streamStatus, renderedMessages])
-
-  // Keep the active-run indicator visible until the stream reaches a terminal
-  // status. A response can already contain assistant text/reasoning while the
-  // model or tool loop is still running; hiding this row in that state makes
-  // the chat look idle even though Stop/progress is still active. Exception: the
-  // quiet streaming tail above, where the answer is already complete.
-  const showThinkingState = isGenerating && !streamingTailSettled
+  // Keep the active-run indicator visible continuously until the stream reaches
+  // a terminal status. A response can already contain assistant text/reasoning
+  // while the model or tool loop is still running; hiding this row in that state
+  // (e.g. during a pause between tokens) makes the chat look idle / done even
+  // though generation is still in progress. The loader must persist until the
+  // response is actually complete.
+  const showThinkingState = isGenerating
   const latestRenderedUserIndex = useMemo(() => {
     for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
       if (renderedMessages[index]?.role === "user") return index
