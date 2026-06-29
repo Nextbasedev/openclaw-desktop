@@ -2,20 +2,6 @@ import type { SlashCommand } from "@/hooks/useSlashCommands"
 
 const CONTROL_NATIVE_COMMANDS = new Set([
   "status",
-  "commands",
-  "tools",
-  "tasks",
-  "context",
-  "whoami",
-  "session",
-  "subagents",
-  "acp",
-  "focus",
-  "unfocus",
-  "agents",
-  "kill",
-  "steer",
-  "usage",
   "model",
   "models",
   "reasoning",
@@ -31,14 +17,6 @@ const CONTROL_NATIVE_COMMANDS = new Set([
   "reset",
   "new",
   "stop",
-  "restart",
-  "activation",
-  "send",
-  "compact",
-  "think",
-  "fast",
-  "trace",
-  "queue",
 ])
 
 const FALLBACK_RUN_WHILE_GENERATING = CONTROL_NATIVE_COMMANDS
