@@ -1626,10 +1626,11 @@ export function ChatView({
     }, 1500)
   }, [])
 
-  function handleReply(messageId: string) {
+  function handleReply(messageId: string, selectedText?: string) {
     const message = findMessageById(messageId)
     if (!message) return
-    setReplyTo(message)
+    const selected = selectedText?.trim()
+    setReplyTo(selected ? { ...message, text: selected } : message)
   }
 
   function handleExport(messageId: string) {

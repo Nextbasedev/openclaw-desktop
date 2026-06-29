@@ -1022,7 +1022,7 @@ interface MessageBubbleProps {
   onEdit?: (messageId: string, newText: string) => void
   onRetrySend?: (messageId: string) => void
   onSwitchBranch?: (messageId: string, branchIndex: number) => void
-  onReply?: (messageId: string) => void
+  onReply?: (messageId: string, selectedText?: string) => void
   onPin?: (messageId: string) => void
   onDelete?: (messageId: string) => void
   onReact?: (messageId: string, reaction: "up" | "down") => void
@@ -1079,7 +1079,7 @@ export const MessageBubble = memo(function MessageBubble({
   onEdit?: (messageId: string, newText: string) => void
   onRetrySend?: (messageId: string) => void
   onSwitchBranch?: (messageId: string, branchIndex: number) => void
-  onReply?: (messageId: string) => void
+  onReply?: (messageId: string, selectedText?: string) => void
   onPin?: (messageId: string) => void
   onDelete?: (messageId: string) => void
   onReact?: (messageId: string, reaction: "up" | "down") => void
@@ -1610,7 +1610,7 @@ export const MessageBubble = memo(function MessageBubble({
                       icon={<LuReply className="size-3.5" />}
                       onClick={() => {
                         closeSelectedTextMenu()
-                        onReply(message.messageId)
+                        onReply(message.messageId, selectedTextMenu.text)
                       }}
                     />
                   )}
