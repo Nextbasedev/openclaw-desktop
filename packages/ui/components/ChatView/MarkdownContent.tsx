@@ -360,14 +360,6 @@ function splitTextAndEmbeds(text: string, embeds?: EmbedContent[]) {
   return parts
 }
 
-// NOTE: A per-word fade-in (rehype plugin wrapping each word in an animated
-// <span.md-stream-word>) was removed deliberately. react-markdown re-parses the
-// whole message on every streamed commit, so any structural markdown change
-// (a **bold**/list/paragraph closing) remounts the entire word-span subtree and
-// the CSS fade replays from opacity:0 on ALL words at once -- the whole message
-// flashes invisible mid-stream (proven via browser capture: 119/119 words at
-// opacity 0). The word-boundary typing reveal in useStreamingText already gives
-// a word-by-word streaming feel without ever hiding already-revealed text.
 export function MarkdownContent({
   text,
   className,
@@ -445,12 +437,7 @@ export function MarkdownContent({
         part.type === "embed" ? (
           <EmbedBlock key={`embed-${i}`} embed={part.embed} />
         ) : (
-          <ReactMarkdown
-            key={`md-${i}`}
-            remarkPlugins={[remarkGfm, remarkBreaks]}
-            rehypePlugins={[]}
-            components={highlightedComponents}
-          >
+          <ReactMarkdown key={`md-${i}`} remarkPlugins={[remarkGfm, remarkBreaks]} components={highlightedComponents}>
             {part.value}
           </ReactMarkdown>
         ),
