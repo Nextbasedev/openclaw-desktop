@@ -557,19 +557,8 @@ body {
   }
 }
 
-/* Soft typing caret trailing the actively-streaming text. Independent blink
-   (does not re-trigger per revealed character), so it stays smooth. */
 .streaming-text> :last-child::after {
-  content: "";
-  display: inline-block;
-  width: 0.5ch;
-  height: 1.02em;
-  margin-left: 0.12em;
-  vertical-align: text-bottom;
-  border-radius: 1.5px;
-  background: currentColor;
-  opacity: 0.5;
-  animation: cursor-blink 1.05s ease-in-out infinite;
+  content: none;
 }
 
 @keyframes cursor-blink {
