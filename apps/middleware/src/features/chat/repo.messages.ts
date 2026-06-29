@@ -28,9 +28,20 @@ function runIdentityOf(data: unknown): string | null {
   return typeof runId === "string" && runId.trim() ? runId.trim() : null;
 }
 
+function isGatewayInjectedCommandOutput(data: unknown) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  const message = data as OpenClawMessage;
+  return message.provider === "openclaw" && message.model === "gateway-injected";
+}
+
 function isStrippedReplayCandidate(message: ProjectedMessage) {
   if (message.role !== "user" && message.role !== "assistant") return false;
   if (runIdentityOf(message.data)) return false;
+  // Native slash command replies are gateway-injected and can legitimately
+  // repeat byte-for-byte (for example running /status twice). Do not collapse
+  // those by text, or the second command has no new assistant row and its run
+  // remains stuck in "Writing".
+  if (message.role === "assistant" && isGatewayInjectedCommandOutput(message.data)) return false;
   return Boolean(textOf(message.data));
 }
 

@@ -762,6 +762,14 @@ function gatewaySendCompleted(_result: Record<string, unknown>, currentHistory: 
   return Boolean(currentHistory?.currentUserRepresented && currentHistory.assistantAfterCurrentUser);
 }
 
+function isGatewayInjectedCommandOutput(message: ProjectedMessage) {
+  const data = objectData(message.data);
+  return message.role === "assistant"
+    && data.provider === "openclaw"
+    && data.model === "gateway-injected"
+    && assistantHasVisibleAnswer(message);
+}
+
 function localRunId(idempotencyKey: string) {
   return `run:${idempotencyKey}`;
 }
@@ -1439,6 +1447,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
               });
               const normalized = normalizeHistoryMessages(input.sessionKey, history.messages);
+              const slashCommandOutput = isSlashCommandText(rawMessage)
+                ? [...normalized].reverse().find(isGatewayInjectedCommandOutput) ?? null
+                : null;
               const projectSeq = (message: ProjectedMessage) => segment.baseSeq + (message.gatewaySeq ?? message.openclawSeq);
               const historyMaxSeq = normalized.reduce((max, message) => Math.max(max, projectSeq(message)), 0);
               const gatewayUserEcho = [...normalized].reverse().find((message) => message.role === "user" && projectSeq(message) >= optimisticSeq && messageTextMatchesSent(textFromMessage(message.data), prepared.message));
@@ -1459,7 +1470,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                   ? normalized.some((message) => message.openclawSeq > currentGatewayUserSeq && assistantHasVisibleAnswer(message))
                   : liveConfirmedCurrentUserSeq !== null
                     ? normalized.some((message) => projectSeq(message) > liveConfirmedCurrentUserSeq && assistantHasVisibleAnswer(message))
-                    : false,
+                    : Boolean(slashCommandOutput),
               };
               if (confirmedUser) {
                 log.info("optimistic.user.confirmed", {
@@ -1531,7 +1542,11 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 log.info("patch.broadcast", { sessionKey: input.sessionKey, type: confirmedEvent.eventType, cursor: confirmedEvent.cursor, messageSeq: confirmedUser.openclawSeq, role: confirmedUser.role, runId });
               }
               for (const projected of projection.changedMessages) {
-                if (!currentHistory.currentUserRepresented || currentUserSeq === null || projected.openclawSeq <= currentUserSeq) {
+                const isCurrentSlashCommandOutput = Boolean(slashCommandOutput)
+                  && projected.role === slashCommandOutput?.role
+                  && projected.openclawSeq === projectSeq(slashCommandOutput)
+                  && textFromMessage(projected.data) === textFromMessage(slashCommandOutput.data);
+                if ((!currentHistory.currentUserRepresented || currentUserSeq === null || projected.openclawSeq <= currentUserSeq) && !isCurrentSlashCommandOutput) {
                   log.info("history.patch.skip_stale_for_current_run", { sessionKey: input.sessionKey, messageSeq: projected.openclawSeq, role: projected.role, runId, optimisticSeq, currentUserRepresented: currentHistory.currentUserRepresented });
                   continue;
                 }
