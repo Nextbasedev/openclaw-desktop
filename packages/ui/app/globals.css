@@ -535,6 +535,14 @@ body {
 
 .streaming-text {
   transition: none;
+  /* Soft, GPU-composited fade at the writing edge so streamed text gently
+     "materializes" instead of popping in character-by-character. This is a pure
+     CSS mask that simply follows the content — no per-frame JS, no markdown
+     re-render interaction — so it stays smooth and never lags. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1em), rgba(0, 0, 0, 0.3) 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1em), rgba(0, 0, 0, 0.3) 100%);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
 
 .streaming-text> :last-child {
@@ -557,19 +565,10 @@ body {
   }
 }
 
-/* Soft typing caret trailing the actively-streaming text. Independent blink
-   (does not re-trigger per revealed character), so it stays smooth. */
+/* Caret disabled — the trailing fade-mask above is the streaming cue, which
+   reads smoother than a blinking block caret. */
 .streaming-text> :last-child::after {
-  content: "";
-  display: inline-block;
-  width: 0.5ch;
-  height: 1.02em;
-  margin-left: 0.12em;
-  vertical-align: text-bottom;
-  border-radius: 1.5px;
-  background: currentColor;
-  opacity: 0.5;
-  animation: cursor-blink 1.05s ease-in-out infinite;
+  content: none;
 }
 
 @keyframes cursor-blink {
@@ -648,6 +647,8 @@ body {
     animation: none;
     transition: none;
     filter: none;
+    -webkit-mask-image: none;
+    mask-image: none;
   }
 
   .chatbox-glow::before {
