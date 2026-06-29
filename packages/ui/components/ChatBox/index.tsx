@@ -29,6 +29,7 @@ import type { QueuedChatMessage } from "@/lib/chatSendQueue"
 import type { ReplyTo } from "@/components/ChatView/types"
 import type { Space } from "@/types/space"
 import { composerReducer, initialComposerState } from "@/lib/composerState"
+import { canRunSlashCommandWhileGenerating } from "@/lib/controlSlashCommands"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
 import {
   chatAttachmentHref,
@@ -245,7 +246,10 @@ export function ChatBox({
   const showSendWhileGenerating = Boolean(
     isGenerating && (input.trim().length > 0 || attachments.length > 0)
   )
-  const canRunImmediatelyWhileGenerating = false
+  const canRunImmediatelyWhileGenerating = React.useMemo(
+    () => attachments.length === 0 && canRunSlashCommandWhileGenerating(input.trim(), commands),
+    [attachments.length, commands, input]
+  )
   const {
     state: voiceState,
     isSupported: recorderSupported,
@@ -797,7 +801,7 @@ export function ChatBox({
                 y: 4,
                 transition: { duration: 0.16, ease: "easeInOut" },
               }}
-              className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-full origin-bottom overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg"
+              className="absolute bottom-full left-0 z-50 mb-3 max-h-64 w-full origin-bottom overflow-hidden rounded-xl border border-border bg-background/95 p-1 shadow-lg backdrop-blur-xl dark:bg-[#151515]/95"
             >
               <div className="py-1">
                 <div className="flex items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
