@@ -29,7 +29,6 @@ import type { QueuedChatMessage } from "@/lib/chatSendQueue"
 import type { ReplyTo } from "@/components/ChatView/types"
 import type { Space } from "@/types/space"
 import { composerReducer, initialComposerState } from "@/lib/composerState"
-import { canRunSlashCommandWhileGenerating } from "@/lib/controlSlashCommands"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
 import {
   chatAttachmentHref,
@@ -246,10 +245,7 @@ export function ChatBox({
   const showSendWhileGenerating = Boolean(
     isGenerating && (input.trim().length > 0 || attachments.length > 0)
   )
-  const canRunImmediatelyWhileGenerating = React.useMemo(
-    () => attachments.length === 0 && canRunSlashCommandWhileGenerating(input.trim(), commands),
-    [attachments.length, commands, input]
-  )
+  const canRunImmediatelyWhileGenerating = false
   const {
     state: voiceState,
     isSupported: recorderSupported,
