@@ -24,6 +24,11 @@ export type SessionState = {
   spawnedSubagents: SpawnedSubagent[]
   lastPatchAtMs: number
   activityStartedAtMs: number
+  // A bare terminal "done" chat.status that arrived BEFORE the active turn's
+  // final assistant text (races ahead). Held here so it is flushed the moment
+  // the answer lands, instead of being dropped (which would hang the run on
+  // "Responding…"). null when there is no pending terminal status.
+  pendingDoneStatus: { status: StreamStatus; label: string | null } | null
 }
 
 type Listener = (state: SessionState, frame?: PatchFrame) => void
@@ -81,11 +86,12 @@ function cloneState(state: SessionState): SessionState {
     spawnedSubagents: state.spawnedSubagents,
     lastPatchAtMs: state.lastPatchAtMs,
     activityStartedAtMs: state.activityStartedAtMs,
+    pendingDoneStatus: state.pendingDoneStatus,
   }
 }
 
 function defaultState(): SessionState {
-  return { cursor: 0, messages: [], historyCoverage: "none", messageCount: null, status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0 }
+  return { cursor: 0, messages: [], historyCoverage: "none", messageCount: null, status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0, pendingDoneStatus: null }
 }
 
 function normalizedSpawnText(value: string | null | undefined) {
@@ -1310,6 +1316,7 @@ function resetDetachedActivityForNewTurn(state: SessionState) {
   // reappear as "running" when the user sends the next message, especially
   // after patch replay/bootstrap churn.
   state.pendingTools = []
+  state.pendingDoneStatus = null
   state.spawnedSubagents = dedupeSpawnedSubagents(state.spawnedSubagents.filter((spawn) =>
     spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working" || Boolean(spawn.sessionKey)
   ))
@@ -1370,6 +1377,53 @@ function shouldDeferBareDoneStatus(state: SessionState, frame: PatchFrame, statu
   if (!hasAssistantAnswerAfterLatestUser(state)) return true
   if (!state.lastPatchAtMs) return false
   return Date.now() - state.lastPatchAtMs <= PREMATURE_DONE_AFTER_TEXT_GRACE_MS
+}
+
+// Self-healing flush for a deferred bare "done". The bare-done blink guard above
+// intentionally defers a status-only terminal that arrives while the turn still
+// looks active (races ahead of / right on top of the final assistant text). The
+// authoritative terminal usually rides on the final assistant message and
+// supersedes the pending one. But when the BARE done is the only terminal signal
+// (no trailing message-borne done), nothing else arrives to apply it — which is
+// what left simple text-only turns stuck on "Responding…". So once the stream
+// goes quiet for the grace window with the answer present and no tools running,
+// we apply the held terminal. If real activity is still flowing, lastPatchAtMs
+// keeps advancing and we reschedule instead of finalizing (no blink).
+const pendingDoneTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function clearPendingDoneFlush(sessionKey: string) {
+  const timer = pendingDoneTimers.get(sessionKey)
+  if (timer) { clearTimeout(timer); pendingDoneTimers.delete(sessionKey) }
+}
+
+function schedulePendingDoneFlush(sessionKey: string, delayMs = PREMATURE_DONE_AFTER_TEXT_GRACE_MS) {
+  if (typeof setTimeout === "undefined") return
+  clearPendingDoneFlush(sessionKey)
+  pendingDoneTimers.set(sessionKey, setTimeout(() => attemptPendingDoneFlush(sessionKey), delayMs + 50))
+}
+
+function attemptPendingDoneFlush(sessionKey: string) {
+  pendingDoneTimers.delete(sessionKey)
+  const state = states.get(sessionKey)
+  if (!state) return
+  const pending = state.pendingDoneStatus
+  if (!pending) return
+  // An explicit status transition already cleared/superseded it, or tools are
+  // back in flight — drop the stale held terminal and let canonical status win.
+  if (!ACTIVE_STATUSES.has(state.status)) { state.pendingDoneStatus = null; return }
+  if (hasActiveToolOrSubagent(state) || state.pendingTools.length > 0) { state.pendingDoneStatus = null; return }
+  if (!hasAssistantAnswerAfterLatestUser(state)) { state.pendingDoneStatus = null; return }
+  // Stream still active within the grace window — wait for it to settle.
+  if (state.lastPatchAtMs && Date.now() - state.lastPatchAtMs < PREMATURE_DONE_AFTER_TEXT_GRACE_MS) {
+    schedulePendingDoneFlush(sessionKey)
+    return
+  }
+  state.status = pending.status
+  state.statusLabel = normalizeStatusLabel(state.status, pending.label)
+  state.activityStartedAtMs = 0
+  state.pendingDoneStatus = null
+  finalizeActiveToolsForTerminalStatus(state, state.status)
+  notify(sessionKey)
 }
 
 function messageTextFromPatch(frame: PatchFrame | undefined) {
@@ -1733,9 +1787,12 @@ function handlePatch(frame: PatchFrame) {
       // resurrect completed chats into a permanent spinner unless the patch is
       // a real new user turn, live assistant delta, or tool/subagent activity.
     } else if (shouldDeferBareDoneStatus(state, frame, patchStatus.status)) {
-      // Defer only a *bare* status-only "done" that races ahead of the final
-      // assistant text of the active turn (blink protection). The real
-      // terminal status carried with/after that final text still finalizes.
+      // Defer only a *bare* status-only "done" that races ahead of / lands right
+      // on top of the final assistant text (blink protection). Hold it and arm a
+      // self-healing flush so that if no superseding terminal arrives, the turn
+      // still finalizes once the stream goes quiet — never left on "Responding…".
+      state.pendingDoneStatus = { status: patchStatus.status, label: patchStatus.label }
+      schedulePendingDoneFlush(sessionKey)
     } else {
       // The explicit run-status carried by chat.status / chat.* patches is the
       // single source of truth for active vs terminal. We do NOT infer
@@ -1752,6 +1809,9 @@ function handlePatch(frame: PatchFrame) {
         (!ACTIVE_STATUSES.has(previousStatus) || isUserMessagePatch(frame))
       state.status = patchStatus.status
       state.statusLabel = normalizeStatusLabel(state.status, patchStatus.label)
+      // An explicit status transition supersedes any held bare done.
+      state.pendingDoneStatus = null
+      clearPendingDoneFlush(sessionKey)
       if (beginsNewTurn) resetDetachedActivityForNewTurn(state)
     }
   } else if (patchImpliesActiveRun(frame) && !ACTIVE_STATUSES.has(state.status)) {
@@ -1762,6 +1822,7 @@ function handlePatch(frame: PatchFrame) {
     state.statusLabel = normalizeStatusLabel(state.status, "Thinking")
   }
   if (isUserMessagePatch(frame)) {
+    clearPendingDoneFlush(sessionKey)
     resetDetachedActivityForNewTurn(state)
   }
   const previousMessages = state.messages
@@ -2217,6 +2278,8 @@ export function clearGlobalChatEngineForTests() {
   }
   for (const timer of warmPersistTimers.values()) clearTimeout(timer)
   warmPersistTimers.clear()
+  for (const timer of pendingDoneTimers.values()) clearTimeout(timer)
+  pendingDoneTimers.clear()
   pendingNotifications.clear()
   if (batchRafId !== null) {
     cancelAnimationFrame(batchRafId)

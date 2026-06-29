@@ -3935,3 +3935,34 @@ describe("global V2 chat engine store", () => {
     })
   })
 })
+
+describe("terminal status finalizes text-only turns (regression: stuck on Responding)", () => {
+  const ingest = (sessionKey: string, cursor: number, type: string, payload: Record<string, unknown>, createdAtMs = Date.now()) =>
+    ingestGlobalChatPatchForTests({ type: "patch", patch: { cursor, type, sessionKey, createdAtMs, payload: { sessionKey, ...payload } } } as any)
+
+  test("done carried on the final chat.message.upsert finalizes immediately (captured real frames)", () => {
+    const s = "agent:main:scratch:final-on-message"
+    ingest(s, 1, "chat.message.upsert", { message: { role: "user", text: "whats your name?" }, runStatus: "thinking", statusLabel: "Thinking" })
+    ingest(s, 2, "chat.status", { runStatus: "streaming", statusLabel: "Streaming" })
+    ingest(s, 3, "chat.message.upsert", { message: { role: "assistant", text: "Empire." }, runStatus: "streaming", statusLabel: "Streaming" })
+    ingest(s, 4, "chat.message.upsert", { message: { role: "assistant", text: "Empire." }, runStatus: "done", statusLabel: null })
+    expect(getGlobalChatSession(s)?.status).toBe("done")
+  })
+
+  test("bare trailing chat.status done (no done on the message) self-heals once the stream settles", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    const s = "agent:main:scratch:bare-done-after-text"
+    ingest(s, 1, "chat.message.upsert", { message: { role: "user", text: "hi" }, runStatus: "thinking", statusLabel: "Thinking" }, 1_000)
+    vi.setSystemTime(2_000)
+    ingest(s, 2, "chat.status", { runStatus: "streaming", statusLabel: "Streaming" }, 2_000)
+    ingest(s, 3, "chat.message.upsert", { message: { role: "assistant", text: "Empire." }, runStatus: "streaming", statusLabel: "Streaming" }, 2_000)
+    // bare done lands right on top of the final text -> deferred (blink guard)
+    ingest(s, 4, "chat.status", { runStatus: "done", statusLabel: null }, 2_000)
+    expect(getGlobalChatSession(s)?.status).not.toBe("done")
+    // stream goes quiet -> self-healing flush finalizes the turn
+    vi.advanceTimersByTime(5_000)
+    expect(getGlobalChatSession(s)?.status).toBe("done")
+  })
+
+})
