@@ -12,22 +12,72 @@ type Shortcut = {
 }
 
 const SHORTCUTS: Shortcut[] = [
-  { command: "Reload Window", keys: [["Ctrl", "R"], ["⌘", "R"]], scope: "Global" },
-  { command: "New Chat", keys: [["Ctrl", "N"], ["⌘", "N"]], scope: "Global" },
-  { command: "Command Palette", keys: [["Ctrl", "K"], ["⌘", "K"]], scope: "Global" },
-  { command: "Toggle Terminal", keys: [["Ctrl", "`"], ["⌘", "`"]], scope: "Global" },
+  {
+    command: "Reload Window",
+    keys: [
+      ["Ctrl", "R"],
+      ["⌘", "R"],
+    ],
+    scope: "Global",
+  },
+  {
+    command: "New Chat",
+    keys: [
+      ["Ctrl", "N"],
+      ["⌘", "N"],
+    ],
+    scope: "Global",
+  },
+  {
+    command: "Command Palette",
+    keys: [
+      ["Ctrl", "K"],
+      ["⌘", "K"],
+    ],
+    scope: "Global",
+  },
+  {
+    command: "Toggle Terminal",
+    keys: [
+      ["Ctrl", "`"],
+      ["⌘", "`"],
+    ],
+    scope: "Global",
+  },
   // Voice-to-text shortcuts intentionally disabled (mic button removed from composer)
   // { command: "Hold to record voice", keys: [["Win", "Space"], ["⌘", "Space"]], scope: "Chat" },
   // { command: "Toggle voice recording", keys: [["Ctrl"], ["Ctrl"]], scope: "Chat" },
   { command: "Toggle Theme", keys: [["D"]], scope: "Global" },
-  { command: "Quit Application", keys: [["Ctrl", "Q"], ["⌘", "Q"]], scope: "Global" },
-  { command: "Copy Selection", keys: [["Ctrl", "C"], ["⌘", "C"]], scope: "Terminal" },
-  { command: "Paste", keys: [["Ctrl", "V"], ["⌘", "V"]], scope: "Terminal" },
+  {
+    command: "Quit Application",
+    keys: [
+      ["Ctrl", "Q"],
+      ["⌘", "Q"],
+    ],
+    scope: "Global",
+  },
+  {
+    command: "Copy Selection",
+    keys: [
+      ["Ctrl", "C"],
+      ["⌘", "C"],
+    ],
+    scope: "Terminal",
+  },
+  {
+    command: "Paste",
+    keys: [
+      ["Ctrl", "V"],
+      ["⌘", "V"],
+    ],
+    scope: "Terminal",
+  },
   { command: "Close Dialog", keys: [["Esc"]], scope: "Dialogs" },
   { command: "Submit Input", keys: [["Enter"]], scope: "Forms" },
 ]
 
-const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent)
+const isMac =
+  typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent)
 
 function getKeys(shortcut: Shortcut): string[] {
   if (shortcut.keys.length === 1) return shortcut.keys[0]
@@ -40,32 +90,51 @@ type ShortcutsTableProps = {
 
 export function KeyboardShortcutsTable({ className }: ShortcutsTableProps) {
   return (
-    <div className={cn("overflow-hidden rounded-2xl border border-black/[0.08] bg-black/[0.025] dark:border-white/[0.08] dark:bg-white/[0.035]", className)}>
+    <div
+      className={cn(
+        "overflow-hidden rounded-2xl border border-black/[0.08] bg-black/[0.025] dark:border-white/[0.08] dark:bg-white/[0.035]",
+        className
+      )}
+    >
       <div className="grid grid-cols-[minmax(0,1fr)_150px_80px] items-center gap-4 border-b border-black/[0.06] bg-black/[0.035] px-5 py-3 dark:border-white/[0.06] dark:bg-white/[0.045]">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">Command</span>
-        <span className="text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">Keybinding</span>
-        <span className="text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">Scope</span>
+        <span className="text-[10px] font-semibold tracking-[0.16em] text-muted-foreground/70 uppercase">
+          Command
+        </span>
+        <span className="text-right text-[10px] font-semibold tracking-[0.16em] text-muted-foreground/70 uppercase">
+          Keybinding
+        </span>
+        <span className="text-right text-[10px] font-semibold tracking-[0.16em] text-muted-foreground/70 uppercase">
+          Scope
+        </span>
       </div>
       {SHORTCUTS.map((shortcut, idx) => (
         <div
           key={shortcut.command}
           className={cn(
             "grid grid-cols-[minmax(0,1fr)_150px_80px] items-center gap-4 px-5 py-3.5 transition-colors hover:bg-black/[0.035] dark:hover:bg-white/[0.045]",
-            idx > 0 && "border-t border-black/[0.045] dark:border-white/[0.055]",
+            idx > 0 && "border-t border-black/[0.045] dark:border-white/[0.055]"
           )}
         >
-          <span className="min-w-0 truncate text-[13px] font-medium text-foreground">{shortcut.command}</span>
+          <span className="min-w-0 truncate text-[13px] font-medium text-foreground">
+            {shortcut.command}
+          </span>
           <div className="flex items-center justify-end gap-1">
             {getKeys(shortcut).map((key, i) => (
               <React.Fragment key={`${shortcut.command}-${key}-${i}`}>
-                {i > 0 && <span className="text-[11px] text-muted-foreground/45">+</span>}
+                {i > 0 && (
+                  <span className="text-[11px] text-muted-foreground/45">
+                    +
+                  </span>
+                )}
                 <kbd className="inline-flex min-w-[28px] items-center justify-center rounded-lg border border-black/[0.10] bg-white/60 px-2 py-1 text-[11px] font-semibold text-black shadow-[inset_0_1px_0_rgba(255,255,255,0.80)] dark:border-white/[0.10] dark:bg-black/35 dark:text-white dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
                   {key}
                 </kbd>
               </React.Fragment>
             ))}
           </div>
-          <span className="text-right text-[11px] text-muted-foreground/70">{shortcut.scope}</span>
+          <span className="text-right text-[11px] text-muted-foreground/70">
+            {shortcut.scope}
+          </span>
         </div>
       ))}
     </div>
@@ -77,17 +146,24 @@ type KeyboardShortcutsDropdownProps = {
   className?: string
 }
 
-export function KeyboardShortcutsDropdown({ defaultOpen = false, className }: KeyboardShortcutsDropdownProps) {
+export function KeyboardShortcutsDropdown({
+  defaultOpen = false,
+  className,
+}: KeyboardShortcutsDropdownProps) {
   const [open, setOpen] = React.useState(defaultOpen)
 
   return (
-    <section className={cn("overflow-hidden p-1.5", GLASS_POPOVER, "rounded-3xl", className)}>
+    <section
+      className={cn("overflow-hidden p-1.5",  "", className)}
+    >
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         className={cn(
           "flex w-full cursor-pointer items-center justify-between gap-4 rounded-2xl px-4 py-3 text-left transition-colors",
-          open ? "bg-black/[0.055] dark:bg-white/[0.075]" : "hover:bg-black/[0.04] dark:hover:bg-white/[0.055]",
+          open
+            ? "bg-black/[0.055] dark:bg-white/[0.075]"
+            : "hover:bg-black/[0.04] dark:hover:bg-white/[0.055]"
         )}
       >
         <span className="flex min-w-0 items-center gap-3">
@@ -95,11 +171,21 @@ export function KeyboardShortcutsDropdown({ defaultOpen = false, className }: Ke
             <LuKeyboard size={16} />
           </span>
           <span className="min-w-0">
-            <span className="block text-[13px] font-semibold text-foreground">Keyboard Shortcuts</span>
-            <span className="block text-[11px] text-muted-foreground">View all available shortcuts</span>
+            <span className="block text-[13px] font-semibold text-foreground">
+              Keyboard Shortcuts
+            </span>
+            <span className="block text-[11px] text-muted-foreground">
+              View all available shortcuts
+            </span>
           </span>
         </span>
-        <LuChevronDown size={16} className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+        <LuChevronDown
+          size={16}
+          className={cn(
+            "shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180"
+          )}
+        />
       </button>
 
       {open && <KeyboardShortcutsTable className="mt-1" />}
@@ -121,9 +207,12 @@ export function KeyboardShortcutsTab({ onBack }: KeyboardShortcutsTabProps) {
               <LuKeyboard size={18} />
             </span>
             <div className="min-w-0">
-              <h2 className="text-lg font-semibold text-foreground">Keyboard Shortcuts</h2>
+              <h2 className="text-lg font-semibold text-foreground">
+                Keyboard Shortcuts
+              </h2>
               <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                Open the dropdown to view all available OpenClaw Desktop shortcuts.
+                Open the dropdown to view all available OpenClaw Desktop
+                shortcuts.
               </p>
             </div>
           </div>
