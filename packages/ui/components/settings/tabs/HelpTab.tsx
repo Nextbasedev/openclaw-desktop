@@ -8,6 +8,7 @@ import { invalidateMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { getMiddlewareConnection, isOpenClawConnected, testMiddlewareConnection } from "@/lib/middleware-client"
 import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert, LuChevronDown, LuKeyRound } from "react-icons/lu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { KeyboardShortcutsDropdown } from "./KeyboardShortcutsTab"
 import { cn } from "@/lib/utils"
 
 type HelpLink = {
@@ -170,6 +171,9 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
         {links.map((link) => {
           const Icon = link.icon
           const isExternal = link.url.startsWith("http")
+          if (link.label === "Keyboard Shortcuts") {
+            return <KeyboardShortcutsDropdown key={link.label} />
+          }
           return (
             <button
               key={link.label}
