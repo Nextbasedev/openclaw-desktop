@@ -3473,6 +3473,68 @@ function gatewayUsageDays(cost: CompatRecord) {
   return Array.isArray(cost.daily) ? cost.daily as CompatRecord[] : [];
 }
 
+type UsagePricing = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+};
+
+const FALLBACK_USAGE_PRICING: Record<string, UsagePricing> = {
+  // Local OpenClaw custom models do not exist in public pricing catalogs, so older
+  // transcript rows can contain a real token count with a persisted cost of 0.
+  // Prices are USD per 1M tokens and match the cost breakdown used by existing
+  // non-zero transcript entries for this provider/model family.
+  "openai-codex/gpt-5.5": { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
+  "openai-codex/gpt-5.4": { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
+};
+
+function normalizePricingKey(provider: unknown, model: unknown) {
+  const providerId = typeof provider === "string" ? provider.trim().toLowerCase() : "";
+  const modelId = typeof model === "string" ? model.trim() : "";
+  return providerId && modelId ? `${providerId}/${modelId}` : "";
+}
+
+function estimateUsageCostFromPricing(usage: CompatRecord, provider: unknown, model: unknown) {
+  const pricing = FALLBACK_USAGE_PRICING[normalizePricingKey(provider, model)];
+  if (!pricing) return 0;
+  const input = usageNumber(usage.input);
+  const output = usageNumber(usage.output);
+  const cacheRead = usageNumber(usage.cacheRead);
+  const cacheWrite = usageNumber(usage.cacheWrite);
+  if (input + output + cacheRead + cacheWrite <= 0) return 0;
+  return (input * pricing.input + output * pricing.output + cacheRead * pricing.cacheRead + cacheWrite * pricing.cacheWrite) / 1_000_000;
+}
+
+function hasBillableUsage(summary: CompatRecord) {
+  return usageNumber(summary.totalTokens) > 0
+    || usageNumber(summary.input) + usageNumber(summary.output) + usageNumber(summary.cacheRead) + usageNumber(summary.cacheWrite) > 0;
+}
+
+function mergeEstimatedCosts(gatewayCost: CompatRecord, transcriptUsage: ReturnType<typeof usageFromSessions>) {
+  const gatewaySummary = gatewayUsageSummary(gatewayCost);
+  const transcriptSummary = transcriptUsage.summary as CompatRecord;
+  const gatewayTotalCost = usageNumber(gatewaySummary.totalCost);
+  const transcriptTotalCost = usageNumber(transcriptSummary.totalCost);
+  if (transcriptTotalCost > gatewayTotalCost) {
+    const totals = gatewayCost.totals && typeof gatewayCost.totals === "object" ? gatewayCost.totals as CompatRecord : gatewayCost;
+    totals.totalCost = transcriptTotalCost;
+  }
+
+  const transcriptCostByDay = new Map(
+    transcriptUsage.days.map((day) => [String(day.day ?? day.date), usageNumber(day.totalCost)]),
+  );
+  for (const day of gatewayUsageDays(gatewayCost)) {
+    const key = String(day.day ?? day.date ?? "");
+    const estimatedCost = transcriptCostByDay.get(key) ?? 0;
+    if (estimatedCost > usageNumber(day.totalCost ?? day.cost_usd) && hasBillableUsage(day)) {
+      day.totalCost = estimatedCost;
+      day.cost_usd = estimatedCost;
+    }
+  }
+  return gatewayCost;
+}
+
 async function gatewayUsageCost(context: AppContext, days: number) {
   try {
     const payload = await context.gateway.request<CompatRecord>("usage.cost", { days }, 8_000);
@@ -3500,7 +3562,7 @@ type UsageCacheState = {
   files: Record<string, UsageCacheFile>;
 };
 
-const USAGE_CACHE_VERSION = 1;
+const USAGE_CACHE_VERSION = 2;
 let usageCacheState: UsageCacheState | null = null;
 
 function usageCachePath() {
@@ -3559,12 +3621,16 @@ function parseUsageTranscriptFile(full: string) {
       const normalized = normalizeUsage(raw);
       const timestamp = entry.timestamp ?? entry.ts ?? message.timestamp ?? data.timestamp;
       const timestampMs = usageTimestampMs(timestamp);
-      const cost = usageNumber((raw.cost && typeof raw.cost === "object" ? (raw.cost as CompatRecord).total : undefined) ?? raw.totalCost);
+      const provider = message.provider ?? entry.provider;
+      const model = message.model ?? entry.modelId;
+      const storedCost = usageNumber((raw.cost && typeof raw.cost === "object" ? (raw.cost as CompatRecord).total : undefined) ?? raw.totalCost);
+      const estimatedCost = estimateUsageCostFromPricing(normalized, provider, model);
+      const cost = storedCost > 0 ? storedCost : estimatedCost;
       parsedUsage.push({
         ...normalized,
         cost,
-        provider: message.provider ?? entry.provider,
-        model: message.model ?? entry.modelId,
+        provider,
+        model,
         timestamp: typeof timestamp === "string" || typeof timestamp === "number" ? timestamp : new Date(timestampMs).toISOString(),
         timestampMs,
         sessionFile: full,
@@ -3652,10 +3718,12 @@ async function usageProviders(context: AppContext) {
 async function usageResponse(context: AppContext, days: number) {
   const providers = await usageProviders(context);
   const gatewayCost = await gatewayUsageCost(context, days);
+  const usage = usageFromSessions(days);
   if (gatewayCost) {
+    const correctedGatewayCost = mergeEstimatedCosts(gatewayCost, usage);
     return {
       range: { days },
-      summary: frontendUsageSummary(gatewayUsageSummary(gatewayCost)),
+      summary: frontendUsageSummary(gatewayUsageSummary(correctedGatewayCost)),
       providers,
       usage: [],
       source: "gateway-usage-cost",
@@ -3663,7 +3731,7 @@ async function usageResponse(context: AppContext, days: number) {
     };
   }
 
-  const usage = usageFromSessions(days);
+
   return {
     range: { days },
     summary: frontendUsageSummary(usage.summary),
@@ -3676,12 +3744,14 @@ async function usageResponse(context: AppContext, days: number) {
 
 async function dailyUsage(context: AppContext, days: number) {
   const gatewayCost = await gatewayUsageCost(context, days);
+  const usage = usageFromSessions(days);
   if (gatewayCost) {
-    const daily = frontendDaily(gatewayUsageDays(gatewayCost)).slice(-days);
-    return { range: { days }, daily, days: gatewayUsageDays(gatewayCost), source: "gateway-usage-cost", unavailable: false };
+    const correctedGatewayCost = mergeEstimatedCosts(gatewayCost, usage);
+    const daily = frontendDaily(gatewayUsageDays(correctedGatewayCost)).slice(-days);
+    return { range: { days }, daily, days: gatewayUsageDays(correctedGatewayCost), source: "gateway-usage-cost", unavailable: false };
   }
 
-  const usage = usageFromSessions(days);
+
   const daily = frontendDaily(usage.days);
   return { range: { days }, daily, days: usage.days, source: usage.source, unavailable: usage.unavailable };
 }
