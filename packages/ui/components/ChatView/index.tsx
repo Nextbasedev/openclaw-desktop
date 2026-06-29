@@ -262,6 +262,27 @@ function hasAssistantAnswerAfterLastUser(messages: ChatMessage[]) {
   )
 }
 
+// stopReasons that mean the model ended its turn (the answer is complete).
+// Deliberately EXCLUDES tool-continuation reasons (tool_use/tool_calls/
+// function_call), which signal more work is coming, so this never fires on a
+// preamble before tool calls. A streaming delta carries no stopReason at all,
+// so this also cannot fire mid-stream.
+const TERMINAL_STOP_REASONS = new Set([
+  "stop", "end_turn", "stop_sequence", "max_tokens", "length", "complete", "completed",
+])
+
+function latestCompletedAssistant(messages: ChatMessage[]): ChatMessage | null {
+  const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user")
+  for (let i = messages.length - 1; i > lastUserIndex; i -= 1) {
+    const message = messages[i]
+    if (message?.role !== "assistant") continue
+    const stop = typeof message.stopReason === "string" ? message.stopReason.toLowerCase() : null
+    if (stop && TERMINAL_STOP_REASONS.has(stop) && message.text.trim().length > 0) return message
+    return null
+  }
+  return null
+}
+
 function hasAssistantOutput(messages: ChatMessage[]) {
   return messages.some((message) =>
     message.role === "assistant" &&
@@ -2002,6 +2023,31 @@ export function ChatView({
       return { ...current, messages: nextMessages }
     })
   }, [isGenerating, state.messages, sessionKey])
+
+  // Safety-net: finalize a stuck/lingering "Writing..." loader.
+  //
+  // The terminal run status normally rides on the final assistant message
+  // (chat.assistant.final, runStatus:"done"). If that status is ever lost,
+  // suppressed, or simply lags behind the rendered answer, the loader keeps
+  // spinning even though the response is visibly complete. The completed answer
+  // message itself carries an authoritative stopReason ("stop"/"end_turn"/...),
+  // which a preamble or a mid-stream delta never has -- so finalizing on it is
+  // preamble-safe and cannot fire while the agent is still working. Require no
+  // tool to be actively running so multi-step turns are never cut short.
+  useEffect(() => {
+    if (!isActiveStreamStatus(state.streamStatus)) return
+    if (liveRunningTool(state.messages)) return
+    if (!latestCompletedAssistant(state.messages)) return
+    frontendLog("chat", "chat-rebuild.status.finalize-on-stop-reason", {
+      sessionKey,
+      streamStatus: state.streamStatus,
+    }, "debug")
+    setState((current) =>
+      isActiveStreamStatus(current.streamStatus) && !liveRunningTool(current.messages) && latestCompletedAssistant(current.messages)
+        ? { ...current, streamStatus: "idle", statusLabel: null }
+        : current,
+    )
+  }, [state.streamStatus, state.messages, sessionKey])
 
   const liveTool = isGenerating ? liveRunningTool(renderedMessages) : null
   const statusText = isGenerating
