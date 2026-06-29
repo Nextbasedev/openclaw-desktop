@@ -8,7 +8,7 @@ import { ActionBar } from "./ActionBar"
 import type { SessionTokenUsage } from "@/lib/sessionContextUsage"
 import { AttachmentPreviewList } from "./AttachmentPreviewList"
 import { SlashCommandMenu, getFilteredCommands } from "./SlashCommandMenu"
-import { useSlashCommands } from "@/hooks/useSlashCommands"
+import { ESSENTIAL_SLASH_COMMANDS, useSlashCommands } from "@/hooks/useSlashCommands"
 import { useChatComposerAttachments } from "@/hooks/useChatComposerAttachments"
 import { isActiveModel, useModels } from "@/hooks/useModels"
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder"
@@ -205,6 +205,13 @@ export function ChatBox({
     installedSkills,
     ensureLoaded: ensureSlashCommandsLoaded,
   } = useSlashCommands()
+  const commandsWithEssentials = React.useMemo(() => {
+    const byName = new Map(commands.map((command) => [command.name, command]))
+    for (const command of ESSENTIAL_SLASH_COMMANDS) {
+      if (!byName.has(command.name)) byName.set(command.name, command)
+    }
+    return Array.from(byName.values())
+  }, [commands])
   const {
     models,
     currentModel,
@@ -247,8 +254,8 @@ export function ChatBox({
     isGenerating && (input.trim().length > 0 || attachments.length > 0)
   )
   const canRunImmediatelyWhileGenerating = React.useMemo(
-    () => attachments.length === 0 && canRunSlashCommandWhileGenerating(input.trim(), commands),
-    [attachments.length, commands, input]
+    () => attachments.length === 0 && canRunSlashCommandWhileGenerating(input.trim(), commandsWithEssentials),
+    [attachments.length, commandsWithEssentials, input]
   )
   const {
     state: voiceState,
@@ -518,6 +525,13 @@ export function ChatBox({
   const liveCommandMatch = input.match(/^([/@])(\S*)$/)
   const liveCommandPrefix = (liveCommandMatch?.[1] as "/" | "@" | undefined) ?? commandPrefix
   const liveCommandFilter = liveCommandMatch?.[2] ?? slashFilter
+  const visibleSlashCommands = React.useMemo(() => {
+    const query = liveCommandFilter.trim().toLowerCase()
+    if (!query || !"status".startsWith(query)) return commandsWithEssentials
+    const statusCommand = commandsWithEssentials.find((command) => command.name === "status")
+    if (!statusCommand) return commandsWithEssentials
+    return [statusCommand, ...commandsWithEssentials.filter((command) => command.name !== "status")]
+  }, [commandsWithEssentials, liveCommandFilter])
   React.useEffect(() => {
     if (!draftKey || typeof localStorage === "undefined") {
       setSessionModelId(null)
@@ -903,9 +917,9 @@ export function ChatBox({
           {slashMenuOpen &&
             (liveCommandPrefix === "@"
               ? installedSkills.length > 0
-              : commands.length > 0) && (
+              : visibleSlashCommands.length > 0) && (
               <SlashCommandMenu
-                commands={liveCommandPrefix === "@" ? installedSkills : commands}
+                commands={liveCommandPrefix === "@" ? installedSkills : visibleSlashCommands}
                 filter={liveCommandFilter}
                 selectedIndex={slashSelectedIndex}
                 onSelect={handleSlashSelect}
@@ -934,7 +948,7 @@ export function ChatBox({
             onKeyDown={(e) => {
               if (slashMenuOpen) {
                 const activeCommands =
-                  liveCommandPrefix === "@" ? installedSkills : commands
+                  liveCommandPrefix === "@" ? installedSkills : visibleSlashCommands
                 const filtered = getFilteredCommands(
                   activeCommands,
                   liveCommandFilter

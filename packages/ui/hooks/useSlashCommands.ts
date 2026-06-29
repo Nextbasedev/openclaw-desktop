@@ -31,7 +31,7 @@ type DiscoverResponse = {
   results: LocalSkillEntry[]
 }
 
-const FALLBACK_COMMANDS: SlashCommand[] = [
+export const ESSENTIAL_SLASH_COMMANDS: SlashCommand[] = [
   { name: "help", description: "Show available commands", source: "native", scope: "both", acceptsArgs: false },
   { name: "status", description: "Show the current session status", source: "native", scope: "native", acceptsArgs: false },
   { name: "clear", description: "Clear conversation history", source: "native", scope: "both", acceptsArgs: false },
@@ -48,11 +48,13 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
   { name: "review", description: "Review code for issues", source: "native", scope: "text", acceptsArgs: true },
 ]
 
+const FALLBACK_COMMANDS: SlashCommand[] = ESSENTIAL_SLASH_COMMANDS
+
 let cachedCommands: SlashCommand[] | null = null
 
 function mergeEssentialCommands(commands: SlashCommand[]) {
   const byName = new Map(commands.map((command) => [command.name, command]))
-  for (const command of FALLBACK_COMMANDS) {
+  for (const command of ESSENTIAL_SLASH_COMMANDS) {
     if (!byName.has(command.name)) byName.set(command.name, command)
   }
   return Array.from(byName.values())
