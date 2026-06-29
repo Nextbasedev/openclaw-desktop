@@ -514,14 +514,6 @@ export function ChatBox({
   const liveCommandMatch = input.match(/^([/@])(\S*)$/)
   const liveCommandPrefix = (liveCommandMatch?.[1] as "/" | "@" | undefined) ?? commandPrefix
   const liveCommandFilter = liveCommandMatch?.[2] ?? slashFilter
-  const activeSlashCommands = liveCommandPrefix === "@" ? installedSkills : commands
-  const filteredSlashCommands = React.useMemo(
-    () => getFilteredCommands(activeSlashCommands, liveCommandFilter),
-    [activeSlashCommands, liveCommandFilter]
-  )
-  React.useEffect(() => {
-    setSlashSelectedIndex((index) => clampCommandIndex(index, filteredSlashCommands))
-  }, [filteredSlashCommands])
   React.useEffect(() => {
     if (!draftKey || typeof localStorage === "undefined") {
       setSessionModelId(null)
@@ -904,18 +896,21 @@ export function ChatBox({
           )}
         </AnimatePresence>
         <AnimatePresence initial={false}>
-          {slashMenuOpen && filteredSlashCommands.length > 0 && (
-            <SlashCommandMenu
-              commands={filteredSlashCommands}
-              filter=""
-              selectedIndex={slashSelectedIndex}
-              onSelect={handleSlashSelect}
-              prefix={liveCommandPrefix}
-              groupLabel={
-                liveCommandPrefix === "@" ? "Installed Skills" : undefined
-              }
-            />
-          )}
+          {slashMenuOpen &&
+            (liveCommandPrefix === "@"
+              ? installedSkills.length > 0
+              : commands.length > 0) && (
+              <SlashCommandMenu
+                commands={liveCommandPrefix === "@" ? installedSkills : commands}
+                filter={liveCommandFilter}
+                selectedIndex={slashSelectedIndex}
+                onSelect={handleSlashSelect}
+                prefix={liveCommandPrefix}
+                groupLabel={
+                  liveCommandPrefix === "@" ? "Installed Skills" : undefined
+                }
+              />
+            )}
         </AnimatePresence>
         <div className="flex w-full flex-col pt-3">
           <textarea
@@ -934,24 +929,30 @@ export function ChatBox({
             onBlur={() => setIsFocused(false)}
             onKeyDown={(e) => {
               if (slashMenuOpen) {
+                const activeCommands =
+                  liveCommandPrefix === "@" ? installedSkills : commands
+                const filtered = getFilteredCommands(
+                  activeCommands,
+                  liveCommandFilter
+                )
                 if (e.key === "ArrowDown") {
                   e.preventDefault()
                   setSlashSelectedIndex((i) =>
-                    clampCommandIndex(i + 1, filteredSlashCommands)
+                    clampCommandIndex(i + 1, filtered)
                   )
                   return
                 }
                 if (e.key === "ArrowUp") {
                   e.preventDefault()
                   setSlashSelectedIndex((i) =>
-                    clampCommandIndex(i - 1, filteredSlashCommands)
+                    clampCommandIndex(i - 1, filtered)
                   )
                   return
                 }
                 if (e.key === "Enter" || e.key === "Tab") {
-                  if (filteredSlashCommands[slashSelectedIndex]) {
+                  if (filtered[slashSelectedIndex]) {
                     e.preventDefault()
-                    handleSlashSelect(filteredSlashCommands[slashSelectedIndex])
+                    handleSlashSelect(filtered[slashSelectedIndex])
                     return
                   }
                 }
