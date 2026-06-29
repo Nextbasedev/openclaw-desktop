@@ -607,37 +607,6 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
   state.pendingTools = []
 }
 
-// Invariant: a settled (non-active) session must NEVER render a tool as
-// "running". On reload, chat.bootstrap can deliver persisted history whose final
-// turn still carries a tool stuck in "running" (its terminal result was never
-// persisted). finalizeActiveToolsForTerminalStatus only reconciles pendingTools,
-// not message-borne tools loaded fresh from history, so such a tool would render
-// forever as "Running <tool>..." -- and now also pins isGenerating (which counts
-// active-turn running tools) on a long-dead turn. Coerce any such stale running
-// tool in the message transcript to a finalized state. Scoped to bootstrap of a
-// NON-active session so it can never touch a genuinely live run (where running
-// tools are real and tracked in pendingTools).
-function finalizeStaleRunningMessageTools(state: SessionState) {
-  let changed = false
-  const messages = state.messages.map((message) => {
-    if (!message.toolCalls?.some((tool) => tool.status === "running")) return message
-    changed = true
-    const toolCalls = message.toolCalls.map((tool) =>
-      tool.status === "running"
-        ? {
-            ...tool,
-            status: "success" as const,
-            awaitingResult: false,
-            completedAt: tool.completedAt ?? Date.now(),
-            duration: tool.duration ?? formatToolDuration(tool.startedAt, Date.now()),
-          }
-        : tool,
-    )
-    return { ...message, toolCalls }
-  })
-  if (changed) state.messages = messages
-}
-
 function realEpochMs(value: unknown) {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined
   const ms = value > 100_000_000 && value < 10_000_000_000 ? value * 1000 : value
@@ -1878,13 +1847,6 @@ function handlePatch(frame: PatchFrame) {
   }
   reconcileVisibleActiveStatus(state)
   if (isTerminalOrIdleStatus(state.status)) finalizeActiveToolsForTerminalStatus(state, state.status)
-  // Reload guard: a freshly-bootstrapped settled session must not show a tool
-  // stuck on "running" from un-finalized persisted history (which would pin the
-  // generating loader forever). Scoped to bootstrap + non-active so live runs
-  // are never affected.
-  if (frame.patch.type === "chat.bootstrap" && !ACTIVE_STATUSES.has(state.status)) {
-    finalizeStaleRunningMessageTools(state)
-  }
   const autoFinalized = maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
   if (previousStatus !== state.status) {
     frontendLog("status", "global-chat-session.status-change", {

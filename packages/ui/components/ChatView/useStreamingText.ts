@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react"
 const MIN_FRAME_MS = 16
 const MAX_FRAME_MS = 80
 const MAX_CHARS_PER_FRAME = 180
-const MIN_CHARS_PER_SECOND = 200
+const MIN_CHARS_PER_SECOND = 320
 const MAX_CHARS_PER_SECOND = 2_600
 // Repaint cadence while revealing. We advance the reveal every animation frame
 // (cheap ref update) but only commit to React state ~every 40ms. Re-rendering
@@ -20,8 +20,20 @@ export function charsPerSecondForBacklog(backlog: number): number {
   // never fall far behind the model, but the speed changes smoothly instead of
   // snapping between fixed tiers — the old tiered curve made the reveal visibly
   // stutter (speed jumps) as the backlog crossed each threshold.
-  const paced = MIN_CHARS_PER_SECOND + backlog * 1.0
+  const paced = MIN_CHARS_PER_SECOND + backlog * 1.15
   return Math.min(MAX_CHARS_PER_SECOND, Math.round(paced))
+}
+
+// Round a reveal length up to the end of the current word (+ trailing spaces) so
+// we always reveal whole words. Each word then mounts complete and can fade in
+// cleanly (fade mode), instead of a half-word appearing and growing mid-fade.
+export function snapToWordBoundary(target: string, length: number): number {
+  if (length >= target.length) return target.length
+  if (length <= 0) return 0
+  let i = length
+  while (i < target.length && !/\s/.test(target[i])) i += 1
+  while (i < target.length && /\s/.test(target[i])) i += 1
+  return i
 }
 
 export function nextRevealLength({
@@ -176,11 +188,12 @@ export function useStreamingText(
       const previousFrame = lastFrameAtRef.current || now - MIN_FRAME_MS
       const elapsed = Math.max(MIN_FRAME_MS, now - previousFrame)
       lastFrameAtRef.current = now
-      const nextLength = nextRevealLength({
+      const rawNextLength = nextRevealLength({
         currentLength: current.length,
         targetLength: latestTarget.length,
         elapsedMs: elapsed,
       })
+      const nextLength = snapToWordBoundary(latestTarget, rawNextLength)
       const next = latestTarget.slice(0, nextLength)
 
       if (next !== current) {

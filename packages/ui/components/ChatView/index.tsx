@@ -262,27 +262,6 @@ function hasAssistantAnswerAfterLastUser(messages: ChatMessage[]) {
   )
 }
 
-// stopReasons that mean the model ended its turn (the answer is complete).
-// Deliberately EXCLUDES tool-continuation reasons (tool_use/tool_calls/
-// function_call), which signal more work is coming, so this never fires on a
-// preamble before tool calls. A streaming delta carries no stopReason at all,
-// so this also cannot fire mid-stream.
-const TERMINAL_STOP_REASONS = new Set([
-  "stop", "end_turn", "stop_sequence", "max_tokens", "length", "complete", "completed",
-])
-
-function latestCompletedAssistant(messages: ChatMessage[]): ChatMessage | null {
-  const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user")
-  for (let i = messages.length - 1; i > lastUserIndex; i -= 1) {
-    const message = messages[i]
-    if (message?.role !== "assistant") continue
-    const stop = typeof message.stopReason === "string" ? message.stopReason.toLowerCase() : null
-    if (stop && TERMINAL_STOP_REASONS.has(stop) && message.text.trim().length > 0) return message
-    return null
-  }
-  return null
-}
-
 function hasAssistantOutput(messages: ChatMessage[]) {
   return messages.some((message) =>
     message.role === "assistant" &&
@@ -1925,18 +1904,7 @@ export function ChatView({
     [renderedMessages]
   )
   const promptPreview = initialPrompt?.trim()
-  // A terminal stream status can land while the agent is still executing tools
-  // in a multi-step turn (preamble text -> tools -> final answer). If we keyed
-  // "generating" purely off streamStatus we would hide the loader and show the
-  // message action buttons mid-run while tool cards are still streaming in.
-  // Treat the run as still generating while a current-turn tool is genuinely
-  // running. liveRunningTool is already scoped to the active turn and excludes
-  // long-lived orchestration tools (sessions_spawn/subagents/sessions_yield), and a
-  // genuine terminal status finalizes running tools
-  // (finalizeActiveToolsForTerminalStatus), so a truly-complete turn has no
-  // running tool left to pin this on -> it cannot get stuck on the loader.
-  const hasActiveTurnTool = liveRunningTool(renderedMessages) !== null
-  const isGenerating = isActiveStreamStatus(state.streamStatus) || hasActiveTurnTool
+  const isGenerating = isActiveStreamStatus(state.streamStatus)
 
   useEffect(() => {
     if (isGenerating || sending || state.loading || queueDrainInFlightRef.current) return
@@ -2023,31 +1991,6 @@ export function ChatView({
       return { ...current, messages: nextMessages }
     })
   }, [isGenerating, state.messages, sessionKey])
-
-  // Safety-net: finalize a stuck/lingering "Writing..." loader.
-  //
-  // The terminal run status normally rides on the final assistant message
-  // (chat.assistant.final, runStatus:"done"). If that status is ever lost,
-  // suppressed, or simply lags behind the rendered answer, the loader keeps
-  // spinning even though the response is visibly complete. The completed answer
-  // message itself carries an authoritative stopReason ("stop"/"end_turn"/...),
-  // which a preamble or a mid-stream delta never has -- so finalizing on it is
-  // preamble-safe and cannot fire while the agent is still working. Require no
-  // tool to be actively running so multi-step turns are never cut short.
-  useEffect(() => {
-    if (!isActiveStreamStatus(state.streamStatus)) return
-    if (liveRunningTool(state.messages)) return
-    if (!latestCompletedAssistant(state.messages)) return
-    frontendLog("chat", "chat-rebuild.status.finalize-on-stop-reason", {
-      sessionKey,
-      streamStatus: state.streamStatus,
-    }, "debug")
-    setState((current) =>
-      isActiveStreamStatus(current.streamStatus) && !liveRunningTool(current.messages) && latestCompletedAssistant(current.messages)
-        ? { ...current, streamStatus: "idle", statusLabel: null }
-        : current,
-    )
-  }, [state.streamStatus, state.messages, sessionKey])
 
   const liveTool = isGenerating ? liveRunningTool(renderedMessages) : null
   const statusText = isGenerating
