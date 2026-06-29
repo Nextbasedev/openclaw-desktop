@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
-import type { SlashCommand } from "@/hooks/useSlashCommands"
+import { ESSENTIAL_SLASH_COMMANDS, type SlashCommand } from "@/hooks/useSlashCommands"
 import {
   filterSlashCommands,
   groupSlashCommands,
@@ -28,7 +28,32 @@ export function SlashCommandMenu({
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null)
 
-  const filtered = filterSlashCommands(commands, filter)
+  const liveFilter = useMemo(() => {
+    if (typeof document === "undefined") return filter
+    const active = document.activeElement
+    if (!(active instanceof HTMLTextAreaElement)) return filter
+    const match = active.value.match(/^([/@])(\S*)$/)
+    if (!match || match[1] !== prefix) return filter
+    return match[2] ?? filter
+  }, [filter, prefix])
+
+  const commandsWithEssentials = useMemo(() => {
+    if (prefix !== "/") return commands
+    const byName = new Map(commands.map((command) => [command.name, command]))
+    for (const command of ESSENTIAL_SLASH_COMMANDS) {
+      if (!byName.has(command.name)) byName.set(command.name, command)
+    }
+    return Array.from(byName.values())
+  }, [commands, prefix])
+
+  const filtered = useMemo(() => {
+    const result = filterSlashCommands(commandsWithEssentials, liveFilter)
+    const query = liveFilter.trim().toLowerCase()
+    if (prefix !== "/" || !query || !"status".startsWith(query)) return result
+    const status = commandsWithEssentials.find((command) => command.name === "status")
+    if (!status) return result
+    return [status, ...result.filter((command) => command.name !== "status")]
+  }, [commandsWithEssentials, liveFilter, prefix])
   const groups = groupSlashCommands(filtered)
 
   useEffect(() => {
