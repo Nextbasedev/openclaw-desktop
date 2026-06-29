@@ -1,23 +1,19 @@
 import type { ChatMessage } from "./types"
 
-function timestampOf(message: ChatMessage): number {
-  if (!message.createdAt) return Number.POSITIVE_INFINITY
-  const value = Date.parse(message.createdAt)
-  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY
-}
-
+// Single ordering rule: render in creation order using the monotonic gateway/
+// openclaw seq, which is the only field that reliably encodes arrival order on
+// BOTH the websocket stream and persisted history. Raw createdAt/timestamp are
+// heterogeneous (user = client send time, assistant = model/exec time which can
+// predate the user's send) and were the source of order drift, so they are not
+// used. Messages without a seq yet (just-sent optimistic, live-streaming) keep
+// their insertion order, which pins them to the tail until their seq arrives.
 export function orderChatMessages(messages: ChatMessage[]) {
   return messages
     .map((message, index) => ({ message, index }))
     .sort((a, b) => {
       const aSeq = a.message.gatewayIndex
       const bSeq = b.message.gatewayIndex
-      if (a.message.isOptimistic || b.message.isOptimistic) return a.index - b.index
       if (typeof aSeq === "number" && typeof bSeq === "number" && aSeq !== bSeq) return aSeq - bSeq
-      if (typeof aSeq === "number" && typeof bSeq !== "number") return a.index - b.index
-      if (typeof aSeq !== "number" && typeof bSeq === "number") return a.index - b.index
-      const timeDelta = timestampOf(a.message) - timestampOf(b.message)
-      if (Number.isFinite(timeDelta) && timeDelta !== 0) return timeDelta
       return a.index - b.index
     })
     .map(({ message }) => message)

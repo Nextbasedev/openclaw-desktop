@@ -613,6 +613,20 @@ export function cleanUserMessageText(text: string): string {
     .trim()
 }
 
+// Gateway/system notices sometimes arrive wearing a "user" role, e.g.
+// "System (untrusted): [2026-06-29 11:49:05 UTC] Exec failed ...". These are NOT
+// real user turns. If rendered as a user bubble, or allowed to act as a turn
+// boundary, they split a single assistant answer into multiple cards. We treat
+// them as transparent: not shown, and not a boundary. The leading
+// "System(...): [<ISO-date>" shape is specific to the gateway injection format,
+// so a human typing normally will not trip it.
+const SYSTEM_INJECTION_PREFIX_RE = /^\s*System(?:\s*\([^)]*\))?:\s*\[\d{4}-\d{2}-\d{2}/i
+export function isSystemInjectedUserMessage(raw: RawHistoryMessage): boolean {
+  const text = raw.text || extractText(raw.content)
+  if (!text) return false
+  return SYSTEM_INJECTION_PREFIX_RE.test(text)
+}
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
@@ -924,6 +938,12 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
     const role = normalizeHistoryRole(item.role)
 
     if (role === "user") {
+      if (isSystemInjectedUserMessage(item)) {
+        // System/gateway injection (e.g. exec-failure notice) wearing a user
+        // role. Not a real user turn: skip without rendering and without
+        // breaking assistant merging, so one answer stays in one card.
+        continue
+      }
       const rawText = item.text || extractText(item.content)
       const text = rawText ? cleanUserMessageText(rawText) : ""
       const attachments = readMessageAttachments(item)
