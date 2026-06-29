@@ -29,6 +29,7 @@ import type { QueuedChatMessage } from "@/lib/chatSendQueue"
 import type { ReplyTo } from "@/components/ChatView/types"
 import type { Space } from "@/types/space"
 import { composerReducer, initialComposerState } from "@/lib/composerState"
+import { canRunSlashCommandWhileGenerating } from "@/lib/controlSlashCommands"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
 import {
   chatAttachmentHref,
@@ -245,7 +246,10 @@ export function ChatBox({
   const showSendWhileGenerating = Boolean(
     isGenerating && (input.trim().length > 0 || attachments.length > 0)
   )
-  const canRunImmediatelyWhileGenerating = false
+  const canRunImmediatelyWhileGenerating = React.useMemo(
+    () => attachments.length === 0 && canRunSlashCommandWhileGenerating(input.trim(), commands),
+    [attachments.length, commands, input]
+  )
   const {
     state: voiceState,
     isSupported: recorderSupported,
@@ -514,6 +518,14 @@ export function ChatBox({
   const liveCommandMatch = input.match(/^([/@])(\S*)$/)
   const liveCommandPrefix = (liveCommandMatch?.[1] as "/" | "@" | undefined) ?? commandPrefix
   const liveCommandFilter = liveCommandMatch?.[2] ?? slashFilter
+  const activeSlashCommands = liveCommandPrefix === "@" ? installedSkills : commands
+  const filteredSlashCommands = React.useMemo(
+    () => getFilteredCommands(activeSlashCommands, liveCommandFilter),
+    [activeSlashCommands, liveCommandFilter]
+  )
+  React.useEffect(() => {
+    setSlashSelectedIndex((index) => clampCommandIndex(index, filteredSlashCommands))
+  }, [filteredSlashCommands])
   React.useEffect(() => {
     if (!draftKey || typeof localStorage === "undefined") {
       setSessionModelId(null)
@@ -797,7 +809,7 @@ export function ChatBox({
                 y: 4,
                 transition: { duration: 0.16, ease: "easeInOut" },
               }}
-              className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-full origin-bottom overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg"
+              className="relative z-20 mx-2 mt-2 max-h-44 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg"
             >
               <div className="py-1">
                 <div className="flex items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
@@ -896,21 +908,18 @@ export function ChatBox({
           )}
         </AnimatePresence>
         <AnimatePresence initial={false}>
-          {slashMenuOpen &&
-            (liveCommandPrefix === "@"
-              ? installedSkills.length > 0
-              : commands.length > 0) && (
-              <SlashCommandMenu
-                commands={liveCommandPrefix === "@" ? installedSkills : commands}
-                filter={liveCommandFilter}
-                selectedIndex={slashSelectedIndex}
-                onSelect={handleSlashSelect}
-                prefix={liveCommandPrefix}
-                groupLabel={
-                  liveCommandPrefix === "@" ? "Installed Skills" : undefined
-                }
-              />
-            )}
+          {slashMenuOpen && filteredSlashCommands.length > 0 && (
+            <SlashCommandMenu
+              commands={filteredSlashCommands}
+              filter=""
+              selectedIndex={slashSelectedIndex}
+              onSelect={handleSlashSelect}
+              prefix={liveCommandPrefix}
+              groupLabel={
+                liveCommandPrefix === "@" ? "Installed Skills" : undefined
+              }
+            />
+          )}
         </AnimatePresence>
         <div className="flex w-full flex-col pt-3">
           <textarea
@@ -929,30 +938,24 @@ export function ChatBox({
             onBlur={() => setIsFocused(false)}
             onKeyDown={(e) => {
               if (slashMenuOpen) {
-                const activeCommands =
-                  liveCommandPrefix === "@" ? installedSkills : commands
-                const filtered = getFilteredCommands(
-                  activeCommands,
-                  liveCommandFilter
-                )
                 if (e.key === "ArrowDown") {
                   e.preventDefault()
                   setSlashSelectedIndex((i) =>
-                    clampCommandIndex(i + 1, filtered)
+                    clampCommandIndex(i + 1, filteredSlashCommands)
                   )
                   return
                 }
                 if (e.key === "ArrowUp") {
                   e.preventDefault()
                   setSlashSelectedIndex((i) =>
-                    clampCommandIndex(i - 1, filtered)
+                    clampCommandIndex(i - 1, filteredSlashCommands)
                   )
                   return
                 }
                 if (e.key === "Enter" || e.key === "Tab") {
-                  if (filtered[slashSelectedIndex]) {
+                  if (filteredSlashCommands[slashSelectedIndex]) {
                     e.preventDefault()
-                    handleSlashSelect(filtered[slashSelectedIndex])
+                    handleSlashSelect(filteredSlashCommands[slashSelectedIndex])
                     return
                   }
                 }
