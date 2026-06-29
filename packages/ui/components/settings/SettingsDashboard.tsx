@@ -41,6 +41,8 @@ const FOOTER_ITEMS: Array<{ id: SettingSection; label: string; icon: React.Eleme
   { id: "help", label: "Help", icon: Icons.Help },
 ]
 
+const HIDDEN_SECTIONS: SettingSection[] = ["shortcuts"]
+
 type SettingsDashboardProps = {
   onBack?: () => void
   activeSection: SettingSection
@@ -51,9 +53,8 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const topNavItems = SECTION_GROUPS.flatMap((group) => group.items)
   const allNavItems = [...topNavItems, ...FOOTER_ITEMS]
-  const resolvedSection = allNavItems.some((item) => item.id === activeSection)
-    ? activeSection
-    : "usage"
+  const isKnownSection = allNavItems.some((item) => item.id === activeSection) || HIDDEN_SECTIONS.includes(activeSection)
+  const resolvedSection = isKnownSection ? activeSection : "usage"
 
   React.useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0
