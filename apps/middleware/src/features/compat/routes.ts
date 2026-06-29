@@ -3480,23 +3480,129 @@ type UsagePricing = {
   cacheWrite: number;
 };
 
-const FALLBACK_USAGE_PRICING: Record<string, UsagePricing> = {
-  // Local OpenClaw custom models do not exist in public pricing catalogs, so older
-  // transcript rows can contain a real token count with a persisted cost of 0.
-  // Prices are USD per 1M tokens and match the cost breakdown used by existing
-  // non-zero transcript entries for this provider/model family.
+const LAST_RESORT_USAGE_PRICING: Record<string, UsagePricing> = {
+  // Compatibility only: these custom gateway models may be absent from public
+  // pricing catalogs and older transcript rows can persist cost=0. Prefer
+  // configured pricing from OpenClaw config/env; use this only when no dynamic
+  // pricing source is available. Prices are USD per 1M tokens.
   "openai-codex/gpt-5.5": { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
   "openai-codex/gpt-5.4": { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
 };
 
+type UsagePricingCache = {
+  fingerprint: string;
+  pricing: Record<string, UsagePricing>;
+};
+
+let usagePricingCache: UsagePricingCache | null = null;
+
 function normalizePricingKey(provider: unknown, model: unknown) {
   const providerId = typeof provider === "string" ? provider.trim().toLowerCase() : "";
-  const modelId = typeof model === "string" ? model.trim() : "";
+  const modelId = typeof model === "string" ? model.trim().toLowerCase() : "";
   return providerId && modelId ? `${providerId}/${modelId}` : "";
 }
 
+function finitePricingNumber(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+function normalizeUsagePricing(raw: unknown): UsagePricing | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as CompatRecord;
+  const input = finitePricingNumber(record.input ?? record.inputCost ?? record.input_cost_per_million);
+  const output = finitePricingNumber(record.output ?? record.outputCost ?? record.output_cost_per_million);
+  if (input === undefined || output === undefined) return null;
+  return {
+    input,
+    output,
+    cacheRead: finitePricingNumber(record.cacheRead ?? record.cache_read ?? record.cacheReadCost ?? record.cache_read_cost_per_million) ?? 0,
+    cacheWrite: finitePricingNumber(record.cacheWrite ?? record.cache_write ?? record.cacheWriteCost ?? record.cache_write_cost_per_million) ?? 0,
+  };
+}
+
+function addUsagePricing(target: Record<string, UsagePricing>, key: unknown, pricing: unknown) {
+  if (typeof key !== "string" || !key.trim()) return;
+  const normalizedPricing = normalizeUsagePricing(pricing);
+  if (!normalizedPricing) return;
+  target[key.trim().toLowerCase()] = normalizedPricing;
+}
+
+function usagePricingConfigFiles() {
+  return [
+    process.env.MIDDLEWARE_USAGE_PRICING_FILE,
+    path.join(userHomeDir(), ".openclaw", "openclaw.json"),
+    path.join(userHomeDir(), ".openclaw", "agents", "main", "models.json"),
+  ].filter((file): file is string => typeof file === "string" && file.length > 0);
+}
+
+function usagePricingFingerprint(files: string[]) {
+  return files.map((file) => {
+    try {
+      const stat = fs.statSync(file);
+      return `${file}:${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      return `${file}:missing`;
+    }
+  }).join("|") + `|env:${process.env.MIDDLEWARE_USAGE_PRICING_JSON ?? process.env.MIDDLEWARE_USAGE_PRICING ?? ""}`;
+}
+
+function addPricingFromProviders(target: Record<string, UsagePricing>, providers: unknown) {
+  if (!providers || typeof providers !== "object" || Array.isArray(providers)) return;
+  for (const [providerKey, providerConfig] of Object.entries(providers as CompatRecord)) {
+    const models = (providerConfig as CompatRecord | undefined)?.models;
+    if (!Array.isArray(models)) continue;
+    for (const model of models) {
+      if (!model || typeof model !== "object" || Array.isArray(model)) continue;
+      const modelRecord = model as CompatRecord;
+      const modelId = modelRecord.id ?? modelRecord.model ?? modelRecord.name;
+      const pricing = modelRecord.cost ?? modelRecord.pricing ?? modelRecord;
+      addUsagePricing(target, normalizePricingKey(providerKey, modelId), pricing);
+    }
+  }
+}
+
+function addPricingFromMap(target: Record<string, UsagePricing>, value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const record = value as CompatRecord;
+  addPricingFromProviders(target, record.providers);
+  for (const [key, pricing] of Object.entries(record)) {
+    if (key === "providers" || key === "models") continue;
+    addUsagePricing(target, key, pricing);
+  }
+  if (record.models && typeof record.models === "object") addPricingFromMap(target, record.models);
+}
+
+function loadConfiguredUsagePricing() {
+  const files = usagePricingConfigFiles();
+  const fingerprint = usagePricingFingerprint(files);
+  if (usagePricingCache?.fingerprint === fingerprint) return usagePricingCache.pricing;
+
+  const pricing: Record<string, UsagePricing> = {};
+  const envPricing = process.env.MIDDLEWARE_USAGE_PRICING_JSON ?? process.env.MIDDLEWARE_USAGE_PRICING;
+  if (envPricing) {
+    try { addPricingFromMap(pricing, JSON.parse(envPricing)); } catch {}
+  }
+  for (const file of files) {
+    const parsed = readJsonFile(file);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+    const record = parsed as CompatRecord;
+    addPricingFromProviders(pricing, (record.models as CompatRecord | undefined)?.providers ?? record.providers);
+    addPricingFromMap(pricing, record.usagePricing ?? record.pricing ?? record.modelPricing);
+  }
+
+  usagePricingCache = { fingerprint, pricing };
+  return pricing;
+}
+
+function resolveUsagePricing(provider: unknown, model: unknown) {
+  const key = normalizePricingKey(provider, model);
+  if (!key) return null;
+  return loadConfiguredUsagePricing()[key] ?? LAST_RESORT_USAGE_PRICING[key] ?? null;
+}
+
 function estimateUsageCostFromPricing(usage: CompatRecord, provider: unknown, model: unknown) {
-  const pricing = FALLBACK_USAGE_PRICING[normalizePricingKey(provider, model)];
+  const pricing = resolveUsagePricing(provider, model);
   if (!pricing) return 0;
   const input = usageNumber(usage.input);
   const output = usageNumber(usage.output);
