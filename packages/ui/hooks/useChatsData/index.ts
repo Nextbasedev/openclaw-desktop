@@ -124,7 +124,7 @@ export function useChatsData(
     const requestSeq = ++loadSeqRef.current
     const requestSpaceId = spaceId
     const isCurrentRequest = () => loadSeqRef.current === requestSeq && currentSpaceIdRef.current === requestSpaceId
-    const applyChats = (nextChats: Chat[]) => {
+    const applyChats = (nextChats: Chat[], persist = false) => {
       if (!isCurrentRequest()) return
       // Defense-in-depth: even though visibleChatsForSpace and the middleware
       // already filter sub-agent rows from the sidebar list, double-check
@@ -142,6 +142,23 @@ export function useChatsData(
       if (requestSpaceId && !showArchived) chatsBySpaceRef.current.set(requestSpaceId, filtered)
       setChats(filtered)
       setPinnedChats(new Set(filtered.filter((c) => c.pinned).map((c) => c.id)))
+      // Propagate authoritative names to localSync so other consumers (e.g. the
+      // editor/header chat tabs in AppPage, which derive their titles from
+      // liveChatTitleById) stay in sync with the sidebar. Without this, an
+      // autonamed new chat updates the sidebar (via loadChats -> setChats) but
+      // the header tab keeps showing "New Chat" until reload.
+      if (persist && requestSpaceId && !showArchived) {
+        const scopedChats = visibleChatsForSpace(filtered, requestSpaceId)
+        void persistentCacheSet(`project:${requestSpaceId}:chats`, scopedChats, {
+          ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
+        })
+        void localSyncSetChats(
+          requestSpaceId,
+          scopedChats,
+          undefined,
+          SIDEBAR_CHAT_CACHE_TTL_MS,
+        )
+      }
     }
     try {
       if (!showArchived) {
@@ -165,7 +182,7 @@ export function useChatsData(
 
       const active = await fetchChatsForSpace(requestSpaceId)
       if (!isCurrentRequest()) return
-      applyChats(active)
+      applyChats(active, true)
     } catch (e) {
       if (!isCurrentRequest()) return
       const fallbackChats = await loadCachedChatsForSpace(requestSpaceId)
