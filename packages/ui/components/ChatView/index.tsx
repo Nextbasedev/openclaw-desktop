@@ -1380,16 +1380,12 @@ export function ChatView({
       })
       return
     }
-    let acquiredSendGuard = false
-    if (!canBypassQueue) {
-      if (!beginSendIfIdle(sendInFlightRef)) {
-        frontendLog("chat", "chat-rebuild.send.duplicate-suppressed", {
-          origin: "chatview-handle-send",
-          sessionKey,
-        })
-        return
-      }
-      acquiredSendGuard = true
+    if (!beginSendIfIdle(sendInFlightRef)) {
+      frontendLog("chat", "chat-rebuild.send.duplicate-suppressed", {
+        origin: "chatview-handle-send",
+        sessionKey,
+      })
+      return
     }
 
     const clickAt = Date.now()
@@ -1494,7 +1490,7 @@ export function ChatView({
       }
       throw error
     } finally {
-      if (acquiredSendGuard) endSend(sendInFlightRef)
+      endSend(sendInFlightRef)
       setSending(false)
     }
   }
