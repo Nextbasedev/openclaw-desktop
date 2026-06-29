@@ -6,34 +6,8 @@ function timestampOf(message: ChatMessage): number {
   return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY
 }
 
-function isSlashCommandUserMessage(message: ChatMessage) {
-  return message.role === "user" && message.text.trimStart().startsWith("/")
-}
-
-function isGatewayInjectedCommandOutput(message: ChatMessage) {
-  return message.role === "assistant" && message.model === "gateway-injected"
-}
-
-function keepCommandOutputAfterSlashUser(messages: ChatMessage[]) {
-  const ordered = [...messages]
-  let changed = true
-  while (changed) {
-    changed = false
-    for (let index = 0; index < ordered.length - 1; index += 1) {
-      const current = ordered[index]
-      const next = ordered[index + 1]
-      if (isGatewayInjectedCommandOutput(current) && isSlashCommandUserMessage(next)) {
-        ordered[index] = next
-        ordered[index + 1] = current
-        changed = true
-      }
-    }
-  }
-  return ordered
-}
-
 export function orderChatMessages(messages: ChatMessage[]) {
-  const sorted = messages
+  return messages
     .map((message, index) => ({ message, index }))
     .sort((a, b) => {
       const aSeq = a.message.gatewayIndex
@@ -47,5 +21,4 @@ export function orderChatMessages(messages: ChatMessage[]) {
       return a.index - b.index
     })
     .map(({ message }) => message)
-  return keepCommandOutputAfterSlashUser(sorted)
 }
