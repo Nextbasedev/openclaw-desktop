@@ -614,16 +614,43 @@ function normalizePatchStatus(value: unknown): StreamStatus | null {
   return value as StreamStatus
 }
 
+function assistantMessageHasText(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const message = value as { role?: unknown; text?: unknown; content?: unknown }
+  if (message.role !== "assistant") return false
+  if (typeof message.text === "string" && message.text.trim()) return true
+  if (!Array.isArray(message.content)) return false
+  return message.content.some((part) => {
+    if (!part || typeof part !== "object" || Array.isArray(part)) return false
+    const item = part as { type?: unknown; text?: unknown }
+    return item.type === "text" && typeof item.text === "string" && item.text.trim()
+  })
+}
+
 export function statusFromPatch(frame: PatchFrame): { status: StreamStatus; label: string | null } | null {
   const payload = patchPayload(frame)
   const semanticType = patchSemanticType(frame)
   const isStatusPatch = frame.patch.type === "chat.status" || frame.patch.type === "session.status" || frame.patch.type === "session.upsert"
   const activeRun = payload?.activeRun
   const hasActiveRun = Boolean(activeRun && typeof activeRun === "object" && !Array.isArray(activeRun))
-  const hasCanonicalStatus = typeof payload?.runStatus === "string" || hasActiveRun || semanticType.startsWith("chat.run.")
+  const hasCanonicalStatus = typeof payload?.runStatus === "string" || hasActiveRun || semanticType.startsWith("chat.run.") || semanticType === "chat.assistant.final"
   if (!isStatusPatch && !hasCanonicalStatus) return null
   const status = normalizePatchStatus(payload?.runStatus ?? payload?.status)
-  if (!status) return null
+  if (!status) {
+    // Some middleware versions emit the completed assistant message as
+    // `chat.assistant.final` without a separate terminal runStatus/chat.run.done
+    // patch. Treat that final assistant text as terminal unless an activeRun is
+    // still present. Active preamble/follow-up patches carry runStatus and are
+    // handled by the canonical path above.
+    if (
+      semanticType === "chat.assistant.final" &&
+      !hasActiveRun &&
+      assistantMessageHasText(payload?.message)
+    ) {
+      return { status: "done", label: null }
+    }
+    return null
+  }
   // Non-status message patches may carry projection defaults like runStatus:"idle"
   // when they are plain Gateway echoes with no active/final run. Do not let
   // those clear an actually active Thinking/Streaming UI state.

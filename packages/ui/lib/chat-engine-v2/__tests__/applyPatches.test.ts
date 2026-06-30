@@ -43,6 +43,42 @@ describe("applyChatPatch", () => {
     })).toMatchObject({ status: "done" })
   })
 
+  test("treats assistant final text without runStatus as terminal", () => {
+    expect(statusFromPatch({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          projectionVersion: 3,
+          semanticType: "chat.assistant.final",
+          activeRun: null,
+          message: { role: "assistant", text: "answer" },
+        },
+        createdAtMs: 3,
+      },
+    })).toEqual({ status: "done", label: null })
+  })
+
+  test("does not treat assistant final text as terminal while an active run remains", () => {
+    expect(statusFromPatch({
+      type: "patch",
+      patch: {
+        cursor: 4,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          projectionVersion: 3,
+          semanticType: "chat.assistant.final",
+          activeRun: { runId: "r1", status: "streaming" },
+          message: { role: "assistant", text: "preamble" },
+        },
+        createdAtMs: 4,
+      },
+    })).toBeNull()
+  })
+
   test("ignores stale cursors", () => {
     const state = { cursor: 2, messages: [] }
     const next = applyChatPatch(state, {
