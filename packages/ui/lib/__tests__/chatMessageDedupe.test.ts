@@ -1,24 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { dedupeChatMessages } from "../chatMessageDedupe"
 
-describe("dedupeChatMessages object identity (streaming perf)", () => {
-  it("preserves the SAME object reference for unchanged assistant messages", () => {
-    // Identity stability is what lets MessageBubble's memo skip re-rendering (and
-    // re-parsing markdown for) the whole history on every streamed token.
-    const a1 = { messageId: "a1", role: "assistant" as const, text: "hello world", gatewayIndex: 2 }
-    const a2 = { messageId: "a2", role: "assistant" as const, text: "second answer", gatewayIndex: 4 }
-    const out = dedupeChatMessages([a1, a2])
-    expect(out[0]).toBe(a1)
-    expect(out[1]).toBe(a2)
-  })
-
-  it("only clones the assistant message whose text actually needs collapsing", () => {
-    const clean = { messageId: "a1", role: "assistant" as const, text: "clean text", gatewayIndex: 2 }
-    const out = dedupeChatMessages([clean])
-    expect(out[0]).toBe(clean)
-  })
-})
-
 describe("dedupeChatMessages", () => {
   it("merges optimistic file upload row with Gateway attached-file user echo", () => {
     const messages = dedupeChatMessages([

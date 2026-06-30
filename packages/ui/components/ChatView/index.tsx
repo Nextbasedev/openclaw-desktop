@@ -40,10 +40,10 @@ import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
 import { normalizeSessionTokenUsage, type SessionTokenUsage } from "@/lib/sessionContextUsage"
 import { cn } from "@/lib/utils"
-import { isTurnFinalStopReason } from "@/lib/turnCompletion"
 import { useAgentActivity } from "@/hooks/useAgentActivity"
 import type { AgentNode } from "@/components/inspector/activity-types"
 import {
+  applyTerminalToolState,
   groupAssistantToolCallsByMessage,
   terminalToolStateById,
 } from "@/lib/chatToolDisplay"
@@ -64,7 +64,6 @@ import {
 } from "react-icons/lu"
 import type { IconType } from "react-icons"
 import { MessageBubble } from "./MessageBubble"
-import { buildTurnView, groupTurns } from "./groupTurns"
 import {
   INITIAL_WINDOW_STATE,
   MAX_LOADED,
@@ -1997,26 +1996,13 @@ export function ChatView({
   const statusText = isGenerating
     ? generatingStatusText(state.streamStatus, state.statusLabel, liveTool)
     : null
-  // D6: the visible answer can be COMPLETE while the overall run stays active
-  // (e.g. a background sub-agent keeps the run "running"). When the last rendered
-  // message is an assistant turn that has reached a terminal stop reason, the
-  // answer the user is looking at is finished, so the "Writing…" indicator and
-  // the per-turn action bar must stop waiting on the background run.
-  const lastRenderedMessage = renderedMessages[renderedMessages.length - 1]
-  const answerComplete =
-    lastRenderedMessage?.role === "assistant" &&
-    isTurnFinalStopReason(lastRenderedMessage.stopReason)
-  // "The visible answer is still being produced." Drives the loader, the text
-  // animation, and the single action bar so they all settle together.
-  const isAnswerStreaming = isGenerating && !answerComplete
-  // Keep the active-run indicator visible continuously until the visible answer
-  // reaches a terminal status. A response can already contain assistant text/
-  // reasoning while the model or tool loop is still running; hiding this row in
-  // that state (e.g. during a pause between tokens) makes the chat look idle /
-  // done even though generation is still in progress. The loader persists until
-  // the response is actually complete (terminal stop reason), not merely until
-  // some unrelated background run finishes.
-  const showThinkingState = isAnswerStreaming
+  // Keep the active-run indicator visible continuously until the stream reaches
+  // a terminal status. A response can already contain assistant text/reasoning
+  // while the model or tool loop is still running; hiding this row in that state
+  // (e.g. during a pause between tokens) makes the chat look idle / done even
+  // though generation is still in progress. The loader must persist until the
+  // response is actually complete.
+  const showThinkingState = isGenerating
   const latestRenderedUserIndex = useMemo(() => {
     for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
       if (renderedMessages[index]?.role === "user") return index
@@ -2043,12 +2029,6 @@ export function ChatView({
     () => messageListKeys(renderedMessages),
     [renderedMessages]
   )
-  // Group the rendered messages into turns (one real user message + all the
-  // assistant messages it produced). Each turn renders as ONE response card with
-  // a single action bar and a single trailing loader, instead of one card per
-  // assistant emission. System-injected "System (untrusted): …" notices are
-  // dropped here so they neither render nor split a turn.
-  const renderTurns = useMemo(() => groupTurns(renderedMessages), [renderedMessages])
 
   const measureRowsAboveViewport = useCallback((): number => {
     const container = scrollContainerRef.current
@@ -2734,12 +2714,7 @@ export function ChatView({
     const element = scrollContainerRef.current
     if (!element) return
     if (!shouldFollowScrollRef.current) return
-    // Smooth follow only while a response is generating, so the view glides as
-    // text streams in. Outside generation (initial load, session switch, a
-    // settled new message) keep the instant pin to avoid an odd scroll-from-top
-    // animation on open. Native smooth scroll runs on the compositor thread, so
-    // it never competes with markdown rendering.
-    scrollElementToBottom(element, isGenerating ? "smooth" : "auto")
+    scrollElementToBottom(element)
   }, [isGenerating, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText, updateJumpToLatestVisibility, windowState.hasNewer])
 
   useEffect(() => {
@@ -2754,13 +2729,7 @@ export function ChatView({
       frame = requestAnimationFrame(() => {
         frame = 0
         if (shouldFollowScrollRef.current) {
-          // Match the follow effect: smooth (compositor) while generating,
-          // instant otherwise. Read the live status via ref since this observer
-          // closure is created once.
-          scrollElementToBottom(
-            container,
-            isActiveStreamStatus(stateStreamStatusRef.current) ? "smooth" : "auto",
-          )
+          scrollElementToBottom(container)
         }
       })
     })
@@ -2937,156 +2906,108 @@ export function ChatView({
           </div>
         ) : (
           <div ref={scrollContentRef} className="min-h-full py-6">
-            {renderTurns.map((turn, turnIndex) => {
-              const isLastTurn = turnIndex === renderTurns.length - 1
-              const turnUser = turn.user
-
-              // All render decisions (Option B ordering, single action bar, row
-              // suppression) live in the pure, unit-tested buildTurnView().
-              const view = buildTurnView(turn, {
-                isGenerating: isAnswerStreaming,
-                isLastTurn,
-                latestRenderedUserIndex,
-                duplicateToolOnlyRows,
-                suppressedToolCallMessages,
-                groupedToolCalls,
-                terminalToolState,
+            {renderedMessages.map((message, index) => {
+              const isDuplicateToolOnlyRow = duplicateToolOnlyRows.has(message.messageId)
+              const rawMessageToolCalls = message.role === "assistant" && !suppressedToolCallMessages.has(message.messageId) && !isDuplicateToolOnlyRow
+                ? groupedToolCalls.get(message.messageId) ?? message.toolCalls ?? []
+                : []
+              const shouldFinalizeDisplayedTools =
+                message.role === "assistant" &&
+                (index < latestRenderedUserIndex || !isGenerating || rawMessageToolCalls.some((tool) => tool.status === "success" || tool.status === "error"))
+              const messageToolCalls = applyTerminalToolState(rawMessageToolCalls, terminalToolState, {
+                finalizeStaleRunning: shouldFinalizeDisplayedTools,
               })
-              const anySubagent = view.assistantRows.some(
-                (row) => subagentAnchors.orphanByAssistantId.get(row.message.messageId)?.length,
-              )
-              const hasAssistantContent = view.hasAssistantContent || Boolean(anySubagent)
-              const turnKeyIndex = turn.user ? turn.user.index : turn.assistants[0]?.index ?? 0
-
+              const suppressLiveToolOnlyAssistantRow =
+                message.role === "assistant" &&
+                index > latestRenderedUserIndex &&
+                !message.text.trim() &&
+                !message.reasoningText &&
+                suppressedToolCallMessages.has(message.messageId)
+              if (suppressLiveToolOnlyAssistantRow || (isDuplicateToolOnlyRow && !message.text.trim() && !message.reasoningText && !message.attachments?.length)) {
+                return null
+              }
+              const isStreamingAssistant = isActivelyStreamingAssistant({
+                message,
+                index,
+                messages: renderedMessages,
+                isGenerating,
+              })
+              const animateAssistantText = shouldAnimateAssistantMessage({
+                message,
+                index,
+                messages: renderedMessages,
+                isGenerating,
+              })
               return (
-                <div key={renderedRowKeys[turnKeyIndex] ?? turn.keyMessageId} className="mx-auto flex max-w-[44rem] flex-col">
-                  {turnUser ? (
-                    <div
-                      id={`message-${turnUser.message.messageId}`}
-                      data-chat-message-row="true"
-                      data-message-id={turnUser.message.messageId}
-                      data-message-seq={turnUser.message.gatewayIndex ?? ""}
-                      data-pin-flash={flashId === turnUser.message.messageId ? "true" : undefined}
-                      className={cn(
-                        "rounded-xl px-4 py-3 transition-[box-shadow] duration-300",
-                        flashId === turnUser.message.messageId &&
-                          "ring-2 ring-primary/60 ring-offset-2 ring-offset-background",
-                      )}
-                    >
-                      <MessageBubble
-                        message={turnUser.message}
-                        onEdit={
-                          turnUser.message.messageId === renderedMessages[latestRenderedUserIndex]?.messageId
-                            ? handleEdit
-                            : undefined
-                        }
-                        onRetrySend={handleRetrySend}
-                        onReply={handleReply}
-                        onPin={handlePin}
-                        onDelete={handleDelete}
-                        onExport={handleExport}
-                        isPinned={pinnedIds.includes(turnUser.message.messageId)}
-                        reaction={reactions[turnUser.message.messageId]}
-                        isGenerating={isGenerating}
-                        popoverOpen={activePopoverId === turnUser.message.messageId}
-                        onPopoverOpenChange={(open) =>
-                          setActivePopoverId(open ? turnUser.message.messageId : null)
-                        }
-                      />
-                    </div>
-                  ) : null}
-
-                  {turn.assistants.length && hasAssistantContent ? (
-                    <div className="px-4 py-3">
-                      {view.assistantRows.map((row) =>
-                        subagentAnchors.orphanByAssistantId.get(row.message.messageId)?.length ? (
-                          <div key={`sub-${row.message.messageId}`} className="mb-1">
-                            <SubagentCard
-                              subagents={subagentAnchors.orphanByAssistantId.get(row.message.messageId) ?? []}
-                              onOpen={openSubagent}
-                            />
-                          </div>
-                        ) : null,
-                      )}
-                      {view.assistantRows.map((row) =>
-                        row.message.reasoningText ? (
-                          <ThinkingBlock key={`think-${row.message.messageId}`} text={row.message.reasoningText} />
-                        ) : null,
-                      )}
-                      {view.toolCalls.length ? (
-                        <div className="mb-0 max-w-[85%]">
-                          <ToolCallSteps
-                            tools={view.toolCalls}
-                            defaultOpen={view.toolsDefaultOpen}
-                            onSelectTool={onSelectTool}
-                            onResolveApproval={(approvalId, decision) =>
-                              resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
-                            }
-                            sessionKey={sessionKey}
-                          />
-                        </div>
-                      ) : null}
-                      {view.textRows.map((row) => {
-                        const isStreamingAssistant = isActivelyStreamingAssistant({
-                          message: row.message,
-                          index: row.index,
-                          messages: renderedMessages,
-                          isGenerating: isAnswerStreaming,
-                        })
-                        const animateAssistantText = shouldAnimateAssistantMessage({
-                          message: row.message,
-                          index: row.index,
-                          messages: renderedMessages,
-                          isGenerating: isAnswerStreaming,
-                        })
-                        // Single action bar per turn: only the last text block,
-                        // and only once the turn is complete (see buildTurnView).
-                        const showActions =
-                          view.actionBarMessageId === row.message.messageId && !animateAssistantText
-                        return (
-                          <div
-                            key={renderedRowKeys[row.index]}
-                            id={`message-${row.message.messageId}`}
-                            data-chat-message-row="true"
-                            data-message-id={row.message.messageId}
-                            data-message-seq={row.message.gatewayIndex ?? ""}
-                            data-pin-flash={flashId === row.message.messageId ? "true" : undefined}
-                            className={cn(
-                              "transition-[box-shadow] duration-300",
-                              flashId === row.message.messageId &&
-                                "rounded-xl ring-2 ring-primary/60 ring-offset-2 ring-offset-background",
-                            )}
-                          >
-                            <MessageBubble
-                              message={row.message}
-                              onReply={handleReply}
-                              onPin={handlePin}
-                              onDelete={handleDelete}
-                              onReact={handleReact}
-                              onExport={handleExport}
-                              onFork={handleFork}
-                              onAskSelectedText={handleAskSelectedText}
-                              isPinned={pinnedIds.includes(row.message.messageId)}
-                              reaction={reactions[row.message.messageId]}
-                              isGenerating={isGenerating}
-                              isActivelyStreaming={isStreamingAssistant}
-                              animateAssistantText={animateAssistantText}
-                              onTextAnimationComplete={handleTextAnimationComplete}
-                              suppressActions={!showActions}
-                              popoverOpen={activePopoverId === row.message.messageId}
-                              onPopoverOpenChange={(open) =>
-                                setActivePopoverId(open ? row.message.messageId : null)
-                              }
-                              onResolveApproval={(approvalId, decision) =>
-                                resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
-                              }
-                            />
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : null}
-                </div>
+              <div
+                key={renderedRowKeys[index]}
+                id={`message-${message.messageId}`}
+                data-chat-message-row="true"
+                data-message-id={message.messageId}
+                data-message-seq={message.gatewayIndex ?? ""}
+                data-pin-flash={flashId === message.messageId ? "true" : undefined}
+                className={cn(
+                  "mx-auto max-w-[44rem] rounded-xl px-4 py-3 transition-[box-shadow] duration-300",
+                  flashId === message.messageId && "ring-2 ring-primary/60 ring-offset-2 ring-offset-background"
+                )}
+              >
+                {message.role === "assistant" && subagentAnchors.orphanByAssistantId.get(message.messageId)?.length ? (
+                  <div className="mb-1">
+                    <SubagentCard
+                      subagents={subagentAnchors.orphanByAssistantId.get(message.messageId) ?? []}
+                      onOpen={openSubagent}
+                    />
+                  </div>
+                ) : null}
+                {message.role === "assistant" && message.reasoningText && (
+                  <ThinkingBlock text={message.reasoningText} />
+                )}
+                {message.role === "assistant" && messageToolCalls.length ? (
+                  <div className="mb-0 max-w-[85%]">
+                    <ToolCallSteps
+                      tools={messageToolCalls}
+                      defaultOpen={!message.text.trim()}
+                      onSelectTool={onSelectTool}
+                      onResolveApproval={(approvalId, decision) =>
+                        resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
+                      }
+                      sessionKey={sessionKey}
+                    />
+                  </div>
+                ) : null}
+                {(message.text.trim() || message.attachments?.length) ? (
+                  <MessageBubble
+                    message={message}
+                    onEdit={
+                      message.role === "user" && message.messageId === renderedMessages[latestRenderedUserIndex]?.messageId
+                        ? handleEdit
+                        : undefined
+                    }
+                    onRetrySend={message.role === "user" ? handleRetrySend : undefined}
+                    onReply={handleReply}
+                    onPin={handlePin}
+                    onDelete={handleDelete}
+                    onReact={message.role === "assistant" ? handleReact : undefined}
+                    onExport={handleExport}
+                    onFork={message.role === "assistant" ? handleFork : undefined}
+                    onAskSelectedText={message.role === "assistant" ? handleAskSelectedText : undefined}
+                    isPinned={pinnedIds.includes(message.messageId)}
+                    reaction={reactions[message.messageId]}
+                    isGenerating={isGenerating}
+                    isActivelyStreaming={isStreamingAssistant}
+                    animateAssistantText={animateAssistantText}
+                    onTextAnimationComplete={handleTextAnimationComplete}
+                    suppressActions={message.role === "assistant" && animateAssistantText}
+                    popoverOpen={activePopoverId === message.messageId}
+                    onPopoverOpenChange={(open) =>
+                      setActivePopoverId(open ? message.messageId : null)
+                    }
+                    onResolveApproval={(approvalId, decision) =>
+                      resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
+                    }
+                  />
+                ) : null}
+              </div>
               )
             })}
             {showThinkingState ? (
