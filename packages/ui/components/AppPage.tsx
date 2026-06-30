@@ -261,8 +261,15 @@ function markFirstOpenSplashSeen() {
   try {
     window.sessionStorage.setItem(FIRST_OPEN_SPLASH_KEY, "true")
   } catch {}
+}
+
+function hidePrehydrationSplashAfterPaint() {
   try {
-    document.documentElement.dataset.openclawSplashSeen = "true"
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document.documentElement.dataset.openclawSplashSeen = "true"
+      })
+    })
   } catch {}
 }
 
@@ -315,6 +322,7 @@ export default function Page() {
     const timer = window.setTimeout(() => {
       if (showFirstOpenSplash) markFirstOpenSplashSeen()
       setOnboardingDone(true)
+      if (showFirstOpenSplash) hidePrehydrationSplashAfterPaint()
     }, delay)
     return () => window.clearTimeout(timer)
   }, [onboardingLoading, hasToken, showFirstOpenSplash])
