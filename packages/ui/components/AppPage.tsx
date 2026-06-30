@@ -707,6 +707,29 @@ function AppShell({
   const focusedGroup = getFocusedGroup(editorGroups)
   const allTabs = editorGroups.groups.flatMap((g) => g.tabs)
   const totalNonDraftTabs = allTabs.filter((t) => t.kind !== "draft").length
+
+  // TEMP DIAGNOSTIC (new-chat tab desync). Logs the focused group's tab layout
+  // vs the active chat whenever a real conversation is open, so we can see
+  // whether the active tab is a stuck "New Chat" draft, or a chat tab whose id
+  // doesn't match activeChat. Remove once the root cause is confirmed.
+  useEffect(() => {
+    if (effectiveActiveTab !== "chat") return
+    if (!activeChat?.id || !activeSessionKey) return
+    const g = getFocusedGroup(editorGroups)
+    const activeTab = g.tabs.find((t) => t.id === g.activeTabId)
+    frontendLog("chat", "newchat-diagnostic", {
+      activeChatId: activeChat.id,
+      activeChatName: activeChat.name,
+      activeChatSessionKey: activeChat.sessionKey ?? null,
+      activeSessionKey,
+      focusedGroupId: g.id,
+      activeTabId: g.activeTabId,
+      activeTabKind: activeTab?.kind ?? null,
+      activeTabTitle: activeTab?.title ?? null,
+      activeTabChatId: activeTab?.chat?.id ?? null,
+      tabs: g.tabs.map((t) => ({ id: t.id, kind: t.kind, title: t.title, chatId: t.chat?.id ?? null, sk: t.chat?.sessionKey ?? null })),
+    })
+  }, [activeChat, activeSessionKey, editorGroups, effectiveActiveTab])
   const displayedEditorGroups = useMemo(() => {
     const liveChatTitles = new Map<string, string | { chat: ActiveChat; sessionKey: string; title: string }>(liveChatTitleById)
     for (const [chatId, resolved] of resolvedChatCacheRef.current.entries()) {
