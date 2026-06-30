@@ -46,15 +46,25 @@ export function OpenClawLobsterIcon() {
   )
 }
 
+const OPENCLAW_LETTERS = "OpenClaw".split("")
+
 export function OpenClawSplash() {
   return (
     <div className="flex h-dvh min-h-dvh items-center justify-center overflow-hidden bg-background text-foreground">
       <div className="flex flex-col items-center gap-5" role="status" aria-live="polite" aria-label="Opening OpenClaw">
         <OpenClawLobsterIcon />
-        <div className="text-center">
-          <p className="text-2xl font-semibold tracking-[-0.04em] text-foreground">OpenClaw</p>
-          <p className="mt-1 text-[11px] uppercase tracking-[0.22em] text-muted-foreground/55">Opening</p>
-        </div>
+        <p className="openclaw-splash-title" aria-label="OpenClaw">
+          {OPENCLAW_LETTERS.map((letter, index) => (
+            <span
+              aria-hidden="true"
+              className="openclaw-splash-letter"
+              key={`${letter}-${index}`}
+              style={{ animationDelay: `${index * 55}ms` }}
+            >
+              {letter}
+            </span>
+          ))}
+        </p>
       </div>
     </div>
   )
