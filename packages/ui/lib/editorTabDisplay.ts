@@ -40,13 +40,17 @@ export function deriveChatTabTitle(
   const tabTitle = cleanTitle(tab.title)
 
   // Resolve from a single ordered list of synced sources so the header tab
-  // always matches the sidebar/session name. Prefer the first *strong*
-  // (real, non-weak) name from any source — a manual/active rename, then the
-  // live chat-list record, then the tab's own already-synced title. Only when
-  // every source is still weak ("New Chat", a pending/placeholder, or a raw id)
-  // do we fall back to the placeholder. This prevents a weak active-chat name
-  // from clobbering a tab/sidebar title that has already resolved.
-  const candidates = [activeTitle, liveTitle, tabTitle]
+  // always matches the sidebar name. The live chat-list record
+  // (`liveChatTitles`) is the authoritative source — it is fed from the same
+  // server-backed chat list / localSync the sidebar renders, so any rename
+  // (sidebar dialog, header menu, autoname) lands here. It must win over a
+  // stale `activeChat.name` snapshot, otherwise renaming the *currently open*
+  // chat updates the sidebar but leaves the header tab on the old name.
+  // Fall back to the active-chat name, then the tab's own title, only when the
+  // live list has not resolved a real name for this chat yet (e.g. a brand-new
+  // chat mid-creation). Only when every source is still weak ("New Chat", a
+  // pending placeholder, or a raw id) do we show the placeholder.
+  const candidates = [liveTitle, activeTitle, tabTitle]
   const strong = candidates.find((title) => title && !isWeakChatName(title))
   if (strong) return strong
 

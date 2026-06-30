@@ -644,6 +644,34 @@ function AppShell({
     })
   }, [])
 
+  // Single source of truth for propagating a chat rename to every surface that
+  // shows a chat name: the live title map (header tab labels + sidebar parity),
+  // the active chat + session title (in-chat header), the open editor tab, and
+  // the resolved-session cache. Every immediate rename path (header menu,
+  // autoname) calls this so the name stays in sync everywhere without waiting
+  // on a chat-list reload.
+  const applyChatRename = useCallback((chatId: string, rawName: string) => {
+    const name = rawName.trim()
+    if (!name) return
+    setLiveChatTitleById((prev) => {
+      if (prev.get(chatId) === name) return prev
+      const next = new Map(prev)
+      next.set(chatId, name)
+      return next
+    })
+    setActiveChat((prev) => (prev?.id === chatId && prev.name !== name ? { ...prev, name } : prev))
+    setActiveSessionTitle((prev) => (activeChatRef.current?.id === chatId ? name : prev))
+    const cached = resolvedChatCacheRef.current.get(chatId)
+    if (cached) {
+      resolvedChatCacheRef.current.set(chatId, { ...cached, chat: { ...cached.chat, name }, title: name })
+    }
+    dispatchGroups({
+      type: "UPDATE_TAB",
+      tabId: `chat:${chatId}`,
+      updates: { title: name },
+    })
+  }, [])
+
   useEffect(() => {
     if (!activeSpaceId) return
     let cancelled = false
@@ -661,6 +689,20 @@ function AppShell({
       unsubscribe()
     }
   }, [activeSpaceId, rememberLiveChatTitles])
+
+  // Reconcile the open chat's name with the authoritative live title map. The
+  // sidebar rename dialog updates the server + chat list, which flows here via
+  // the localSync subscription above; this keeps the active chat + in-chat
+  // session title in step so renaming the currently-open chat from the sidebar
+  // updates the header tab AND the chat header, not just the sidebar row.
+  useEffect(() => {
+    const current = activeChatRef.current
+    if (!current?.id) return
+    const liveName = liveChatTitleById.get(current.id)
+    if (!liveName || isWeakChatName(liveName) || liveName === current.name) return
+    setActiveChat((prev) => (prev?.id === current.id && prev.name !== liveName ? { ...prev, name: liveName } : prev))
+    setActiveSessionTitle((prev) => (prev && prev !== liveName ? liveName : prev))
+  }, [liveChatTitleById])
 
   const focusedGroup = getFocusedGroup(editorGroups)
   const allTabs = editorGroups.groups.flatMap((g) => g.tabs)
@@ -2101,16 +2143,12 @@ function AppShell({
       input: { chatId: chat.id, name: nextName },
     }).then(() => {
       invalidateChatListCache(activeSpaceId)
-      dispatchGroups({
-        type: "UPDATE_TAB",
-        tabId: `chat:${chat.id}`,
-        updates: { title: nextName, chat: { ...chat, name: nextName } },
-      })
+      applyChatRename(chat.id, nextName)
       emit("sidebar:refresh")
     }).catch((error) => {
       console.error("rename chat failed", error)
     })
-  }, [activeSpaceId, dispatchGroups])
+  }, [activeSpaceId, applyChatRename])
 
   const handleArchiveChatFromMenu = useCallback((chat: ActiveChat) => {
     invalidateChatListCache(activeSpaceId)
