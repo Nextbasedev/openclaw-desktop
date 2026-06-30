@@ -334,6 +334,74 @@ function shouldSuppressTerminalStatusDuringPendingUser({
   return !hasAssistantAnswerAfterLastUser(messages)
 }
 
+function patchHasTerminalToolPayload(frame: PatchFrame): boolean {
+  const tool = patchPayload(frame)?.toolCall
+  if (!isRecord(tool)) return false
+  const phase = typeof tool.phase === "string" ? tool.phase : ""
+  return (
+    tool.status === "success" ||
+    tool.status === "error" ||
+    phase === "result" ||
+    phase === "error" ||
+    phase === "done" ||
+    phase === "complete" ||
+    phase === "completed" ||
+    phase === "success" ||
+    phase === "failed"
+  )
+}
+
+function patchCarriesLiveToolActivity(frame: PatchFrame): boolean {
+  const semanticType = patchSemanticType(frame)
+  if (semanticType.startsWith("chat.tool.")) return true
+  if (semanticType.startsWith("chat.subagent.")) return true
+  return isRecord(patchPayload(frame)?.toolCall)
+}
+
+function patchCarriesLiveAssistantActivity(frame: PatchFrame): boolean {
+  const semanticType = patchSemanticType(frame)
+  return semanticType === "chat.assistant.started" || semanticType === "chat.assistant.delta"
+}
+
+function patchIsUserMessage(frame: PatchFrame): boolean {
+  const semanticType = patchSemanticType(frame)
+  if (semanticType === "chat.user.created" || semanticType === "chat.user.confirmed") return true
+  const message = patchPayload(frame)?.message
+  return isRecord(message) && message.role === "user"
+}
+
+function messagesHaveRunningTool(messages: ChatMessage[]): boolean {
+  return messages.some((message) =>
+    message.role === "assistant" &&
+    Boolean(message.toolCalls?.some((tool) => tool.status === "running")),
+  )
+}
+
+// Mirror of the global store's `shouldIgnoreTerminalToActiveStatus`. Once a turn
+// has produced its final assistant answer, late patches (e.g. a backgrounded
+// subagent's `tool_running` echo, or a stale projection replay) must not flip
+// the run back to an active status and re-show the "Writing..." indicator.
+function shouldSuppressActiveResurrectionAfterAnswer({
+  currentStatus,
+  nextStatus,
+  frame,
+  messages,
+}: {
+  currentStatus: StreamStatus
+  nextStatus: StreamStatus | null
+  frame: PatchFrame
+  messages: ChatMessage[]
+}): boolean {
+  if (!nextStatus || !isActiveStreamStatus(nextStatus)) return false
+  if (!isTerminalStatus(currentStatus)) return false
+  if (patchIsUserMessage(frame)) return false
+  if (patchHasTerminalToolPayload(frame)) return true
+  if (patchCarriesLiveToolActivity(frame)) return false
+  if (patchCarriesLiveAssistantActivity(frame)) return false
+  if (messagesHaveRunningTool(messages)) return false
+  return hasAssistantAnswerAfterLastUser(messages)
+}
+
 function summarizeToolInput(tool: InlineToolCall) {
   const input = tool.input
   if (!input || typeof input !== "object") {
@@ -1235,10 +1303,27 @@ export function ChatView({
             patchStatus: rawNextStatus,
           }, "debug")
         }
-        const nextStatus = suppressTerminalStatus
+        const suppressActiveResurrection = !suppressTerminalStatus &&
+          shouldSuppressActiveResurrectionAfterAnswer({
+            currentStatus: current.streamStatus,
+            nextStatus: rawNextStatus,
+            frame,
+            messages: orderedMessages,
+          })
+        if (suppressActiveResurrection) {
+          frontendLog("chat", "chat-rebuild.status.suppress-active-resurrection", {
+            sessionKey,
+            cursor: frame.patch.cursor,
+            patchType: frame.patch.type,
+            semanticType,
+            currentStatus: current.streamStatus,
+            patchStatus: rawNextStatus,
+          }, "debug")
+        }
+        const nextStatus = suppressTerminalStatus || suppressActiveResurrection
           ? current.streamStatus
           : rawNextStatus ?? current.streamStatus
-        const nextStatusLabel = suppressTerminalStatus
+        const nextStatusLabel = suppressTerminalStatus || suppressActiveResurrection
           ? current.statusLabel
           : patchStatus?.label ?? current.statusLabel
 
