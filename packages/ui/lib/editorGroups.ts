@@ -193,9 +193,15 @@ export function editorGroupsReducer(
                 currentSessionData?.chat.id === g.sessionData?.chat.id &&
                 currentSessionData?.sessionKey === g.sessionData?.sessionKey &&
                 currentSessionData?.title === g.sessionData?.title)
-            if (g.activeTabId === action.tab.id && sameSessionData) return g
+            // Opening a real session tab must evict any lingering "New Chat"
+            // draft in this group. The draft is a transient compose-only
+            // placeholder; once its session exists it should be REPLACED by
+            // the session tab, never left sitting alongside it.
+            const hasDraftTab = g.tabs.some((t) => t.kind === "draft")
+            if (g.activeTabId === action.tab.id && sameSessionData && !hasDraftTab) return g
             nextGroup = {
               ...g,
+              tabs: hasDraftTab ? withoutDraft : g.tabs,
               activeTabId: action.tab.id,
               sessionData: currentSessionData,
             }
