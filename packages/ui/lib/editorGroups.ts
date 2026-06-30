@@ -210,11 +210,37 @@ export function editorGroupsReducer(
             }
           }
         } else {
-          nextGroup = {
-            ...g,
-            tabs: [...withoutDraft, action.tab],
-            activeTabId: action.tab.id,
-            sessionData: sessionDataFromTab(action.tab) ?? g.sessionData,
+          // Same-session dedup. A chat is identified canonically by its
+          // sessionKey. If a chat tab for this exact sessionKey is already open
+          // — even under a different/older chat id (e.g. an optimistic id the
+          // server later replaced after create) — REPLACE that tab in place and
+          // focus it instead of opening a second tab for the same conversation.
+          // This is what makes the "New Chat" placeholder become the real
+          // session (id migration) and prevents the sidebar-click duplicate.
+          const newSessionKey =
+            action.tab.kind === "chat" ? action.tab.chat?.sessionKey?.trim() : undefined
+          const sameSessionIdx = newSessionKey
+            ? withoutDraft.findIndex(
+                (t) =>
+                  t.kind === "chat" &&
+                  t.id !== action.tab.id &&
+                  t.chat?.sessionKey?.trim() === newSessionKey,
+              )
+            : -1
+          if (sameSessionIdx >= 0) {
+            nextGroup = {
+              ...g,
+              tabs: withoutDraft.map((t, i) => (i === sameSessionIdx ? action.tab : t)),
+              activeTabId: action.tab.id,
+              sessionData: sessionDataFromTab(action.tab) ?? g.sessionData,
+            }
+          } else {
+            nextGroup = {
+              ...g,
+              tabs: [...withoutDraft, action.tab],
+              activeTabId: action.tab.id,
+              sessionData: sessionDataFromTab(action.tab) ?? g.sessionData,
+            }
           }
         }
         changed = true

@@ -2706,11 +2706,42 @@ function AppShell({
         "middleware_chats_create",
         { input: { chatId, sessionKey, name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
       )
+      // ---- reconcile identity if the server did NOT honor our chat id -------
+      // We optimistically committed the tab/activeChat/route/cache to our
+      // client-generated `chatId`. If the middleware assigned a different id,
+      // migrate every surface to the authoritative server id so the open tab,
+      // active chat, sidebar highlight, route, and cache all reference ONE
+      // identity. Same sessionKey, so the reducer dedups (replaces the
+      // optimistic tab in place) instead of opening a duplicate.
+      const serverChatId = result.chat?.id
+      if (serverChatId && serverChatId !== chatId) {
+        frontendLog("chat", "quick-send.chat-id-reconcile", { clientChatId: chatId, serverChatId, sessionKey }, "warn")
+        const migratedChat = { id: serverChatId, name: fallbackName, sessionKey }
+        const migratedSession = { chat: migratedChat, sessionKey, title: fallbackName }
+        resolvedChatCacheRef.current.delete(chatId)
+        resolvedChatCacheRef.current.set(serverChatId, migratedSession)
+        setActiveChat((prev) => (prev?.id === chatId ? migratedChat : prev))
+        dispatchGroups({
+          type: "ADD_TAB",
+          groupId: targetGroupId,
+          tab: { id: `chat:${serverChatId}`, title: fallbackName, subtitle: "Chat", kind: "chat", chat: migratedChat },
+        })
+        dispatchGroups({
+          type: "SET_SESSION_DATA",
+          groupId: targetGroupId,
+          sessionData: migratedSession,
+        })
+        if (getRoutePath() === `/${chatId}`) {
+          window.history.replaceState(null, "", routeUrl(`/${serverChatId}`))
+        }
+      }
+      // From here on, the authoritative chat id is `serverChatId ?? chatId`.
+      const canonicalChatId = serverChatId || chatId
       if (!sessionKeyFromResponse(result)) {
         // Defensive: server did not echo our sessionKey — ensure the gateway
         // session/attachment exist before we send.
         await invoke("middleware_chats_attach_session", {
-          input: { chatId, sessionKey, spaceId: activeSpaceId ?? undefined },
+          input: { chatId: canonicalChatId, sessionKey, spaceId: activeSpaceId ?? undefined },
         }).catch(() => {})
       }
       // Fire-and-forget: model selection persists in the background; it must
@@ -2754,8 +2785,8 @@ function AppShell({
             input: { chatId: result.chat.id, name: finalName },
           })
           invalidateChatListCache(activeSpaceId)
-          const renamedChat = { ...createdChat, name: finalName }
-          resolvedChatCacheRef.current.set(result.chat.id, { chat: renamedChat, sessionKey, title: finalName })
+          const renamedChat = { ...createdChat, id: canonicalChatId, name: finalName }
+          resolvedChatCacheRef.current.set(canonicalChatId, { chat: renamedChat, sessionKey, title: finalName })
           setActiveChat((prev) =>
             prev?.id === result.chat.id ? { ...prev, name: finalName } : prev,
           )
