@@ -245,18 +245,22 @@ const APP_CONTEXT_MENU_WIDTH = 176
 const APP_CONTEXT_MENU_HEIGHT = process.env.NODE_ENV === "production" ? 44 : 80
 const APP_CONTEXT_MENU_MARGIN = 12
 const SHOW_DEV_CONTEXT_ACTIONS = process.env.NODE_ENV !== "production"
-const STARTUP_LOGO_SESSION_KEY = "openclaw.desktop.startupLogoShown:v1"
-const STARTUP_LOGO_MIN_MS = 900
+const STARTUP_LOGO_MIN_MS = 1200
 
 function shouldShowStartupLogoScreen(): boolean {
   if (typeof window === "undefined") return false
-  try {
-    if (window.sessionStorage.getItem(STARTUP_LOGO_SESSION_KEY) === "true") return false
-    window.sessionStorage.setItem(STARTUP_LOGO_SESSION_KEY, "true")
-    return true
-  } catch {
-    return true
-  }
+
+  const navigation = window.performance?.getEntriesByType?.("navigation")?.[0] as PerformanceNavigationTiming | undefined
+  const legacyNavigation = window.performance && "navigation" in window.performance
+    ? (window.performance.navigation as PerformanceNavigation | undefined)
+    : undefined
+  const isReload = navigation?.type === "reload" || legacyNavigation?.type === 1
+  if (isReload) return false
+
+  const startupWindow = window as typeof window & { __openclawStartupLogoShown?: boolean }
+  if (startupWindow.__openclawStartupLogoShown) return false
+  startupWindow.__openclawStartupLogoShown = true
+  return true
 }
 
 export default function Page() {

@@ -1,3 +1,5 @@
+"use client"
+
 import SplitText from "@/components/react-bits/SplitText"
 
 function Bone({ className }: { className?: string }) {
@@ -24,8 +26,8 @@ function ChatRowBone({ active = false, short = false }: { active?: boolean; shor
 
 export function StartupLogoScreen() {
   return (
-    <div className="flex h-dvh min-h-dvh items-center justify-center overflow-hidden bg-background text-foreground">
-      <div className="relative flex items-center gap-4">
+    <div className="fixed inset-0 z-[9999] flex h-dvh min-h-dvh items-center justify-center overflow-hidden bg-background text-foreground">
+      <div className="relative flex items-center justify-center gap-4 px-6">
         <div className="absolute -inset-10 rounded-full bg-[#ff5a50]/10 blur-3xl" />
         <svg
           viewBox="0 0 120 120"
@@ -74,7 +76,7 @@ export function StartupLogoScreen() {
             </linearGradient>
           </defs>
         </svg>
-        <div className="relative">
+        <div className="relative flex min-w-[190px] flex-col items-start">
           <SplitText
             tag="div"
             text="OpenClaw"
