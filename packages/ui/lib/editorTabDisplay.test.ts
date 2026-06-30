@@ -61,4 +61,36 @@ describe("editor tab display titles", () => {
 
     expect(displayState.groups[0]?.tabs[0]?.title).toBe("Manual title")
   })
+
+  it("honors an already-synced tab title over a still-weak active chat name", () => {
+    const base = state()
+    // The send/autoname flow updated the tab title, but the active chat name
+    // is still the weak placeholder. The header must show the resolved tab
+    // title, not fall back to "New Chat".
+    base.groups[0]!.tabs[0] = {
+      id: "chat:chat-1",
+      title: "hello",
+      subtitle: "Chat",
+      kind: "chat",
+      chat: { id: "chat-1", name: "New Chat" },
+    }
+
+    const displayState = deriveEditorGroupsTabTitles(
+      base,
+      new Map(),
+      { id: "chat-1", name: "New Chat" },
+    )
+
+    expect(displayState.groups[0]?.tabs[0]?.title).toBe("hello")
+  })
+
+  it("keeps the placeholder while every source is still weak", () => {
+    const displayState = deriveEditorGroupsTabTitles(
+      state(),
+      new Map(),
+      { id: "chat-1", name: "Opening chat..." },
+    )
+
+    expect(displayState.groups[0]?.tabs[0]?.title).toBe("New Chat")
+  })
 })

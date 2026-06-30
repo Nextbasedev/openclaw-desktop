@@ -36,12 +36,21 @@ export function deriveChatTabTitle(
     ? cleanTitle(live)
     : cleanTitle(live?.chat?.name) ?? cleanTitle(live?.name) ?? cleanTitle(live?.title)
 
-  if (activeChat?.id === chatId) {
-    const activeTitle = cleanTitle(activeChat.name)
-    if (activeTitle && !isWeakChatName(activeTitle)) return activeTitle
-  }
+  const activeTitle = activeChat?.id === chatId ? cleanTitle(activeChat.name) : null
+  const tabTitle = cleanTitle(tab.title)
 
-  return liveTitle ?? cleanTitle(activeChat?.id === chatId ? activeChat.name : null) ?? tab.title
+  // Resolve from a single ordered list of synced sources so the header tab
+  // always matches the sidebar/session name. Prefer the first *strong*
+  // (real, non-weak) name from any source — a manual/active rename, then the
+  // live chat-list record, then the tab's own already-synced title. Only when
+  // every source is still weak ("New Chat", a pending/placeholder, or a raw id)
+  // do we fall back to the placeholder. This prevents a weak active-chat name
+  // from clobbering a tab/sidebar title that has already resolved.
+  const candidates = [activeTitle, liveTitle, tabTitle]
+  const strong = candidates.find((title) => title && !isWeakChatName(title))
+  if (strong) return strong
+
+  return liveTitle ?? activeTitle ?? tab.title ?? DEFAULT_CHAT_TITLE
 }
 
 export function deriveEditorGroupsTabTitles(
