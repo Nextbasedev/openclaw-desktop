@@ -40,6 +40,7 @@ import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
 import { normalizeSessionTokenUsage, type SessionTokenUsage } from "@/lib/sessionContextUsage"
 import { cn } from "@/lib/utils"
+import { isSubagentSessionKey } from "@/lib/subagentSession"
 import { useAgentActivity } from "@/hooks/useAgentActivity"
 import type { AgentNode } from "@/components/inspector/activity-types"
 import {
@@ -62,6 +63,7 @@ import {
   LuSparkles,
   LuWrench,
 } from "react-icons/lu"
+import { VscArrowLeft, VscHubot } from "react-icons/vsc"
 import type { IconType } from "react-icons"
 import { MessageBubble } from "./MessageBubble"
 import {
@@ -465,6 +467,40 @@ function GeneratingStatus({ label, tool }: { label: string; tool?: string | null
   )
 }
 
+function DirectSubagentHeader({
+  title,
+  onBack,
+}: {
+  title?: string
+  onBack?: () => void
+}) {
+  return (
+    <div className="shrink-0 border-b border-border/20 bg-background/80 px-4 py-3 backdrop-blur-sm">
+      <div className="mx-auto flex max-w-[44rem] items-center gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={!onBack}
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+          aria-label="Back to parent chat"
+          title="Back to parent chat"
+        >
+          <VscArrowLeft className="size-4" />
+        </button>
+        <VscHubot className="size-4 shrink-0 text-blue-400" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-medium text-foreground">
+            {title?.trim() || "Subagent"}
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Sub-agent conversation
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // `messageRowKey` / `toolCallKey` are kept in their own module so they can be
 // unit-tested for stability across the full optimistic↔confirmed↔replay
 // lifecycle and across long conversations. See messageRowKey.ts.
@@ -535,6 +571,7 @@ function composerAttachmentsToMessageAttachments(
 
 export function ChatView({
   sessionKey,
+  sessionTitle,
   initialPrompt,
   initialMessages,
   onFirstMessageSent,
@@ -544,6 +581,11 @@ export function ChatView({
   onSubagentOpen,
   isBackgroundSession = false,
 }: Props) {
+  const isDirectSubagentSession = isSubagentSessionKey(sessionKey)
+  const handleDirectSubagentBack = useCallback(() => {
+    onSubagentOpen?.(null)
+  }, [onSubagentOpen])
+
   // ---- new-session bootstrap detection --------------------------------------
   // When AppPage creates a brand-new chat and mounts ChatView, it hands us an
   // `initialMessages` array containing exactly one optimistic user bubble
@@ -2839,7 +2881,13 @@ export function ChatView({
       data-chat-rebuild-history="true"
       data-session-key={sessionKey}
     >
-      <div className="pointer-events-none absolute right-4 top-4 z-30">
+      {isDirectSubagentSession && (
+        <DirectSubagentHeader
+          title={sessionTitle}
+          onBack={onSubagentOpen ? handleDirectSubagentBack : undefined}
+        />
+      )}
+      <div className={cn("pointer-events-none absolute right-4 z-30", isDirectSubagentSession ? "top-[4.25rem]" : "top-4")}>
         <div className="pointer-events-auto flex items-center gap-2">
           <div
             className="flex h-7 items-center gap-1 rounded-sm border border-border/40 bg-background/70 px-2 font-mono text-[10px] leading-none text-muted-foreground/80 shadow-sm backdrop-blur"
