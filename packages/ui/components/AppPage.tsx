@@ -708,26 +708,39 @@ function AppShell({
   const allTabs = editorGroups.groups.flatMap((g) => g.tabs)
   const totalNonDraftTabs = allTabs.filter((t) => t.kind !== "draft").length
 
-  // TEMP DIAGNOSTIC (new-chat tab desync). Logs the focused group's tab layout
-  // vs the active chat whenever a real conversation is open, so we can see
-  // whether the active tab is a stuck "New Chat" draft, or a chat tab whose id
-  // doesn't match activeChat. Remove once the root cause is confirmed.
+  // When a real session is open, the focused group's currently-SELECTED tab
+  // must BE that session. If the selected tab is still a "New Chat" placeholder
+  // — a draft, a stale chat tab pointing at a different/older chat, or a chat
+  // tab still showing the weak "New Chat" name while we now have a real name —
+  // transform that selected tab IN PLACE into this session and keep it
+  // selected. i.e. the open "New Chat" BECOMES the created session (identity +
+  // name), instead of leaving a stale "New Chat" tab behind. The condition only
+  // matches placeholder tabs, so this never disturbs normal sidebar/tab
+  // selection of an existing chat (there the selected tab already IS its chat).
   useEffect(() => {
     if (effectiveActiveTab !== "chat") return
     if (!activeChat?.id || !activeSessionKey) return
-    const g = getFocusedGroup(editorGroups)
-    const activeTab = g.tabs.find((t) => t.id === g.activeTabId)
-    frontendLog("chat", "newchat-diagnostic", {
-      activeChatId: activeChat.id,
-      activeChatName: activeChat.name,
-      activeChatSessionKey: activeChat.sessionKey ?? null,
-      activeSessionKey,
-      focusedGroupId: g.id,
-      activeTabId: g.activeTabId,
-      activeTabKind: activeTab?.kind ?? null,
-      activeTabTitle: activeTab?.title ?? null,
-      activeTabChatId: activeTab?.chat?.id ?? null,
-      tabs: g.tabs.map((t) => ({ id: t.id, kind: t.kind, title: t.title, chatId: t.chat?.id ?? null, sk: t.chat?.sessionKey ?? null })),
+    const group = getFocusedGroup(editorGroups)
+    const activeTab = group.tabs.find((t) => t.id === group.activeTabId)
+    if (!activeTab) return
+    const isPlaceholder =
+      activeTab.kind === "draft" ||
+      (activeTab.kind === "chat" && activeTab.chat?.id !== activeChat.id) ||
+      (activeTab.kind === "chat" &&
+        activeTab.chat?.id === activeChat.id &&
+        isWeakChatName(activeTab.title) &&
+        !isWeakChatName(activeChat.name))
+    if (!isPlaceholder) return
+    dispatchGroups({
+      type: "PROMOTE_ACTIVE_TO_SESSION",
+      groupId: group.id,
+      tab: {
+        id: `chat:${activeChat.id}`,
+        title: chatTitleOrFallback(activeChat.name),
+        subtitle: "Chat",
+        kind: "chat",
+        chat: activeChat,
+      },
     })
   }, [activeChat, activeSessionKey, editorGroups, effectiveActiveTab])
   const displayedEditorGroups = useMemo(() => {
