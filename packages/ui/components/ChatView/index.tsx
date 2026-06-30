@@ -338,35 +338,6 @@ function shouldSuppressTerminalStatusDuringPendingUser({
   return !hasAssistantAnswerAfterLastUser(messages)
 }
 
-function patchHasTerminalToolPayload(frame: PatchFrame): boolean {
-  const tool = patchPayload(frame)?.toolCall
-  if (!isRecord(tool)) return false
-  const phase = typeof tool.phase === "string" ? tool.phase : ""
-  return (
-    tool.status === "success" ||
-    tool.status === "error" ||
-    phase === "result" ||
-    phase === "error" ||
-    phase === "done" ||
-    phase === "complete" ||
-    phase === "completed" ||
-    phase === "success" ||
-    phase === "failed"
-  )
-}
-
-function patchCarriesLiveToolActivity(frame: PatchFrame): boolean {
-  const semanticType = patchSemanticType(frame)
-  if (semanticType.startsWith("chat.tool.")) return true
-  if (semanticType.startsWith("chat.subagent.")) return true
-  return isRecord(patchPayload(frame)?.toolCall)
-}
-
-function patchCarriesLiveAssistantActivity(frame: PatchFrame): boolean {
-  const semanticType = patchSemanticType(frame)
-  return semanticType === "chat.assistant.started" || semanticType === "chat.assistant.delta"
-}
-
 function patchIsUserMessage(frame: PatchFrame): boolean {
   const semanticType = patchSemanticType(frame)
   if (semanticType === "chat.user.created" || semanticType === "chat.user.confirmed") return true
@@ -374,18 +345,13 @@ function patchIsUserMessage(frame: PatchFrame): boolean {
   return isRecord(message) && message.role === "user"
 }
 
-function messagesHaveRunningTool(messages: ChatMessage[]): boolean {
-  return messages.some((message) =>
-    message.role === "assistant" &&
-    Boolean(message.toolCalls?.some((tool) => tool.status === "running")),
-  )
-}
-
-// Mirror of the global store's `shouldIgnoreTerminalToActiveStatus`. Once a turn
-// has produced its final assistant answer, late patches (e.g. a backgrounded
-// subagent's `tool_running` echo, or a stale projection replay) must not flip
-// the run back to an active status and re-show the "Writing..." indicator.
-function shouldSuppressActiveResurrectionAfterAnswer({
+// Once a turn has delivered its assistant answer and the stream has reached a
+// terminal status, later non-user patches must NOT flip the run back to an
+// active state. After the answer is complete, any remaining activity (a
+// backgrounded subagent, a tool still finishing, a stale projection replay) is
+// background work and should not re-show the "Writing..." indicator. Only a
+// brand-new user message legitimately starts a new active turn.
+function shouldKeepTerminalAfterAnswer({
   currentStatus,
   nextStatus,
   frame,
@@ -399,10 +365,6 @@ function shouldSuppressActiveResurrectionAfterAnswer({
   if (!nextStatus || !isActiveStreamStatus(nextStatus)) return false
   if (!isTerminalStatus(currentStatus)) return false
   if (patchIsUserMessage(frame)) return false
-  if (patchHasTerminalToolPayload(frame)) return true
-  if (patchCarriesLiveToolActivity(frame)) return false
-  if (patchCarriesLiveAssistantActivity(frame)) return false
-  if (messagesHaveRunningTool(messages)) return false
   return hasAssistantAnswerAfterLastUser(messages)
 }
 
@@ -1315,7 +1277,7 @@ export function ChatView({
           }, "debug")
         }
         const suppressActiveResurrection = !suppressTerminalStatus &&
-          shouldSuppressActiveResurrectionAfterAnswer({
+          shouldKeepTerminalAfterAnswer({
             currentStatus: current.streamStatus,
             nextStatus: rawNextStatus,
             frame,

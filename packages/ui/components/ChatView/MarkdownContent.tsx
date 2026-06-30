@@ -367,7 +367,6 @@ export function MarkdownContent({
   streaming,
   highlightTexts,
   onRevealComplete,
-  revealMode = "immediate",
 }: {
   text: string
   className?: string
@@ -375,13 +374,14 @@ export function MarkdownContent({
   streaming?: boolean
   highlightTexts?: string[]
   onRevealComplete?: () => void
+  // Accepted for call-site compatibility; reveal pacing was removed (streamed
+  // text now renders directly), so this prop no longer has an effect.
   revealMode?: "buffered" | "immediate"
 }) {
   const { displayText, isRevealing } = useStreamingText(
     text,
     streaming,
     onRevealComplete,
-    { mode: revealMode },
   )
   const parts = useMemo(
     () => splitTextAndEmbeds(displayText, embeds),
