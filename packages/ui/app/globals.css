@@ -419,12 +419,6 @@ body {
   background-clip: padding-box !important;
 }
 
-.chat-scrollbar-cursor::-webkit-scrollbar,
-.chat-scrollbar-cursor::-webkit-scrollbar-track,
-.chat-scrollbar-cursor::-webkit-scrollbar-thumb {
-  cursor: pointer;
-}
-
 *::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.35) !important;
   border: 2px solid transparent !important;
