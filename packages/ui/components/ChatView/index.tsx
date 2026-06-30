@@ -64,6 +64,7 @@ import {
 } from "react-icons/lu"
 import type { IconType } from "react-icons"
 import { MessageBubble } from "./MessageBubble"
+import { groupTurns } from "./groupTurns"
 import {
   INITIAL_WINDOW_STATE,
   MAX_LOADED,
@@ -2029,6 +2030,12 @@ export function ChatView({
     () => messageListKeys(renderedMessages),
     [renderedMessages]
   )
+  // Group the rendered messages into turns (one real user message + all the
+  // assistant messages it produced). Each turn renders as ONE response card with
+  // a single action bar and a single trailing loader, instead of one card per
+  // assistant emission. System-injected "System (untrusted): …" notices are
+  // dropped here so they neither render nor split a turn.
+  const renderTurns = useMemo(() => groupTurns(renderedMessages), [renderedMessages])
 
   const measureRowsAboveViewport = useCallback((): number => {
     const container = scrollContainerRef.current
@@ -2917,108 +2924,187 @@ export function ChatView({
           </div>
         ) : (
           <div ref={scrollContentRef} className="min-h-full py-6">
-            {renderedMessages.map((message, index) => {
-              const isDuplicateToolOnlyRow = duplicateToolOnlyRows.has(message.messageId)
-              const rawMessageToolCalls = message.role === "assistant" && !suppressedToolCallMessages.has(message.messageId) && !isDuplicateToolOnlyRow
-                ? groupedToolCalls.get(message.messageId) ?? message.toolCalls ?? []
-                : []
-              const shouldFinalizeDisplayedTools =
-                message.role === "assistant" &&
-                (index < latestRenderedUserIndex || !isGenerating || rawMessageToolCalls.some((tool) => tool.status === "success" || tool.status === "error"))
-              const messageToolCalls = applyTerminalToolState(rawMessageToolCalls, terminalToolState, {
-                finalizeStaleRunning: shouldFinalizeDisplayedTools,
-              })
-              const suppressLiveToolOnlyAssistantRow =
-                message.role === "assistant" &&
-                index > latestRenderedUserIndex &&
-                !message.text.trim() &&
-                !message.reasoningText &&
-                suppressedToolCallMessages.has(message.messageId)
-              if (suppressLiveToolOnlyAssistantRow || (isDuplicateToolOnlyRow && !message.text.trim() && !message.reasoningText && !message.attachments?.length)) {
-                return null
-              }
-              const isStreamingAssistant = isActivelyStreamingAssistant({
-                message,
-                index,
-                messages: renderedMessages,
-                isGenerating,
-              })
-              const animateAssistantText = shouldAnimateAssistantMessage({
-                message,
-                index,
-                messages: renderedMessages,
-                isGenerating,
-              })
+            {renderTurns.map((turn, turnIndex) => {
+              const isLastTurn = turnIndex === renderTurns.length - 1
+              // A turn is "complete" (its single action bar may show) when it is
+              // not the active turn, or generation has stopped. The last turn's
+              // bar/loader therefore key off the same generating signal.
+              const turnComplete = !isLastTurn || !isGenerating
+              const turnUser = turn.user
+
+              // Per-assistant render data; drop suppressed/duplicate tool-only rows.
+              const assistantRows = turn.assistants
+                .map(({ message, index }) => {
+                  const isDuplicateToolOnlyRow = duplicateToolOnlyRows.has(message.messageId)
+                  const rawMessageToolCalls =
+                    !suppressedToolCallMessages.has(message.messageId) && !isDuplicateToolOnlyRow
+                      ? groupedToolCalls.get(message.messageId) ?? message.toolCalls ?? []
+                      : []
+                  const shouldFinalizeDisplayedTools =
+                    index < latestRenderedUserIndex ||
+                    !isGenerating ||
+                    rawMessageToolCalls.some((tool) => tool.status === "success" || tool.status === "error")
+                  const messageToolCalls = applyTerminalToolState(rawMessageToolCalls, terminalToolState, {
+                    finalizeStaleRunning: shouldFinalizeDisplayedTools,
+                  })
+                  const suppressLiveToolOnlyAssistantRow =
+                    index > latestRenderedUserIndex &&
+                    !message.text.trim() &&
+                    !message.reasoningText &&
+                    suppressedToolCallMessages.has(message.messageId)
+                  const hidden =
+                    suppressLiveToolOnlyAssistantRow ||
+                    (isDuplicateToolOnlyRow && !message.text.trim() && !message.reasoningText && !message.attachments?.length)
+                  return { message, index, messageToolCalls, hidden }
+                })
+                .filter((row) => !row.hidden)
+
+              // OPTION B: every tool call in the turn collapses into ONE stack,
+              // rendered at the TOP of the response, with all text below it.
+              const turnToolCalls = assistantRows.flatMap((row) => row.messageToolCalls)
+              const textRows = assistantRows.filter(
+                (row) => row.message.text.trim() || row.message.attachments?.length,
+              )
+              const lastTextIndex = textRows.length ? textRows[textRows.length - 1].index : -1
+              const hasAssistantContent =
+                turnToolCalls.length > 0 ||
+                textRows.length > 0 ||
+                assistantRows.some(
+                  (row) =>
+                    row.message.reasoningText ||
+                    subagentAnchors.orphanByAssistantId.get(row.message.messageId)?.length,
+                )
+              const turnKeyIndex = turn.user ? turn.user.index : turn.assistants[0]?.index ?? 0
+
               return (
-              <div
-                key={renderedRowKeys[index]}
-                id={`message-${message.messageId}`}
-                data-chat-message-row="true"
-                data-message-id={message.messageId}
-                data-message-seq={message.gatewayIndex ?? ""}
-                data-pin-flash={flashId === message.messageId ? "true" : undefined}
-                className={cn(
-                  "mx-auto max-w-[44rem] rounded-xl px-4 py-3 transition-[box-shadow] duration-300",
-                  flashId === message.messageId && "ring-2 ring-primary/60 ring-offset-2 ring-offset-background"
-                )}
-              >
-                {message.role === "assistant" && subagentAnchors.orphanByAssistantId.get(message.messageId)?.length ? (
-                  <div className="mb-1">
-                    <SubagentCard
-                      subagents={subagentAnchors.orphanByAssistantId.get(message.messageId) ?? []}
-                      onOpen={openSubagent}
-                    />
-                  </div>
-                ) : null}
-                {message.role === "assistant" && message.reasoningText && (
-                  <ThinkingBlock text={message.reasoningText} />
-                )}
-                {message.role === "assistant" && messageToolCalls.length ? (
-                  <div className="mb-0 max-w-[85%]">
-                    <ToolCallSteps
-                      tools={messageToolCalls}
-                      defaultOpen={!message.text.trim()}
-                      onSelectTool={onSelectTool}
-                      onResolveApproval={(approvalId, decision) =>
-                        resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
-                      }
-                      sessionKey={sessionKey}
-                    />
-                  </div>
-                ) : null}
-                {(message.text.trim() || message.attachments?.length) ? (
-                  <MessageBubble
-                    message={message}
-                    onEdit={
-                      message.role === "user" && message.messageId === renderedMessages[latestRenderedUserIndex]?.messageId
-                        ? handleEdit
-                        : undefined
-                    }
-                    onRetrySend={message.role === "user" ? handleRetrySend : undefined}
-                    onReply={handleReply}
-                    onPin={handlePin}
-                    onDelete={handleDelete}
-                    onReact={message.role === "assistant" ? handleReact : undefined}
-                    onExport={handleExport}
-                    onFork={message.role === "assistant" ? handleFork : undefined}
-                    onAskSelectedText={message.role === "assistant" ? handleAskSelectedText : undefined}
-                    isPinned={pinnedIds.includes(message.messageId)}
-                    reaction={reactions[message.messageId]}
-                    isGenerating={isGenerating}
-                    isActivelyStreaming={isStreamingAssistant}
-                    animateAssistantText={animateAssistantText}
-                    onTextAnimationComplete={handleTextAnimationComplete}
-                    suppressActions={message.role === "assistant" && animateAssistantText}
-                    popoverOpen={activePopoverId === message.messageId}
-                    onPopoverOpenChange={(open) =>
-                      setActivePopoverId(open ? message.messageId : null)
-                    }
-                    onResolveApproval={(approvalId, decision) =>
-                      resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
-                    }
-                  />
-                ) : null}
-              </div>
+                <div key={renderedRowKeys[turnKeyIndex] ?? turn.keyMessageId} className="mx-auto flex max-w-[44rem] flex-col">
+                  {turnUser ? (
+                    <div
+                      id={`message-${turnUser.message.messageId}`}
+                      data-chat-message-row="true"
+                      data-message-id={turnUser.message.messageId}
+                      data-message-seq={turnUser.message.gatewayIndex ?? ""}
+                      data-pin-flash={flashId === turnUser.message.messageId ? "true" : undefined}
+                      className={cn(
+                        "rounded-xl px-4 py-3 transition-[box-shadow] duration-300",
+                        flashId === turnUser.message.messageId &&
+                          "ring-2 ring-primary/60 ring-offset-2 ring-offset-background",
+                      )}
+                    >
+                      <MessageBubble
+                        message={turnUser.message}
+                        onEdit={
+                          turnUser.message.messageId === renderedMessages[latestRenderedUserIndex]?.messageId
+                            ? handleEdit
+                            : undefined
+                        }
+                        onRetrySend={handleRetrySend}
+                        onReply={handleReply}
+                        onPin={handlePin}
+                        onDelete={handleDelete}
+                        onExport={handleExport}
+                        isPinned={pinnedIds.includes(turnUser.message.messageId)}
+                        reaction={reactions[turnUser.message.messageId]}
+                        isGenerating={isGenerating}
+                        popoverOpen={activePopoverId === turnUser.message.messageId}
+                        onPopoverOpenChange={(open) =>
+                          setActivePopoverId(open ? turnUser.message.messageId : null)
+                        }
+                      />
+                    </div>
+                  ) : null}
+
+                  {turn.assistants.length && hasAssistantContent ? (
+                    <div className="px-4 py-3">
+                      {assistantRows.map((row) =>
+                        subagentAnchors.orphanByAssistantId.get(row.message.messageId)?.length ? (
+                          <div key={`sub-${row.message.messageId}`} className="mb-1">
+                            <SubagentCard
+                              subagents={subagentAnchors.orphanByAssistantId.get(row.message.messageId) ?? []}
+                              onOpen={openSubagent}
+                            />
+                          </div>
+                        ) : null,
+                      )}
+                      {assistantRows.map((row) =>
+                        row.message.reasoningText ? (
+                          <ThinkingBlock key={`think-${row.message.messageId}`} text={row.message.reasoningText} />
+                        ) : null,
+                      )}
+                      {turnToolCalls.length ? (
+                        <div className="mb-0 max-w-[85%]">
+                          <ToolCallSteps
+                            tools={turnToolCalls}
+                            defaultOpen={textRows.length === 0}
+                            onSelectTool={onSelectTool}
+                            onResolveApproval={(approvalId, decision) =>
+                              resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
+                            }
+                            sessionKey={sessionKey}
+                          />
+                        </div>
+                      ) : null}
+                      {textRows.map((row) => {
+                        const isLastText = row.index === lastTextIndex
+                        const isStreamingAssistant = isActivelyStreamingAssistant({
+                          message: row.message,
+                          index: row.index,
+                          messages: renderedMessages,
+                          isGenerating,
+                        })
+                        const animateAssistantText = shouldAnimateAssistantMessage({
+                          message: row.message,
+                          index: row.index,
+                          messages: renderedMessages,
+                          isGenerating,
+                        })
+                        // Single action bar per turn: only the last text block,
+                        // and only once the turn is complete.
+                        const showActions = isLastText && turnComplete && !animateAssistantText
+                        return (
+                          <div
+                            key={renderedRowKeys[row.index]}
+                            id={`message-${row.message.messageId}`}
+                            data-chat-message-row="true"
+                            data-message-id={row.message.messageId}
+                            data-message-seq={row.message.gatewayIndex ?? ""}
+                            data-pin-flash={flashId === row.message.messageId ? "true" : undefined}
+                            className={cn(
+                              "transition-[box-shadow] duration-300",
+                              flashId === row.message.messageId &&
+                                "rounded-xl ring-2 ring-primary/60 ring-offset-2 ring-offset-background",
+                            )}
+                          >
+                            <MessageBubble
+                              message={row.message}
+                              onReply={handleReply}
+                              onPin={handlePin}
+                              onDelete={handleDelete}
+                              onReact={handleReact}
+                              onExport={handleExport}
+                              onFork={handleFork}
+                              onAskSelectedText={handleAskSelectedText}
+                              isPinned={pinnedIds.includes(row.message.messageId)}
+                              reaction={reactions[row.message.messageId]}
+                              isGenerating={isGenerating}
+                              isActivelyStreaming={isStreamingAssistant}
+                              animateAssistantText={animateAssistantText}
+                              onTextAnimationComplete={handleTextAnimationComplete}
+                              suppressActions={!showActions}
+                              popoverOpen={activePopoverId === row.message.messageId}
+                              onPopoverOpenChange={(open) =>
+                                setActivePopoverId(open ? row.message.messageId : null)
+                              }
+                              onResolveApproval={(approvalId, decision) =>
+                                resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
+                              }
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
               )
             })}
             {showThinkingState ? (
