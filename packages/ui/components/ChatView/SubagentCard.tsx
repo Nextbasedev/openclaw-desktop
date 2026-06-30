@@ -7,6 +7,7 @@ import {
   subagentStatusLabel,
 } from "@/lib/subagentLifecycle"
 import { VscChevronDown } from "react-icons/vsc"
+import { LuBot } from "react-icons/lu"
 import type { SpawnedSubagent } from "./types"
 
 export function SubagentCard({
@@ -26,12 +27,13 @@ export function SubagentCard({
     : `${count} background agent${count !== 1 ? "s" : ""}`
 
   return (
-    <div className="my-1">
+    <div className="mt-0">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground/70 transition-colors cursor-pointer"
       >
+        <LuBot className="size-3.5" />
         <span
           className={cn(
             hasActive &&

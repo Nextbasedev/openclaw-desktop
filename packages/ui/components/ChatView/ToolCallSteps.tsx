@@ -4,7 +4,7 @@ import { useMemo, useState, memo } from "react"
 import { motion, useReducedMotion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight } from "react-icons/vsc"
-import { LuShieldCheck } from "react-icons/lu"
+import { LuShieldCheck, LuWrench } from "react-icons/lu"
 import { ToolCallDetails, getToolDetailState } from "./ToolCallDetails"
 import type { InlineToolCall } from "./types"
 
@@ -387,7 +387,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
   if (!total) return null
 
   return (
-    <div className="mb-2 ml-1 pl-2">
+    <div className="mb-2">
       <button
         type="button"
         onClick={() => {
@@ -397,11 +397,11 @@ export const ToolCallSteps = memo(function ToolCallSteps({
         className="mb-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded py-1 text-left text-muted-foreground/45 transition-colors hover:text-muted-foreground/75"
         aria-expanded={stepsOpen}
       >
-        {stepsOpen ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
-        <span className="text-[11px] font-medium">Steps</span>
-        <span className="font-mono text-[10px] tabular-nums">
-          {total} tool{total !== 1 ? "s" : ""}
+        <LuWrench className="size-3.5" />
+        <span className="text-[11px] font-medium">
+          {total} tool call{total !== 1 ? "s" : ""}
         </span>
+        {stepsOpen ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
       </button>
       {stepsOpen && (
         <div

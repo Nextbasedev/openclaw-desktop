@@ -2963,7 +2963,7 @@ export function ChatView({
                 )}
               >
                 {message.role === "assistant" && subagentAnchors.orphanByAssistantId.get(message.messageId)?.length ? (
-                  <div className="mb-2">
+                  <div className="mb-1">
                     <SubagentCard
                       subagents={subagentAnchors.orphanByAssistantId.get(message.messageId) ?? []}
                       onOpen={openSubagent}
@@ -2974,7 +2974,7 @@ export function ChatView({
                   <ThinkingBlock text={message.reasoningText} />
                 )}
                 {message.role === "assistant" && messageToolCalls.length ? (
-                  <div className="mb-4 max-w-[85%]">
+                  <div className="mb-0 max-w-[85%]">
                     <ToolCallSteps
                       tools={messageToolCalls}
                       defaultOpen={!message.text.trim()}
@@ -3017,14 +3017,6 @@ export function ChatView({
                       resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
                     }
                   />
-                ) : null}
-                {message.role === "user" && subagentAnchors.byTriggerUserId.get(message.messageId)?.length ? (
-                  <div className="mt-3">
-                    <SubagentCard
-                      subagents={subagentAnchors.byTriggerUserId.get(message.messageId) ?? []}
-                      onOpen={openSubagent}
-                    />
-                  </div>
                 ) : null}
               </div>
               )

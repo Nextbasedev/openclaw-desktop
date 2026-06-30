@@ -291,7 +291,7 @@ describe("deriveSpawnedSubagents", () => {
 })
 
 describe("buildSubagentAnchorMaps", () => {
-  test("anchors spawn to the nearest preceding user message", () => {
+  test("anchors spawn to the assistant message that hosted it", () => {
     const messages: ChatMessage[] = [
       mkMessage({ messageId: "u1", role: "user", text: "hi" }),
       mkMessage({
@@ -309,15 +309,11 @@ describe("buildSubagentAnchorMaps", () => {
     ]
     const spawns = deriveSpawnedSubagents(messages)
     const index = indexSpawnsByToolCallId(spawns)
-    const { byTriggerUserId, orphanByAssistantId } = buildSubagentAnchorMaps(
-      messages,
-      index,
-    )
-    expect(byTriggerUserId.get("u1")).toHaveLength(1)
-    expect(orphanByAssistantId.size).toBe(0)
+    const { orphanByAssistantId } = buildSubagentAnchorMaps(messages, index)
+    expect(orphanByAssistantId.get("a1")).toHaveLength(1)
   })
 
-  test("orphans spawn when there is no preceding user message", () => {
+  test("anchors spawn to the assistant message when no preceding user message", () => {
     const messages: ChatMessage[] = [
       mkMessage({
         messageId: "a1",
@@ -334,15 +330,11 @@ describe("buildSubagentAnchorMaps", () => {
     ]
     const spawns = deriveSpawnedSubagents(messages)
     const index = indexSpawnsByToolCallId(spawns)
-    const { byTriggerUserId, orphanByAssistantId } = buildSubagentAnchorMaps(
-      messages,
-      index,
-    )
-    expect(byTriggerUserId.size).toBe(0)
+    const { orphanByAssistantId } = buildSubagentAnchorMaps(messages, index)
     expect(orphanByAssistantId.get("a1")).toHaveLength(1)
   })
 
-  test("groups multiple spawns under same user turn", () => {
+  test("groups multiple spawns under their hosting assistant messages", () => {
     const messages: ChatMessage[] = [
       mkMessage({ messageId: "u1", role: "user", text: "hi" }),
       mkMessage({
@@ -378,11 +370,12 @@ describe("buildSubagentAnchorMaps", () => {
     ]
     const spawns = deriveSpawnedSubagents(messages)
     const index = indexSpawnsByToolCallId(spawns)
-    const { byTriggerUserId } = buildSubagentAnchorMaps(messages, index)
-    expect(byTriggerUserId.get("u1")).toHaveLength(3)
+    const { orphanByAssistantId } = buildSubagentAnchorMaps(messages, index)
+    expect(orphanByAssistantId.get("a1")).toHaveLength(2)
+    expect(orphanByAssistantId.get("a2")).toHaveLength(1)
   })
 
-  test("separates turns by intervening user messages", () => {
+  test("separates spawns by their hosting assistant messages across turns", () => {
     const messages: ChatMessage[] = [
       mkMessage({ messageId: "u1", role: "user", text: "first" }),
       mkMessage({
@@ -413,9 +406,9 @@ describe("buildSubagentAnchorMaps", () => {
     ]
     const spawns = deriveSpawnedSubagents(messages)
     const index = indexSpawnsByToolCallId(spawns)
-    const { byTriggerUserId } = buildSubagentAnchorMaps(messages, index)
-    expect(byTriggerUserId.get("u1")).toHaveLength(1)
-    expect(byTriggerUserId.get("u2")).toHaveLength(1)
+    const { orphanByAssistantId } = buildSubagentAnchorMaps(messages, index)
+    expect(orphanByAssistantId.get("a1")).toHaveLength(1)
+    expect(orphanByAssistantId.get("a2")).toHaveLength(1)
   })
 })
 
