@@ -781,6 +781,39 @@ function AppShell({
     })
   }, [activeSessionKey, activeChat, activeSessionTitle, editorGroups.focusedGroupId])
 
+  // Defensive tab/selection reconcile. When a real conversation is open
+  // (activeChat + activeSessionKey set), the focused group's ACTIVE tab must be
+  // that chat's tab — never a leftover "New Chat" draft. After sending the
+  // first message from a "+"/new-chat draft, the chat tab is added, but a
+  // render-order race on send can leave the draft tab active in the bar while
+  // MainContent (which renders from activeChat state, not the active tab)
+  // already shows the conversation. The result: the header tab reads
+  // "New Chat" and the sidebar row isn't selected even though the chat is open.
+  // The primary draft->chat effect above is keyed on [activeChat,...] and does
+  // NOT re-run when editorGroups changes, so it can't self-heal this. This
+  // effect is keyed on editorGroups and force-activates the chat tab. ADD_TAB
+  // is idempotent (the reducer returns the same state once the tab exists and
+  // is active), so this cannot loop.
+  useEffect(() => {
+    if (effectiveActiveTab !== "chat") return
+    if (!activeChat?.id || !activeSessionKey) return
+    const group = getFocusedGroup(editorGroups)
+    const chatTabId = `chat:${activeChat.id}`
+    const chatTabIsActive = group.activeTabId === chatTabId
+    if (chatTabIsActive) return
+    dispatchGroups({
+      type: "ADD_TAB",
+      groupId: group.id,
+      tab: {
+        id: chatTabId,
+        title: chatTitleOrFallback(activeChat.name),
+        subtitle: "Chat",
+        kind: "chat",
+        chat: activeChat,
+      },
+    })
+  }, [activeChat, activeSessionKey, editorGroups, effectiveActiveTab])
+
   type ChatMessage = import("@/components/ChatView/types").ChatMessage
   type OptimisticMsg = { messageId: string; role: "user"; text: string; createdAt: string; isOptimistic: true; attachments?: Array<{ name: string; mimeType: string; content?: string; size?: number }> }
   const [initialMessages, setInitialMessages] = useState<ChatMessage[] | undefined>()
