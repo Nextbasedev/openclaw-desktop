@@ -2714,7 +2714,12 @@ export function ChatView({
     const element = scrollContainerRef.current
     if (!element) return
     if (!shouldFollowScrollRef.current) return
-    scrollElementToBottom(element)
+    // Smooth follow only while a response is generating, so the view glides as
+    // text streams in. Outside generation (initial load, session switch, a
+    // settled new message) keep the instant pin to avoid an odd scroll-from-top
+    // animation on open. Native smooth scroll runs on the compositor thread, so
+    // it never competes with markdown rendering.
+    scrollElementToBottom(element, isGenerating ? "smooth" : "auto")
   }, [isGenerating, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText, updateJumpToLatestVisibility, windowState.hasNewer])
 
   useEffect(() => {
@@ -2729,7 +2734,13 @@ export function ChatView({
       frame = requestAnimationFrame(() => {
         frame = 0
         if (shouldFollowScrollRef.current) {
-          scrollElementToBottom(container)
+          // Match the follow effect: smooth (compositor) while generating,
+          // instant otherwise. Read the live status via ref since this observer
+          // closure is created once.
+          scrollElementToBottom(
+            container,
+            isActiveStreamStatus(stateStreamStatusRef.current) ? "smooth" : "auto",
+          )
         }
       })
     })
