@@ -397,10 +397,21 @@ function isNearScrollBottom(element: HTMLElement, threshold = FOLLOW_SCROLL_THRE
   return element.scrollHeight - element.scrollTop - element.clientHeight <= threshold
 }
 
+function resolvedScrollBehavior(behavior: ScrollBehavior): ScrollBehavior {
+  if (
+    behavior === "smooth" &&
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+  ) {
+    return "auto"
+  }
+  return behavior
+}
+
 function scrollElementToBottom(element: HTMLElement, behavior: ScrollBehavior = "auto") {
   element.scrollTo({
     top: element.scrollHeight,
-    behavior,
+    behavior: resolvedScrollBehavior(behavior),
   })
 }
 
@@ -2714,7 +2725,7 @@ export function ChatView({
     const element = scrollContainerRef.current
     if (!element) return
     if (!shouldFollowScrollRef.current) return
-    scrollElementToBottom(element)
+    scrollElementToBottom(element, "smooth")
   }, [isGenerating, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText, updateJumpToLatestVisibility, windowState.hasNewer])
 
   useEffect(() => {
@@ -2729,7 +2740,7 @@ export function ChatView({
       frame = requestAnimationFrame(() => {
         frame = 0
         if (shouldFollowScrollRef.current) {
-          scrollElementToBottom(container)
+          scrollElementToBottom(container, "smooth")
         }
       })
     })
