@@ -27,8 +27,6 @@ type Props = {
   spaces?: Space[]
 }
 
-const CHATS_PER_PAGE = 25
-
 export function ChatsSection({
   collapsible = true,
   sectionLabel = "Chats",
@@ -42,7 +40,6 @@ export function ChatsSection({
   spaces = [],
 }: Props) {
   const [isOpen, setIsOpen] = useState(true)
-  const [currentPage, setCurrentPage] = useState(0)
   const [showArchived, setShowArchived] = useState(false)
   const showList = !collapsible || isOpen
   const {
@@ -60,21 +57,13 @@ export function ChatsSection({
     () => new Map(chats.map((chat) => [chat.id, chat])),
     [chats],
   )
-  const totalPages = Math.max(1, Math.ceil(sortedChatIds.length / CHATS_PER_PAGE))
-  const safeCurrentPage = Math.min(currentPage, totalPages - 1)
-  const pageStart = safeCurrentPage * CHATS_PER_PAGE
-  const pageEnd = Math.min(pageStart + CHATS_PER_PAGE, sortedChatIds.length)
-  const visibleChatIds = sortedChatIds.slice(pageStart, pageEnd)
-  const showPagination = sortedChatIds.length > CHATS_PER_PAGE
 
   useEffect(() => {
     function showArchivedChats() {
       setShowArchived(true)
-      setCurrentPage(0)
     }
     function showActiveChats() {
       setShowArchived(false)
-      setCurrentPage(0)
     }
 
     window.addEventListener("openclaw:show-archived-chats", showArchivedChats)
@@ -88,12 +77,6 @@ export function ChatsSection({
   useEffect(() => {
     setShowArchived(false)
   }, [spaceId])
-
-  useEffect(() => {
-    if (currentPage > totalPages - 1) {
-      setCurrentPage(Math.max(0, totalPages - 1))
-    }
-  }, [currentPage, totalPages])
 
   if (showArchived) {
     return (
@@ -169,16 +152,12 @@ export function ChatsSection({
 
                 <Reorder.Group
                   axis="y"
-                  values={visibleChatIds}
-                  onReorder={(newVisible) => {
-                    const beforePage = sortedChatIds.slice(0, pageStart)
-                    const afterPage = sortedChatIds.slice(pageEnd)
-                    setChatOrder([...beforePage, ...newVisible, ...afterPage])
-                  }}
+                  values={sortedChatIds}
+                  onReorder={setChatOrder}
                   as="div"
                   className="flex flex-col gap-0.5"
                 >
-                  {visibleChatIds.map((chatId) => {
+                  {sortedChatIds.map((chatId) => {
                     const chat = chatsById.get(chatId)
                     if (!chat) return null
 
@@ -220,31 +199,6 @@ export function ChatsSection({
                     )
                   })}
                 </Reorder.Group>
-                {showPagination && (
-                  <div className="mt-1 flex items-center justify-between gap-1 px-1 text-[11px] text-muted-foreground/60">
-                    <button
-                      type="button"
-                      onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
-                      disabled={safeCurrentPage === 0}
-                      className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-secondary/60 hover:text-foreground disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-muted-foreground/60"
-                      aria-label="Previous chats page"
-                    >
-                      <Icons.ChevronDown size={12} className="rotate-90" />
-                    </button>
-                    <span className="min-w-0 flex-1 truncate text-center tabular-nums">
-                      {pageStart + 1}-{pageEnd} of {sortedChatIds.length}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setCurrentPage((page) => Math.min(totalPages - 1, page + 1))}
-                      disabled={safeCurrentPage >= totalPages - 1}
-                      className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-secondary/60 hover:text-foreground disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-muted-foreground/60"
-                      aria-label="Next chats page"
-                    >
-                      <Icons.ChevronDown size={12} className="-rotate-90" />
-                    </button>
-                  </div>
-                )}
               </div>
             </motion.div>
           )}
