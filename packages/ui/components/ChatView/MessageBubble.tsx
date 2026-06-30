@@ -1915,7 +1915,9 @@ function messageBubbleAreEqual(
   prev: MessageBubbleProps,
   next: MessageBubbleProps
 ): boolean {
-  const sameScalars =
+  return (
+    messageRenderSignature(prev.message) ===
+      messageRenderSignature(next.message) &&
     prev.isGenerating === next.isGenerating &&
     prev.isActivelyStreaming === next.isActivelyStreaming &&
     prev.animateAssistantText === next.animateAssistantText &&
@@ -1926,17 +1928,6 @@ function messageBubbleAreEqual(
     prev.afterContent === next.afterContent &&
     (prev.referencedTexts ?? []).join("\u0000") ===
       (next.referencedTexts ?? []).join("\u0000")
-  if (!sameScalars) return false
-  // Fast path: an identical message object means nothing changed, so skip the
-  // costly JSON.stringify signature below. Without this, the signature is
-  // computed for EVERY message in the history on EVERY streamed token, which
-  // reintroduces lag that scales with history length and drops frame rate.
-  // dedupeChatMessages now preserves object identity for unchanged rows, so
-  // only the actively-streaming message falls through to the deep compare.
-  if (prev.message === next.message) return true
-  return (
-    messageRenderSignature(prev.message) ===
-    messageRenderSignature(next.message)
   )
 }
 

@@ -10,7 +10,6 @@ import { extractText } from "../components/ChatView/utils"
 import { extractSubagentSessionKey, extractSubagentSessionKeys } from "./subagentSession"
 import { mergeAssistantText } from "./chatMessageDedupe"
 import { buildInboundMediaUrl } from "./middlewareMedia"
-import { isSystemInjectedText } from "./systemInjectedMessage"
 
 const BLOCKQUOTE_RE = /^((?:>[^\n]*(?:\n|$))+)\n([\s\S]+)$/
 const REFERENCE_BLOCK_RE = /Reference\s+\d+:\s*(?:\n)?([\s\S]*?)(?=\n\nReference\s+\d+:|$)/gi
@@ -621,8 +620,11 @@ export function cleanUserMessageText(text: string): string {
 // them as transparent: not shown, and not a boundary. The leading
 // "System(...): [<ISO-date>" shape is specific to the gateway injection format,
 // so a human typing normally will not trip it.
+const SYSTEM_INJECTION_PREFIX_RE = /^\s*System(?:\s*\([^)]*\))?:\s*\[\d{4}-\d{2}-\d{2}/i
 export function isSystemInjectedUserMessage(raw: RawHistoryMessage): boolean {
-  return isSystemInjectedText(raw.text || extractText(raw.content))
+  const text = raw.text || extractText(raw.content)
+  if (!text) return false
+  return SYSTEM_INJECTION_PREFIX_RE.test(text)
 }
 
 function stringValue(value: unknown): string | undefined {
