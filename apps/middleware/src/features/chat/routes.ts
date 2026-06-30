@@ -753,13 +753,28 @@ function assistantHasVisibleAnswer(message: ProjectedMessage) {
   return cleanMessageDisplayText(textFromMessage(message.data)).trim().length > 0;
 }
 
-function gatewaySendCompleted(_result: Record<string, unknown>, currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null) {
+function gatewaySendCompleted(
+  result: Record<string, unknown>,
+  currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null,
+  options?: { slashCommand?: boolean },
+) {
   // Gateway chat.send can return a terminal status before the final assistant
   // message has reached chat.history/session.message. Do not broadcast done until
   // the current user echo and a visible assistant answer after it are both projected.
   // Otherwise the UI briefly hides Thinking, jumps the list, then receives the
   // answer a few seconds later.
-  return Boolean(currentHistory?.currentUserRepresented && currentHistory.assistantAfterCurrentUser);
+  if (currentHistory?.currentUserRepresented && currentHistory.assistantAfterCurrentUser) return true;
+
+  // Native slash commands can be answered as gateway-injected command output
+  // instead of a normal assistant message. Once their local slash user is
+  // confirmed and Gateway reports a terminal send status, do not leave the run
+  // pending forever; stale pending slash runs can steal later command output.
+  if (options?.slashCommand && currentHistory?.currentUserRepresented) {
+    const status = runStatusFromGateway(result.status);
+    return status === "done" || status === "error" || status === "aborted";
+  }
+
+  return false;
 }
 
 function localRunId(idempotencyKey: string) {
@@ -1450,17 +1465,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               const liveConfirmedCurrentUserSeq = liveConfirmedUser?.role === "user" && liveConfirmedUser.data.__clientOptimistic === false
                 ? liveConfirmedUser.openclawSeq
                 : null;
-              const currentUserSeq = confirmedUser?.openclawSeq ?? (gatewayUserEcho ? projectSeq(gatewayUserEcho) : liveConfirmedCurrentUserSeq);
+              let currentUserSeq = confirmedUser?.openclawSeq ?? (gatewayUserEcho ? projectSeq(gatewayUserEcho) : liveConfirmedCurrentUserSeq);
               const currentGatewayUserSeq = gatewayUserEcho?.openclawSeq ?? null;
               userMessageConfirmed = Boolean(gatewayUserEcho) || liveConfirmedCurrentUserSeq !== null;
-              currentHistory = {
-                currentUserRepresented: userMessageConfirmed,
-                assistantAfterCurrentUser: currentGatewayUserSeq !== null
-                  ? normalized.some((message) => message.openclawSeq > currentGatewayUserSeq && assistantHasVisibleAnswer(message))
-                  : liveConfirmedCurrentUserSeq !== null
-                    ? normalized.some((message) => projectSeq(message) > liveConfirmedCurrentUserSeq && assistantHasVisibleAnswer(message))
-                    : false,
-              };
               if (confirmedUser) {
                 log.info("optimistic.user.confirmed", {
                   sessionKey: input.sessionKey,
@@ -1469,6 +1476,66 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                   runId,
                 });
               }
+
+              // Native slash commands (for example /status and /commands) may
+              // produce gateway-injected output without echoing the slash user
+              // message into chat.history. Confirm the local slash user before
+              // classifying history as stale, otherwise the output from this
+              // same history load is skipped and the UI is left on "Writing...".
+              if (!userMessageConfirmed && isSlashCommandText(rawMessage)) {
+                const localConfirmedUser = context.messages.confirmOptimisticUser(input.sessionKey, clientMessageId, {
+                  sessionKey: input.sessionKey,
+                  openclawSeq: optimisticSeq,
+                  gatewaySeq: optimisticSeq,
+                  messageId: `local:${clientMessageId}`,
+                  role: "user",
+                  data: {
+                    ...clientMessage,
+                    isOptimistic: false,
+                    __clientOptimistic: false,
+                  },
+                  updatedAtMs: Date.now(),
+                });
+                if (localConfirmedUser) {
+                  userMessageConfirmed = true;
+                  currentUserSeq = localConfirmedUser.openclawSeq;
+                  const localConfirmedEvent = context.messages.appendProjectionEvent({
+                    sessionKey: input.sessionKey,
+                    eventType: "chat.message.confirmed",
+                    payload: canonicalPatchPayload({
+                      sessionKey: input.sessionKey,
+                      semanticType: "chat.user.confirmed",
+                      run: context.runs.getRun(runId),
+                      messageId: localConfirmedUser.messageId,
+                      payload: {
+                        sessionKey: input.sessionKey,
+                        message: localConfirmedUser.data,
+                        messageSeq: localConfirmedUser.openclawSeq,
+                        optimisticId: clientMessageId,
+                        gatewayMessageId: null,
+                        runId,
+                      },
+                    }),
+                  });
+                  context.patchBus.broadcast({
+                    cursor: localConfirmedEvent.cursor,
+                    type: localConfirmedEvent.eventType,
+                    sessionKey: localConfirmedEvent.sessionKey,
+                    payload: localConfirmedEvent.payload,
+                    createdAtMs: localConfirmedEvent.createdAtMs,
+                  });
+                  log.info("optimistic.user.confirmed_local_slash", { sessionKey: input.sessionKey, optimisticId: clientMessageId, runId, phase: "history-before-project" });
+                }
+              }
+
+              currentHistory = {
+                currentUserRepresented: userMessageConfirmed,
+                assistantAfterCurrentUser: currentGatewayUserSeq !== null
+                  ? normalized.some((message) => message.openclawSeq > currentGatewayUserSeq && assistantHasVisibleAnswer(message))
+                  : currentUserSeq !== null
+                    ? normalized.some((message) => projectSeq(message) > currentUserSeq && assistantHasVisibleAnswer(message))
+                    : false,
+              };
               const isStalePreSendHistory = !currentHistory.currentUserRepresented && historyMaxSeq < optimisticSeq;
               // Gateway re-sends every prior user turn on each send with a
               // stripped messageId (no runId/idempotencyKey). Drop those replays
@@ -1618,7 +1685,8 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               }
             }
 
-            if (gatewaySendCompleted(result, currentHistory)) {
+            const sendCompleted = gatewaySendCompleted(result, currentHistory, { slashCommand: isSlashCommandText(rawMessage) });
+            if (sendCompleted) {
               context.runs.updateRunStatus(runId, "done", { statusLabel: null });
               const doneRun = context.runs.getRun(runId);
               const doneEvent = context.messages.appendProjectionEvent({
@@ -1660,7 +1728,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               log.info("status.broadcast", { sessionKey: input.sessionKey, type: doneEvent.eventType, cursor: doneEvent.cursor, status: "done", idempotencyKey: input.idempotencyKey });
             }
 
-            log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: gatewaySendCompleted(result, currentHistory), status: typeof result.status === "string" ? result.status : undefined });
+            log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: sendCompleted, status: typeof result.status === "string" ? result.status : undefined });
             return { ok: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, ...result };
           } catch (error) {
             context.runs.updateRunStatus(runId, "error", { statusLabel: error instanceof Error ? error.message : "Message failed", error: errorMeta(error) });
