@@ -16,6 +16,15 @@ try {
 } catch (_) {}
 `
 
+const HIDE_SEEN_PREHYDRATION_SPLASH_SCRIPT = `
+try {
+  if (document.documentElement.dataset.openclawSplashSeen === "true") {
+    var splash = document.getElementById("openclaw-prehydration-splash");
+    if (splash) splash.style.display = "none";
+  }
+} catch (_) {}
+`
+
 const geistSans = Geist({
   subsets: ["latin"],
   variable: "--font-geist-sans",
@@ -50,10 +59,33 @@ export default function RootLayout({
     >
       <body>
         <script dangerouslySetInnerHTML={{ __html: PREHYDRATION_SPLASH_SCRIPT }} />
-        <div id="openclaw-prehydration-splash" aria-hidden="true">
-          <div className="openclaw-prehydration-splash-inner">
-            <div className="openclaw-lobster-icon">
-              <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <div
+          id="openclaw-prehydration-splash"
+          aria-hidden="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2147483647,
+            overflow: "hidden",
+            background: "#0b0b0d",
+            color: "#f8f8f8",
+          }}
+        >
+          <div
+            className="openclaw-prehydration-splash-inner"
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "1.25rem",
+            }}
+          >
+            <div className="openclaw-lobster-icon" style={{ width: 96, height: 96 }}>
+              <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%", display: "block" }}>
                 <path
                   className="openclaw-lobster-body"
                   d="M60 10 C30 10 15 35 15 55 C15 75 30 95 45 100 L45 110 L55 110 L55 100 C55 100 60 102 65 100 L65 110 L75 110 L75 100 C90 95 105 75 105 55 C105 35 90 10 60 10Z"
@@ -83,7 +115,20 @@ export default function RootLayout({
                 </defs>
               </svg>
             </div>
-            <p className="openclaw-splash-title" aria-label="OpenClaw">
+            <p
+              className="openclaw-splash-title"
+              aria-label="OpenClaw"
+              style={{
+                display: "inline-flex",
+                alignItems: "baseline",
+                overflow: "hidden",
+                margin: 0,
+                fontSize: "1.5rem",
+                fontWeight: 600,
+                letterSpacing: "-0.04em",
+                lineHeight: 1.1,
+              }}
+            >
               {"OpenClaw".split("").map((letter, index) => (
                 <span
                   aria-hidden="true"
@@ -97,6 +142,7 @@ export default function RootLayout({
             </p>
           </div>
         </div>
+        <script dangerouslySetInnerHTML={{ __html: HIDE_SEEN_PREHYDRATION_SPLASH_SCRIPT }} />
         <ThemeProvider>
           <QueryProvider>
             <TooltipProvider delayDuration={0}>{children}</TooltipProvider>
