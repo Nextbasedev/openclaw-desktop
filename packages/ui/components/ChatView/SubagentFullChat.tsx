@@ -100,6 +100,18 @@ function SubagentToolsStrip({ tools }: { tools: SubagentToolCall[] }) {
   )
 }
 
+function ReasoningBlock({ text }: { text: string }) {
+  if (!text.trim()) return null
+  return (
+    <div className="max-w-[85%] rounded-xl border border-border/20 bg-foreground/[0.025] px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
+      <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+        Thinking
+      </div>
+      <p className="whitespace-pre-wrap">{text}</p>
+    </div>
+  )
+}
+
 function MsgBubble({ msg }: { msg: SubagentMessage }) {
   const isUser = msg.role === "user"
 
@@ -115,6 +127,7 @@ function MsgBubble({ msg }: { msg: SubagentMessage }) {
 
   return (
     <div className="flex w-full flex-col gap-2">
+      {msg.reasoningText && <ReasoningBlock text={msg.reasoningText} />}
       {msg.text && (
         <div className="max-w-[85%] text-[14px] leading-relaxed text-foreground">
           <MarkdownContent text={msg.text} />
@@ -151,7 +164,10 @@ export function SubagentFullChat({
     return Array.from(byId.values())
   }, [messages])
   const conversationMessages = messages.filter(
-    (msg) => msg.text.trim().length > 0 || (msg.toolCalls?.length ?? 0) > 0
+    (msg) =>
+      msg.text.trim().length > 0 ||
+      Boolean(msg.reasoningText?.trim()) ||
+      (msg.toolCalls?.length ?? 0) > 0
   )
   const hasFallback =
     fallbackPrompt.trim().length > 0 || fallbackText.trim().length > 0
@@ -246,7 +262,7 @@ export function SubagentFullChat({
             <div className="flex flex-col gap-5">
               {displayMessages.map((msg) => (
                 <div key={msg.id} className="contents">
-                  {msg.text.trim().length > 0 && <MsgBubble msg={msg} />}
+                  {(msg.text.trim().length > 0 || msg.reasoningText?.trim()) && <MsgBubble msg={msg} />}
                   {(msg.toolCalls?.length ?? 0) > 0 && (
                     <SubagentToolsStrip tools={msg.toolCalls ?? []} />
                   )}
