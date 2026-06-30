@@ -2963,7 +2963,7 @@ export function ChatView({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        className="chat-scrollbar-cursor min-h-0 flex-1 overflow-y-auto overscroll-contain"
       >
         {state.error ? (
           <div className="flex min-h-full items-center justify-center px-8">
