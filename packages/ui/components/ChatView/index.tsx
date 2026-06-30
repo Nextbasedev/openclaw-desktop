@@ -1627,7 +1627,13 @@ export function ChatView({
     }
   }
 
-  function handleTextAnimationComplete(messageId: string) {
+  // handleSend is recreated every render; route through a ref so the per-message
+  // callbacks below can stay referentially stable (empty deps) and not defeat
+  // MessageBubble's memo on every streaming token.
+  const handleSendRef = useRef<typeof handleSend>(handleSend)
+  handleSendRef.current = handleSend
+
+  const handleTextAnimationComplete = useCallback((messageId: string) => {
     setState((current) => ({
       ...current,
       messages: current.messages.map((message) =>
@@ -1636,13 +1642,16 @@ export function ChatView({
           : message
       ),
     }))
-  }
+  }, [])
 
-  function findMessageById(messageId: string) {
-    return state.messages.find((message) => message.messageId === messageId)
-  }
+  // Reads the live messages via ref so the callback identity never changes when
+  // the message list updates (which happens on every streaming token).
+  const findMessageById = useCallback(
+    (messageId: string) => stateMessagesRef.current.find((message) => message.messageId === messageId),
+    [],
+  )
 
-  function handleEdit(messageId: string, newText: string) {
+  const handleEdit = useCallback((messageId: string, newText: string) => {
     setState((current) => ({
       ...current,
       messages: current.messages.map((message) =>
@@ -1651,10 +1660,10 @@ export function ChatView({
           : message
       ),
     }))
-    void handleSend({ text: newText })
-  }
+    void handleSendRef.current({ text: newText })
+  }, [])
 
-  function handleRetrySend(messageId: string) {
+  const handleRetrySend = useCallback((messageId: string) => {
     const message = findMessageById(messageId)
     if (!message || message.role !== "user") return
     setState((current) => ({
@@ -1675,10 +1684,10 @@ export function ChatView({
         encoding: "utf-8" as const,
         size: attachment.size ?? attachment.content?.length ?? 0,
       }))
-    void handleSend(message.retryPayload ?? { text: message.text, attachments })
-  }
+    void handleSendRef.current(message.retryPayload ?? { text: message.text, attachments })
+  }, [findMessageById])
 
-  function handleDelete(messageId: string) {
+  const handleDelete = useCallback((messageId: string) => {
     setState((current) => ({
       ...current,
       messages: current.messages.filter((message) => message.messageId !== messageId),
@@ -1691,23 +1700,44 @@ export function ChatView({
     })
     setReplyTo((current) => current?.messageId === messageId ? null : current)
     setActivePopoverId((current) => current === messageId ? null : current)
-  }
+  }, [])
 
-  function handleReact(messageId: string, reaction: "up" | "down") {
+  const handleReact = useCallback((messageId: string, reaction: "up" | "down") => {
     setReactions((current) => {
       const next = { ...current }
       if (next[messageId] === reaction) delete next[messageId]
       else next[messageId] = reaction
       return next
     })
-  }
+  }, [])
 
-  function handleFork(messageId: string) {
+  const handleFork = useCallback((messageId: string) => {
     onForkNavigate?.({
       name: "Forked chat",
       sessionKey: `${sessionKey}:fork:${messageId}`,
     })
-  }
+  }, [onForkNavigate, sessionKey])
+
+  // Stable approval resolver shared by ToolCallSteps and MessageBubble (was an
+  // inline arrow re-created per row per render).
+  const handleResolveApproval = useCallback(
+    (approvalId: string, decision: Parameters<typeof resolveExecApprovalV2>[0]["decision"]) =>
+      resolveExecApprovalV2({ approvalId, decision }).then(() => undefined),
+    [],
+  )
+
+  // Per-message popover toggle cached by messageId so each row gets a stable
+  // callback identity instead of a fresh inline closure every render.
+  const popoverHandlersRef = useRef(new Map<string, (open: boolean) => void>())
+  const getPopoverOpenChange = useCallback((messageId: string) => {
+    const cache = popoverHandlersRef.current
+    let handler = cache.get(messageId)
+    if (!handler) {
+      handler = (open: boolean) => setActivePopoverId(open ? messageId : null)
+      cache.set(messageId, handler)
+    }
+    return handler
+  }, [])
 
   const handlePin = useCallback((messageId: string) => {
     setPinnedIds((current) =>
@@ -1733,19 +1763,19 @@ export function ChatView({
     }, 1500)
   }, [])
 
-  function handleReply(messageId: string) {
+  const handleReply = useCallback((messageId: string) => {
     const message = findMessageById(messageId)
     if (!message) return
     setReplyTo(message)
-  }
+  }, [findMessageById])
 
-  function handleExport(messageId: string) {
+  const handleExport = useCallback((messageId: string) => {
     const message = findMessageById(messageId)
     if (!message || typeof navigator === "undefined") return
     void navigator.clipboard.writeText(exportMessagesMarkdown([message]))
-  }
+  }, [findMessageById])
 
-  function handleAskSelectedText(messageId: string, text: string, comment?: string) {
+  const handleAskSelectedText = useCallback((messageId: string, text: string, comment?: string) => {
     const selected = text.trim()
     if (!selected) return
     setReplyTo({
@@ -1754,7 +1784,7 @@ export function ChatView({
       text: selected,
     })
     setComposerSeed(comment?.trim() ?? "")
-  }
+  }, [])
 
   function handleCancelReply() {
     setReplyTo(null)
@@ -3106,9 +3136,7 @@ export function ChatView({
                       tools={messageToolCalls}
                       defaultOpen={!message.text.trim()}
                       onSelectTool={onSelectTool}
-                      onResolveApproval={(approvalId, decision) =>
-                        resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
-                      }
+                      onResolveApproval={handleResolveApproval}
                       sessionKey={sessionKey}
                     />
                   </div>
@@ -3137,12 +3165,8 @@ export function ChatView({
                     onTextAnimationComplete={handleTextAnimationComplete}
                     suppressActions={message.role === "assistant" && animateAssistantText}
                     popoverOpen={activePopoverId === message.messageId}
-                    onPopoverOpenChange={(open) =>
-                      setActivePopoverId(open ? message.messageId : null)
-                    }
-                    onResolveApproval={(approvalId, decision) =>
-                      resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
-                    }
+                    onPopoverOpenChange={getPopoverOpenChange(message.messageId)}
+                    onResolveApproval={handleResolveApproval}
                   />
                 ) : null}
               </div>
