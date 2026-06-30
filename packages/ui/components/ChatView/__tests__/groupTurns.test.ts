@@ -1,9 +1,37 @@
 import { describe, expect, it } from "vitest"
-import { groupTurns, isRealUserMessage, isTransparentSystemMessage } from "../groupTurns"
+import {
+  buildTurnView,
+  groupTurns,
+  isRealUserMessage,
+  isTransparentSystemMessage,
+  type TurnViewInput,
+} from "../groupTurns"
 import type { ChatMessage } from "../types"
 
 function msg(partial: Partial<ChatMessage> & { messageId: string; role: ChatMessage["role"] }): ChatMessage {
   return { text: "", ...partial }
+}
+
+/** Minimal inline tool call for tests. */
+function tc(id: string, status: "running" | "success" | "error" = "success") {
+  return { id, name: "exec", status } as never
+}
+
+/** Group `messages` and build the render-view for the LAST turn. */
+function lastTurnView(messages: ChatMessage[], opts: Partial<TurnViewInput> = {}) {
+  const turns = groupTurns(messages)
+  const turn = turns[turns.length - 1]
+  const lastUserIndex = messages.map((m) => m.role).lastIndexOf("user")
+  return buildTurnView(turn, {
+    isGenerating: false,
+    isLastTurn: true,
+    latestRenderedUserIndex: lastUserIndex,
+    duplicateToolOnlyRows: new Set(),
+    suppressedToolCallMessages: new Set(),
+    groupedToolCalls: new Map(),
+    terminalToolState: new Map(),
+    ...opts,
+  })
 }
 
 describe("isRealUserMessage / isTransparentSystemMessage", () => {
@@ -102,5 +130,100 @@ describe("groupTurns", () => {
     const turns = groupTurns([msg({ messageId: "u1", role: "user", text: "q" })])
     expect(turns).toHaveLength(1)
     expect(turns[0].assistants).toEqual([])
+  })
+})
+
+describe("buildTurnView (render decisions)", () => {
+  // This is the exact shape of Krish's screenshot bug: ONE question produces
+  // preamble text → a tool → summary text as THREE assistant messages.
+  const fragmented = () => [
+    msg({ messageId: "u1", role: "user", text: "scan the repo" }),
+    msg({ messageId: "a1", role: "assistant", text: "I'll scan the repo…" }),
+    msg({ messageId: "a2", role: "assistant", text: "", toolCalls: [tc("t1")] }),
+    msg({ messageId: "a3", role: "assistant", text: "Here's the summary." }),
+  ]
+
+  it("P2 fix — fragmented turn renders ONE card: tools collected on top, text below", () => {
+    const view = lastTurnView(fragmented())
+    // tools surfaced as a single merged stack (rendered above text by the JSX)
+    expect(view.toolCalls).toHaveLength(1)
+    expect((view.toolCalls[0] as { id: string }).id).toBe("t1")
+    // both text fragments survive, in order, and render BELOW the tools (Option B)
+    expect(view.textRows.map((r) => r.message.messageId)).toEqual(["a1", "a3"])
+    expect(view.hasAssistantContent).toBe(true)
+  })
+
+  it("P1 fix — NO action bar appears while the turn is still generating", () => {
+    const view = lastTurnView(fragmented(), { isGenerating: true, isLastTurn: true })
+    expect(view.actionBarMessageId).toBeNull()
+    expect(view.turnComplete).toBe(false)
+  })
+
+  it("single action bar — exactly one, on the LAST text block, once complete", () => {
+    const view = lastTurnView(fragmented(), { isGenerating: false })
+    expect(view.actionBarMessageId).toBe("a3")
+    // sanity: only the last text row matches → one bar, not one per fragment
+    const barsShown = view.textRows.filter((r) => r.message.messageId === view.actionBarMessageId)
+    expect(barsShown).toHaveLength(1)
+  })
+
+  it("a completed PAST turn (not the active one) always shows its single bar", () => {
+    const view = lastTurnView(fragmented(), { isGenerating: true, isLastTurn: false })
+    expect(view.turnComplete).toBe(true)
+    expect(view.actionBarMessageId).toBe("a3")
+  })
+
+  it("system injection mid-answer does not split or add a bar (only final bar)", () => {
+    const view = lastTurnView([
+      msg({ messageId: "u1", role: "user", text: "check host" }),
+      msg({ messageId: "a1", role: "assistant", text: "Checking…" }),
+      msg({ messageId: "s1", role: "user", text: "System (untrusted): [2026-06-29 11:49:05 UTC] Exec failed" }),
+      msg({ messageId: "a2", role: "assistant", text: "Done, host is up." }),
+    ])
+    expect(view.textRows.map((r) => r.message.messageId)).toEqual(["a1", "a2"])
+    expect(view.actionBarMessageId).toBe("a2")
+  })
+
+  it("tool-only turn (no text) → tool stack open by default, no action bar", () => {
+    const view = lastTurnView([
+      msg({ messageId: "u1", role: "user", text: "run it" }),
+      msg({ messageId: "a1", role: "assistant", text: "", toolCalls: [tc("t1")] }),
+    ])
+    expect(view.toolCalls).toHaveLength(1)
+    expect(view.toolsDefaultOpen).toBe(true)
+    expect(view.textRows).toHaveLength(0)
+    expect(view.actionBarMessageId).toBeNull()
+    expect(view.hasAssistantContent).toBe(true)
+  })
+
+  it("suppressed live tool-only row is dropped (no empty bubble)", () => {
+    const messages = [
+      msg({ messageId: "u1", role: "user", text: "go" }),
+      msg({ messageId: "a1", role: "assistant", text: "", toolCalls: [tc("t1")] }),
+      msg({ messageId: "a2", role: "assistant", text: "final" }),
+    ]
+    const view = lastTurnView(messages, {
+      isGenerating: true,
+      isLastTurn: true,
+      suppressedToolCallMessages: new Set(["a1"]),
+    })
+    // a1 is suppressed (its tools surface elsewhere); it must not be a row
+    expect(view.assistantRows.map((r) => r.message.messageId)).toEqual(["a2"])
+  })
+
+  it("duplicate tool-only row with no content is dropped", () => {
+    const messages = [
+      msg({ messageId: "u1", role: "user", text: "go" }),
+      msg({ messageId: "a1", role: "assistant", text: "answer" }),
+      msg({ messageId: "a2", role: "assistant", text: "", toolCalls: [tc("t1")] }),
+    ]
+    const view = lastTurnView(messages, { duplicateToolOnlyRows: new Set(["a2"]) })
+    expect(view.assistantRows.map((r) => r.message.messageId)).toEqual(["a1"])
+  })
+
+  it("empty turn (user just sent, no assistant) → no card content", () => {
+    const view = lastTurnView([msg({ messageId: "u1", role: "user", text: "q" })])
+    expect(view.hasAssistantContent).toBe(false)
+    expect(view.actionBarMessageId).toBeNull()
   })
 })

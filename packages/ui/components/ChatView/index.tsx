@@ -43,7 +43,6 @@ import { cn } from "@/lib/utils"
 import { useAgentActivity } from "@/hooks/useAgentActivity"
 import type { AgentNode } from "@/components/inspector/activity-types"
 import {
-  applyTerminalToolState,
   groupAssistantToolCallsByMessage,
   terminalToolStateById,
 } from "@/lib/chatToolDisplay"
@@ -64,7 +63,7 @@ import {
 } from "react-icons/lu"
 import type { IconType } from "react-icons"
 import { MessageBubble } from "./MessageBubble"
-import { groupTurns } from "./groupTurns"
+import { buildTurnView, groupTurns } from "./groupTurns"
 import {
   INITIAL_WINDOW_STATE,
   MAX_LOADED,
@@ -2926,54 +2925,23 @@ export function ChatView({
           <div ref={scrollContentRef} className="min-h-full py-6">
             {renderTurns.map((turn, turnIndex) => {
               const isLastTurn = turnIndex === renderTurns.length - 1
-              // A turn is "complete" (its single action bar may show) when it is
-              // not the active turn, or generation has stopped. The last turn's
-              // bar/loader therefore key off the same generating signal.
-              const turnComplete = !isLastTurn || !isGenerating
               const turnUser = turn.user
 
-              // Per-assistant render data; drop suppressed/duplicate tool-only rows.
-              const assistantRows = turn.assistants
-                .map(({ message, index }) => {
-                  const isDuplicateToolOnlyRow = duplicateToolOnlyRows.has(message.messageId)
-                  const rawMessageToolCalls =
-                    !suppressedToolCallMessages.has(message.messageId) && !isDuplicateToolOnlyRow
-                      ? groupedToolCalls.get(message.messageId) ?? message.toolCalls ?? []
-                      : []
-                  const shouldFinalizeDisplayedTools =
-                    index < latestRenderedUserIndex ||
-                    !isGenerating ||
-                    rawMessageToolCalls.some((tool) => tool.status === "success" || tool.status === "error")
-                  const messageToolCalls = applyTerminalToolState(rawMessageToolCalls, terminalToolState, {
-                    finalizeStaleRunning: shouldFinalizeDisplayedTools,
-                  })
-                  const suppressLiveToolOnlyAssistantRow =
-                    index > latestRenderedUserIndex &&
-                    !message.text.trim() &&
-                    !message.reasoningText &&
-                    suppressedToolCallMessages.has(message.messageId)
-                  const hidden =
-                    suppressLiveToolOnlyAssistantRow ||
-                    (isDuplicateToolOnlyRow && !message.text.trim() && !message.reasoningText && !message.attachments?.length)
-                  return { message, index, messageToolCalls, hidden }
-                })
-                .filter((row) => !row.hidden)
-
-              // OPTION B: every tool call in the turn collapses into ONE stack,
-              // rendered at the TOP of the response, with all text below it.
-              const turnToolCalls = assistantRows.flatMap((row) => row.messageToolCalls)
-              const textRows = assistantRows.filter(
-                (row) => row.message.text.trim() || row.message.attachments?.length,
+              // All render decisions (Option B ordering, single action bar, row
+              // suppression) live in the pure, unit-tested buildTurnView().
+              const view = buildTurnView(turn, {
+                isGenerating,
+                isLastTurn,
+                latestRenderedUserIndex,
+                duplicateToolOnlyRows,
+                suppressedToolCallMessages,
+                groupedToolCalls,
+                terminalToolState,
+              })
+              const anySubagent = view.assistantRows.some(
+                (row) => subagentAnchors.orphanByAssistantId.get(row.message.messageId)?.length,
               )
-              const lastTextIndex = textRows.length ? textRows[textRows.length - 1].index : -1
-              const hasAssistantContent =
-                turnToolCalls.length > 0 ||
-                textRows.length > 0 ||
-                assistantRows.some(
-                  (row) =>
-                    row.message.reasoningText ||
-                    subagentAnchors.orphanByAssistantId.get(row.message.messageId)?.length,
-                )
+              const hasAssistantContent = view.hasAssistantContent || Boolean(anySubagent)
               const turnKeyIndex = turn.user ? turn.user.index : turn.assistants[0]?.index ?? 0
 
               return (
@@ -3016,7 +2984,7 @@ export function ChatView({
 
                   {turn.assistants.length && hasAssistantContent ? (
                     <div className="px-4 py-3">
-                      {assistantRows.map((row) =>
+                      {view.assistantRows.map((row) =>
                         subagentAnchors.orphanByAssistantId.get(row.message.messageId)?.length ? (
                           <div key={`sub-${row.message.messageId}`} className="mb-1">
                             <SubagentCard
@@ -3026,16 +2994,16 @@ export function ChatView({
                           </div>
                         ) : null,
                       )}
-                      {assistantRows.map((row) =>
+                      {view.assistantRows.map((row) =>
                         row.message.reasoningText ? (
                           <ThinkingBlock key={`think-${row.message.messageId}`} text={row.message.reasoningText} />
                         ) : null,
                       )}
-                      {turnToolCalls.length ? (
+                      {view.toolCalls.length ? (
                         <div className="mb-0 max-w-[85%]">
                           <ToolCallSteps
-                            tools={turnToolCalls}
-                            defaultOpen={textRows.length === 0}
+                            tools={view.toolCalls}
+                            defaultOpen={view.toolsDefaultOpen}
                             onSelectTool={onSelectTool}
                             onResolveApproval={(approvalId, decision) =>
                               resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
@@ -3044,8 +3012,7 @@ export function ChatView({
                           />
                         </div>
                       ) : null}
-                      {textRows.map((row) => {
-                        const isLastText = row.index === lastTextIndex
+                      {view.textRows.map((row) => {
                         const isStreamingAssistant = isActivelyStreamingAssistant({
                           message: row.message,
                           index: row.index,
@@ -3059,8 +3026,9 @@ export function ChatView({
                           isGenerating,
                         })
                         // Single action bar per turn: only the last text block,
-                        // and only once the turn is complete.
-                        const showActions = isLastText && turnComplete && !animateAssistantText
+                        // and only once the turn is complete (see buildTurnView).
+                        const showActions =
+                          view.actionBarMessageId === row.message.messageId && !animateAssistantText
                         return (
                           <div
                             key={renderedRowKeys[row.index]}
