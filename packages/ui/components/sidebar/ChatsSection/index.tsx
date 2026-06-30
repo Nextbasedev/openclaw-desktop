@@ -166,14 +166,7 @@ export function ChatsSection({
                         key={chatId}
                         chatId={chatId}
                         chat={chat}
-                        isActive={
-                          activeChat?.id === chatId ||
-                          Boolean(
-                            activeChat?.sessionKey &&
-                              chat.sessionKey &&
-                              activeChat.sessionKey === chat.sessionKey,
-                          )
-                        }
+                        isActive={activeChat?.id === chatId}
                         isPinned={pinnedChats.has(chatId)}
                         isRunning={Boolean(chat.sessionKey && runningSessionKeys.has(chat.sessionKey))}
                         onClick={() => {
