@@ -9,6 +9,18 @@ import {
 import { VscAccount, VscHubot, VscCommentDiscussion } from "react-icons/vsc"
 import ReactMarkdown from "react-markdown"
 
+function ReasoningPreview({ text }: { text?: string }) {
+  if (!text?.trim()) return null
+  return (
+    <div className="mb-2 rounded-lg border border-blue-400/12 bg-blue-400/[0.035] px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
+      <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-blue-300/70">
+        Thinking
+      </div>
+      <p className="whitespace-pre-wrap break-words">{text}</p>
+    </div>
+  )
+}
+
 function MiniMessage({ msg }: { msg: SubagentMessage }) {
   const isUser = msg.role === "user"
 
@@ -48,11 +60,16 @@ function MiniMessage({ msg }: { msg: SubagentMessage }) {
               {msg.text}
             </p>
           ) : (
-            <div className="max-h-55 overflow-y-auto">
-              <ReactMarkdown>
-                {msg.text}
-              </ReactMarkdown>
-            </div>
+            <>
+              <ReasoningPreview text={msg.reasoningText} />
+              {msg.text.trim() ? (
+                <div className="max-h-55 overflow-y-auto">
+                  <ReactMarkdown>
+                    {msg.text}
+                  </ReactMarkdown>
+                </div>
+              ) : null}
+            </>
           )}
         </div>
       </div>
@@ -110,7 +127,7 @@ export function SubagentChatView({
           <div className="size-3.5 animate-spin rounded-full border border-white/15 border-t-blue-400/60" />
         )}
         <span className="text-[11px] text-muted-foreground">
-          Waiting for sub-agent activity...
+          {isLive ? "Sub-agent is thinking..." : "No sub-agent activity was saved for this run."}
         </span>
       </div>
     )
@@ -126,6 +143,12 @@ export function SubagentChatView({
         {messages.map((msg) => (
           <MiniMessage key={msg.id} msg={msg} />
         ))}
+        {isLive && !messages.some((msg) => msg.role === "assistant" && (msg.text.trim() || msg.reasoningText?.trim())) && (
+          <div className="flex items-center gap-2 pl-9 text-[11px] text-muted-foreground">
+            <div className="size-3 animate-spin rounded-full border border-white/15 border-t-blue-400/60" />
+            <span>Sub-agent is thinking...</span>
+          </div>
+        )}
       </div>
     </div>
   )
