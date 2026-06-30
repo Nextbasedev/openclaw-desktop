@@ -2722,6 +2722,16 @@ function AppShell({
             prev?.id === result.chat.id ? { ...prev, name: finalName } : prev,
           )
           setActiveSessionTitle((prev) => (prev === fallbackName ? finalName : prev))
+          // Keep the live title map authoritative too — the header chat tabs
+          // derive their labels from liveChatTitleById, so without this an
+          // autonamed quick-send chat would update the sidebar/tab but the
+          // header could fall back to a stale title.
+          setLiveChatTitleById((prev) => {
+            if (prev.get(result.chat.id) === finalName) return prev
+            const next = new Map(prev)
+            next.set(result.chat.id, finalName)
+            return next
+          })
           dispatchGroups({
             type: "UPDATE_TAB",
             tabId: `chat:${result.chat.id}`,
