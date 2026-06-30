@@ -51,7 +51,7 @@ const OPENCLAW_LETTERS = "OpenClaw".split("")
 export function OpenClawSplash() {
   return (
     <div className="flex h-dvh min-h-dvh items-center justify-center overflow-hidden bg-background text-foreground">
-      <div className="flex flex-col items-center gap-5" role="status" aria-live="polite" aria-label="OpenClaw">
+      <div className="flex flex-col items-center gap-5" role="status" aria-live="polite" aria-label="Opening OpenClaw">
         <OpenClawLobsterIcon />
         <p className="openclaw-splash-title" aria-label="OpenClaw">
           {OPENCLAW_LETTERS.map((letter, index) => (

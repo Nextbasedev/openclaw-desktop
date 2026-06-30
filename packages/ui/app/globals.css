@@ -855,29 +855,6 @@ body {
   color: var(--foreground);
 }
 
-#openclaw-prehydration-splash {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483647;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background: var(--background);
-  color: var(--foreground);
-}
-
-html[data-openclaw-splash-seen="true"] #openclaw-prehydration-splash {
-  display: none;
-}
-
-.openclaw-prehydration-splash-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1.25rem;
-}
-
 .openclaw-splash-letter {
   display: inline-block;
   opacity: 0;
