@@ -354,22 +354,24 @@ function summarizeToolInput(tool: InlineToolCall) {
   return typeof candidate === "string" ? candidate.slice(0, 90) : ""
 }
 
-function liveRunningTool(messages: ChatMessage[]): InlineToolCall | null {
+function visibleTurnToolActivity(messages: ChatMessage[]): InlineToolCall[] {
   const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user")
   const activeTurnMessages = lastUserIndex >= 0 ? messages.slice(lastUserIndex + 1) : messages
-  for (const message of activeTurnMessages) {
-    for (const tool of message.toolCalls ?? []) {
-      if (
-        tool.status === "running" &&
-        tool.tool !== "sessions_spawn" &&
-        tool.tool !== "subagents" &&
-        tool.tool !== "sessions_yield"
-      ) {
-        return tool
-      }
-    }
-  }
-  return null
+  return activeTurnMessages.flatMap((message) =>
+    (message.toolCalls ?? []).filter((tool) =>
+      tool.tool !== "sessions_spawn" &&
+      tool.tool !== "subagents" &&
+      tool.tool !== "sessions_yield"
+    )
+  )
+}
+
+function liveRunningTool(messages: ChatMessage[]): InlineToolCall | null {
+  return visibleTurnToolActivity(messages).find((tool) => tool.status === "running") ?? null
+}
+
+function hasVisibleToolActivityAfterLastUser(messages: ChatMessage[]) {
+  return visibleTurnToolActivity(messages).length > 0
 }
 
 function toolPatchId(frame: PatchFrame): string | null {
@@ -2035,17 +2037,21 @@ export function ChatView({
     })
   }, [isGenerating, state.messages, sessionKey])
 
-  const liveTool = isGenerating ? liveRunningTool(renderedMessages) : null
+  const directSubagentAwaitingAnswer =
+    isDirectSubagentSession &&
+    !hasAssistantAnswerAfterLastUser(renderedMessages) &&
+    hasVisibleToolActivityAfterLastUser(renderedMessages)
+  const liveTool = isGenerating || directSubagentAwaitingAnswer ? liveRunningTool(renderedMessages) : null
   const statusText = isGenerating
     ? generatingStatusText(state.streamStatus, state.statusLabel, liveTool)
-    : null
+    : directSubagentAwaitingAnswer
+      ? "Sub-agent is working..."
+      : null
   // Keep the active-run indicator visible continuously until the stream reaches
-  // a terminal status. A response can already contain assistant text/reasoning
-  // while the model or tool loop is still running; hiding this row in that state
-  // (e.g. during a pause between tokens) makes the chat look idle / done even
-  // though generation is still in progress. The loader must persist until the
-  // response is actually complete.
-  const showThinkingState = isGenerating
+  // a terminal status. Direct subagent sessions can be opened/replayed with
+  // child tool activity but without a parent active-run flag, so keep a scoped
+  // fallback visible there until an assistant answer/reasoning arrives.
+  const showThinkingState = isGenerating || directSubagentAwaitingAnswer
   const latestRenderedUserIndex = useMemo(() => {
     for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
       if (renderedMessages[index]?.role === "user") return index
