@@ -2887,7 +2887,7 @@ export function ChatView({
           onBack={onSubagentOpen ? handleDirectSubagentBack : undefined}
         />
       )}
-      <div className={cn("pointer-events-none absolute right-4 z-30", isDirectSubagentSession ? "top-[4.25rem]" : "top-4")}>
+      <div className="pointer-events-none absolute right-4 top-4 z-30">
         <div className="pointer-events-auto flex items-center gap-2">
           <div
             className="flex h-7 items-center gap-1 rounded-sm border border-border/40 bg-background/70 px-2 font-mono text-[10px] leading-none text-muted-foreground/80 shadow-sm backdrop-blur"
