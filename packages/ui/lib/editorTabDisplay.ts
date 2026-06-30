@@ -1,6 +1,6 @@
 import type { ActiveChat } from "@/types/chat"
 import type { EditorGroupsState, EditorTab } from "@/lib/editorGroups"
-import { isWeakChatName } from "@/utils/chatDisplayName"
+import { DEFAULT_CHAT_TITLE, isWeakChatName, normalizeChatTitle } from "@/utils/chatDisplayName"
 
 type LiveChatRecord =
   | string
@@ -13,13 +13,8 @@ type LiveChatRecord =
 export type LiveChatTitleMap = ReadonlyMap<string, LiveChatRecord>
 
 function cleanTitle(value: string | null | undefined): string | null {
-  const trimmed = value?.trim()
-  if (!trimmed) return null
-  const normalized = trimmed.toLowerCase()
-  if (normalized === "opening chat..." || normalized === "opening chat…") {
-    return "New Chat"
-  }
-  return trimmed
+  if (!value?.trim()) return null
+  return normalizeChatTitle(value, DEFAULT_CHAT_TITLE)
 }
 
 export function chatIdFromTab(tab: EditorTab): string | null {

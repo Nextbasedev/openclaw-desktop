@@ -43,7 +43,7 @@ import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { abortSessionRequests } from "@/lib/requestScheduler"
 import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
-import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
+import { chatTitleOrFallback, fallbackChatNameFromText, isPendingChatTitle, isWeakChatName } from "@/utils/chatDisplayName"
 import {
   ensureChatSession,
   resolveSessionNavigationTarget,
@@ -135,12 +135,6 @@ async function applyDraftModelToSession(sessionKey: string, draftKey: string) {
 
 function sameName(a: string | null | undefined, b: string | null | undefined): boolean {
   return Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase())
-}
-
-function isUndecidedChatTitle(value: string | null | undefined): boolean {
-  if (!value) return true
-  const normalized = value.trim().toLowerCase()
-  return normalized === "" || normalized === "opening chat..." || normalized === "opening chat…"
 }
 
 function chatBelongsToSpace(chat: ActiveChat | null | undefined, spaceId: string | null | undefined): chat is ActiveChat & { spaceId: string } {
@@ -701,7 +695,7 @@ function AppShell({
 
     if (activeChat) {
       const tabId = `chat:${activeChat.id}`
-      const title = isUndecidedChatTitle(activeChat.name) ? "New Chat" : activeChat.name
+      const title = chatTitleOrFallback(activeChat.name)
       dispatchGroups({
         type: "ADD_TAB",
         tab: {
@@ -789,7 +783,7 @@ function AppShell({
   }, [clearConversationState, editorGroups.focusedGroupId])
 
   useEffect(() => {
-    if (!activeChat || activeSessionKey || !isUndecidedChatTitle(activeChat.name)) return
+    if (!activeChat || activeSessionKey || !isPendingChatTitle(activeChat.name)) return
     const timer = window.setTimeout(() => {
       const route = parseRoute(getRoutePath())
       if (route.kind === "chat" && route.chatId === activeChat.id && !resolvedChatCacheRef.current.has(activeChat.id)) {
@@ -882,7 +876,7 @@ function AppShell({
       const expectedPath = `/${route.chatId}`
       const isCurrentPath = () => getRoutePath() === expectedPath
       const applyRouteChat = (chat: ActiveChat, sessionKey?: string | null, title?: string) => {
-        const finalTitle = title ?? (isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name)
+        const finalTitle = title ?? (chatTitleOrFallback(chat.name))
         const finalSessionKey = isRealChatSessionKey(sessionKey) ? sessionKey : null
         setActiveChat(chat)
         setActiveSessionKey(finalSessionKey)
@@ -926,7 +920,7 @@ function AppShell({
         ) as RouteChatRecord | undefined
         if (cachedFound) {
           const cachedChat = { id: cachedFound.id, name: cachedFound.name, sessionKey: cachedFound.sessionKey, spaceId: cachedFound.spaceId }
-          const cachedTitle = isUndecidedChatTitle(cachedFound.name) ? "New Chat" : cachedFound.name
+          const cachedTitle = chatTitleOrFallback(cachedFound.name)
           if (isRealChatSessionKey(cachedFound.sessionKey)) {
             resolvedChatCacheRef.current.set(cachedFound.id, {
               chat: cachedChat,
@@ -1438,7 +1432,7 @@ function AppShell({
     setActiveTab("chat")
     setActiveTopic(null)
     setInitialMessages(undefined)
-    const provisionalTitle = isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name
+    const provisionalTitle = chatTitleOrFallback(chat.name)
     const provisionalSessionKey = isRealChatSessionKey(chat.sessionKey) ? chat.sessionKey : null
     const pushChatRoute = (chatId: string) => {
       const nextUrl = routeUrl(`/${chatId}`)
@@ -1473,7 +1467,7 @@ function AppShell({
     if (cached) {
       applyChatSelection(cached)
     } else if (isRealChatSessionKey(chat.sessionKey)) {
-      const title = isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name
+      const title = chatTitleOrFallback(chat.name)
       const selection = { chat, sessionKey: chat.sessionKey, title }
       resolvedChatCacheRef.current.set(chat.id, selection)
       applyChatSelection(selection)
@@ -1822,7 +1816,7 @@ function AppShell({
         groupId: editorGroups.focusedGroupId,
         tab: {
           id: `chat:${restoreSelection.chat.id}`,
-          title: restoreSelection.title ?? (isUndecidedChatTitle(restoreSelection.chat.name) ? "New Chat" : restoreSelection.chat.name),
+          title: restoreSelection.title ?? (chatTitleOrFallback(restoreSelection.chat.name)),
           subtitle: "Chat",
           kind: "chat",
           chat: restoreSelection.chat,
@@ -1835,7 +1829,7 @@ function AppShell({
           ? {
               chat: restoreSelection.chat,
               sessionKey: restoreSelection.sessionKey,
-              title: restoreSelection.title ?? (isUndecidedChatTitle(restoreSelection.chat.name) ? "New Chat" : restoreSelection.chat.name),
+              title: restoreSelection.title ?? (chatTitleOrFallback(restoreSelection.chat.name)),
             }
           : null,
       })
@@ -2280,7 +2274,7 @@ function AppShell({
         ? {
             chat: sourceFallbackChat,
             sessionKey: sourceFallbackChat.sessionKey,
-            title: isUndecidedChatTitle(sourceFallbackChat.name) ? "New Chat" : sourceFallbackChat.name,
+            title: chatTitleOrFallback(sourceFallbackChat.name),
           }
         : null
 
