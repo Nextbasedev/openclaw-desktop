@@ -153,10 +153,6 @@ const ACTIVE_STREAM_STATUSES = new Set<StreamStatus>([
 ])
 
 const FOLLOW_SCROLL_THRESHOLD_PX = 96
-// Wider tolerance while a response is streaming: the native smooth follow-scroll
-// trails the growing content, so keep following unless the user scrolls up by
-// roughly a screenful.
-const STREAM_FOLLOW_THRESHOLD_PX = 600
 
 type StatusIconMeta = {
   icon: IconType
@@ -338,36 +334,6 @@ function shouldSuppressTerminalStatusDuringPendingUser({
   return !hasAssistantAnswerAfterLastUser(messages)
 }
 
-function patchIsUserMessage(frame: PatchFrame): boolean {
-  const semanticType = patchSemanticType(frame)
-  if (semanticType === "chat.user.created" || semanticType === "chat.user.confirmed") return true
-  const message = patchPayload(frame)?.message
-  return isRecord(message) && message.role === "user"
-}
-
-// Once a turn has delivered its assistant answer and the stream has reached a
-// terminal status, later non-user patches must NOT flip the run back to an
-// active state. After the answer is complete, any remaining activity (a
-// backgrounded subagent, a tool still finishing, a stale projection replay) is
-// background work and should not re-show the "Writing..." indicator. Only a
-// brand-new user message legitimately starts a new active turn.
-function shouldKeepTerminalAfterAnswer({
-  currentStatus,
-  nextStatus,
-  frame,
-  messages,
-}: {
-  currentStatus: StreamStatus
-  nextStatus: StreamStatus | null
-  frame: PatchFrame
-  messages: ChatMessage[]
-}): boolean {
-  if (!nextStatus || !isActiveStreamStatus(nextStatus)) return false
-  if (!isTerminalStatus(currentStatus)) return false
-  if (patchIsUserMessage(frame)) return false
-  return hasAssistantAnswerAfterLastUser(messages)
-}
-
 function summarizeToolInput(tool: InlineToolCall) {
   const input = tool.input
   if (!input || typeof input !== "object") {
@@ -431,21 +397,10 @@ function isNearScrollBottom(element: HTMLElement, threshold = FOLLOW_SCROLL_THRE
   return element.scrollHeight - element.scrollTop - element.clientHeight <= threshold
 }
 
-function resolvedScrollBehavior(behavior: ScrollBehavior): ScrollBehavior {
-  if (
-    behavior === "smooth" &&
-    typeof window !== "undefined" &&
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-  ) {
-    return "auto"
-  }
-  return behavior
-}
-
 function scrollElementToBottom(element: HTMLElement, behavior: ScrollBehavior = "auto") {
   element.scrollTo({
     top: element.scrollHeight,
-    behavior: resolvedScrollBehavior(behavior),
+    behavior,
   })
 }
 
@@ -720,13 +675,6 @@ export function ChatView({
   const [activeSubagent, setActiveSubagent] = useState<SpawnedSubagent | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const scrollContentRef = useRef<HTMLDivElement | null>(null)
-  // Single rAF id for the continuous smooth-follow loop used during streaming.
-  // We do NOT call scrollTo({behavior:"smooth"}) per token — that restarts a
-  // fresh browser animation on every chunk and the next chunk interrupts it,
-  // producing the jerky step-by-step descent. Instead one easing loop tracks
-  // the moving bottom continuously and glides.
-  // rAF id for the coalesced follow-to-bottom scheduler (single scroll/frame).
-  const followRafRef = useRef(0)
   const cursorRef = useRef(0)
   const shouldFollowScrollRef = useRef(true)
   const contextFetchSeqRef = useRef(0)
@@ -1276,27 +1224,10 @@ export function ChatView({
             patchStatus: rawNextStatus,
           }, "debug")
         }
-        const suppressActiveResurrection = !suppressTerminalStatus &&
-          shouldKeepTerminalAfterAnswer({
-            currentStatus: current.streamStatus,
-            nextStatus: rawNextStatus,
-            frame,
-            messages: orderedMessages,
-          })
-        if (suppressActiveResurrection) {
-          frontendLog("chat", "chat-rebuild.status.suppress-active-resurrection", {
-            sessionKey,
-            cursor: frame.patch.cursor,
-            patchType: frame.patch.type,
-            semanticType,
-            currentStatus: current.streamStatus,
-            patchStatus: rawNextStatus,
-          }, "debug")
-        }
-        const nextStatus = suppressTerminalStatus || suppressActiveResurrection
+        const nextStatus = suppressTerminalStatus
           ? current.streamStatus
           : rawNextStatus ?? current.streamStatus
-        const nextStatusLabel = suppressTerminalStatus || suppressActiveResurrection
+        const nextStatusLabel = suppressTerminalStatus
           ? current.statusLabel
           : patchStatus?.label ?? current.statusLabel
 
@@ -1589,13 +1520,7 @@ export function ChatView({
     }
   }
 
-  // handleSend is recreated every render; route through a ref so the per-message
-  // callbacks below can stay referentially stable (empty deps) and not defeat
-  // MessageBubble's memo on every streaming token.
-  const handleSendRef = useRef<typeof handleSend>(handleSend)
-  handleSendRef.current = handleSend
-
-  const handleTextAnimationComplete = useCallback((messageId: string) => {
+  function handleTextAnimationComplete(messageId: string) {
     setState((current) => ({
       ...current,
       messages: current.messages.map((message) =>
@@ -1604,16 +1529,13 @@ export function ChatView({
           : message
       ),
     }))
-  }, [])
+  }
 
-  // Reads the live messages via ref so the callback identity never changes when
-  // the message list updates (which happens on every streaming token).
-  const findMessageById = useCallback(
-    (messageId: string) => stateMessagesRef.current.find((message) => message.messageId === messageId),
-    [],
-  )
+  function findMessageById(messageId: string) {
+    return state.messages.find((message) => message.messageId === messageId)
+  }
 
-  const handleEdit = useCallback((messageId: string, newText: string) => {
+  function handleEdit(messageId: string, newText: string) {
     setState((current) => ({
       ...current,
       messages: current.messages.map((message) =>
@@ -1622,10 +1544,10 @@ export function ChatView({
           : message
       ),
     }))
-    void handleSendRef.current({ text: newText })
-  }, [])
+    void handleSend({ text: newText })
+  }
 
-  const handleRetrySend = useCallback((messageId: string) => {
+  function handleRetrySend(messageId: string) {
     const message = findMessageById(messageId)
     if (!message || message.role !== "user") return
     setState((current) => ({
@@ -1646,10 +1568,10 @@ export function ChatView({
         encoding: "utf-8" as const,
         size: attachment.size ?? attachment.content?.length ?? 0,
       }))
-    void handleSendRef.current(message.retryPayload ?? { text: message.text, attachments })
-  }, [findMessageById])
+    void handleSend(message.retryPayload ?? { text: message.text, attachments })
+  }
 
-  const handleDelete = useCallback((messageId: string) => {
+  function handleDelete(messageId: string) {
     setState((current) => ({
       ...current,
       messages: current.messages.filter((message) => message.messageId !== messageId),
@@ -1662,44 +1584,23 @@ export function ChatView({
     })
     setReplyTo((current) => current?.messageId === messageId ? null : current)
     setActivePopoverId((current) => current === messageId ? null : current)
-  }, [])
+  }
 
-  const handleReact = useCallback((messageId: string, reaction: "up" | "down") => {
+  function handleReact(messageId: string, reaction: "up" | "down") {
     setReactions((current) => {
       const next = { ...current }
       if (next[messageId] === reaction) delete next[messageId]
       else next[messageId] = reaction
       return next
     })
-  }, [])
+  }
 
-  const handleFork = useCallback((messageId: string) => {
+  function handleFork(messageId: string) {
     onForkNavigate?.({
       name: "Forked chat",
       sessionKey: `${sessionKey}:fork:${messageId}`,
     })
-  }, [onForkNavigate, sessionKey])
-
-  // Stable approval resolver shared by ToolCallSteps and MessageBubble (was an
-  // inline arrow re-created per row per render).
-  const handleResolveApproval = useCallback(
-    (approvalId: string, decision: Parameters<typeof resolveExecApprovalV2>[0]["decision"]) =>
-      resolveExecApprovalV2({ approvalId, decision }).then(() => undefined),
-    [],
-  )
-
-  // Per-message popover toggle cached by messageId so each row gets a stable
-  // callback identity instead of a fresh inline closure every render.
-  const popoverHandlersRef = useRef(new Map<string, (open: boolean) => void>())
-  const getPopoverOpenChange = useCallback((messageId: string) => {
-    const cache = popoverHandlersRef.current
-    let handler = cache.get(messageId)
-    if (!handler) {
-      handler = (open: boolean) => setActivePopoverId(open ? messageId : null)
-      cache.set(messageId, handler)
-    }
-    return handler
-  }, [])
+  }
 
   const handlePin = useCallback((messageId: string) => {
     setPinnedIds((current) =>
@@ -1725,19 +1626,19 @@ export function ChatView({
     }, 1500)
   }, [])
 
-  const handleReply = useCallback((messageId: string) => {
+  function handleReply(messageId: string) {
     const message = findMessageById(messageId)
     if (!message) return
     setReplyTo(message)
-  }, [findMessageById])
+  }
 
-  const handleExport = useCallback((messageId: string) => {
+  function handleExport(messageId: string) {
     const message = findMessageById(messageId)
     if (!message || typeof navigator === "undefined") return
     void navigator.clipboard.writeText(exportMessagesMarkdown([message]))
-  }, [findMessageById])
+  }
 
-  const handleAskSelectedText = useCallback((messageId: string, text: string, comment?: string) => {
+  function handleAskSelectedText(messageId: string, text: string, comment?: string) {
     const selected = text.trim()
     if (!selected) return
     setReplyTo({
@@ -1746,7 +1647,7 @@ export function ChatView({
       text: selected,
     })
     setComposerSeed(comment?.trim() ?? "")
-  }, [])
+  }
 
   function handleCancelReply() {
     setReplyTo(null)
@@ -2754,14 +2655,7 @@ export function ChatView({
     // adjust container.scrollTop during anchor restoration. Otherwise our own
     // adjustment would re-enter handleScroll and refire the evaluators.
     if (isProgrammaticScrollRef.current) return
-    // While streaming, the native smooth follow-scroll trails the growing
-    // content by up to a chunk's height; use a generous threshold so those
-    // in-flight positions (and large chunks like code blocks) don't drop
-    // follow, while a deliberate scroll-up of a screenful still breaks free.
-    const followThreshold = isActiveStreamStatus(stateStreamStatusRef.current)
-      ? STREAM_FOLLOW_THRESHOLD_PX
-      : FOLLOW_SCROLL_THRESHOLD_PX
-    shouldFollowScrollRef.current = isNearScrollBottom(element, followThreshold)
+    shouldFollowScrollRef.current = isNearScrollBottom(element)
     updateJumpToLatestVisibility(element)
     // Refractory is now direction-locked + scroll-distance-based inside the
     // evaluators themselves — no per-event re-arming here.
@@ -2814,61 +2708,37 @@ export function ChatView({
     shouldFollowScrollRef.current = false
   }, [state.messages])
 
-  // Single coalesced follow-to-bottom. Both the per-render layout effect and the
-  // ResizeObserver funnel through here, so at most ONE scrollTo runs per frame.
-  // While streaming we use the browser's native smooth scroll, which animates on
-  // the compositor thread (no main-thread lag) and retargets the in-flight
-  // animation when called again on the next frame — giving continuous motion
-  // instead of the stepped easing you get from competing per-chunk animations.
-  // No JS animation loop, no per-frame scrollHeight reads, so it never competes
-  // with React's streaming re-render for the main thread.
-  const scheduleFollowScroll = useCallback(() => {
-    if (followRafRef.current) return
-    followRafRef.current = requestAnimationFrame(() => {
-      followRafRef.current = 0
-      const element = scrollContainerRef.current
-      if (!element || !shouldFollowScrollRef.current) return
-      const behavior: ScrollBehavior = isActiveStreamStatus(stateStreamStatusRef.current)
-        ? "smooth"
-        : "auto"
-      scrollElementToBottom(element, behavior)
-    })
-  }, [])
-
-  useEffect(() => () => {
-    if (followRafRef.current) cancelAnimationFrame(followRafRef.current)
-  }, [])
-
   useLayoutEffect(() => {
     updateJumpToLatestVisibility()
     if (state.loading) return
     const element = scrollContainerRef.current
     if (!element) return
     if (!shouldFollowScrollRef.current) return
-    if (isGenerating) {
-      // Streaming: native smooth scroll, coalesced to one retargeting call/frame.
-      scheduleFollowScroll()
-    } else {
-      // Not streaming (session open, post-send, completion): pin instantly and
-      // synchronously so there is no one-frame flash from the top on mount.
-      scrollElementToBottom(element, "auto")
-    }
-  }, [isGenerating, scheduleFollowScroll, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText, updateJumpToLatestVisibility, windowState.hasNewer])
+    scrollElementToBottom(element)
+  }, [isGenerating, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText, updateJumpToLatestVisibility, windowState.hasNewer])
 
   useEffect(() => {
     const container = scrollContainerRef.current
     const content = scrollContentRef.current
     if (!container || !content || typeof ResizeObserver === "undefined") return
 
+    let frame = 0
     const observer = new ResizeObserver(() => {
       if (!shouldFollowScrollRef.current) return
-      scheduleFollowScroll()
+      if (frame) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        if (shouldFollowScrollRef.current) {
+          scrollElementToBottom(container)
+        }
+      })
     })
     observer.observe(content)
     return () => {
+      if (frame) cancelAnimationFrame(frame)
       observer.disconnect()
     }
-  }, [scheduleFollowScroll, sessionKey])
+  }, [sessionKey])
 
   useEffect(() => {
     if (duplicateToolOnlyRows.size === 0) return
@@ -3098,7 +2968,9 @@ export function ChatView({
                       tools={messageToolCalls}
                       defaultOpen={!message.text.trim()}
                       onSelectTool={onSelectTool}
-                      onResolveApproval={handleResolveApproval}
+                      onResolveApproval={(approvalId, decision) =>
+                        resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
+                      }
                       sessionKey={sessionKey}
                     />
                   </div>
@@ -3127,8 +2999,12 @@ export function ChatView({
                     onTextAnimationComplete={handleTextAnimationComplete}
                     suppressActions={message.role === "assistant" && animateAssistantText}
                     popoverOpen={activePopoverId === message.messageId}
-                    onPopoverOpenChange={getPopoverOpenChange(message.messageId)}
-                    onResolveApproval={handleResolveApproval}
+                    onPopoverOpenChange={(open) =>
+                      setActivePopoverId(open ? message.messageId : null)
+                    }
+                    onResolveApproval={(approvalId, decision) =>
+                      resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
+                    }
                   />
                 ) : null}
               </div>
