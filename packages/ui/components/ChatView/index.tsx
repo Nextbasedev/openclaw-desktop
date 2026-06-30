@@ -34,7 +34,7 @@ import {
   takeNextQueuedChatMessage,
   type QueuedChatMessage,
 } from "@/lib/chatSendQueue"
-import { isStopSlashCommand } from "@/lib/controlSlashCommands"
+import { getSlashCommandName, isStopSlashCommand } from "@/lib/controlSlashCommands"
 import { frontendLog } from "@/lib/clientLogs"
 import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
@@ -262,6 +262,11 @@ function hasAssistantAnswerAfterLastUser(messages: ChatMessage[]) {
     message.role === "assistant" &&
     Boolean(message.text.trim() || message.reasoningText?.trim())
   )
+}
+
+function latestUserIsSlashCommand(messages: ChatMessage[]) {
+  const lastUser = [...messages].reverse().find((message) => message.role === "user")
+  return Boolean(lastUser && getSlashCommandName(lastUser.text))
 }
 
 function hasAssistantOutput(messages: ChatMessage[]) {
@@ -1141,6 +1146,23 @@ export function ChatView({
     stateMessagesRef.current = state.messages
     stateStreamStatusRef.current = state.streamStatus
   }, [state.loading, state.messages, state.streamStatus])
+
+  useEffect(() => {
+    if (!isActiveStreamStatus(state.streamStatus)) return
+    if (!latestUserIsSlashCommand(state.messages)) return
+    if (!hasAssistantAnswerAfterLastUser(state.messages)) return
+
+    setState((current) => {
+      if (!isActiveStreamStatus(current.streamStatus)) return current
+      if (!latestUserIsSlashCommand(current.messages)) return current
+      if (!hasAssistantAnswerAfterLastUser(current.messages)) return current
+      return {
+        ...current,
+        streamStatus: "idle",
+        statusLabel: null,
+      }
+    })
+  }, [state.messages, state.streamStatus])
 
   useEffect(() => {
     if (isBackgroundSession || streamCursor === null) return
