@@ -40,6 +40,7 @@ import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
 import { normalizeSessionTokenUsage, type SessionTokenUsage } from "@/lib/sessionContextUsage"
 import { cn } from "@/lib/utils"
+import { isTurnFinalStopReason } from "@/lib/turnCompletion"
 import { useAgentActivity } from "@/hooks/useAgentActivity"
 import type { AgentNode } from "@/components/inspector/activity-types"
 import {
@@ -1996,13 +1997,26 @@ export function ChatView({
   const statusText = isGenerating
     ? generatingStatusText(state.streamStatus, state.statusLabel, liveTool)
     : null
-  // Keep the active-run indicator visible continuously until the stream reaches
-  // a terminal status. A response can already contain assistant text/reasoning
-  // while the model or tool loop is still running; hiding this row in that state
-  // (e.g. during a pause between tokens) makes the chat look idle / done even
-  // though generation is still in progress. The loader must persist until the
-  // response is actually complete.
-  const showThinkingState = isGenerating
+  // D6: the visible answer can be COMPLETE while the overall run stays active
+  // (e.g. a background sub-agent keeps the run "running"). When the last rendered
+  // message is an assistant turn that has reached a terminal stop reason, the
+  // answer the user is looking at is finished, so the "Writing…" indicator and
+  // the per-turn action bar must stop waiting on the background run.
+  const lastRenderedMessage = renderedMessages[renderedMessages.length - 1]
+  const answerComplete =
+    lastRenderedMessage?.role === "assistant" &&
+    isTurnFinalStopReason(lastRenderedMessage.stopReason)
+  // "The visible answer is still being produced." Drives the loader, the text
+  // animation, and the single action bar so they all settle together.
+  const isAnswerStreaming = isGenerating && !answerComplete
+  // Keep the active-run indicator visible continuously until the visible answer
+  // reaches a terminal status. A response can already contain assistant text/
+  // reasoning while the model or tool loop is still running; hiding this row in
+  // that state (e.g. during a pause between tokens) makes the chat look idle /
+  // done even though generation is still in progress. The loader persists until
+  // the response is actually complete (terminal stop reason), not merely until
+  // some unrelated background run finishes.
+  const showThinkingState = isAnswerStreaming
   const latestRenderedUserIndex = useMemo(() => {
     for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
       if (renderedMessages[index]?.role === "user") return index
@@ -2930,7 +2944,7 @@ export function ChatView({
               // All render decisions (Option B ordering, single action bar, row
               // suppression) live in the pure, unit-tested buildTurnView().
               const view = buildTurnView(turn, {
-                isGenerating,
+                isGenerating: isAnswerStreaming,
                 isLastTurn,
                 latestRenderedUserIndex,
                 duplicateToolOnlyRows,
@@ -3017,13 +3031,13 @@ export function ChatView({
                           message: row.message,
                           index: row.index,
                           messages: renderedMessages,
-                          isGenerating,
+                          isGenerating: isAnswerStreaming,
                         })
                         const animateAssistantText = shouldAnimateAssistantMessage({
                           message: row.message,
                           index: row.index,
                           messages: renderedMessages,
-                          isGenerating,
+                          isGenerating: isAnswerStreaming,
                         })
                         // Single action bar per turn: only the last text block,
                         // and only once the turn is complete (see buildTurnView).

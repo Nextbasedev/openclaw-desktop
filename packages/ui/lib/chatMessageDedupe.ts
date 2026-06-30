@@ -511,9 +511,19 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
   const seenIds = new Set<string>()
 
   for (const originalMessage of collapseRepeatedBlocks(normalizedInput)) {
-    const message = originalMessage.role === "assistant"
-      ? { ...originalMessage, text: collapseRepeatedAssistantText(originalMessage.text) }
-      : originalMessage
+    // Preserve the original object reference when nothing actually changes. This
+    // runs on every render (every streamed token); cloning each assistant
+    // message unconditionally gave every row a new identity and busted
+    // MessageBubble's memo, so the whole history re-parsed its markdown on every
+    // token (lag that scaled with history + frame drops). Only clone when the
+    // collapsed text genuinely differs.
+    let message = originalMessage
+    if (originalMessage.role === "assistant") {
+      const collapsedText = collapseRepeatedAssistantText(originalMessage.text)
+      if (collapsedText !== originalMessage.text) {
+        message = { ...originalMessage, text: collapsedText }
+      }
+    }
     const sameIdIndex = result.findIndex(
       (existing) => existing.messageId === message.messageId
     )
