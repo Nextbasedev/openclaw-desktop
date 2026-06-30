@@ -749,3 +749,97 @@ body {
     animation: none;
   }
 }
+
+/* OpenClaw first-open splash */
+.openclaw-lobster-icon {
+  width: 100px;
+  height: 100px;
+}
+
+.openclaw-lobster-icon svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  animation: openclaw-lobster-float 3s ease-in-out infinite;
+}
+
+.openclaw-lobster-body {
+  transform-origin: 60px 60px;
+  animation: openclaw-lobster-body-pulse 2.8s ease-in-out infinite;
+}
+
+.openclaw-lobster-left-claw {
+  transform-origin: 25px 55px;
+  animation: openclaw-lobster-left-claw-pinch 1.8s ease-in-out infinite;
+}
+
+.openclaw-lobster-right-claw {
+  transform-origin: 95px 55px;
+  animation: openclaw-lobster-right-claw-pinch 1.8s ease-in-out infinite;
+}
+
+.openclaw-lobster-antenna-left {
+  transform-origin: 45px 15px;
+  animation: openclaw-lobster-antenna-wiggle-left 2s ease-in-out infinite;
+}
+
+.openclaw-lobster-antenna-right {
+  transform-origin: 75px 15px;
+  animation: openclaw-lobster-antenna-wiggle-right 2s ease-in-out infinite;
+}
+
+.openclaw-lobster-eye-glow {
+  animation: openclaw-lobster-eye-glow 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes openclaw-lobster-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes openclaw-lobster-body-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.035); }
+}
+
+@keyframes openclaw-lobster-left-claw-pinch {
+  0%, 100% { transform: rotate(0deg) translateX(0); }
+  50% { transform: rotate(-12deg) translateX(-2px); }
+}
+
+@keyframes openclaw-lobster-right-claw-pinch {
+  0%, 100% { transform: rotate(0deg) translateX(0); }
+  50% { transform: rotate(12deg) translateX(2px); }
+}
+
+@keyframes openclaw-lobster-antenna-wiggle-left {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-8deg); }
+}
+
+@keyframes openclaw-lobster-antenna-wiggle-right {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(8deg); }
+}
+
+@keyframes openclaw-lobster-eye-glow {
+  from {
+    opacity: 0.45;
+    filter: drop-shadow(0 0 2px #00e5cc);
+  }
+  to {
+    opacity: 1;
+    filter: drop-shadow(0 0 8px #00e5cc);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .openclaw-lobster-icon svg,
+  .openclaw-lobster-body,
+  .openclaw-lobster-left-claw,
+  .openclaw-lobster-right-claw,
+  .openclaw-lobster-antenna,
+  .openclaw-lobster-eye-glow {
+    animation: none;
+  }
+}
