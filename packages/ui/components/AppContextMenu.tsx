@@ -53,24 +53,10 @@ export function AppContextMenu({
       {open && (
         <motion.div
           ref={menuRef}
-          initial={{ opacity: 0, scale: 0.92, y: -4 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.96, y: -4 }}
-          transition={{
-            opacity: { duration: 0.15 },
-            scale: {
-              type: "spring",
-              stiffness: 400,
-              damping: 28,
-              mass: 0.8,
-            },
-            y: {
-              type: "spring",
-              stiffness: 400,
-              damping: 28,
-              mass: 0.8,
-            },
-          }}
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.98 }}
+          transition={{ duration: 0.06, ease: "easeOut" }}
           style={{
             position: "fixed",
             left: x,
