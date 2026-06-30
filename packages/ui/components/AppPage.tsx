@@ -261,6 +261,9 @@ function markFirstOpenSplashSeen() {
   try {
     window.sessionStorage.setItem(FIRST_OPEN_SPLASH_KEY, "true")
   } catch {}
+  try {
+    document.documentElement.dataset.openclawSplashSeen = "true"
+  } catch {}
 }
 
 export default function Page() {
