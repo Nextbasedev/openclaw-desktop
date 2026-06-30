@@ -245,9 +245,27 @@ const APP_CONTEXT_MENU_WIDTH = 176
 const APP_CONTEXT_MENU_HEIGHT = process.env.NODE_ENV === "production" ? 44 : 80
 const APP_CONTEXT_MENU_MARGIN = 12
 const SHOW_DEV_CONTEXT_ACTIONS = process.env.NODE_ENV !== "production"
+const FIRST_OPEN_SPLASH_KEY = "openclaw.firstOpenSplashSeen.v2"
+const FIRST_OPEN_SPLASH_MIN_MS = 1200
+
+function shouldShowFirstOpenSplash() {
+  if (typeof window === "undefined") return false
+  try {
+    return window.localStorage.getItem(FIRST_OPEN_SPLASH_KEY) !== "true"
+  } catch {
+    return false
+  }
+}
+
+function markFirstOpenSplashSeen() {
+  try {
+    window.localStorage.setItem(FIRST_OPEN_SPLASH_KEY, "true")
+  } catch {}
+}
 
 export default function Page() {
   const useNativeWindowChrome = shouldUseNativeWindowChrome()
+  const [showFirstOpenSplash] = useState(shouldShowFirstOpenSplash)
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
   const {
     flowState,
@@ -290,12 +308,16 @@ export default function Page() {
 
   useEffect(() => {
     if (onboardingLoading || hasToken === null) return
-    const timer = window.setTimeout(() => setOnboardingDone(true), 0)
+    const delay = showFirstOpenSplash ? FIRST_OPEN_SPLASH_MIN_MS : 0
+    const timer = window.setTimeout(() => {
+      if (showFirstOpenSplash) markFirstOpenSplashSeen()
+      setOnboardingDone(true)
+    }, delay)
     return () => window.clearTimeout(timer)
-  }, [onboardingLoading, hasToken])
+  }, [onboardingLoading, hasToken, showFirstOpenSplash])
 
   if (onboardingDone === null) {
-    return <AppLoadingSkeleton />
+    return <AppLoadingSkeleton showSplash={showFirstOpenSplash} />
   }
 
   if (isFocusedChatWindowMode()) {
