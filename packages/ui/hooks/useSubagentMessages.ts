@@ -17,7 +17,6 @@ export type SubagentMessage = {
   id: string
   role: "user" | "assistant"
   text: string
-  reasoningText?: string
   toolCalls?: SubagentToolCall[]
 }
 
@@ -37,7 +36,6 @@ type RawMsg = {
   role?: string
   content?: string | ContentBlock[]
   text?: string
-  reasoningText?: string
   toolCalls?: InlineToolCall[]
 }
 
@@ -49,15 +47,6 @@ function extractText(content?: string | ContentBlock[]): string {
     .map((b) => b?.text ?? b?.content ?? "")
     .filter(Boolean)
     .join("\n")
-}
-
-function extractReasoningText(content?: string | ContentBlock[]): string {
-  if (!Array.isArray(content)) return ""
-  return content
-    .filter((b) => b?.type === "thinking" || b?.type === "reasoning")
-    .map((b) => b?.text ?? b?.content ?? "")
-    .filter(Boolean)
-    .join("")
 }
 
 const HIDDEN_TOOLS = new Set(["sessions_yield", "sessions_spawn"])
@@ -118,16 +107,10 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
         typeof msg.content === "string"
           ? msg.content
           : (msg.text ?? extractText(msg.content))
-      const reasoningText = msg.reasoningText ?? extractReasoningText(msg.content)
 
-      if (text || reasoningText || pendingToolCalls.length > 0) {
+      if (text || pendingToolCalls.length > 0) {
         const lastEntry = result[result.length - 1]
         if (lastEntry?.role === "assistant") {
-          if (reasoningText) {
-            lastEntry.reasoningText = lastEntry.reasoningText
-              ? lastEntry.reasoningText + reasoningText
-              : reasoningText
-          }
           if (text) {
             lastEntry.text = lastEntry.text
               ? lastEntry.text + "\n\n" + text
@@ -145,7 +128,6 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
             id: msg.id ?? msg.messageId ?? randomId(),
             role: "assistant",
             text: text ?? "",
-            reasoningText: reasoningText || undefined,
             toolCalls:
               pendingToolCalls.length > 0
                 ? [...pendingToolCalls]
@@ -187,7 +169,6 @@ function parseChatMessages(messages: ChatMessage[]): SubagentMessage[] {
     messageId: message.messageId,
     role: message.role,
     text: message.text,
-    reasoningText: message.reasoningText,
     toolCalls: message.toolCalls,
   })))
 }
