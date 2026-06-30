@@ -153,6 +153,10 @@ const ACTIVE_STREAM_STATUSES = new Set<StreamStatus>([
 ])
 
 const FOLLOW_SCROLL_THRESHOLD_PX = 96
+// Wider tolerance while a response is streaming: the native smooth follow-scroll
+// trails the growing content, so keep following unless the user scrolls up by
+// roughly a screenful.
+const STREAM_FOLLOW_THRESHOLD_PX = 600
 
 type StatusIconMeta = {
   icon: IconType
@@ -759,11 +763,8 @@ export function ChatView({
   // fresh browser animation on every chunk and the next chunk interrupts it,
   // producing the jerky step-by-step descent. Instead one easing loop tracks
   // the moving bottom continuously and glides.
-  const smoothFollowRafRef = useRef<number | null>(null)
-  // Last scrollTop we wrote programmatically (anchor restore or smooth-follow).
-  // handleScroll compares the live scrollTop against this to tell our own
-  // synthetic scroll events apart from a genuine user scroll mid-glide.
-  const lastProgrammaticScrollTopRef = useRef(0)
+  // rAF id for the coalesced follow-to-bottom scheduler (single scroll/frame).
+  const followRafRef = useRef(0)
   const cursorRef = useRef(0)
   const shouldFollowScrollRef = useRef(true)
   const contextFetchSeqRef = useRef(0)
@@ -2758,16 +2759,17 @@ export function ChatView({
     const element = scrollContainerRef.current
     if (!element) return
     // Ignore the synthetic scroll event that fires when we programmatically
-    // adjust container.scrollTop (anchor restoration or the smooth-follow loop).
-    // Otherwise our own adjustment would re-enter handleScroll and either refire
-    // the evaluators or cancel the glide. A genuine user scroll mid-glide lands
-    // far from our last programmatic write, so we still let that break follow.
-    if (isProgrammaticScrollRef.current) {
-      if (Math.abs(element.scrollTop - lastProgrammaticScrollTopRef.current) <= 2) return
-      isProgrammaticScrollRef.current = false
-      stopSmoothFollow()
-    }
-    shouldFollowScrollRef.current = isNearScrollBottom(element)
+    // adjust container.scrollTop during anchor restoration. Otherwise our own
+    // adjustment would re-enter handleScroll and refire the evaluators.
+    if (isProgrammaticScrollRef.current) return
+    // While streaming, the native smooth follow-scroll trails the growing
+    // content by up to a chunk's height; use a generous threshold so those
+    // in-flight positions (and large chunks like code blocks) don't drop
+    // follow, while a deliberate scroll-up of a screenful still breaks free.
+    const followThreshold = isActiveStreamStatus(stateStreamStatusRef.current)
+      ? STREAM_FOLLOW_THRESHOLD_PX
+      : FOLLOW_SCROLL_THRESHOLD_PX
+    shouldFollowScrollRef.current = isNearScrollBottom(element, followThreshold)
     updateJumpToLatestVisibility(element)
     // Refractory is now direction-locked + scroll-distance-based inside the
     // evaluators themselves — no per-event re-arming here.
@@ -2810,7 +2812,6 @@ export function ChatView({
       // next macrotask after the browser has dispatched the scroll event.
       isProgrammaticScrollRef.current = true
       container.scrollTop += adjust
-      lastProgrammaticScrollTopRef.current = container.scrollTop
       setTimeout(() => {
         isProgrammaticScrollRef.current = false
       }, 0)
@@ -2821,55 +2822,30 @@ export function ChatView({
     shouldFollowScrollRef.current = false
   }, [state.messages])
 
-  const stopSmoothFollow = useCallback(() => {
-    if (smoothFollowRafRef.current !== null) {
-      cancelAnimationFrame(smoothFollowRafRef.current)
-      smoothFollowRafRef.current = null
-    }
+  // Single coalesced follow-to-bottom. Both the per-render layout effect and the
+  // ResizeObserver funnel through here, so at most ONE scrollTo runs per frame.
+  // While streaming we use the browser's native smooth scroll, which animates on
+  // the compositor thread (no main-thread lag) and retargets the in-flight
+  // animation when called again on the next frame — giving continuous motion
+  // instead of the stepped easing you get from competing per-chunk animations.
+  // No JS animation loop, no per-frame scrollHeight reads, so it never competes
+  // with React's streaming re-render for the main thread.
+  const scheduleFollowScroll = useCallback(() => {
+    if (followRafRef.current) return
+    followRafRef.current = requestAnimationFrame(() => {
+      followRafRef.current = 0
+      const element = scrollContainerRef.current
+      if (!element || !shouldFollowScrollRef.current) return
+      const behavior: ScrollBehavior = isActiveStreamStatus(stateStreamStatusRef.current)
+        ? "smooth"
+        : "auto"
+      scrollElementToBottom(element, behavior)
+    })
   }, [])
 
-  // Continuous smooth-follow: a single rAF loop that eases scrollTop toward the
-  // live bottom. New content during streaming just moves the target; the loop
-  // already running keeps gliding without restarting, so there is no per-chunk
-  // stutter. Honors prefers-reduced-motion (instant pin) and yields the moment
-  // the user scrolls away (shouldFollowScrollRef flips false in handleScroll).
-  const ensureSmoothFollow = useCallback((container: HTMLElement) => {
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-    ) {
-      container.scrollTop = container.scrollHeight
-      return
-    }
-    if (smoothFollowRafRef.current !== null) return // loop already tracking target
-    const step = () => {
-      if (!shouldFollowScrollRef.current) {
-        smoothFollowRafRef.current = null
-        isProgrammaticScrollRef.current = false
-        return
-      }
-      const target = container.scrollHeight - container.clientHeight
-      const current = container.scrollTop
-      const delta = target - current
-      if (delta <= 1) {
-        container.scrollTop = target
-        lastProgrammaticScrollTopRef.current = container.scrollTop
-        smoothFollowRafRef.current = null
-        isProgrammaticScrollRef.current = false
-        return
-      }
-      // Ease toward the target; clamp a minimum step so it never crawls on the
-      // last pixels, and never overshoot the target.
-      const move = Math.min(delta, Math.max(delta * 0.22, 1.5))
-      isProgrammaticScrollRef.current = true
-      container.scrollTop = current + move
-      lastProgrammaticScrollTopRef.current = container.scrollTop
-      smoothFollowRafRef.current = requestAnimationFrame(step)
-    }
-    smoothFollowRafRef.current = requestAnimationFrame(step)
+  useEffect(() => () => {
+    if (followRafRef.current) cancelAnimationFrame(followRafRef.current)
   }, [])
-
-  useEffect(() => stopSmoothFollow, [stopSmoothFollow])
 
   useLayoutEffect(() => {
     updateJumpToLatestVisibility()
@@ -2878,15 +2854,14 @@ export function ChatView({
     if (!element) return
     if (!shouldFollowScrollRef.current) return
     if (isGenerating) {
-      // Actively streaming — glide via the continuous easing loop.
-      ensureSmoothFollow(element)
+      // Streaming: native smooth scroll, coalesced to one retargeting call/frame.
+      scheduleFollowScroll()
     } else {
-      // Not streaming (session open, post-send layout, completion): pin instantly
-      // so we never animate a long glide from the top on mount.
-      stopSmoothFollow()
+      // Not streaming (session open, post-send, completion): pin instantly and
+      // synchronously so there is no one-frame flash from the top on mount.
       scrollElementToBottom(element, "auto")
     }
-  }, [ensureSmoothFollow, isGenerating, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText, stopSmoothFollow, updateJumpToLatestVisibility, windowState.hasNewer])
+  }, [isGenerating, scheduleFollowScroll, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText, updateJumpToLatestVisibility, windowState.hasNewer])
 
   useEffect(() => {
     const container = scrollContainerRef.current
@@ -2895,17 +2870,13 @@ export function ChatView({
 
     const observer = new ResizeObserver(() => {
       if (!shouldFollowScrollRef.current) return
-      if (isActiveStreamStatus(stateStreamStatusRef.current)) {
-        ensureSmoothFollow(container)
-      } else {
-        container.scrollTop = container.scrollHeight
-      }
+      scheduleFollowScroll()
     })
     observer.observe(content)
     return () => {
       observer.disconnect()
     }
-  }, [ensureSmoothFollow, sessionKey])
+  }, [scheduleFollowScroll, sessionKey])
 
   useEffect(() => {
     if (duplicateToolOnlyRows.size === 0) return
