@@ -248,17 +248,6 @@ const SHOW_DEV_CONTEXT_ACTIONS = process.env.NODE_ENV !== "production"
 
 export default function Page() {
   const useNativeWindowChrome = shouldUseNativeWindowChrome()
-  const [showFirstOpenSplash] = useState(() => {
-    if (typeof window === "undefined") return true
-    try {
-      const key = "openclaw.firstOpenSplashSeen"
-      if (sessionStorage.getItem(key) === "true") return false
-      sessionStorage.setItem(key, "true")
-      return true
-    } catch {
-      return true
-    }
-  })
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
   const {
     flowState,
@@ -306,7 +295,7 @@ export default function Page() {
   }, [onboardingLoading, hasToken])
 
   if (onboardingDone === null) {
-    return <AppLoadingSkeleton variant={showFirstOpenSplash ? "splash" : "shell"} />
+    return <AppLoadingSkeleton />
   }
 
   if (isFocusedChatWindowMode()) {
@@ -609,7 +598,6 @@ function AppShell({
   const lastActiveSessionKeyRef = useRef<string | null>(null)
 
   const initialRouteAppliedRef = useRef(false)
-  const [initialRouteResolved, setInitialRouteResolved] = useState(false)
   const initialConnectRedirectAppliedRef = useRef(false)
   const layoutRestoreAttemptedRef = useRef(false)
   const layoutRestoreAppliedRef = useRef(false)
@@ -1093,7 +1081,7 @@ function AppShell({
     const route = parseRoute(getRoutePath())
     if (route.kind === "chat" && (spacesLoading || !activeSpaceId)) return
     initialRouteAppliedRef.current = true
-    void activateRoute(route).finally(() => setInitialRouteResolved(true))
+    void activateRoute(route)
   }, [activateRoute, activeSpaceId, spacesLoading])
 
   // Handle browser back/forward
@@ -1155,11 +1143,6 @@ function AppShell({
   const displayedInitialMessages = displayedSessionKey === activeSessionKey && !getGlobalChatSession(activeSessionKey ?? "")?.messages.length
     ? initialMessages
     : undefined
-  const currentRoute = typeof window === "undefined" ? { kind: "home" as const } : parseRoute(getRoutePath())
-  const initialConversationRouteResolving =
-    !initialRouteResolved &&
-    (currentRoute.kind === "chat" || currentRoute.kind === "topic") &&
-    !displayedSessionKey
 
   const computedInspectorScope = effectiveInspectorScope(activeTopic?.projectId ?? null, inspectorScope)
 
@@ -3092,7 +3075,6 @@ function AppShell({
                   onDeleteAccount={handleDeleteAccount}
                   flowState={flowState}
                   sessionResolving={sessionResolving}
-                  routeResolving={initialConversationRouteResolving}
                   sessionError={sessionError}
                   onSettingsBack={handleSettingsBack}
                   settingsSection={settingsSection}
@@ -3153,7 +3135,6 @@ function AppShell({
                           onDeleteAccount={handleDeleteAccount}
                           flowState={flowState}
                           sessionResolving={false}
-                          routeResolving={false}
                           sessionError={null}
                           onSettingsBack={handleSettingsBack}
                           settingsSection={settingsSection}
@@ -3195,7 +3176,6 @@ function AppShell({
                 onDeleteAccount={handleDeleteAccount}
                 flowState={flowState}
                 sessionResolving={sessionResolving}
-                routeResolving={initialConversationRouteResolving}
                 sessionError={sessionError}
                 onSettingsBack={handleSettingsBack}
                 settingsSection={settingsSection}
@@ -3324,7 +3304,6 @@ function MainContent({
   onDeleteAccount,
   flowState,
   sessionResolving,
-  routeResolving = false,
   sessionError,
   onSettingsBack,
   settingsSection,
@@ -3358,7 +3337,6 @@ function MainContent({
   onDeleteAccount: () => void
   flowState: import("@/components/onboarding/useOnboardingFlow").FlowState | null
   sessionResolving: boolean
-  routeResolving?: boolean
   sessionError: string | null
   onSettingsBack: () => void
   settingsSection: SettingsSection
@@ -3396,10 +3374,6 @@ function MainContent({
   }
 
   if (activeTab === "inspector") return null
-
-  if (routeResolving) {
-    return <ChatLoadingSkeleton />
-  }
 
   if (activeSessionKey && (activeTopic || activeChat)) {
     return (
