@@ -49,7 +49,7 @@ import {
   resolveSessionNavigationTarget,
 } from "@/lib/sessionNavigation"
 import { useTheme } from "next-themes"
-import { AppLoadingSkeleton, StartupLogoScreen } from "@/components/Skeleton/AppLoadingSkeleton"
+import { AppLoadingSkeleton } from "@/components/Skeleton/AppLoadingSkeleton"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
@@ -245,23 +245,9 @@ const APP_CONTEXT_MENU_WIDTH = 176
 const APP_CONTEXT_MENU_HEIGHT = process.env.NODE_ENV === "production" ? 44 : 80
 const APP_CONTEXT_MENU_MARGIN = 12
 const SHOW_DEV_CONTEXT_ACTIONS = process.env.NODE_ENV !== "production"
-const STARTUP_LOGO_SESSION_KEY = "openclaw.desktop.startupLogoShown:v1"
-const STARTUP_LOGO_MIN_MS = 900
-
-function shouldShowStartupLogoScreen(): boolean {
-  if (typeof window === "undefined") return false
-  try {
-    if (window.sessionStorage.getItem(STARTUP_LOGO_SESSION_KEY) === "true") return false
-    window.sessionStorage.setItem(STARTUP_LOGO_SESSION_KEY, "true")
-    return true
-  } catch {
-    return true
-  }
-}
 
 export default function Page() {
   const useNativeWindowChrome = shouldUseNativeWindowChrome()
-  const [showStartupLogo, setShowStartupLogo] = useState(shouldShowStartupLogoScreen)
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
   const {
     flowState,
@@ -270,12 +256,6 @@ export default function Page() {
     deleteAccount,
   } = useOnboardingFlow({ autoLoad: false })
   const [hasToken, setHasToken] = useState<boolean | null>(null)
-
-  useEffect(() => {
-    if (!showStartupLogo) return
-    const timer = window.setTimeout(() => setShowStartupLogo(false), STARTUP_LOGO_MIN_MS)
-    return () => window.clearTimeout(timer)
-  }, [showStartupLogo])
 
   useEffect(() => {
     async function checkToken() {
@@ -313,10 +293,6 @@ export default function Page() {
     const timer = window.setTimeout(() => setOnboardingDone(true), 0)
     return () => window.clearTimeout(timer)
   }, [onboardingLoading, hasToken])
-
-  if (showStartupLogo) {
-    return <StartupLogoScreen />
-  }
 
   if (onboardingDone === null) {
     return <AppLoadingSkeleton />
