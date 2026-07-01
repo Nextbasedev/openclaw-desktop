@@ -1246,6 +1246,7 @@ export function ChatView({
           impliesActiveRun: patchImpliesActiveRun(frame),
           currentStatus: current.streamStatus,
           hasAnswerAfterLastUser: hasAssistantAnswerAfterLastUser(orderedMessages),
+          hasRunningToolAfterLastUser: Boolean(liveRunningTool(orderedMessages)),
         })
         if (nextStatus !== (naiveNextStatus ?? current.streamStatus)) {
           frontendLog("chat", "chat-rebuild.status.resolver-adjusted", {

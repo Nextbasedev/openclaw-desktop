@@ -89,7 +89,20 @@ describe("resolveNextStreamStatus", () => {
     ).toBe("thinking")
   })
 
-  test("does not settle on final if the patch itself is still active", () => {
+  test("settles stale active status once the answered turn has no running tool", () => {
+    expect(
+      resolveNextStreamStatus({
+        ...base,
+        semanticType: "chat.message.upsert",
+        explicitStatus: "streaming",
+        currentStatus: "streaming",
+        hasAnswerAfterLastUser: true,
+        hasRunningToolAfterLastUser: false,
+      }),
+    ).toBe("idle")
+  })
+
+  test("does not settle on final if a tool is still visibly running", () => {
     expect(
       resolveNextStreamStatus({
         ...base,
@@ -97,6 +110,7 @@ describe("resolveNextStreamStatus", () => {
         explicitStatus: "tool_running",
         currentStatus: "streaming",
         hasAnswerAfterLastUser: true,
+        hasRunningToolAfterLastUser: true,
       }),
     ).toBe("tool_running")
   })
