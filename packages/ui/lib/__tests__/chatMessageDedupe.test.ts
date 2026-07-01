@@ -1013,6 +1013,39 @@ it("keeps both replies for identical commands even when neither reply has a seq"
   expect(messages.filter((m) => m.role === "assistant")).toHaveLength(2)
 })
 
+it("keeps both replies when identical commands derive the SAME messageId (content-based id collision)", () => {
+  // Real-world case: gateway-injected /status replies get no stable id/seq, so
+  // messageId() falls back to role+createdAt+text. Two byte-identical replies
+  // then share ONE messageId and used to collapse in the exact-id (idToIndex)
+  // pass BEFORE the gateway-injected guard could run, dropping the 2nd answer
+  // and stranding the repeated command on "Writing…".
+  const card = "🐰 OCPlatform 2026.4.23\n🧠 Model: gpt-5.5"
+  const sharedId = "assistant:1717000000000:" + card.slice(0, 20)
+  const messages = dedupeChatMessages([
+    { messageId: "u1", role: "user", text: "/status" },
+    { messageId: sharedId, role: "assistant", text: card, model: "gateway-injected" },
+    { messageId: "u2", role: "user", text: "/status" },
+    { messageId: sharedId, role: "assistant", text: card, model: "gateway-injected" },
+  ])
+
+  expect(messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"])
+  expect(messages.filter((m) => m.role === "assistant")).toHaveLength(2)
+})
+
+it("still collapses a re-projected same-turn command reply sharing one id (no user turn between)", () => {
+  // Safety: a backfill/reload re-projection of the SAME command output (same id,
+  // no user turn in between) must still collapse to a single row.
+  const card = "🐰 OCPlatform 2026.4.23 status"
+  const sharedId = "assistant:1717000000000:reproject"
+  const messages = dedupeChatMessages([
+    { messageId: "u1", role: "user", text: "/status" },
+    { messageId: sharedId, role: "assistant", text: card, model: "gateway-injected" },
+    { messageId: sharedId, role: "assistant", text: card, model: "gateway-injected" },
+  ])
+
+  expect(messages.filter((m) => m.role === "assistant")).toHaveLength(1)
+})
+
 it("still merges a live assistant echo into its final answer (streaming untouched)", () => {
   // Guard must NOT change normal streaming dedup: a live echo row and the
   // canonical final answer (same runId, same text) still collapse to one.

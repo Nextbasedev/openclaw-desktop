@@ -558,7 +558,21 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
     const sameIdIndex = idToIndex.has(message.messageId)
       ? (idToIndex.get(message.messageId) as number)
       : -1
-    if (sameIdIndex >= 0) {
+    // Two identical gateway-injected command replies (e.g. /status run twice
+    // back-to-back) can derive the SAME content-based messageId when upstream
+    // gives no stable id/seq (messageId() falls back to role+createdAt+text, and
+    // identical command output => identical text). When a USER turn separates the
+    // existing match from this new reply, they are DISTINCT command runs, not a
+    // backfill re-projection of one row — collapsing them by id drops the second
+    // answer and leaves the repeated command stuck on "Writing…". Re-projections
+    // of the SAME turn (no user turn in between) still collapse normally, and the
+    // fuzzy pass below already never merges across a user boundary.
+    const repeatedCommandAcrossUserTurn =
+      sameIdIndex >= 0 &&
+      isGatewayInjectedCommandReply(message) &&
+      isGatewayInjectedCommandReply(result[sameIdIndex]) &&
+      sameIdIndex < lastUserResultIndex
+    if (sameIdIndex >= 0 && !repeatedCommandAcrossUserTurn) {
       const existing = result[sameIdIndex]
       result[sameIdIndex] = {
         ...existing,
