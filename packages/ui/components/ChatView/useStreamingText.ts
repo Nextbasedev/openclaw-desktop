@@ -5,6 +5,14 @@ import { useEffect, useRef, useState } from "react"
 const MIN_FRAME_MS = 16
 const MAX_FRAME_MS = 80
 const MAX_CHARS_PER_FRAME = 180
+// Commit revealed text to React at most this often during streaming. The reveal
+// math (nextRevealLength) is time-based, so committing on a coarser cadence than
+// the ~60fps rAF loop shows the SAME characters at the SAME wall-clock time and
+// finishes on the exact same final text — it just re-renders (and re-parses the
+// markdown + re-runs the expensive backdrop-blur re-composite in the app shell)
+// ~22 times/sec instead of ~60. Text typing stays visually smooth; the heavy
+// per-frame work drops ~3x. Final frame is always committed.
+const REVEAL_COMMIT_MS = 45
 
 export function charsPerSecondForBacklog(backlog: number): number {
   if (backlog > 2_400) return 2_400
@@ -36,6 +44,24 @@ export function nextRevealLength({
   return Math.min(targetLength, currentLength + step)
 }
 
+// Decide whether the current reveal frame should be pushed to React state.
+// Always commit the final frame (so the message settles on the exact full text
+// and the completion path fires); otherwise commit at most once per commitMs.
+export function shouldCommitRevealFrame({
+  now,
+  lastCommitAt,
+  reachedTarget,
+  commitMs = REVEAL_COMMIT_MS,
+}: {
+  now: number
+  lastCommitAt: number
+  reachedTarget: boolean
+  commitMs?: number
+}): boolean {
+  if (reachedTarget) return true
+  return now - lastCommitAt >= commitMs
+}
+
 function shouldReduceMotion(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -63,6 +89,7 @@ export function useStreamingText(
   const rafRef = useRef<number | null>(null)
   const revealTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastFrameAtRef = useRef(0)
+  const lastCommitAtRef = useRef(0)
   const displayRef = useRef(initialDisplay)
   const targetRef = useRef(target)
   const revealActiveRef = useRef(Boolean(streaming && initialDisplay.length < target.length))
@@ -172,9 +199,17 @@ export function useStreamingText(
       const next = latestTarget.slice(0, nextLength)
 
       if (next !== current) {
+        // Advance the source-of-truth ref every frame (keeps reveal timing
+        // exact), but only push to React state on a throttled cadence — or on
+        // the final frame — so the markdown re-parse + shell repaint don't run
+        // at full 60fps. See REVEAL_COMMIT_MS.
         displayRef.current = next
-        setDisplay(next)
-        setIsRevealing(true)
+        const reachedTarget = next.length >= latestTarget.length
+        if (shouldCommitRevealFrame({ now, lastCommitAt: lastCommitAtRef.current, reachedTarget })) {
+          lastCommitAtRef.current = now
+          setDisplay(next)
+          setIsRevealing(!reachedTarget)
+        }
       }
 
       rafRef.current = requestAnimationFrame(step)
