@@ -609,7 +609,7 @@ describe("liveTailQuery", () => {
 })
 
 describe("shouldDropPatchAsEvicted", () => {
-  test("hasNewer=false → false (accept all patches at live tail)", () => {
+  test("accepts live patches at the live tail", () => {
     expect(
       shouldDropPatchAsEvicted({
         patchSessionCursor: 1000,
@@ -619,34 +619,17 @@ describe("shouldDropPatchAsEvicted", () => {
     ).toBe(false)
   })
 
-  test("hasNewer=true and patchCursor > newestLoadedSeq → true (drop)", () => {
+  test("does not compare patch cursors to message seq boundaries", () => {
     expect(
       shouldDropPatchAsEvicted({
-        patchSessionCursor: 501,
-        newestLoadedSeq: 500,
-        hasNewer: true,
-      }),
-    ).toBe(true)
-  })
-
-  test("hasNewer=true and patchCursor <= newestLoadedSeq → false (apply)", () => {
-    expect(
-      shouldDropPatchAsEvicted({
-        patchSessionCursor: 500,
-        newestLoadedSeq: 500,
-        hasNewer: true,
-      }),
-    ).toBe(false)
-    expect(
-      shouldDropPatchAsEvicted({
-        patchSessionCursor: 499,
+        patchSessionCursor: 10_000,
         newestLoadedSeq: 500,
         hasNewer: true,
       }),
     ).toBe(false)
   })
 
-  test("newestLoadedSeq=null → false (no anchor, accept)", () => {
+  test("accepts patches even without a loaded tail anchor", () => {
     expect(
       shouldDropPatchAsEvicted({
         patchSessionCursor: 1000,

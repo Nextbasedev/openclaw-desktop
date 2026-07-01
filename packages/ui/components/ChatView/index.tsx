@@ -1396,10 +1396,6 @@ export function ChatView({
         attachmentCount: payload.attachments?.length ?? 0,
       })
 
-      if (windowStateRef.current.hasNewer) {
-        await resetToLiveTail()
-      }
-
       optimisticId = randomId()
       shouldFollowScrollRef.current = true
       const optimisticMessage: ChatMessage = {
@@ -1429,6 +1425,16 @@ export function ChatView({
         sessionKey,
         optimisticId,
       })
+
+      if (windowStateRef.current.hasNewer) {
+        await resetToLiveTail({
+          preserveMessages: [optimisticMessage],
+          silent: true,
+          streamStatus: "thinking",
+          statusLabel: "Thinking",
+        })
+      }
+
       onFirstMessageSent?.(text)
       setReplyTo(null)
       setComposerSeed(null)
@@ -2392,7 +2398,16 @@ export function ChatView({
     }
   }, [sessionKey, windowState.hasNewer, windowState.isLoadingNewer, windowState.newestLoadedSeq, captureFirstVisibleRowAnchor])
 
-  const resetToLiveTail = useCallback(async (): Promise<void> => {
+  const resetToLiveTail = useCallback(async (options?: {
+    preserveMessages?: ChatMessage[]
+    silent?: boolean
+    streamStatus?: StreamStatus
+    statusLabel?: string | null
+  }): Promise<void> => {
+    const preserveMessages = options?.preserveMessages ?? []
+    const silent = options?.silent ?? false
+    const streamStatus = options?.streamStatus ?? "idle"
+    const statusLabel = options?.statusLabel ?? null
     setShowJumpToLatest(false)
     cursorRef.current = 0
     olderFetchSeqRef.current = 0
@@ -2406,14 +2421,16 @@ export function ChatView({
     setActivePopoverId(null)
     setComposerSeed(null)
     setWindowState(INITIAL_WINDOW_STATE)
-    setState({
-      loading: true,
-      error: null,
-      composerError: null,
-      messages: [],
-      streamStatus: "idle",
-      statusLabel: null,
-    })
+    if (!silent) {
+      setState({
+        loading: true,
+        error: null,
+        composerError: null,
+        messages: [],
+        streamStatus: "idle",
+        statusLabel: null,
+      })
+    }
 
     const q = liveTailQuery()
     try {
@@ -2448,14 +2465,14 @@ export function ChatView({
           requestedLimit: q.limit,
         })
       )
-      setState({
+      setState((current) => ({
         loading: false,
         error: null,
-        composerError: null,
-        messages,
-        streamStatus: "idle",
-        statusLabel: null,
-      })
+        composerError: current.composerError,
+        messages: orderChatMessages(dedupeChatMessages([...messages, ...preserveMessages])),
+        streamStatus,
+        statusLabel,
+      }))
       // Mirrors the cold-bootstrap success path: stamp the completion time so
       // a chained bootstrap-recovery (e.g., SSE reconnect arriving right after
       // a reset resolves) doesn't trigger another reset cascade.
@@ -2468,14 +2485,22 @@ export function ChatView({
       )
     } catch (err) {
       setWindowState(INITIAL_WINDOW_STATE)
-      setState({
-        loading: false,
-        error: err instanceof Error ? err.message : String(err),
-        composerError: null,
-        messages: [],
-        streamStatus: "error",
-        statusLabel: null,
-      })
+      if (!silent) {
+        setState({
+          loading: false,
+          error: err instanceof Error ? err.message : String(err),
+          composerError: null,
+          messages: [],
+          streamStatus: "error",
+          statusLabel: null,
+        })
+      } else {
+        setState((current) => ({
+          ...current,
+          loading: false,
+          error: null,
+        }))
+      }
       frontendLog(
         "chat",
         "chat-rebuild.window.reset-to-live-tail-failed",
