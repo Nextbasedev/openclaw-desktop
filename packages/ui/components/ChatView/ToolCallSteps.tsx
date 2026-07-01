@@ -2,10 +2,16 @@
 
 import { useMemo, useState, memo } from "react"
 import { motion, useReducedMotion } from "framer-motion"
+
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight } from "react-icons/vsc"
 import { LuShieldCheck, LuWrench } from "react-icons/lu"
 import { ToolCallDetails, getToolDetailState } from "./ToolCallDetails"
+import {
+  markToolEntranceSeen,
+  shouldPlayToolEntrance,
+  toolEntranceKey,
+} from "./toolEntranceMemory"
 import type { InlineToolCall } from "./types"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
@@ -213,11 +219,20 @@ function ToolRow({
         delay: Math.min(staggerIndex * 0.035, 0.14),
       }
 
+  // Decide once, on first render, whether this specific tool card should play
+  // its entrance. If we've already animated this id in this tab, snap straight
+  // to the resting state so bursts/remounts never re-trigger the animation.
+  // We only mark an id as "seen" when its entrance actually completes, so a
+  // StrictMode throwaway mount (dev) doesn't suppress the real animation.
+  const animKey = toolEntranceKey(sessionKey, call.id)
+  const [playEntry] = useState(() => shouldPlayToolEntrance(animKey))
+
   return (
     <motion.div
-      initial={entryInitial}
+      initial={playEntry ? entryInitial : false}
       animate={entryAnimate}
-      transition={entryTransition}
+      transition={playEntry ? entryTransition : { duration: 0 }}
+      onAnimationComplete={() => markToolEntranceSeen(animKey)}
       className={cn("relative pl-7 transition-colors duration-100", approval && "rounded-lg bg-amber-400/[0.035]")}
     >
       <StatusDot status={call.status} />
