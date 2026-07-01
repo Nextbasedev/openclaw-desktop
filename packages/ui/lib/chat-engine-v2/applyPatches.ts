@@ -179,32 +179,19 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
 
 function inferAssistantSeqFromRun(state: ApplyPatchState, frame: PatchFrame, parsed: ChatMessage[], messageSeq: number | undefined): number | undefined {
   if (!parsed.some((item) => item.role === "assistant")) return messageSeq
-  const semanticType = patchSemanticType(frame)
-  const isLiveAssistantPatch = semanticType === "chat.assistant.started" ||
-    semanticType === "chat.assistant.delta" ||
-    semanticType === "chat.assistant.final"
-  const latestUser = isLiveAssistantPatch
-    ? [...state.messages]
-      .reverse()
-      .find((item) => item.role === "user" && typeof item.gatewayIndex === "number" && Number.isFinite(item.gatewayIndex))
-    : null
   const runId = patchRunId(frame)
-  const matchingUser = runId
-    ? [...state.messages]
-      .reverse()
-      .find((item) => item.role === "user" && item.runId === runId && typeof item.gatewayIndex === "number" && Number.isFinite(item.gatewayIndex))
-    : null
-  const anchorUser = matchingUser ?? latestUser
-  if (!anchorUser || typeof anchorUser.gatewayIndex !== "number") return messageSeq
+  if (!runId) return messageSeq
+  const matchingUser = [...state.messages]
+    .reverse()
+    .find((item) => item.role === "user" && item.runId === runId && typeof item.gatewayIndex === "number" && Number.isFinite(item.gatewayIndex))
+  if (!matchingUser || typeof matchingUser.gatewayIndex !== "number") return messageSeq
   // During live streaming the backend can stamp an assistant/tool message with a
   // raw gateway messageSeq that is LOWER than the user message that triggered
   // the run (the live and history-backfill seq sources disagree until backfill
   // rewrites the canonical seq). Trusting that value makes the tool card render
   // ABOVE the user message for a moment, then snap back once history catches up.
   // Anchor the assistant after its own run's user message so it never jumps up.
-  // If runId is missing/late, only use the latest user as a fallback for live
-  // assistant patches; cached/history upserts keep their canonical sequence.
-  const floor = anchorUser.gatewayIndex + 1
+  const floor = matchingUser.gatewayIndex + 1
   if (typeof messageSeq !== "number") return floor
   return Math.max(messageSeq, floor)
 }
