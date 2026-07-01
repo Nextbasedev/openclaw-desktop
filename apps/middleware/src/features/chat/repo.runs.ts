@@ -192,6 +192,18 @@ export class RunRepository {
     return row ? rowToRun(row) : null;
   }
 
+  findOldestPendingRunExcept(sessionKey: string, excludedRunId: string): ProjectedRun | null {
+    const row = this.db.prepare(`
+      SELECT * FROM v2_runs
+      WHERE session_key = @sessionKey
+        AND run_id != @excludedRunId
+        AND status IN ('queued', 'thinking', 'streaming', 'tool_running')
+      ORDER BY started_at_ms ASC
+      LIMIT 1
+    `).get({ sessionKey, excludedRunId }) as Record<string, unknown> | undefined;
+    return row ? rowToRun(row) : null;
+  }
+
   findOldestPendingRun(sessionKey: string): ProjectedRun | null {
     const row = this.db.prepare(`
       SELECT * FROM v2_runs
