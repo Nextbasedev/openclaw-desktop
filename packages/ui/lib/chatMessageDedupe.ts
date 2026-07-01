@@ -454,41 +454,41 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
   const sorted = messages
     .map((message, index) => ({ message, index }))
     .sort((a, b) => {
-      // Optimistic follow-up messages are intentionally appended into the
-      // current visible transcript while an older assistant answer may still be
-      // streaming. Preserve arrival order for optimistic rows; otherwise fresh
-      // assistant patch timestamps can sort below/over the user's new question
-      // and make that question appear hidden.
-      if (a.message.isOptimistic || b.message.isOptimistic) return a.index - b.index
-
       const aIndex = a.message.gatewayIndex
       const bIndex = b.message.gatewayIndex
       const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex) && aIndex > 0
       const bHasIndex = typeof bIndex === "number" && Number.isFinite(bIndex) && bIndex > 0
-      // gatewayIndex (messageSeq) is the most reliable ordering signal — use it
-      // first. Within the same seq, user messages sort before assistant.
-      if (aHasIndex && bHasIndex && aIndex !== bIndex) return aIndex - bIndex
-      if (aHasIndex && bHasIndex && a.message.role !== b.message.role) {
-        return roleOrder(a.message) - roleOrder(b.message)
+
+      // 1. Both rows carry the backend's monotonic gateway seq — authoritative.
+      //    Within the same seq, the user turn sorts before the assistant reply.
+      if (aHasIndex && bHasIndex) {
+        if (aIndex !== bIndex) return aIndex - bIndex
+        if (a.message.role !== b.message.role) return roleOrder(a.message) - roleOrder(b.message)
+        return a.index - b.index
       }
 
+      // 2. Otherwise at least one row is optimistic/live (no seq yet — a streamed
+      //    answer only acquires a seq on reload). Order by wall-clock time:
+      //    client send time for the just-sent message, server/model time for a
+      //    streaming or sequenced answer. This keeps every reply pinned under the
+      //    user turn it belongs to instead of floating to a stale array slot —
+      //    the multi-turn ordering bug where a new send pushed an older, still-
+      //    unsequenced answer below it. Same-turn ties keep the user first.
       const aTime = messageTimeMs(a.message)
       const bTime = messageTimeMs(b.message)
-      const aHasTime = typeof aTime === "number"
-      const bHasTime = typeof bTime === "number"
-      if (aHasTime && bHasTime && aTime === bTime && a.message.role !== b.message.role) {
-        return roleOrder(a.message) - roleOrder(b.message)
+      if (typeof aTime === "number" && typeof bTime === "number") {
+        // Guard against sub-second clock skew inverting a turn: if the two rows
+        // belong to the same run, force user-before-assistant regardless of time.
+        if (hasSameRunId(a.message, b.message) && a.message.role !== b.message.role) {
+          return roleOrder(a.message) - roleOrder(b.message)
+        }
+        if (aTime !== bTime) return aTime - bTime
+        if (a.message.role !== b.message.role) return roleOrder(a.message) - roleOrder(b.message)
+        return a.index - b.index
       }
 
-      if (aHasTime && bHasTime && aTime !== bTime) return aTime - bTime
-      if (aHasTime && bHasTime && a.message.role !== b.message.role) {
-        return roleOrder(a.message) - roleOrder(b.message)
-      }
-
-      // Do not let a newly-sent optimistic message jump above older restored
-      // history just because the old messages have no createdAt/gatewayIndex.
-      // When only one side has ordering metadata, preserve the current array
-      // order, which is already append/order-of-arrival from history or patches.
+      // 3. No comparable seq or time (e.g. restored legacy history without
+      //    metadata) — preserve array/arrival order.
       return a.index - b.index
     })
     .map((item) => item.message)
