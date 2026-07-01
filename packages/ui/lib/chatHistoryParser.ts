@@ -621,10 +621,17 @@ export function cleanUserMessageText(text: string): string {
 // "System(...): [<ISO-date>" shape is specific to the gateway injection format,
 // so a human typing normally will not trip it.
 const SYSTEM_INJECTION_PREFIX_RE = /^\s*System(?:\s*\([^)]*\))?:\s*\[\d{4}-\d{2}-\d{2}/i
+// The Gateway injects a session-startup prompt as a USER turn whenever /new or
+// /reset runs ("A new session was started via /new or /reset. Execute your
+// Session Startup sequence now ..."). It is an instruction to the model, not a
+// real user turn, so it must never render — otherwise it shows up as a phantom
+// second user bubble and breaks message ordering on live send and on history
+// reload.
+const SESSION_STARTUP_INJECTION_RE = /^\s*A new session was started via \/new or \/reset\b/i
 export function isSystemInjectedUserMessage(raw: RawHistoryMessage): boolean {
   const text = raw.text || extractText(raw.content)
   if (!text) return false
-  return SYSTEM_INJECTION_PREFIX_RE.test(text)
+  return SYSTEM_INJECTION_PREFIX_RE.test(text) || SESSION_STARTUP_INJECTION_RE.test(text)
 }
 
 function stringValue(value: unknown): string | undefined {
