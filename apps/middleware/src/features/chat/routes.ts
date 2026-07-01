@@ -823,6 +823,35 @@ function isSlashCommandText(text: string) {
   return /^\/[A-Za-z0-9_-]+(?:@[A-Za-z0-9_]+)?(?:\s|$)/.test(text.trim());
 }
 
+const NATIVE_SLASH_COMMANDS_WITH_LOCAL_COMPLETION = new Set([
+  "status",
+  "model",
+  "models",
+  "reasoning",
+  "thinking",
+  "verbose",
+  "elevated",
+  "exec",
+  "approve",
+  "deny",
+  "approvals",
+  "help",
+  "clear",
+  "reset",
+  "new",
+  "stop",
+]);
+
+function nativeSlashCommandName(text: string) {
+  const match = text.trimStart().match(/^\/([A-Za-z0-9_-]+)(?:@[A-Za-z0-9_]+)?(?:\s|$)/);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function isNativeSlashCommandText(text: string) {
+  const name = nativeSlashCommandName(text);
+  return name !== null && NATIVE_SLASH_COMMANDS_WITH_LOCAL_COMPLETION.has(name);
+}
+
 function isStopCommandText(text: string) {
   return /^\/stop(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(text.trim());
 }
@@ -1618,7 +1647,13 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               }
             }
 
-            if (gatewaySendCompleted(result, currentHistory)) {
+            const nativeSlashCommandCompletedWithoutAssistant = Boolean(
+              isNativeSlashCommandText(rawMessage)
+              && runStatusFromGateway(result.status) === "done"
+              && currentHistory?.currentUserRepresented
+            );
+
+            if (gatewaySendCompleted(result, currentHistory) || nativeSlashCommandCompletedWithoutAssistant) {
               context.runs.updateRunStatus(runId, "done", { statusLabel: null });
               const doneRun = context.runs.getRun(runId);
               const doneEvent = context.messages.appendProjectionEvent({
