@@ -39,6 +39,9 @@ export type ResolveStreamStatusInput = {
   // Whether the timeline (after applying the patch) has an assistant answer
   // after the last user message — i.e. the current turn is effectively answered.
   hasAnswerAfterLastUser: boolean
+  // Slash/control commands can legitimately complete with only a terminal ack
+  // and no assistant answer row, e.g. repeated /status gateway acknowledgements.
+  allowTerminalWithoutAnswer?: boolean
 }
 
 // Single source of truth for how a patch moves the stream status. Fixes two
@@ -58,7 +61,7 @@ export type ResolveStreamStatusInput = {
 // It also folds in the existing guard: do not apply a terminal status while the
 // current turn is still active and has not produced its first answer yet.
 export function resolveNextStreamStatus(input: ResolveStreamStatusInput): StreamStatus {
-  const { semanticType, explicitStatus, impliesActiveRun, currentStatus, hasAnswerAfterLastUser } = input
+  const { semanticType, explicitStatus, impliesActiveRun, currentStatus, hasAnswerAfterLastUser, allowTerminalWithoutAnswer = false } = input
 
   const explicitActive = explicitStatus ? ACTIVE.has(explicitStatus) : false
 
@@ -73,7 +76,7 @@ export function resolveNextStreamStatus(input: ResolveStreamStatusInput): Stream
 
   // (3) Do not surface a terminal status while still waiting for the first
   //     answer of an active turn (prevents a premature "done" flicker).
-  if (rawNext && TERMINAL.has(rawNext) && ACTIVE.has(currentStatus) && !hasAnswerAfterLastUser) {
+  if (rawNext && TERMINAL.has(rawNext) && ACTIVE.has(currentStatus) && !hasAnswerAfterLastUser && !allowTerminalWithoutAnswer) {
     return currentStatus
   }
 

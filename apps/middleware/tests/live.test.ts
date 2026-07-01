@@ -736,6 +736,47 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("treats gateway-rejected chat events as terminal errors", async () => {
+    const app = await createApp(config("gateway-rejected-chat-error"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", gatewayRunId: "gw-run-1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "chat",
+      payload: {
+        sessionKey: "s1",
+        runId: "gw-run-1",
+        status: "gateway-rejected",
+        message: "runner rejected command",
+      },
+    });
+
+    expect(context.runs.getRun("run-1")).toMatchObject({ status: "error", statusLabel: "runner rejected command" });
+    expect(context.messages.getSession("s1")?.data).toMatchObject({ status: "error", statusLabel: "runner rejected command" });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.json().patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.status",
+        payload: expect.objectContaining({
+          semanticType: "chat.run.error",
+          runStatus: "error",
+          statusLabel: "runner rejected command",
+        }),
+      }),
+    ]));
+    await app.close();
+  });
+
   test("persists gateway session.tool events with nested data payloads", async () => {
     const app = await createApp(config("nested-session-tool"));
     const context = contextOf(app);

@@ -486,6 +486,66 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("slash command terminal ack finalizes without assistant history so repeated /status does not stay Writing", async () => {
+    const app = await createApp(config("slash-terminal-status"));
+    const context = contextOf(app);
+    const patches: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch as typeof patches[number]); });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "r-status", status: "done" };
+      if (method === "chat.history") return { sessionKey: "s1", messages: [] };
+      return { ok: true };
+    });
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "/status", idempotencyKey: "status-1", clientMessageId: "client-status-1" },
+    });
+    expect(first.statusCode).toBe(200);
+    await waitFor(() => patches.some((patch) => patch.type === "chat.status" && patch.payload?.status === "done" && patch.payload?.runId === "run:status-1"));
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "/status", idempotencyKey: "status-2", clientMessageId: "client-status-2" },
+    });
+    expect(second.statusCode).toBe(200);
+    await waitFor(() => patches.some((patch) => patch.type === "chat.status" && patch.payload?.status === "done" && patch.payload?.runId === "run:status-2"));
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({ sessionStatus: "done", runStatus: "done" });
+    const messages = bootstrap.json().messages as Array<{ role: string; text?: string }>;
+    expect(messages.filter((message) => message.role === "user" && message.text === "/status")).toHaveLength(2);
+    await app.close();
+  });
+
+  test("slash command gateway rejection finalizes as error instead of Writing", async () => {
+    const app = await createApp(config("slash-gateway-rejected"));
+    const context = contextOf(app);
+    const patches: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch as typeof patches[number]); });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "r-status", status: "gateway-rejected", error: "runner rejected command" };
+      if (method === "chat.history") return { sessionKey: "s1", messages: [] };
+      return { ok: true };
+    });
+
+    const send = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "/status", idempotencyKey: "status-rejected", clientMessageId: "client-status-rejected" },
+    });
+    expect(send.statusCode).toBe(200);
+    await waitFor(() => patches.some((patch) => patch.type === "chat.status" && patch.payload?.status === "error" && patch.payload?.runId === "run:status-rejected"));
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({ sessionStatus: "error", runStatus: "error" });
+    await app.close();
+  });
+
   test("send does not clear Thinking from terminal ack before assistant projection", async () => {
     const app = await createApp(config("send-status-refresh"));
     const context = contextOf(app);

@@ -753,6 +753,33 @@ function assistantHasVisibleAnswer(message: ProjectedMessage) {
   return cleanMessageDisplayText(textFromMessage(message.data)).trim().length > 0;
 }
 
+function isTerminalSendStatus(status: unknown) {
+  if (typeof status !== "string") return false;
+  const normalized = status.trim().toLowerCase();
+  return [
+    "done",
+    "complete",
+    "completed",
+    "success",
+    "succeeded",
+    "finished",
+    "error",
+    "failed",
+    "failure",
+    "rejected",
+    "gateway-rejected",
+    "aborted",
+    "abort",
+    "cancelled",
+    "canceled",
+  ].includes(normalized);
+}
+
+function terminalRunStatusFromGateway(status: unknown): Extract<RunStatus, "done" | "error" | "aborted"> | null {
+  const runStatus = runStatusFromGateway(status);
+  return runStatus === "done" || runStatus === "error" || runStatus === "aborted" ? runStatus : null;
+}
+
 function gatewaySendCompleted(result: Record<string, unknown>, currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null, options: { slashCommand?: boolean } = {}) {
   // Gateway chat.send can return a terminal status before the final assistant
   // message has reached chat.history/session.message. Do not broadcast done until
@@ -777,7 +804,7 @@ function runStatusFromGateway(status: unknown): RunStatus | null {
   if (typeof status !== "string") return null;
   const normalized = status.trim().toLowerCase();
   if (["done", "complete", "completed", "success", "succeeded", "finished"].includes(normalized)) return "done";
-  if (["error", "failed", "failure"].includes(normalized)) return "error";
+  if (["error", "failed", "failure", "rejected", "gateway-rejected"].includes(normalized)) return "error";
   if (["aborted", "abort", "cancelled", "canceled"].includes(normalized)) return "aborted";
   if (["streaming"].includes(normalized)) return "streaming";
   if (["queued", "pending"].includes(normalized)) return "queued";
@@ -1627,20 +1654,23 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
             const sendCompleted = gatewaySendCompleted(result, currentHistory, { slashCommand: isSlashCommandText(rawMessage) });
             if (sendCompleted) {
-              context.runs.updateRunStatus(runId, "done", { statusLabel: null });
+              const terminalStatus = terminalRunStatusFromGateway(result.status) ?? "done";
+              const terminalStatusLabel = terminalStatus === "error" ? (typeof result.error === "string" ? result.error : typeof result.message === "string" ? result.message : "Run failed") : null;
+              context.runs.updateRunStatus(runId, terminalStatus, { statusLabel: terminalStatusLabel, error: terminalStatus === "error" ? result : undefined });
               const doneRun = context.runs.getRun(runId);
               const doneEvent = context.messages.appendProjectionEvent({
                 sessionKey: input.sessionKey,
                 eventType: "chat.status",
                 payload: canonicalPatchPayload({
                   sessionKey: input.sessionKey,
-                  semanticType: "chat.run.done",
+                  semanticType: terminalStatus === "error" ? "chat.run.error" : terminalStatus === "aborted" ? "chat.run.aborted" : "chat.run.done",
                   run: doneRun,
-                  legacyStatus: "done",
+                  legacyStatus: terminalStatus,
+                  legacyStatusLabel: terminalStatusLabel,
                   payload: {
                     sessionKey: input.sessionKey,
-                    status: "done",
-                    statusLabel: null,
+                    status: terminalStatus,
+                    statusLabel: terminalStatusLabel,
                     idempotencyKey: input.idempotencyKey,
                     runId,
                   },
@@ -1653,11 +1683,11 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                   ...objectData(context.messages.getSession(input.sessionKey)?.data),
                   sessionKey: input.sessionKey,
                   sessionId: existingSession?.sessionId ?? null,
-                  status: "done",
-                  statusLabel: null,
+                  status: terminalStatus === "error" ? "error" : terminalStatus === "aborted" ? "aborted" : "done",
+                  statusLabel: terminalStatusLabel,
                 },
               });
-              log.info("session.status.persist", { sessionKey: input.sessionKey, sessionId: existingSession?.sessionId ?? null, status: "done", statusLabel: null });
+              log.info("session.status.persist", { sessionKey: input.sessionKey, sessionId: existingSession?.sessionId ?? null, status: terminalStatus, statusLabel: terminalStatusLabel });
               context.patchBus.broadcast({
                 cursor: doneEvent.cursor,
                 type: doneEvent.eventType,
@@ -1665,7 +1695,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 payload: doneEvent.payload,
                 createdAtMs: doneEvent.createdAtMs,
               });
-              log.info("status.broadcast", { sessionKey: input.sessionKey, type: doneEvent.eventType, cursor: doneEvent.cursor, status: "done", idempotencyKey: input.idempotencyKey });
+              log.info("status.broadcast", { sessionKey: input.sessionKey, type: doneEvent.eventType, cursor: doneEvent.cursor, status: terminalStatus, idempotencyKey: input.idempotencyKey });
             }
 
             log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: sendCompleted, status: typeof result.status === "string" ? result.status : undefined });
