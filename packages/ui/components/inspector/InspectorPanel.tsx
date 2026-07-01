@@ -65,6 +65,13 @@ export function InspectorPanel({ open, onClose, onOpenFullWindow, onWidthChange,
         ? "activity"
         : activeTab
 
+  const handleTabChange = useCallback((tab: InspectorTabId) => {
+    if (tab !== "activity") {
+      onClearFocusedToolCall?.()
+    }
+    setActiveTab(tab)
+  }, [onClearFocusedToolCall])
+
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
@@ -123,7 +130,7 @@ export function InspectorPanel({ open, onClose, onOpenFullWindow, onWidthChange,
       >
         <InspectorView
           activeTab={displayedTab}
-          onTabChange={setActiveTab}
+          onTabChange={handleTabChange}
           onTerminalTabChange={onTerminalActiveChange}
           onClose={onClose}
           onOpenFullWindow={onOpenFullWindow}
