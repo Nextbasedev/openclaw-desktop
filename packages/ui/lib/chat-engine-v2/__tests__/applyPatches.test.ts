@@ -290,6 +290,58 @@ describe("applyChatPatch", () => {
     expect((assistant?.gatewayIndex ?? 0) > (user?.gatewayIndex ?? 0)).toBe(true)
   })
 
+  test("anchors live assistant patches after the latest user when runId or user seq is missing", () => {
+    let state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.confirmed",
+          messageId: "user-1",
+          messageSeq: 1,
+          message: { role: "user", text: "first prompt", __openclaw: { id: "user-1", seq: 1 } },
+        },
+        createdAtMs: 1,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.created",
+          optimistic: true,
+          messageId: "client-2",
+          message: { role: "user", text: "second prompt", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-2" } },
+        },
+        createdAtMs: 2,
+      },
+    })
+
+    const withAssistant = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.delta",
+          messageId: "assistant-2",
+          messageSeq: 1,
+          message: { role: "assistant", text: "answer to second prompt", __openclaw: { id: "assistant-2", seq: 1 } },
+        },
+        createdAtMs: 3,
+      },
+    })
+
+    const assistant = withAssistant.messages.find((m) => m.messageId === "assistant-2")
+    expect(assistant?.gatewayIndex).toBe(2)
+  })
+
 
   test("marks V2 send patches as optimistic so later gateway user echoes dedupe", () => {
     const optimistic = applyChatPatch({ cursor: 0, messages: [] }, {

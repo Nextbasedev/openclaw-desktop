@@ -753,12 +753,19 @@ function assistantHasVisibleAnswer(message: ProjectedMessage) {
   return cleanMessageDisplayText(textFromMessage(message.data)).trim().length > 0;
 }
 
-function gatewaySendCompleted(_result: Record<string, unknown>, currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null) {
+function gatewaySendCompleted(result: Record<string, unknown>, currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null, options: { slashCommand?: boolean } = {}) {
   // Gateway chat.send can return a terminal status before the final assistant
   // message has reached chat.history/session.message. Do not broadcast done until
   // the current user echo and a visible assistant answer after it are both projected.
   // Otherwise the UI briefly hides Thinking, jumps the list, then receives the
   // answer a few seconds later.
+  // Native slash/control commands are different: their visible output may be a
+  // command/status projection instead of a normal assistant answer. Once the
+  // slash user row is represented and Gateway reports a terminal send, complete
+  // the run so repeated /status-/help-style commands do not stay queued forever.
+  if (options.slashCommand && isTerminalSendStatus(result.status)) {
+    return Boolean(currentHistory?.currentUserRepresented);
+  }
   return Boolean(currentHistory?.currentUserRepresented && currentHistory.assistantAfterCurrentUser);
 }
 
@@ -1618,7 +1625,8 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               }
             }
 
-            if (gatewaySendCompleted(result, currentHistory)) {
+            const sendCompleted = gatewaySendCompleted(result, currentHistory, { slashCommand: isSlashCommandText(rawMessage) });
+            if (sendCompleted) {
               context.runs.updateRunStatus(runId, "done", { statusLabel: null });
               const doneRun = context.runs.getRun(runId);
               const doneEvent = context.messages.appendProjectionEvent({
@@ -1660,7 +1668,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               log.info("status.broadcast", { sessionKey: input.sessionKey, type: doneEvent.eventType, cursor: doneEvent.cursor, status: "done", idempotencyKey: input.idempotencyKey });
             }
 
-            log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: gatewaySendCompleted(result, currentHistory), status: typeof result.status === "string" ? result.status : undefined });
+            log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: sendCompleted, status: typeof result.status === "string" ? result.status : undefined });
             return { ok: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, ...result };
           } catch (error) {
             context.runs.updateRunStatus(runId, "error", { statusLabel: error instanceof Error ? error.message : "Message failed", error: errorMeta(error) });

@@ -453,6 +453,20 @@ function isActivelyStreamingAssistant(params: {
   return isGenerating && message.role === "assistant" && index === messages.length - 1
 }
 
+function hasCompletedAssistantAfterLatestUser(messages: ChatMessage[]) {
+  let latestUserIndex = -1
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user") {
+      latestUserIndex = index
+      break
+    }
+  }
+  if (latestUserIndex < 0) return false
+  const afterLatestUser = messages.slice(latestUserIndex + 1)
+  if (afterLatestUser.some((message) => message.role === "assistant" && message.toolCalls?.some((tool) => tool.status === "running"))) return false
+  return afterLatestUser.some((message) => message.role === "assistant" && message.text.trim().length > 0)
+}
+
 function GeneratingStatus({ label, tool }: { label: string; tool?: string | null }) {
   const meta = statusIconMeta(tool)
   const Icon = meta.icon
@@ -1296,6 +1310,12 @@ export function ChatView({
         const nextStatusLabel = suppressTerminalStatus
           ? current.statusLabel
           : patchStatus?.label ?? current.statusLabel
+        const shouldClearCompletedAssistantRun =
+          ACTIVE_STREAM_STATUSES.has(nextStatus) &&
+          semanticType !== "chat.assistant.delta" &&
+          hasCompletedAssistantAfterLatestUser(orderedMessages)
+        const effectiveNextStatus = shouldClearCompletedAssistantRun ? "idle" : nextStatus
+        const effectiveNextStatusLabel = shouldClearCompletedAssistantRun ? null : nextStatusLabel
 
         // Detect if a NEW message was appended (length grew at the tail).
         const previousLength = current.messages.length
@@ -1332,12 +1352,12 @@ export function ChatView({
             )
             return {
               ...current,
-              loading: false,
-              error: null,
-              messages: finalMessages,
-              streamStatus: nextStatus,
-              statusLabel: nextStatusLabel,
-            }
+            loading: false,
+            error: null,
+            messages: finalMessages,
+            streamStatus: effectiveNextStatus,
+            statusLabel: effectiveNextStatusLabel,
+          }
           }
           // Cannot safely evict: hasOlder is false, so evicting from start would
           // destroy unrecoverable history. Allow the array to temporarily exceed
@@ -1367,8 +1387,8 @@ export function ChatView({
             loading: false,
             error: null,
             messages: orderedMessages,
-            streamStatus: nextStatus,
-            statusLabel: nextStatusLabel,
+            streamStatus: effectiveNextStatus,
+            statusLabel: effectiveNextStatusLabel,
           }
         }
 
@@ -1395,8 +1415,8 @@ export function ChatView({
           loading: false,
           error: null,
           messages: orderedMessages,
-          streamStatus: nextStatus,
-          statusLabel: nextStatusLabel,
+          streamStatus: effectiveNextStatus,
+          statusLabel: effectiveNextStatusLabel,
         }
       })
     })
@@ -3015,6 +3035,10 @@ export function ChatView({
                 messages: renderedMessages,
                 isGenerating,
               })
+              const isActiveAssistantTurn =
+                message.role === "assistant" &&
+                showThinkingState &&
+                index > latestRenderedUserIndex
               return (
               <div
                 key={renderedRowKeys[index]}
@@ -3074,7 +3098,7 @@ export function ChatView({
                     isActivelyStreaming={isStreamingAssistant}
                     animateAssistantText={animateAssistantText}
                     onTextAnimationComplete={handleTextAnimationComplete}
-                    suppressActions={message.role === "assistant" && animateAssistantText}
+                    suppressActions={message.role === "assistant" && (animateAssistantText || isActiveAssistantTurn)}
                     popoverOpen={activePopoverId === message.messageId}
                     onPopoverOpenChange={(open) =>
                       setActivePopoverId(open ? message.messageId : null)

@@ -179,19 +179,38 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
 
 function inferAssistantSeqFromRun(state: ApplyPatchState, frame: PatchFrame, parsed: ChatMessage[], messageSeq: number | undefined): number | undefined {
   if (!parsed.some((item) => item.role === "assistant")) return messageSeq
+  const semanticType = patchSemanticType(frame)
+  const isLiveAssistantPatch = semanticType === "chat.assistant.started" ||
+    semanticType === "chat.assistant.delta" ||
+    semanticType === "chat.assistant.final"
   const runId = patchRunId(frame)
-  if (!runId) return messageSeq
-  const matchingUser = [...state.messages]
-    .reverse()
-    .find((item) => item.role === "user" && item.runId === runId && typeof item.gatewayIndex === "number" && Number.isFinite(item.gatewayIndex))
-  if (!matchingUser || typeof matchingUser.gatewayIndex !== "number") return messageSeq
+  const matchingUser = runId
+    ? [...state.messages]
+      .reverse()
+      .find((item) => item.role === "user" && item.runId === runId && typeof item.gatewayIndex === "number" && Number.isFinite(item.gatewayIndex))
+    : null
+  const latestUser = !matchingUser && isLiveAssistantPatch
+    ? [...state.messages].reverse().find((item) => item.role === "user")
+    : null
+  const anchorUser = matchingUser ?? latestUser
+  if (!anchorUser) return messageSeq
   // During live streaming the backend can stamp an assistant/tool message with a
   // raw gateway messageSeq that is LOWER than the user message that triggered
   // the run (the live and history-backfill seq sources disagree until backfill
   // rewrites the canonical seq). Trusting that value makes the tool card render
   // ABOVE the user message for a moment, then snap back once history catches up.
   // Anchor the assistant after its own run's user message so it never jumps up.
-  const floor = matchingUser.gatewayIndex + 1
+  // If runId is missing/late, only fall back to the latest user for live
+  // assistant patches. That latest user may still be optimistic and not have a
+  // gateway seq yet, so use the current max seq as the floor in that race.
+  const maxSeq = state.messages.reduce((max, item) => (
+    typeof item.gatewayIndex === "number" && Number.isFinite(item.gatewayIndex)
+      ? Math.max(max, item.gatewayIndex)
+      : max
+  ), 0)
+  const floor = typeof anchorUser.gatewayIndex === "number" && Number.isFinite(anchorUser.gatewayIndex)
+    ? anchorUser.gatewayIndex + 1
+    : maxSeq + 1
   if (typeof messageSeq !== "number") return floor
   return Math.max(messageSeq, floor)
 }
