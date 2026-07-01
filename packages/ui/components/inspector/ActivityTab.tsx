@@ -203,17 +203,27 @@ function SubagentDashboardCard({
   const running = node.calls.filter((call) => call.status === "running").length
   const errors = node.calls.filter((call) => call.status === "error").length
   const latest = latestActivityAt(node)
+  const canOpen = node.status !== "error"
 
   return (
     <button
       type="button"
-      onClick={() => onSelect(node.id, node.sessionKey ?? null, node.label)}
+      onClick={() => {
+        if (!canOpen) return
+        onSelect(node.id, node.sessionKey ?? null, node.label)
+      }}
+      disabled={!canOpen}
+      aria-disabled={!canOpen}
+      title={canOpen ? "Open sub-agent conversation" : "Failed sub-agents cannot be opened"}
       className={cn(
-        "group relative flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border px-4 py-3.5 text-left transition-all",
+        "group relative flex w-full flex-col overflow-hidden rounded-xl border px-4 py-3.5 text-left transition-all",
         "bg-gradient-to-br from-black/[0.035] to-black/[0.012] shadow-[inset_0_1px_0_rgba(255,255,255,0.70)] dark:from-white/[0.055] dark:to-white/[0.018] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]",
+        canOpen ? "cursor-pointer" : "cursor-not-allowed opacity-70",
         active
           ? "border-foreground/22 ring-1 ring-foreground/10"
-          : "border-border/35 hover:border-border/70 hover:bg-black/[0.045] dark:hover:bg-white/[0.05]",
+          : canOpen
+            ? "border-border/35 hover:border-border/70 hover:bg-black/[0.045] dark:hover:bg-white/[0.05]"
+            : "border-border/25",
       )}
     >
       <div className="flex items-start gap-2.5">

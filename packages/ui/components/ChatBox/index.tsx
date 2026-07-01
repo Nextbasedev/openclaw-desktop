@@ -29,6 +29,7 @@ import type { QueuedChatMessage } from "@/lib/chatSendQueue"
 import type { ReplyTo } from "@/components/ChatView/types"
 import type { Space } from "@/types/space"
 import { composerReducer, initialComposerState } from "@/lib/composerState"
+import { canRunSlashCommandWhileGenerating } from "@/lib/controlSlashCommands"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
 import {
   chatAttachmentHref,
@@ -245,7 +246,7 @@ export function ChatBox({
   const showSendWhileGenerating = Boolean(
     isGenerating && (input.trim().length > 0 || attachments.length > 0)
   )
-  const canRunImmediatelyWhileGenerating = false
+  const canRunImmediatelyWhileGenerating = canRunSlashCommandWhileGenerating(input, commands)
   const {
     state: voiceState,
     isSupported: recorderSupported,
@@ -511,6 +512,9 @@ export function ChatBox({
 
   const hasInput = input.trim().length > 0 || attachments.length > 0
   const isSlashCommandInput = /^([/@])\S*/.test(input)
+  const liveCommandMatch = input.match(/^([/@])(\S*)$/)
+  const liveCommandPrefix = (liveCommandMatch?.[1] as "/" | "@" | undefined) ?? commandPrefix
+  const liveCommandFilter = liveCommandMatch?.[2] ?? slashFilter
   React.useEffect(() => {
     if (!draftKey || typeof localStorage === "undefined") {
       setSessionModelId(null)
@@ -536,7 +540,7 @@ export function ChatBox({
   function handleSlashSelect(
     cmd: import("@/hooks/useSlashCommands").SlashCommand
   ) {
-    setInput(`${commandPrefix}${cmd.name} `)
+    setInput(`${liveCommandPrefix}${cmd.name} `)
     setHistoryIndex(null)
     draftBeforeHistoryRef.current = ""
     setSlashMenuOpen(false)
@@ -894,17 +898,17 @@ export function ChatBox({
         </AnimatePresence>
         <AnimatePresence initial={false}>
           {slashMenuOpen &&
-            (commandPrefix === "@"
+            (liveCommandPrefix === "@"
               ? installedSkills.length > 0
               : commands.length > 0) && (
               <SlashCommandMenu
-                commands={commandPrefix === "@" ? installedSkills : commands}
-                filter={slashFilter}
+                commands={liveCommandPrefix === "@" ? installedSkills : commands}
+                filter={liveCommandFilter}
                 selectedIndex={slashSelectedIndex}
                 onSelect={handleSlashSelect}
-                prefix={commandPrefix}
+                prefix={liveCommandPrefix}
                 groupLabel={
-                  commandPrefix === "@" ? "Installed Skills" : undefined
+                  liveCommandPrefix === "@" ? "Installed Skills" : undefined
                 }
               />
             )}
@@ -927,10 +931,10 @@ export function ChatBox({
             onKeyDown={(e) => {
               if (slashMenuOpen) {
                 const activeCommands =
-                  commandPrefix === "@" ? installedSkills : commands
+                  liveCommandPrefix === "@" ? installedSkills : commands
                 const filtered = getFilteredCommands(
                   activeCommands,
-                  slashFilter
+                  liveCommandFilter
                 )
                 if (e.key === "ArrowDown") {
                   e.preventDefault()

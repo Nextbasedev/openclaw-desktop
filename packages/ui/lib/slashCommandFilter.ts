@@ -39,6 +39,7 @@ function fuzzyScore(candidate: string, query: string): number {
   if (!needle) return 1
   if (value === needle) return 100
   if (value.startsWith(needle)) return 80
+  if (value.split(/[-_\s]+/).some((part) => part.startsWith(needle))) return 70
   if (value.includes(needle)) return 60
 
   let cursor = 0
@@ -62,15 +63,24 @@ export function commandSearchText(command: SlashCommand): string[] {
   ].filter(Boolean)
 }
 
+export function commandFilterText(command: SlashCommand): string[] {
+  return [
+    command.name,
+    command.nativeName ?? "",
+    ...(command.textAliases ?? []),
+  ].filter(Boolean)
+}
+
 export function filterSlashCommands(
   commands: SlashCommand[],
   filter: string,
 ): SlashCommand[] {
   const query = filter.trim().toLowerCase()
+  const searchableText = query ? commandFilterText : commandSearchText
   return commands
     .map((command) => {
       const score = Math.max(
-        ...commandSearchText(command).map((text) => fuzzyScore(text, query)),
+        ...searchableText(command).map((text) => fuzzyScore(text, query)),
       )
       return { command, score }
     })

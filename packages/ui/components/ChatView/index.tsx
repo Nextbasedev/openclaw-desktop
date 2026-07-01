@@ -35,12 +35,13 @@ import {
   takeNextQueuedChatMessage,
   type QueuedChatMessage,
 } from "@/lib/chatSendQueue"
-import { isStopSlashCommand } from "@/lib/controlSlashCommands"
+import { getSlashCommandName, isStopSlashCommand } from "@/lib/controlSlashCommands"
 import { frontendLog } from "@/lib/clientLogs"
 import { randomId } from "@/lib/id"
 import { exportMessagesMarkdown } from "@/lib/messageActions"
 import { normalizeSessionTokenUsage, type SessionTokenUsage } from "@/lib/sessionContextUsage"
 import { cn } from "@/lib/utils"
+import { isSubagentSessionKey } from "@/lib/subagentSession"
 import { useAgentActivity } from "@/hooks/useAgentActivity"
 import type { AgentNode } from "@/components/inspector/activity-types"
 import {
@@ -63,6 +64,7 @@ import {
   LuSparkles,
   LuWrench,
 } from "react-icons/lu"
+import { VscArrowLeft, VscHubot } from "react-icons/vsc"
 import type { IconType } from "react-icons"
 import { MessageBubble } from "./MessageBubble"
 import {
@@ -263,6 +265,11 @@ function hasAssistantAnswerAfterLastUser(messages: ChatMessage[]) {
   )
 }
 
+function latestUserIsSlashCommand(messages: ChatMessage[]) {
+  const lastUser = [...messages].reverse().find((message) => message.role === "user")
+  return Boolean(lastUser && getSlashCommandName(lastUser.text))
+}
+
 function hasAssistantOutput(messages: ChatMessage[]) {
   return messages.some((message) =>
     message.role === "assistant" &&
@@ -335,22 +342,24 @@ function summarizeToolInput(tool: InlineToolCall) {
   return typeof candidate === "string" ? candidate.slice(0, 90) : ""
 }
 
-function liveRunningTool(messages: ChatMessage[]): InlineToolCall | null {
+function visibleTurnToolActivity(messages: ChatMessage[]): InlineToolCall[] {
   const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user")
   const activeTurnMessages = lastUserIndex >= 0 ? messages.slice(lastUserIndex + 1) : messages
-  for (const message of activeTurnMessages) {
-    for (const tool of message.toolCalls ?? []) {
-      if (
-        tool.status === "running" &&
-        tool.tool !== "sessions_spawn" &&
-        tool.tool !== "subagents" &&
-        tool.tool !== "sessions_yield"
-      ) {
-        return tool
-      }
-    }
-  }
-  return null
+  return activeTurnMessages.flatMap((message) =>
+    (message.toolCalls ?? []).filter((tool) =>
+      tool.tool !== "sessions_spawn" &&
+      tool.tool !== "subagents" &&
+      tool.tool !== "sessions_yield"
+    )
+  )
+}
+
+function liveRunningTool(messages: ChatMessage[]): InlineToolCall | null {
+  return visibleTurnToolActivity(messages).find((tool) => tool.status === "running") ?? null
+}
+
+function hasVisibleToolActivityAfterLastUser(messages: ChatMessage[]) {
+  return visibleTurnToolActivity(messages).length > 0
 }
 
 function toolPatchId(frame: PatchFrame): string | null {
@@ -427,6 +436,20 @@ function isActivelyStreamingAssistant(params: {
   return isGenerating && message.role === "assistant" && index === messages.length - 1
 }
 
+function hasCompletedAssistantAfterLatestUser(messages: ChatMessage[]) {
+  let latestUserIndex = -1
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user") {
+      latestUserIndex = index
+      break
+    }
+  }
+  if (latestUserIndex < 0) return false
+  const afterLatestUser = messages.slice(latestUserIndex + 1)
+  if (afterLatestUser.some((message) => message.role === "assistant" && message.toolCalls?.some((tool) => tool.status === "running"))) return false
+  return afterLatestUser.some((message) => message.role === "assistant" && message.text.trim().length > 0)
+}
+
 function GeneratingStatus({ label, tool }: { label: string; tool?: string | null }) {
   const meta = statusIconMeta(tool)
   const Icon = meta.icon
@@ -444,6 +467,40 @@ function GeneratingStatus({ label, tool }: { label: string; tool?: string | null
         {text}
         <span className="thinking-ellipsis" aria-hidden="true" />
       </span>
+    </div>
+  )
+}
+
+function DirectSubagentHeader({
+  title,
+  onBack,
+}: {
+  title?: string
+  onBack?: () => void
+}) {
+  return (
+    <div className="shrink-0 border-b border-border/20 bg-background/80 px-4 py-3 backdrop-blur-sm">
+      <div className="mx-auto flex max-w-[44rem] items-center gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={!onBack}
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+          aria-label="Back to parent chat"
+          title="Back to parent chat"
+        >
+          <VscArrowLeft className="size-4" />
+        </button>
+        <VscHubot className="size-4 shrink-0 text-blue-400" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-medium text-foreground">
+            {title?.trim() || "Subagent"}
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Sub-agent conversation
+          </p>
+        </div>
+      </div>
     </div>
   )
 }
@@ -518,6 +575,7 @@ function composerAttachmentsToMessageAttachments(
 
 export function ChatView({
   sessionKey,
+  sessionTitle,
   initialPrompt,
   initialMessages,
   onFirstMessageSent,
@@ -527,6 +585,11 @@ export function ChatView({
   onSubagentOpen,
   isBackgroundSession = false,
 }: Props) {
+  const isDirectSubagentSession = isSubagentSessionKey(sessionKey)
+  const handleDirectSubagentBack = useCallback(() => {
+    onSubagentOpen?.(null)
+  }, [onSubagentOpen])
+
   // ---- new-session bootstrap detection --------------------------------------
   // When AppPage creates a brand-new chat and mounts ChatView, it hands us an
   // `initialMessages` array containing exactly one optimistic user bubble
@@ -1082,6 +1145,23 @@ export function ChatView({
   }, [state.loading, state.messages, state.streamStatus])
 
   useEffect(() => {
+    if (!isActiveStreamStatus(state.streamStatus)) return
+    if (!latestUserIsSlashCommand(state.messages)) return
+    if (!hasAssistantAnswerAfterLastUser(state.messages)) return
+
+    setState((current) => {
+      if (!isActiveStreamStatus(current.streamStatus)) return current
+      if (!latestUserIsSlashCommand(current.messages)) return current
+      if (!hasAssistantAnswerAfterLastUser(current.messages)) return current
+      return {
+        ...current,
+        streamStatus: "idle",
+        statusLabel: null,
+      }
+    })
+  }, [state.messages, state.streamStatus])
+
+  useEffect(() => {
     if (isBackgroundSession || streamCursor === null) return
     return openPatchStreamV2(streamCursor, (frame) => {
       if (frame.type !== "patch") return
@@ -1256,12 +1336,12 @@ export function ChatView({
             )
             return {
               ...current,
-              loading: false,
-              error: null,
-              messages: finalMessages,
-              streamStatus: nextStatus,
-              statusLabel: nextStatusLabel,
-            }
+            loading: false,
+            error: null,
+            messages: finalMessages,
+            streamStatus: effectiveNextStatus,
+            statusLabel: effectiveNextStatusLabel,
+          }
           }
           // Cannot safely evict: hasOlder is false, so evicting from start would
           // destroy unrecoverable history. Allow the array to temporarily exceed
@@ -1291,8 +1371,8 @@ export function ChatView({
             loading: false,
             error: null,
             messages: orderedMessages,
-            streamStatus: nextStatus,
-            statusLabel: nextStatusLabel,
+            streamStatus: effectiveNextStatus,
+            statusLabel: effectiveNextStatusLabel,
           }
         }
 
@@ -1319,8 +1399,8 @@ export function ChatView({
           loading: false,
           error: null,
           messages: orderedMessages,
-          streamStatus: nextStatus,
-          statusLabel: nextStatusLabel,
+          streamStatus: effectiveNextStatus,
+          statusLabel: effectiveNextStatusLabel,
         }
       })
     })
@@ -1622,10 +1702,11 @@ export function ChatView({
     }, 1500)
   }, [])
 
-  function handleReply(messageId: string) {
+  function handleReply(messageId: string, selectedText?: string) {
     const message = findMessageById(messageId)
     if (!message) return
-    setReplyTo(message)
+    const selected = selectedText?.trim()
+    setReplyTo(selected ? { ...message, text: selected } : message)
   }
 
   function handleExport(messageId: string) {
@@ -1988,17 +2069,21 @@ export function ChatView({
     })
   }, [isGenerating, state.messages, sessionKey])
 
-  const liveTool = isGenerating ? liveRunningTool(renderedMessages) : null
+  const directSubagentAwaitingAnswer =
+    isDirectSubagentSession &&
+    !hasAssistantAnswerAfterLastUser(renderedMessages) &&
+    hasVisibleToolActivityAfterLastUser(renderedMessages)
+  const liveTool = isGenerating || directSubagentAwaitingAnswer ? liveRunningTool(renderedMessages) : null
   const statusText = isGenerating
     ? generatingStatusText(state.streamStatus, state.statusLabel, liveTool)
-    : null
+    : directSubagentAwaitingAnswer
+      ? "Sub-agent is working..."
+      : null
   // Keep the active-run indicator visible continuously until the stream reaches
-  // a terminal status. A response can already contain assistant text/reasoning
-  // while the model or tool loop is still running; hiding this row in that state
-  // (e.g. during a pause between tokens) makes the chat look idle / done even
-  // though generation is still in progress. The loader must persist until the
-  // response is actually complete.
-  const showThinkingState = isGenerating
+  // a terminal status. Direct subagent sessions can be opened/replayed with
+  // child tool activity but without a parent active-run flag, so keep a scoped
+  // fallback visible there until an assistant answer/reasoning arrives.
+  const showThinkingState = isGenerating || directSubagentAwaitingAnswer
   const latestRenderedUserIndex = useMemo(() => {
     for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
       if (renderedMessages[index]?.role === "user") return index
@@ -2857,6 +2942,12 @@ export function ChatView({
       data-chat-rebuild-history="true"
       data-session-key={sessionKey}
     >
+      {isDirectSubagentSession && (
+        <DirectSubagentHeader
+          title={sessionTitle}
+          onBack={onSubagentOpen ? handleDirectSubagentBack : undefined}
+        />
+      )}
       <div className="pointer-events-none absolute right-4 top-4 z-30">
         <div className="pointer-events-auto flex items-center gap-2">
           <div
@@ -2957,6 +3048,8 @@ export function ChatView({
                 messages: renderedMessages,
                 isGenerating,
               })
+              const suppressAssistantActionsWhileActive =
+                message.role === "assistant" && showThinkingState
               return (
               <div
                 key={renderedRowKeys[index]}
@@ -3016,7 +3109,7 @@ export function ChatView({
                     isActivelyStreaming={isStreamingAssistant}
                     animateAssistantText={animateAssistantText}
                     onTextAnimationComplete={handleTextAnimationComplete}
-                    suppressActions={message.role === "assistant" && animateAssistantText}
+                    suppressActions={message.role === "assistant" && (animateAssistantText || suppressAssistantActionsWhileActive)}
                     popoverOpen={activePopoverId === message.messageId}
                     onPopoverOpenChange={(open) =>
                       setActivePopoverId(open ? message.messageId : null)

@@ -7,6 +7,24 @@ import { ToastProvider } from "@/components/ToastProvider"
 import { QueryProvider } from "@/components/QueryProvider"
 import { cn } from "@/lib/utils";
 
+const PREHYDRATION_SPLASH_SCRIPT = `
+try {
+  var key = "openclaw.firstOpenSplashSeen.session";
+  if (window.sessionStorage && window.sessionStorage.getItem(key) === "true") {
+    document.documentElement.dataset.openclawSplashSeen = "true";
+  }
+} catch (_) {}
+`
+
+const HIDE_SEEN_PREHYDRATION_SPLASH_SCRIPT = `
+try {
+  if (document.documentElement.dataset.openclawSplashSeen === "true") {
+    var splash = document.getElementById("openclaw-prehydration-splash");
+    if (splash) splash.style.display = "none";
+  }
+} catch (_) {}
+`
+
 const geistSans = Geist({
   subsets: ["latin"],
   variable: "--font-geist-sans",
@@ -40,6 +58,91 @@ export default function RootLayout({
       )}
     >
       <body>
+        <script dangerouslySetInnerHTML={{ __html: PREHYDRATION_SPLASH_SCRIPT }} />
+        <div
+          id="openclaw-prehydration-splash"
+          aria-hidden="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2147483647,
+            overflow: "hidden",
+            background: "#0b0b0d",
+            color: "#f8f8f8",
+          }}
+        >
+          <div
+            className="openclaw-prehydration-splash-inner"
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "1.25rem",
+            }}
+          >
+            <div className="openclaw-lobster-icon" style={{ width: 96, height: 96 }}>
+              <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%", display: "block" }}>
+                <path
+                  className="openclaw-lobster-body"
+                  d="M60 10 C30 10 15 35 15 55 C15 75 30 95 45 100 L45 110 L55 110 L55 100 C55 100 60 102 65 100 L65 110 L75 110 L75 100 C90 95 105 75 105 55 C105 35 90 10 60 10Z"
+                  fill="url(#openclaw-prehydration-lobster-gradient)"
+                />
+                <path
+                  className="openclaw-lobster-left-claw"
+                  d="M20 45 C5 40 0 50 5 60 C10 70 20 65 25 55 C28 48 25 45 20 45Z"
+                  fill="url(#openclaw-prehydration-lobster-gradient)"
+                />
+                <path
+                  className="openclaw-lobster-right-claw"
+                  d="M100 45 C115 40 120 50 115 60 C110 70 100 65 95 55 C92 48 95 45 100 45Z"
+                  fill="url(#openclaw-prehydration-lobster-gradient)"
+                />
+                <path className="openclaw-lobster-antenna openclaw-lobster-antenna-left" d="M45 15 Q35 5 30 8" stroke="#ff5a50" strokeWidth="2" strokeLinecap="round" />
+                <path className="openclaw-lobster-antenna openclaw-lobster-antenna-right" d="M75 15 Q85 5 90 8" stroke="#ff5a50" strokeWidth="2" strokeLinecap="round" />
+                <circle cx="45" cy="35" r="6" fill="#050810" />
+                <circle cx="75" cy="35" r="6" fill="#050810" />
+                <circle className="openclaw-lobster-eye-glow" cx="46" cy="34" r="2" fill="#00e5cc" />
+                <circle className="openclaw-lobster-eye-glow" cx="76" cy="34" r="2" fill="#00e5cc" />
+                <defs>
+                  <linearGradient id="openclaw-prehydration-lobster-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#ff5a50" />
+                    <stop offset="100%" stopColor="#991b1b" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+            <p
+              className="openclaw-splash-title"
+              aria-label="OpenClaw"
+              style={{
+                display: "inline-flex",
+                alignItems: "baseline",
+                overflow: "hidden",
+                margin: 0,
+                fontSize: "1.5rem",
+                fontWeight: 600,
+                letterSpacing: "-0.04em",
+                lineHeight: 1.1,
+              }}
+            >
+              {"OpenClaw".split("").map((letter, index) => (
+                <span
+                  aria-hidden="true"
+                  className="openclaw-splash-letter"
+                  key={`${letter}-${index}`}
+                  style={{ animationDelay: `${index * 55}ms` }}
+                >
+                  {letter}
+                </span>
+              ))}
+            </p>
+          </div>
+        </div>
+        <script dangerouslySetInnerHTML={{ __html: HIDE_SEEN_PREHYDRATION_SPLASH_SCRIPT }} />
         <ThemeProvider>
           <QueryProvider>
             <TooltipProvider delayDuration={0}>{children}</TooltipProvider>
