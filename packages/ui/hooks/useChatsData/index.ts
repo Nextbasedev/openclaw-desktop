@@ -490,6 +490,9 @@ export function useChatsData(
     const chatId = deleteTarget.id
     const sessionKey = deleteTarget.sessionKey
     setDeleting(true)
+    setDeleteOpen(false)
+    setDeleteTarget(null)
+    onChatClear(chatId)
     try {
       invalidateMiddlewareStartupBootstrap()
       invalidateChatListCache(spaceId)
@@ -543,8 +546,6 @@ export function useChatsData(
         next.delete(chatId)
         return next
       })
-      setDeleteOpen(false)
-      onChatClear(chatId)
       await loadChats()
     } catch (e) {
       console.error("delete chat failed", e)
