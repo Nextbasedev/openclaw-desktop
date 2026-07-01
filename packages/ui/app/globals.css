@@ -543,25 +543,6 @@ body {
   will-change: auto;
 }
 
-/* Fade mode: each newly-streamed word fades in once. Only words that just
-   mounted animate (react-markdown reuses the stable prefix), so settled text is
-   untouched and there is no per-frame work. Fast (260ms) per word. */
-.md-stream-word {
-  animation: md-word-fade 260ms ease-out both;
-}
-
-@keyframes md-word-fade {
-  from {
-    opacity: 0;
-    filter: blur(3px);
-  }
-
-  to {
-    opacity: 1;
-    filter: blur(0);
-  }
-}
-
 @keyframes stream-update-fade {
   from {
     opacity: 0.28;
@@ -576,8 +557,6 @@ body {
   }
 }
 
-/* Caret disabled — the trailing fade-mask above is the streaming cue, which
-   reads smoother than a blinking block caret. */
 .streaming-text> :last-child::after {
   content: none;
 }
@@ -654,14 +633,10 @@ body {
 
   .streaming-text,
   .streaming-text> :last-child,
-  .streaming-text> :last-child::after,
-  .md-stream-word {
+  .streaming-text> :last-child::after {
     animation: none;
     transition: none;
     filter: none;
-    opacity: 1;
-    -webkit-mask-image: none;
-    mask-image: none;
   }
 
   .chatbox-glow::before {

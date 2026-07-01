@@ -5,35 +5,23 @@ import { useEffect, useRef, useState } from "react"
 const MIN_FRAME_MS = 16
 const MAX_FRAME_MS = 80
 const MAX_CHARS_PER_FRAME = 180
-const MIN_CHARS_PER_SECOND = 320
-const MAX_CHARS_PER_SECOND = 2_600
-// Repaint cadence while revealing. We advance the reveal every animation frame
-// (cheap ref update) but only commit to React state ~every 40ms. Re-rendering
-// and re-parsing the whole growing markdown message on every 60fps frame is the
-// dominant source of streaming jank on long responses; a steady ~25fps repaint
-// looks just as smooth to the eye while cutting that work ~2.5x.
-const COMMIT_INTERVAL_MS = 40
+// Commit revealed text to React at most this often during streaming. The reveal
+// math (nextRevealLength) is time-based, so committing on a coarser cadence than
+// the ~60fps rAF loop shows the SAME characters at the SAME wall-clock time and
+// finishes on the exact same final text — it just re-renders (and re-parses the
+// markdown + re-runs the expensive backdrop-blur re-composite in the app shell)
+// ~22 times/sec instead of ~60. Text typing stays visually smooth; the heavy
+// per-frame work drops ~3x. Final frame is always committed.
+const REVEAL_COMMIT_MS = 45
 
 export function charsPerSecondForBacklog(backlog: number): number {
-  if (backlog <= 0) return MIN_CHARS_PER_SECOND
-  // Continuous, gently accelerating pace. A larger backlog reveals faster so we
-  // never fall far behind the model, but the speed changes smoothly instead of
-  // snapping between fixed tiers — the old tiered curve made the reveal visibly
-  // stutter (speed jumps) as the backlog crossed each threshold.
-  const paced = MIN_CHARS_PER_SECOND + backlog * 1.15
-  return Math.min(MAX_CHARS_PER_SECOND, Math.round(paced))
-}
-
-// Round a reveal length up to the end of the current word (+ trailing spaces) so
-// we always reveal whole words. Each word then mounts complete and can fade in
-// cleanly (fade mode), instead of a half-word appearing and growing mid-fade.
-export function snapToWordBoundary(target: string, length: number): number {
-  if (length >= target.length) return target.length
-  if (length <= 0) return 0
-  let i = length
-  while (i < target.length && !/\s/.test(target[i])) i += 1
-  while (i < target.length && /\s/.test(target[i])) i += 1
-  return i
+  if (backlog > 2_400) return 2_400
+  if (backlog > 1_200) return 1_600
+  if (backlog > 640) return 950
+  if (backlog > 320) return 620
+  if (backlog > 120) return 360
+  if (backlog > 40) return 220
+  return 120
 }
 
 export function nextRevealLength({
@@ -54,6 +42,24 @@ export function nextRevealLength({
   const step = Math.min(frameChars, MAX_CHARS_PER_FRAME)
 
   return Math.min(targetLength, currentLength + step)
+}
+
+// Decide whether the current reveal frame should be pushed to React state.
+// Always commit the final frame (so the message settles on the exact full text
+// and the completion path fires); otherwise commit at most once per commitMs.
+export function shouldCommitRevealFrame({
+  now,
+  lastCommitAt,
+  reachedTarget,
+  commitMs = REVEAL_COMMIT_MS,
+}: {
+  now: number
+  lastCommitAt: number
+  reachedTarget: boolean
+  commitMs?: number
+}): boolean {
+  if (reachedTarget) return true
+  return now - lastCommitAt >= commitMs
 }
 
 function shouldReduceMotion(): boolean {
@@ -177,9 +183,6 @@ export function useStreamingText(
       if (current.length >= latestTarget.length) {
         rafRef.current = null
         revealActiveRef.current = false
-        // Always commit the final text — a throttled frame may have advanced the
-        // ref to completion without painting the last slice yet.
-        setDisplay(current)
         setIsRevealing(false)
         completeRef.current?.()
         return
@@ -188,22 +191,24 @@ export function useStreamingText(
       const previousFrame = lastFrameAtRef.current || now - MIN_FRAME_MS
       const elapsed = Math.max(MIN_FRAME_MS, now - previousFrame)
       lastFrameAtRef.current = now
-      const rawNextLength = nextRevealLength({
+      const nextLength = nextRevealLength({
         currentLength: current.length,
         targetLength: latestTarget.length,
         elapsedMs: elapsed,
       })
-      const nextLength = snapToWordBoundary(latestTarget, rawNextLength)
       const next = latestTarget.slice(0, nextLength)
 
       if (next !== current) {
+        // Advance the source-of-truth ref every frame (keeps reveal timing
+        // exact), but only push to React state on a throttled cadence — or on
+        // the final frame — so the markdown re-parse + shell repaint don't run
+        // at full 60fps. See REVEAL_COMMIT_MS.
         displayRef.current = next
-        // Throttle React commits to ~25fps so the expensive markdown re-render
-        // doesn't run every frame. The ref keeps advancing for accurate pacing.
-        if (now - lastCommitAtRef.current >= COMMIT_INTERVAL_MS) {
+        const reachedTarget = next.length >= latestTarget.length
+        if (shouldCommitRevealFrame({ now, lastCommitAt: lastCommitAtRef.current, reachedTarget })) {
           lastCommitAtRef.current = now
           setDisplay(next)
-          setIsRevealing(true)
+          setIsRevealing(!reachedTarget)
         }
       }
 

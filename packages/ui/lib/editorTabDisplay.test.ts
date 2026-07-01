@@ -52,13 +52,59 @@ describe("editor tab display titles", () => {
     expect(displayState.groups[0]?.tabs[0]?.title).toBe("Generated title")
   })
 
-  it("keeps a manually named active chat ahead of live cache data", () => {
+  it("treats the live chat-list name as authoritative over a stale active name", () => {
+    // The live title map mirrors the server-backed sidebar list, so a rename
+    // landing there must win over a stale active-chat snapshot. Otherwise
+    // renaming the currently-open chat updates the sidebar but the header tab
+    // keeps the old active name.
     const displayState = deriveEditorGroupsTabTitles(
       state(),
-      new Map([["chat-1", { name: "Cached title" }]]),
-      { id: "chat-1", name: "Manual title" },
+      new Map([["chat-1", { name: "Renamed in sidebar" }]]),
+      { id: "chat-1", name: "Stale active name" },
     )
 
-    expect(displayState.groups[0]?.tabs[0]?.title).toBe("Manual title")
+    expect(displayState.groups[0]?.tabs[0]?.title).toBe("Renamed in sidebar")
+  })
+
+  it("falls back to the active chat name when the live list has no entry yet", () => {
+    const displayState = deriveEditorGroupsTabTitles(
+      state(),
+      new Map(),
+      { id: "chat-1", name: "Brand new name" },
+    )
+
+    expect(displayState.groups[0]?.tabs[0]?.title).toBe("Brand new name")
+  })
+
+  it("honors an already-synced tab title over a still-weak active chat name", () => {
+    const base = state()
+    // The send/autoname flow updated the tab title, but the active chat name
+    // is still the weak placeholder. The header must show the resolved tab
+    // title, not fall back to "New Chat".
+    base.groups[0]!.tabs[0] = {
+      id: "chat:chat-1",
+      title: "hello",
+      subtitle: "Chat",
+      kind: "chat",
+      chat: { id: "chat-1", name: "New Chat" },
+    }
+
+    const displayState = deriveEditorGroupsTabTitles(
+      base,
+      new Map(),
+      { id: "chat-1", name: "New Chat" },
+    )
+
+    expect(displayState.groups[0]?.tabs[0]?.title).toBe("hello")
+  })
+
+  it("keeps the placeholder while every source is still weak", () => {
+    const displayState = deriveEditorGroupsTabTitles(
+      state(),
+      new Map(),
+      { id: "chat-1", name: "Opening chat..." },
+    )
+
+    expect(displayState.groups[0]?.tabs[0]?.title).toBe("New Chat")
   })
 })

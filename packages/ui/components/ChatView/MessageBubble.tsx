@@ -1494,7 +1494,7 @@ export const MessageBubble = memo(function MessageBubble({
                       ? "rounded-2xl bg-muted px-4 py-2.5 text-foreground shadow-sm"
                       : isAssistantError
                         ? "w-full px-2 text-red-300"
-                        : "w-full px-2 text-foreground"
+                        : "w-full text-foreground"
                 )}
               >
                 {shouldAnimateSlashCommandBorder && (

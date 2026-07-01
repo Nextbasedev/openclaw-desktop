@@ -1,24 +1,18 @@
 import type { ChatMessage } from "./types"
+import { sortChatMessagesByTimeline } from "@/lib/chatMessageDedupe"
 
-function timestampOf(message: ChatMessage): number {
-  if (!message.createdAt) return Number.POSITIVE_INFINITY
-  const value = Date.parse(message.createdAt)
-  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY
-}
-
+// Single ordering rule for the whole app: chronological by the backend's
+// monotonic gateway/openclaw seq (gatewayIndex), which is the ONLY field that
+// reliably encodes arrival order on both the websocket stream and persisted
+// history. createdAt is used only as a fallback when seq is absent, because
+// assistant timestamps are model/exec time and can predate the user's client
+// send time — sorting by createdAt first inverts user/assistant rows and makes
+// the just-sent message appear to jump above the answer. Optimistic/live rows
+// without a seq keep their insertion order so they stay pinned to the tail
+// until their seq arrives.
+//
+// This delegates to the same comparator dedupeChatMessages() uses internally so
+// the two sort passes (reducer + render) can never disagree and flip rows.
 export function orderChatMessages(messages: ChatMessage[]) {
-  return messages
-    .map((message, index) => ({ message, index }))
-    .sort((a, b) => {
-      const aSeq = a.message.gatewayIndex
-      const bSeq = b.message.gatewayIndex
-      if (a.message.isOptimistic || b.message.isOptimistic) return a.index - b.index
-      if (typeof aSeq === "number" && typeof bSeq === "number" && aSeq !== bSeq) return aSeq - bSeq
-      if (typeof aSeq === "number" && typeof bSeq !== "number") return a.index - b.index
-      if (typeof aSeq !== "number" && typeof bSeq === "number") return a.index - b.index
-      const timeDelta = timestampOf(a.message) - timestampOf(b.message)
-      if (Number.isFinite(timeDelta) && timeDelta !== 0) return timeDelta
-      return a.index - b.index
-    })
-    .map(({ message }) => message)
+  return sortChatMessagesByTimeline(messages)
 }

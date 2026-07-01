@@ -16,6 +16,7 @@ import {
   sendChatV2,
 } from "@/lib/chat-engine-v2/client"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "@/lib/chat-engine-v2/applyPatches"
+import { resolveNextStreamStatus } from "./streamStatusResolver"
 import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
 import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
@@ -316,24 +317,6 @@ function activityAgentsToSubagents(
       toolCallId,
     }
   })
-}
-
-function isTerminalStatus(status: StreamStatus) {
-  return status === "done" || status === "idle" || status === "connected"
-}
-
-function shouldSuppressTerminalStatusDuringPendingUser({
-  currentStatus,
-  nextStatus,
-  messages,
-}: {
-  currentStatus: StreamStatus
-  nextStatus: StreamStatus | null
-  messages: ChatMessage[]
-}) {
-  if (!nextStatus || !isTerminalStatus(nextStatus)) return false
-  if (!isActiveStreamStatus(currentStatus)) return false
-  return !hasAssistantAnswerAfterLastUser(messages)
 }
 
 function summarizeToolInput(tool: InlineToolCall) {
@@ -1251,29 +1234,36 @@ export function ChatView({
             "debug"
           )
         }
-        const rawNextStatus = patchStatus?.status ??
+        // Single source of truth for how a patch moves stream status. Also
+        // recovers a dropped terminal "done" signal in the LIVE stream (settle
+        // on assistant.final) and refuses to resurrect "Writing…" once the turn
+        // is answered — while preserving the existing pending-user guard.
+        const naiveNextStatus = patchStatus?.status ??
           (patchImpliesActiveRun(frame) ? "thinking" : null)
-        const suppressTerminalStatus = shouldSuppressTerminalStatusDuringPendingUser({
+        const nextStatus = resolveNextStreamStatus({
+          semanticType,
+          explicitStatus: patchStatus?.status ?? null,
+          impliesActiveRun: patchImpliesActiveRun(frame),
           currentStatus: current.streamStatus,
-          nextStatus: rawNextStatus,
-          messages: orderedMessages,
+          hasAnswerAfterLastUser: hasAssistantAnswerAfterLastUser(orderedMessages),
         })
-        if (suppressTerminalStatus) {
-          frontendLog("chat", "chat-rebuild.status.suppress-stale-terminal", {
+        if (nextStatus !== (naiveNextStatus ?? current.streamStatus)) {
+          frontendLog("chat", "chat-rebuild.status.resolver-adjusted", {
             sessionKey,
             cursor: frame.patch.cursor,
             patchType: frame.patch.type,
             semanticType,
             currentStatus: current.streamStatus,
-            patchStatus: rawNextStatus,
+            naiveNextStatus,
+            resolvedNextStatus: nextStatus,
           }, "debug")
         }
-        const nextStatus = suppressTerminalStatus
-          ? current.streamStatus
-          : rawNextStatus ?? current.streamStatus
-        const nextStatusLabel = suppressTerminalStatus
-          ? current.statusLabel
-          : patchStatus?.label ?? current.statusLabel
+        const nextStatusLabel =
+          nextStatus === current.streamStatus
+            ? current.statusLabel
+            : isActiveStreamStatus(nextStatus)
+              ? patchStatus?.label ?? current.statusLabel
+              : null
 
         // Detect if a NEW message was appended (length grew at the tail).
         const previousLength = current.messages.length
@@ -1440,10 +1430,6 @@ export function ChatView({
         attachmentCount: payload.attachments?.length ?? 0,
       })
 
-      if (windowStateRef.current.hasNewer) {
-        await resetToLiveTail()
-      }
-
       optimisticId = randomId()
       shouldFollowScrollRef.current = true
       const optimisticMessage: ChatMessage = {
@@ -1473,6 +1459,16 @@ export function ChatView({
         sessionKey,
         optimisticId,
       })
+
+      if (windowStateRef.current.hasNewer) {
+        await resetToLiveTail({
+          preserveMessages: [optimisticMessage],
+          silent: true,
+          streamStatus: "thinking",
+          statusLabel: "Thinking",
+        })
+      }
+
       onFirstMessageSent?.(text)
       setReplyTo(null)
       setComposerSeed(null)
@@ -2441,7 +2437,16 @@ export function ChatView({
     }
   }, [sessionKey, windowState.hasNewer, windowState.isLoadingNewer, windowState.newestLoadedSeq, captureFirstVisibleRowAnchor])
 
-  const resetToLiveTail = useCallback(async (): Promise<void> => {
+  const resetToLiveTail = useCallback(async (options?: {
+    preserveMessages?: ChatMessage[]
+    silent?: boolean
+    streamStatus?: StreamStatus
+    statusLabel?: string | null
+  }): Promise<void> => {
+    const preserveMessages = options?.preserveMessages ?? []
+    const silent = options?.silent ?? false
+    const streamStatus = options?.streamStatus ?? "idle"
+    const statusLabel = options?.statusLabel ?? null
     setShowJumpToLatest(false)
     cursorRef.current = 0
     olderFetchSeqRef.current = 0
@@ -2455,14 +2460,16 @@ export function ChatView({
     setActivePopoverId(null)
     setComposerSeed(null)
     setWindowState(INITIAL_WINDOW_STATE)
-    setState({
-      loading: true,
-      error: null,
-      composerError: null,
-      messages: [],
-      streamStatus: "idle",
-      statusLabel: null,
-    })
+    if (!silent) {
+      setState({
+        loading: true,
+        error: null,
+        composerError: null,
+        messages: [],
+        streamStatus: "idle",
+        statusLabel: null,
+      })
+    }
 
     const q = liveTailQuery()
     try {
@@ -2497,14 +2504,14 @@ export function ChatView({
           requestedLimit: q.limit,
         })
       )
-      setState({
+      setState((current) => ({
         loading: false,
         error: null,
-        composerError: null,
-        messages,
-        streamStatus: "idle",
-        statusLabel: null,
-      })
+        composerError: current.composerError,
+        messages: orderChatMessages(dedupeChatMessages([...messages, ...preserveMessages])),
+        streamStatus,
+        statusLabel,
+      }))
       // Mirrors the cold-bootstrap success path: stamp the completion time so
       // a chained bootstrap-recovery (e.g., SSE reconnect arriving right after
       // a reset resolves) doesn't trigger another reset cascade.
@@ -2517,14 +2524,22 @@ export function ChatView({
       )
     } catch (err) {
       setWindowState(INITIAL_WINDOW_STATE)
-      setState({
-        loading: false,
-        error: err instanceof Error ? err.message : String(err),
-        composerError: null,
-        messages: [],
-        streamStatus: "error",
-        statusLabel: null,
-      })
+      if (!silent) {
+        setState({
+          loading: false,
+          error: err instanceof Error ? err.message : String(err),
+          composerError: null,
+          messages: [],
+          streamStatus: "error",
+          statusLabel: null,
+        })
+      } else {
+        setState((current) => ({
+          ...current,
+          loading: false,
+          error: null,
+        }))
+      }
       frontendLog(
         "chat",
         "chat-rebuild.window.reset-to-live-tail-failed",
@@ -2763,6 +2778,9 @@ export function ChatView({
     const element = scrollContainerRef.current
     if (!element) return
     if (!shouldFollowScrollRef.current) return
+    // Always pin instantly to the bottom. Smooth follow-scroll during streaming
+    // was removed (it caused visible scroll issues during generation); the view
+    // jumps straight to the latest content instead of animating.
     scrollElementToBottom(element)
   }, [isGenerating, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText, updateJumpToLatestVisibility, windowState.hasNewer])
 
@@ -2778,6 +2796,7 @@ export function ChatView({
       frame = requestAnimationFrame(() => {
         frame = 0
         if (shouldFollowScrollRef.current) {
+          // Instant pin (smooth streaming follow-scroll removed).
           scrollElementToBottom(container)
         }
       })
@@ -3007,7 +3026,7 @@ export function ChatView({
                 )}
               >
                 {message.role === "assistant" && subagentAnchors.orphanByAssistantId.get(message.messageId)?.length ? (
-                  <div className="mb-2">
+                  <div className="mb-1">
                     <SubagentCard
                       subagents={subagentAnchors.orphanByAssistantId.get(message.messageId) ?? []}
                       onOpen={openSubagent}
@@ -3018,7 +3037,7 @@ export function ChatView({
                   <ThinkingBlock text={message.reasoningText} />
                 )}
                 {message.role === "assistant" && messageToolCalls.length ? (
-                  <div className="mb-4 max-w-[85%]">
+                  <div className="mb-0 max-w-[85%]">
                     <ToolCallSteps
                       tools={messageToolCalls}
                       defaultOpen={!message.text.trim()}
@@ -3061,14 +3080,6 @@ export function ChatView({
                       resolveExecApprovalV2({ approvalId, decision }).then(() => undefined)
                     }
                   />
-                ) : null}
-                {message.role === "user" && subagentAnchors.byTriggerUserId.get(message.messageId)?.length ? (
-                  <div className="mt-3">
-                    <SubagentCard
-                      subagents={subagentAnchors.byTriggerUserId.get(message.messageId) ?? []}
-                      onOpen={openSubagent}
-                    />
-                  </div>
                 ) : null}
               </div>
               )

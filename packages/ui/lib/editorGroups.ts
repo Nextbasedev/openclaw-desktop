@@ -1,4 +1,5 @@
 import type { ActiveChat, ActiveTopic } from "@/components/sidebar"
+import { isWeakChatName } from "@/utils/chatDisplayName"
 
 export type EditorTab = {
   id: string
@@ -29,6 +30,11 @@ export type EditorGroupsState = {
 
 export type EditorGroupsAction =
   | { type: "ADD_TAB"; groupId?: "group-1" | "group-2"; tab: EditorTab }
+  // Transform the focused/target group's currently-active placeholder tab
+  // (the "New Chat" draft, or a stale chat tab) INTO the given session tab,
+  // IN PLACE, keeping it selected. Used right after a new session is created so
+  // the open "New Chat" becomes that session instead of leaving a stale tab.
+  | { type: "PROMOTE_ACTIVE_TO_SESSION"; groupId?: "group-1" | "group-2"; tab: EditorTab }
   | { type: "UPDATE_TAB"; tabId: string; updates: Partial<EditorTab> }
   | { type: "REMOVE_TAB"; tabId: string }
   | { type: "SET_ACTIVE_TAB"; groupId: "group-1" | "group-2"; tabId: string }
@@ -145,6 +151,21 @@ function sessionDataFromTab(tab: EditorTab): SessionData | null {
   }
 }
 
+export function shouldPromoteActiveTabToSession(
+  activeTab: EditorTab | undefined,
+  activeChat: Pick<ActiveChat, "id" | "name"> | null | undefined,
+): boolean {
+  if (!activeTab || !activeChat?.id) return false
+  if (activeTab.kind === "draft") return true
+  if (activeTab.kind !== "chat") return false
+
+  if (activeTab.chat?.id !== activeChat.id) {
+    return isWeakChatName(activeTab.title) || isWeakChatName(activeTab.chat?.name)
+  }
+
+  return isWeakChatName(activeTab.title) && !isWeakChatName(activeChat.name)
+}
+
 function insertTabAt(tabs: EditorTab[], tab: EditorTab, targetIndex?: number): EditorTab[] {
   const next = [...tabs]
   const index = Math.max(0, Math.min(targetIndex ?? next.length, next.length))
@@ -219,6 +240,41 @@ export function editorGroupsReducer(
         }
         changed = true
         return nextGroup
+      })
+      return changed ? { ...state, groups } : state
+    }
+
+    case "PROMOTE_ACTIVE_TO_SESSION": {
+      const targetId = action.groupId ?? state.focusedGroupId
+      let changed = false
+      const groups = state.groups.map((g) => {
+        if (g.id !== targetId) return g
+        const activeIdx = g.tabs.findIndex((t) => t.id === g.activeTabId)
+        if (activeIdx < 0) return g
+        // If the active tab is ALREADY this session (same id + same title +
+        // same session), nothing to do.
+        const current = g.tabs[activeIdx]
+        if (
+          current.id === action.tab.id &&
+          current.title === action.tab.title &&
+          current.kind === action.tab.kind &&
+          current.chat?.sessionKey === action.tab.chat?.sessionKey
+        ) {
+          return g
+        }
+        // Overwrite the active tab in place with the session tab, and drop any
+        // OTHER copy of this session tab elsewhere in the group (so promotion
+        // never produces a duplicate). Keep the promoted tab selected.
+        const tabs = g.tabs
+          .map((t, i) => (i === activeIdx ? action.tab : t))
+          .filter((t, i) => i === activeIdx || t.id !== action.tab.id)
+        changed = true
+        return {
+          ...g,
+          tabs,
+          activeTabId: action.tab.id,
+          sessionData: sessionDataFromTab(action.tab) ?? g.sessionData,
+        }
       })
       return changed ? { ...state, groups } : state
     }

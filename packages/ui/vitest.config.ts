@@ -11,6 +11,7 @@ export default defineConfig({
     environment: "node",
     include: [
       "lib/**/*.test.ts",
+      "utils/**/*.test.ts",
       "hooks/**/*.test.ts",
       "components/inspector/**/*.test.ts",
       "components/ChatView/**/*.test.ts",
