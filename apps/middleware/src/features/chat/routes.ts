@@ -1254,25 +1254,17 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     log.info("status.broadcast", { sessionKey: input.sessionKey, type: statusEvent.eventType, cursor: statusEvent.cursor, status: "thinking", idempotencyKey: input.idempotencyKey });
 
     if (isStopCommandText(rawMessage)) {
-      const activeRunToAbort = context.runs.findOldestPendingRunExcept(input.sessionKey, runId) ?? context.runs.getRun(runId);
-      const abortRunId = activeRunToAbort?.runId ?? runId;
-      const gatewayAbortRunId = activeRunToAbort?.gatewayRunId ?? abortRunId;
-      log.info("send.stop-command.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, runId, abortRunId, gatewayAbortRunId });
-      void context.gateway.request<Record<string, unknown>>("chat.abort", { sessionKey: input.sessionKey, runId: gatewayAbortRunId }, 30_000).catch((error) => {
-        log.warn("send.stop-command.gateway-chat-abort.fail", { sessionKey: input.sessionKey, runId: gatewayAbortRunId, ...errorMeta(error) });
+      log.info("send.stop-command.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, runId });
+      void context.gateway.request<Record<string, unknown>>("chat.abort", { sessionKey: input.sessionKey, runId }, 30_000).catch((error) => {
+        log.warn("send.stop-command.gateway-chat-abort.fail", { sessionKey: input.sessionKey, runId, ...errorMeta(error) });
       });
       void context.gateway.request<Record<string, unknown>>("sessions.abort", { key: input.sessionKey }, 30_000).catch((error) => {
-        log.warn("send.stop-command.gateway-session-abort.fail", { sessionKey: input.sessionKey, runId: abortRunId, ...errorMeta(error) });
+        log.warn("send.stop-command.gateway-session-abort.fail", { sessionKey: input.sessionKey, runId, ...errorMeta(error) });
       });
 
-      if (abortRunId !== runId) {
-        context.runs.updateRunStatus(abortRunId, "aborted", { statusLabel: null });
-        context.runs.updateRunStatus(runId, "aborted", { statusLabel: null });
-      } else {
-        context.runs.updateRunStatus(runId, "aborted", { statusLabel: null });
-      }
-      const completedTools = context.runs.completeRunningTools(input.sessionKey, abortRunId, { status: "error", resultMeta: { reason: "aborted" }, updatedAtMs: nowMs() });
-      const abortedRun = context.runs.getRun(abortRunId) ?? context.runs.getRun(runId);
+      context.runs.updateRunStatus(runId, "aborted", { statusLabel: null });
+      const completedTools = context.runs.completeRunningTools(input.sessionKey, runId, { status: "error", resultMeta: { reason: "aborted" }, updatedAtMs: nowMs() });
+      const abortedRun = context.runs.getRun(runId);
       const abortMessageId = `${clientMessageId}:abort-confirmation`;
       const abortMessageSeq = context.messages.nextMessageSeq(input.sessionKey);
       const abortCreatedAtMs = Date.now();
@@ -1341,7 +1333,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
           sessionKey: input.sessionKey,
           semanticType: "chat.run.aborted",
           run: abortedRun,
-          payload: { completedTools, runId: abortRunId, stopRunId: runId },
+          payload: { completedTools, runId },
         }),
       });
       context.patchBus.broadcast({
@@ -1351,7 +1343,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         payload: abortStatusEvent.payload,
         createdAtMs: abortStatusEvent.createdAtMs,
       });
-      log.info("send.stop-command.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, runId, abortRunId, completedTools, abortMessageId });
+      log.info("send.stop-command.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, runId, completedTools, abortMessageId });
       return { ok: true, accepted: true, stopped: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, clientMessageId, runId };
     }
 

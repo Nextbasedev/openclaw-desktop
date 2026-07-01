@@ -1163,46 +1163,4 @@ describe("chat send routes", () => {
     ]);
     await app.close();
   });
-
-  test("stop command aborts the active pending run instead of its own stop message run", async () => {
-    const app = await createApp(config("stop-command-active-run"));
-    const context = contextOf(app);
-    const activeRunId = "run:active-message";
-    context.runs.upsertRun({
-      runId: activeRunId,
-      sessionKey: "s1",
-      clientMessageId: "active-message",
-      idempotencyKey: "active-idem",
-      gatewayRunId: "gateway-active-run",
-      status: "tool_running",
-      statusLabel: "session_status",
-      startedAtMs: Date.now() - 10_000,
-      updatedAtMs: Date.now() - 10_000,
-    });
-    context.runs.upsertToolCall({
-      toolCallId: "tool-active",
-      sessionKey: "s1",
-      runId: activeRunId,
-      name: "session_status",
-      phase: "start",
-      status: "running",
-      startedAtMs: Date.now() - 5_000,
-      updatedAtMs: Date.now() - 5_000,
-    });
-    const request = vi.spyOn(context.gateway, "request").mockResolvedValue({ aborted: true });
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/chat/send",
-      payload: { sessionKey: "s1", text: "/stop", idempotencyKey: "stop-two", clientMessageId: "client-stop-two" },
-    });
-
-    expect(res.statusCode).toBe(200);
-    await waitFor(() => request.mock.calls.some(([method]) => method === "chat.abort"));
-    expect(request).toHaveBeenCalledWith("chat.abort", { sessionKey: "s1", runId: "gateway-active-run" }, 30_000);
-    expect(context.runs.getRun(activeRunId)?.status).toBe("aborted");
-    expect(context.runs.getRun("run:stop-two")?.status).toBe("aborted");
-    expect(context.runs.listToolCalls("s1", activeRunId).at(0)).toMatchObject({ status: "error" });
-    await app.close();
-  });
 });
