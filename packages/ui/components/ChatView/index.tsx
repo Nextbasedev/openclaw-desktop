@@ -1301,6 +1301,19 @@ export function ChatView({
               ? patchStatus?.label ?? current.statusLabel
               : null
 
+        // Extra safety net (from harsh-test-4): if an active status lands on a
+        // NON-delta patch but the latest user turn already has a completed
+        // assistant answer, settle to idle so a late/background patch can't
+        // re-open a finished run. Complements resolveNextStreamStatus (which
+        // already settles on assistant.final and refuses to resurrect once
+        // answered); this covers the active-status-on-non-delta edge too.
+        const shouldClearCompletedAssistantRun =
+          ACTIVE_STREAM_STATUSES.has(nextStatus) &&
+          semanticType !== "chat.assistant.delta" &&
+          hasCompletedAssistantAfterLatestUser(orderedMessages)
+        const effectiveNextStatus = shouldClearCompletedAssistantRun ? "idle" : nextStatus
+        const effectiveNextStatusLabel = shouldClearCompletedAssistantRun ? null : nextStatusLabel
+
         // Detect if a NEW message was appended (length grew at the tail).
         const previousLength = current.messages.length
         const appendedAtTail = orderedMessages.length > previousLength
