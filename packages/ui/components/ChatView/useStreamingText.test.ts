@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { charsPerSecondForBacklog, nextRevealLength, resolveTargetTransition } from "./useStreamingText"
+import {
+  charsPerSecondForBacklog,
+  nextRevealLength,
+  resolveTargetTransition,
+  rememberReveal,
+  recallReveal,
+  forgetReveal,
+} from "./useStreamingText"
 
 describe("stream reveal pacing", () => {
   it("reveals at least one character each frame", () => {
@@ -50,5 +57,35 @@ describe("resolveTargetTransition — no wipe-and-replay on stale targets", () =
 
   it("resets only when the content genuinely diverges (a different message)", () => {
     expect(resolveTargetTransition("Goodbye everyone", "Hello world")).toBe("reset")
+  })
+})
+
+describe("reveal progress survives remount — no restart-from-scratch", () => {
+  const KEY = "live:run-123:assistant"
+
+  it("resumes the revealed text when the same row remounts mid-stream", () => {
+    rememberReveal(KEY, "Hello there, this is a stream")
+    // Remount: hook re-inits and asks whether it can resume for the (grown) target.
+    expect(recallReveal(KEY, "Hello there, this is a streaming reply that keeps going")).toBe(
+      "Hello there, this is a stream",
+    )
+    forgetReveal(KEY)
+  })
+
+  it("does not resume once the row has settled/forgotten", () => {
+    rememberReveal(KEY, "partial text")
+    forgetReveal(KEY)
+    expect(recallReveal(KEY, "partial text and then some")).toBeNull()
+  })
+
+  it("never resumes stale/foreign text (remembered text must prefix the target)", () => {
+    rememberReveal(KEY, "answer about cats")
+    // A reused id now streams a completely different message — must not resume.
+    expect(recallReveal(KEY, "answer about dogs")).toBeNull()
+    forgetReveal(KEY)
+  })
+
+  it("ignores an absent key", () => {
+    expect(recallReveal(undefined, "anything")).toBeNull()
   })
 })
