@@ -1261,3 +1261,42 @@ describe("applyChatPatch", () => {
   })
 
 })
+
+describe("applyChatPatch stamps the run id onto the triggering user turn", () => {
+  test("optimistic user gains the run id when its assistant reply streams in", () => {
+    const state = {
+      cursor: 0,
+      messages: [
+        {
+          messageId: "opt-user-1",
+          role: "user" as const,
+          text: "hello",
+          isOptimistic: true,
+          sendStatus: "sending" as const,
+          createdAt: "2026-07-01T02:15:03Z",
+        },
+      ],
+    }
+    const next = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.delta",
+          runId: "run-x",
+          message: { role: "assistant", text: "Hey Krish.", runId: "run-x" },
+        },
+        // Model/exec time deliberately BEFORE the user's client send time.
+        createdAtMs: Date.parse("2026-07-01T02:15:01Z"),
+      },
+    })
+    const user = next.messages.find((m) => m.role === "user")
+    const assistant = next.messages.find((m) => m.role === "assistant")
+    expect(user?.runId).toBe("run-x")
+    // Reply stays under its user turn despite the earlier model timestamp.
+    expect(next.messages.map((m) => m.role)).toEqual(["user", "assistant"])
+    expect(assistant?.text).toBe("Hey Krish.")
+  })
+})
