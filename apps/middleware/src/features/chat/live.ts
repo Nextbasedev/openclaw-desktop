@@ -63,6 +63,10 @@ function liveErrorLabel(payload: Record<string, unknown>, data: Record<string, u
   ) ?? "Run failed";
 }
 
+function isGatewayRejectedStatus(status: string | null) {
+  return status === "rejected" || status === "gateway-rejected" || status === "denied";
+}
+
 const RECENT_CONFIRMED_USER_ECHO_TTL_MS = 2 * 60 * 1000;
 const RECENT_CONFIRMED_USER_ECHO_LIMIT = 20;
 
@@ -735,7 +739,7 @@ export class ChatLiveIngest {
       this.scheduleHistoryBackfill(sessionKey, run.runId, "chat_final_proactive");
       return;
     }
-    if (status === "error" || status === "failed") {
+    if (status === "error" || status === "failed" || isGatewayRejectedStatus(status)) {
       this.liveAssistantText.delete(run.runId);
       const statusLabel = liveErrorLabel(payload, data);
       const updated = this.context.runs.updateRunStatus(run.runId, "error", { statusLabel, error: payload.error ?? data.error ?? payload });
@@ -748,7 +752,7 @@ export class ChatLiveIngest {
         return;
       }
       const updated = this.context.runs.updateRunStatus(run.runId, "streaming", { statusLabel: "Streaming" });
-      if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
+      if (updated && updated.status === "streaming") this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
       this.broadcastLiveAssistantText(sessionKey, updated ?? run, data);
     }
   }
@@ -772,7 +776,7 @@ export class ChatLiveIngest {
           return;
         }
         const updated = this.context.runs.updateRunStatus(run.runId, "streaming", { statusLabel: "Streaming" });
-        if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
+        if (updated && updated.status === "streaming") this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
         this.broadcastLiveAssistantText(sessionKey, updated ?? run, data);
       }
       return;
