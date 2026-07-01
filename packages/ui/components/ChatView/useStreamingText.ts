@@ -62,6 +62,29 @@ export function shouldCommitRevealFrame({
   return now - lastCommitAt >= commitMs
 }
 
+// Decide how a newly observed `target` relates to what is currently revealed.
+// During streaming, `target` is recomputed on every websocket patch from the
+// deduped/reordered message list. Normally it only GROWS (append-only text), so
+// each new target forward-extends the revealed prefix. But reconciliation churn
+// (history backfill mid-stream, dedupe reprojection, a late/stale patch) can
+// momentarily hand us a target that is SHORTER than — or a prefix of — what we
+// have already revealed. Treating that transient regression as "new content"
+// and restarting from `initialStreamingText` is what makes the typewriter wipe
+// and replay the same response several times before it finally settles.
+//
+// - "extend": target continues the revealed text (or is unchanged) → keep going.
+// - "hold":   target is behind/stale (revealed text already contains it) → keep
+//             what is shown; do NOT wipe. The stream will catch back up.
+// - "reset":  target genuinely diverges (different content) → restart the reveal.
+export function resolveTargetTransition(
+  target: string,
+  display: string,
+): "extend" | "hold" | "reset" {
+  if (target.startsWith(display)) return "extend"
+  if (display.startsWith(target)) return "hold"
+  return "reset"
+}
+
 function shouldReduceMotion(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -161,7 +184,14 @@ export function useStreamingText(
       }
     }
 
-    if (!target.startsWith(displayRef.current)) {
+    const transition = resolveTargetTransition(target, displayRef.current)
+    if (transition === "hold") {
+      // Transient stale/regressed target mid-stream. Keep the text we have
+      // already revealed instead of wiping back to a short prefix; the next
+      // (forward) patch resumes the reveal from here with no visible reset.
+      stopAnimation()
+      commitState(displayRef.current, Boolean(canAnimate))
+    } else if (transition === "reset") {
       stopAnimation()
       lastFrameAtRef.current = 0
       const next = canAnimate ? initialStreamingText(target) : target
