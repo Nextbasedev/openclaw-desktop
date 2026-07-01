@@ -30,7 +30,6 @@ import type { ReplyTo } from "@/components/ChatView/types"
 import type { Space } from "@/types/space"
 import { composerReducer, initialComposerState } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
-import { canRunSlashCommandWhileGenerating } from "@/lib/controlSlashCommands"
 import {
   chatAttachmentHref,
   chatAttachmentTypeLabel,
@@ -246,11 +245,7 @@ export function ChatBox({
   const showSendWhileGenerating = Boolean(
     isGenerating && (input.trim().length > 0 || attachments.length > 0)
   )
-  const canRunImmediatelyWhileGenerating = Boolean(
-    attachments.length === 0 &&
-    !replyTo &&
-    canRunSlashCommandWhileGenerating(input.trim(), commands)
-  )
+  const canRunImmediatelyWhileGenerating = false
   const {
     state: voiceState,
     isSupported: recorderSupported,
