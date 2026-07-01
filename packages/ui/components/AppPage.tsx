@@ -61,6 +61,7 @@ import {
   createInitialState,
   getFocusedGroup,
   findTabInGroups,
+  shouldPromoteActiveTabToSession,
   type EditorTab,
   type SessionData,
 } from "@/lib/editorGroups"
@@ -710,8 +711,8 @@ function AppShell({
 
   // When a real session is open, the focused group's currently-SELECTED tab
   // must BE that session. If the selected tab is still a "New Chat" placeholder
-  // — a draft, a stale chat tab pointing at a different/older chat, or a chat
-  // tab still showing the weak "New Chat" name while we now have a real name —
+  // — a draft, a weak/stale "New Chat" chat tab, or a chat tab still showing
+  // the weak "New Chat" name while we now have a real name —
   // transform that selected tab IN PLACE into this session and keep it
   // selected. i.e. the open "New Chat" BECOMES the created session (identity +
   // name), instead of leaving a stale "New Chat" tab behind. The condition only
@@ -723,14 +724,7 @@ function AppShell({
     const group = getFocusedGroup(editorGroups)
     const activeTab = group.tabs.find((t) => t.id === group.activeTabId)
     if (!activeTab) return
-    const isPlaceholder =
-      activeTab.kind === "draft" ||
-      (activeTab.kind === "chat" && activeTab.chat?.id !== activeChat.id) ||
-      (activeTab.kind === "chat" &&
-        activeTab.chat?.id === activeChat.id &&
-        isWeakChatName(activeTab.title) &&
-        !isWeakChatName(activeChat.name))
-    if (!isPlaceholder) return
+    if (!shouldPromoteActiveTabToSession(activeTab, activeChat)) return
     dispatchGroups({
       type: "PROMOTE_ACTIVE_TO_SESSION",
       groupId: group.id,

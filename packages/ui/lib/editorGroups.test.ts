@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createInitialState, editorGroupsReducer, getFocusedGroup, type EditorTab } from "./editorGroups"
+import { createInitialState, editorGroupsReducer, getFocusedGroup, shouldPromoteActiveTabToSession, type EditorTab } from "./editorGroups"
 
 const chatTab = (id: string, sessionKey: string, title = "Chat"): EditorTab => ({
   id: `chat:${id}`,
@@ -86,5 +86,25 @@ describe("editorGroupsReducer ADD_TAB (baseline still intact)", () => {
     const group = getFocusedGroup(state)
     expect(group.tabs.some((t) => t.kind === "draft")).toBe(false)
     expect(group.tabs.map((t) => t.id)).toEqual(["chat:a"])
+  })
+})
+
+describe("shouldPromoteActiveTabToSession", () => {
+  it("does not replace an already-open real chat tab when another sidebar chat becomes active", () => {
+    expect(
+      shouldPromoteActiveTabToSession(
+        chatTab("a", "sk_a", "First real chat"),
+        { id: "b", name: "Second real chat" },
+      ),
+    ).toBe(false)
+  })
+
+  it("still replaces a weak New Chat placeholder with the created session", () => {
+    expect(
+      shouldPromoteActiveTabToSession(
+        chatTab("placeholder", "sk_placeholder", "New Chat"),
+        { id: "real", name: "who are you?" },
+      ),
+    ).toBe(true)
   })
 })

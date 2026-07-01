@@ -1,4 +1,5 @@
 import type { ActiveChat, ActiveTopic } from "@/components/sidebar"
+import { isWeakChatName } from "@/utils/chatDisplayName"
 
 export type EditorTab = {
   id: string
@@ -148,6 +149,21 @@ function sessionDataFromTab(tab: EditorTab): SessionData | null {
     sessionKey: tab.chat.sessionKey,
     title: tab.title,
   }
+}
+
+export function shouldPromoteActiveTabToSession(
+  activeTab: EditorTab | undefined,
+  activeChat: Pick<ActiveChat, "id" | "name"> | null | undefined,
+): boolean {
+  if (!activeTab || !activeChat?.id) return false
+  if (activeTab.kind === "draft") return true
+  if (activeTab.kind !== "chat") return false
+
+  if (activeTab.chat?.id !== activeChat.id) {
+    return isWeakChatName(activeTab.title) || isWeakChatName(activeTab.chat?.name)
+  }
+
+  return isWeakChatName(activeTab.title) && !isWeakChatName(activeChat.name)
 }
 
 function insertTabAt(tabs: EditorTab[], tab: EditorTab, targetIndex?: number): EditorTab[] {
