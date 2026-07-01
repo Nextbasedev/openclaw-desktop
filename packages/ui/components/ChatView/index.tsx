@@ -2923,6 +2923,43 @@ export function ChatView({
     )
   }
 
+  const isEmptyChat = !state.error && renderedMessages.length === 0
+  const chatComposer = (
+    <ChatBox
+      key={sessionKey}
+      initialPrompt={composerSeed ?? initialPrompt}
+      errorMessage={state.composerError}
+      historyMessages={composerHistoryMessages}
+      onSend={handleSend}
+      onModelSelect={handleModelSelect}
+      disabled={state.loading}
+      isGenerating={isGenerating}
+      onAbort={handleAbort}
+      replyTo={replyTo}
+      sessionUsage={sessionUsage}
+      onCancelReply={handleCancelReply}
+      draftKey={`chat:${sessionKey}`}
+      queuedMessages={queuedMessages}
+      onEditQueuedMessage={(id, text) => {
+        updateQueuedMessages((current) => {
+          const next = editQueuedChatMessage(current, id, text)
+          return next
+        })
+      }}
+      onDeleteQueuedMessage={(id) => {
+        updateQueuedMessages((current) => {
+          const next = deleteQueuedChatMessage(current, id)
+          return next
+        })
+      }}
+      topAccessory={
+        spawnedSubagents.length > 0 ? (
+          <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
+        ) : null
+      }
+    />
+  )
+
   return (
     <div
       className="relative flex h-full w-full flex-col overflow-hidden bg-background"
@@ -2992,7 +3029,7 @@ export function ChatView({
               <p className="mt-1 text-xs text-muted-foreground">{state.error}</p>
             </div>
           </div>
-        ) : renderedMessages.length === 0 ? (
+        ) : isEmptyChat ? (
           <div className="flex min-h-full flex-col items-center justify-center gap-6 px-6 py-10">
             <AnimatedGreeting />
             {promptPreview && (
@@ -3000,6 +3037,9 @@ export function ChatView({
                 {promptPreview}
               </div>
             )}
+            <div className="w-full">
+              {chatComposer}
+            </div>
           </div>
         ) : (
           <div ref={scrollContentRef} className="min-h-full py-6">
@@ -3135,41 +3175,11 @@ export function ChatView({
         )}
       </div>
 
-      <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
-        <ChatBox
-          key={sessionKey}
-          initialPrompt={composerSeed ?? initialPrompt}
-          errorMessage={state.composerError}
-          historyMessages={composerHistoryMessages}
-          onSend={handleSend}
-          onModelSelect={handleModelSelect}
-          disabled={state.loading}
-          isGenerating={isGenerating}
-          onAbort={handleAbort}
-          replyTo={replyTo}
-          sessionUsage={sessionUsage}
-          onCancelReply={handleCancelReply}
-          draftKey={`chat:${sessionKey}`}
-          queuedMessages={queuedMessages}
-          onEditQueuedMessage={(id, text) => {
-            updateQueuedMessages((current) => {
-              const next = editQueuedChatMessage(current, id, text)
-              return next
-            })
-          }}
-          onDeleteQueuedMessage={(id) => {
-            updateQueuedMessages((current) => {
-              const next = deleteQueuedChatMessage(current, id)
-              return next
-            })
-          }}
-          topAccessory={
-            spawnedSubagents.length > 0 ? (
-              <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
-            ) : null
-          }
-        />
-      </div>
+      {!isEmptyChat && (
+        <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
+          {chatComposer}
+        </div>
+      )}
     </div>
   )
 }
