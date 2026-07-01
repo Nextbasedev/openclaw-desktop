@@ -43,6 +43,7 @@ import { normalizeSessionTokenUsage, type SessionTokenUsage } from "@/lib/sessio
 import { cn } from "@/lib/utils"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
 import { useAgentActivity } from "@/hooks/useAgentActivity"
+import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import type { AgentNode } from "@/components/inspector/activity-types"
 import {
   applyTerminalToolState,
@@ -1716,6 +1717,13 @@ export function ChatView({
     () => orderChatMessages(dedupeChatMessages(state.messages)),
     [state.messages]
   )
+  const lastAssistantText = useMemo(() => {
+    for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
+      const message = renderedMessages[index]
+      if (message.role === "assistant" && message.text.trim()) return message.text.trim()
+    }
+    return undefined
+  }, [renderedMessages])
 
   // Sub-agents derived from the parent message stream. Parent patches tell us
   // when a child was spawned/linked; linked child-session subscriptions below
@@ -1929,6 +1937,15 @@ export function ChatView({
       setActiveSubagent(fresh)
     }
   }, [spawnedSubagents, activeSubagent])
+
+  useChatCompletionNotify({
+    sessionKey,
+    sessionTitle,
+    status: state.streamStatus,
+    lastAssistantText,
+    isVisible: !isBackgroundSession && !activeSubagent,
+  })
+
   const pinnedMessages = useMemo(() => {
     const messagesById = new Map(renderedMessages.map((message) => [message.messageId, message]))
     return pinnedIds

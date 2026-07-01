@@ -296,6 +296,20 @@ export class MessageRepository {
       FROM v2_messages
       WHERE session_key = @sessionKey
     `);
+    // Is there a user turn strictly between two seqs? Used to tell a genuine
+    // repeat of an identical command (a NEW user turn separates the two replies)
+    // from a Gateway replay of a single old reply (nothing between). Prevents the
+    // id/text dedup from folding the 2nd identical command reply onto the 1st.
+    const userRowBetween = this.db.prepare(`
+      SELECT 1 AS one
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+        AND role = 'user'
+        AND openclaw_seq > @lo
+        AND openclaw_seq < @hi
+      LIMIT 1
+    `);
     const moveSeq = this.db.prepare(`
       UPDATE v2_messages
       SET openclaw_seq = @newSeq
@@ -352,6 +366,17 @@ export class MessageRepository {
     const tx = this.db.transaction((rows: ProjectedMessage[]) => {
       let lastSeq = 0;
       const changedMessages: ProjectedMessage[] = [];
+      // Stripped-replay collapse (below) folds an id-less, run-less message onto
+      // an earlier row with identical role+text, to dedupe the prior turns the
+      // Gateway re-sends on every send. That is correct for a REPLAY of an old
+      // turn, but a genuinely repeated identical command (e.g. /status typed
+      // twice) has the SAME role+text and would be wrongly folded onto the first
+      // occurrence — dropping the 2nd user turn AND its reply so the repeat is
+      // stuck on "Writing…". A Gateway history payload lists each turn once, so
+      // two identical rows within one batch are always DISTINCT turns. Claim each
+      // row (pre-existing or created this batch) at most once as a replay target;
+      // the extra identical occurrence then falls through to a fresh insert.
+      const claimedReplaySeqs = new Set<number>();
       const activeSegment = opts.segmentId
         ? this.getActiveSegment(rows[0]!.sessionKey)
         : this.ensureActiveSegment({ sessionKey: rows[0]!.sessionKey, sessionId: opts.sessionId ?? rows[0]!.sessionId ?? null });
@@ -363,10 +388,23 @@ export class MessageRepository {
         let openclawSeq = resolvedSegmentId ? baseSeq + gatewaySeq : message.openclawSeq;
         const segmentId = message.segmentId ?? resolvedSegmentId;
         const sessionId = message.sessionId ?? resolvedSessionId;
-        const idMatch = message.messageId
+        let idMatch = message.messageId
           ? (existingById.get({ sessionKey: message.sessionKey, messageId: message.messageId, segmentId }) as { openclaw_seq: number } | undefined)
             ?? (existingByGatewayId.get({ sessionKey: message.sessionKey, messageId: message.messageId, segmentId }) as { openclaw_seq: number } | undefined)
           : undefined;
+        // A gateway-injected command reply (e.g. /status) run twice can reuse the
+        // SAME messageId for both byte-identical replies. Folding the 2nd onto the
+        // 1st by id drops the repeat. If a NEW user turn sits between the matched
+        // row and this reply's natural seq, they are DISTINCT command runs — do
+        // not treat it as the same message. Scoped to gateway-injected so normal
+        // assistant/streaming updates keep their id-based in-place update.
+        if (
+          idMatch &&
+          (message.data as { model?: unknown })?.model === "gateway-injected" &&
+          userRowBetween.get({ sessionKey: message.sessionKey, segmentId, lo: idMatch.openclaw_seq, hi: openclawSeq })
+        ) {
+          idMatch = undefined;
+        }
         const gatewaySeqMatch = !idMatch && gatewaySeq > 0
           ? existingByGatewaySeq.get({ sessionKey: message.sessionKey, segmentId, gatewaySeq }) as { openclaw_seq: number } | undefined
           : undefined;
@@ -375,6 +413,7 @@ export class MessageRepository {
         else if (isStrippedReplayCandidate(message)) {
           const incomingText = textOf(message.data);
           const replayMatch = (existingByRole.all({ sessionKey: message.sessionKey, segmentId, role: message.role }) as Array<{ openclaw_seq: number; message_id: string | null; role: string | null; data_json: string }>).find((row) => {
+            if (claimedReplaySeqs.has(row.openclaw_seq)) return false;
             const existingData = fromJson(row.data_json);
             if (textOf(existingData) !== incomingText) return false;
             const existingRunId = runIdentityOf(existingData);
@@ -385,9 +424,16 @@ export class MessageRepository {
             // assistant finals from being duplicated by stripped history.
             return Boolean(existingRunId) || row.message_id !== message.messageId;
           });
-          if (replayMatch) {
+          // A genuine repeat of an identical command has a NEW user turn between
+          // the earlier reply and this one; a Gateway replay of a single old
+          // reply does not. Only collapse when nothing separates them.
+          if (
+            replayMatch &&
+            !userRowBetween.get({ sessionKey: message.sessionKey, segmentId, lo: replayMatch.openclaw_seq, hi: openclawSeq })
+          ) {
             openclawSeq = replayMatch.openclaw_seq;
             strippedReplayMatchedSeq = replayMatch.openclaw_seq;
+            claimedReplaySeqs.add(replayMatch.openclaw_seq);
           }
         }
         else if (gatewaySeqMatch?.openclaw_seq) openclawSeq = gatewaySeqMatch.openclaw_seq;
@@ -565,6 +611,9 @@ export class MessageRepository {
           });
           changedMessages.push(storedMessage);
         }
+        // This seq now belongs to a distinct turn from this batch; a later
+        // identical stripped-replay candidate must not fold onto it.
+        claimedReplaySeqs.add(openclawSeq);
         lastSeq = Math.max(lastSeq, openclawSeq);
       }
       offset.run({ sessionKey: rows[0]?.sessionKey, lastSeq, updatedAtMs: Date.now() });

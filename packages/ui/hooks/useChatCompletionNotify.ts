@@ -34,8 +34,15 @@ export function useChatCompletionNotify({
     if (!enabled) return
 
     const isGenerating =
-      status === "thinking" || status === "tool_running" || status === "streaming"
-    const isComplete = status === "done"
+      status === "queued" ||
+      status === "running" ||
+      status === "collect" ||
+      status === "thinking" ||
+      status === "tool_running" ||
+      status === "streaming" ||
+      status === "stopping" ||
+      status === "restarting"
+    const isComplete = status === "done" || status === "idle" || status === "connected"
     const isError = status === "error"
 
     if (isGenerating && !wasGeneratingRef.current) {
