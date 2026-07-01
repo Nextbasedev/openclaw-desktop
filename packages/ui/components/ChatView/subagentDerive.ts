@@ -219,27 +219,21 @@ export function mergeAuthoritativeSubagents(
 }
 
 export type SubagentAnchorMaps = {
-  byTriggerUserId: Map<string, SpawnedSubagent[]>
   orphanByAssistantId: Map<string, SpawnedSubagent[]>
 }
 
 /**
- * Anchor subagents to their triggering user message when one exists, otherwise
- * to the assistant message that hosted the spawn (orphan). Mirrors the legacy
- * `subagentsByTriggerUserId` / `orphanSubagentsByAssistantId` rendering algo.
+ * Anchor subagents to the assistant message that hosted the spawn.
+ * Previously subagents were anchored to the triggering user message, but now
+ * they render inline with the response components.
  */
 export function buildSubagentAnchorMaps(
   messages: ChatMessage[],
   spawnsByToolCallId: Map<string, SpawnedSubagent>,
 ): SubagentAnchorMaps {
-  const byTriggerUserId = new Map<string, SpawnedSubagent[]>()
   const orphanByAssistantId = new Map<string, SpawnedSubagent[]>()
-  let nearestUserId: string | null = null
   for (const msg of messages) {
-    if (msg.role === "user") {
-      nearestUserId = msg.messageId
-      continue
-    }
+    if (msg.role !== "assistant") continue
     const matched: SpawnedSubagent[] = []
     for (const tool of msg.toolCalls ?? []) {
       if (tool.tool !== SPAWN_TOOL) continue
@@ -247,20 +241,13 @@ export function buildSubagentAnchorMaps(
       if (spawn) matched.push(spawn)
     }
     if (matched.length === 0) continue
-    if (nearestUserId) {
-      const existing = byTriggerUserId.get(nearestUserId) ?? []
-      byTriggerUserId.set(
-        nearestUserId,
-        dedupeSpawnedSubagents([...existing, ...matched]),
-      )
-    } else {
-      orphanByAssistantId.set(
-        msg.messageId,
-        dedupeSpawnedSubagents(matched),
-      )
-    }
+    const existing = orphanByAssistantId.get(msg.messageId) ?? []
+    orphanByAssistantId.set(
+      msg.messageId,
+      dedupeSpawnedSubagents([...existing, ...matched]),
+    )
   }
-  return { byTriggerUserId, orphanByAssistantId }
+  return { orphanByAssistantId }
 }
 
 export function indexSpawnsByToolCallId(

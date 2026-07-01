@@ -663,6 +663,43 @@ export function patchImpliesActiveRun(frame: PatchFrame): boolean {
   return role === "user" && Boolean(payload?.optimistic)
 }
 
+// When a patch replaces existing messages (e.g. an optimistic user message is
+// confirmed), the merge appends the replacement to the END of the array. If the
+// confirmation lacks a gateway seq, orderChatMessages() then falls back to array
+// order and can render the user message AFTER an assistant that already streamed
+// in. Re-anchor any seq-less replacement back to the slot its predecessor held so
+// insertion order stays user -> assistant. Seq'd messages are left untouched
+// because orderChatMessages already sorts them deterministically by seq.
+function preserveReplacedMessagePositions(
+  originalMessages: ChatMessage[],
+  idsToReplace: Set<string>,
+  merged: ChatMessage[],
+): ChatMessage[] {
+  if (idsToReplace.size === 0) return merged
+  const survivingIds = new Set(
+    originalMessages.filter((item) => !idsToReplace.has(item.messageId)).map((item) => item.messageId),
+  )
+  const floating = merged.filter(
+    (item) => !survivingIds.has(item.messageId) && typeof item.gatewayIndex !== "number",
+  )
+  if (floating.length === 0) return merged
+  let firstReplaced = -1
+  for (let i = 0; i < originalMessages.length; i++) {
+    if (idsToReplace.has(originalMessages[i].messageId)) {
+      firstReplaced = i
+      break
+    }
+  }
+  if (firstReplaced < 0) return merged
+  let anchor = 0
+  for (let i = 0; i < firstReplaced; i++) {
+    if (!idsToReplace.has(originalMessages[i].messageId)) anchor++
+  }
+  const floatingIds = new Set(floating.map((item) => item.messageId))
+  const rest = merged.filter((item) => !floatingIds.has(item.messageId))
+  return [...rest.slice(0, anchor), ...floating, ...rest.slice(anchor)]
+}
+
 export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): ApplyPatchState {
   if (frame.patch.cursor <= state.cursor) return state
   const removeId = patchRemoveId(frame)
@@ -737,8 +774,10 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
       ? { ...item, animateText: true }
       : item
   )
+  const merged = mergeToolOnlyAssistantMessages(baseMessages, animated, frame)
+  const ordered = preserveReplacedMessagePositions(state.messages, idsToReplace, merged)
   return {
     cursor: frame.patch.cursor,
-    messages: dedupeChatMessages(mergeToolOnlyAssistantMessages(baseMessages, animated, frame)),
+    messages: dedupeChatMessages(ordered),
   }
 }

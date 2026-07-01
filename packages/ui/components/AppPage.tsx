@@ -43,7 +43,7 @@ import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { abortSessionRequests } from "@/lib/requestScheduler"
 import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
-import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
+import { chatTitleOrFallback, fallbackChatNameFromText, isPendingChatTitle, isWeakChatName } from "@/utils/chatDisplayName"
 import {
   ensureChatSession,
   resolveSessionNavigationTarget,
@@ -61,6 +61,7 @@ import {
   createInitialState,
   getFocusedGroup,
   findTabInGroups,
+  shouldPromoteActiveTabToSession,
   type EditorTab,
   type SessionData,
 } from "@/lib/editorGroups"
@@ -135,12 +136,6 @@ async function applyDraftModelToSession(sessionKey: string, draftKey: string) {
 
 function sameName(a: string | null | undefined, b: string | null | undefined): boolean {
   return Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase())
-}
-
-function isUndecidedChatTitle(value: string | null | undefined): boolean {
-  if (!value) return true
-  const normalized = value.trim().toLowerCase()
-  return normalized === "" || normalized === "opening chat..." || normalized === "opening chat…"
 }
 
 function chatBelongsToSpace(chat: ActiveChat | null | undefined, spaceId: string | null | undefined): chat is ActiveChat & { spaceId: string } {
@@ -684,6 +679,34 @@ function AppShell({
     })
   }, [])
 
+  // Single source of truth for propagating a chat rename to every surface that
+  // shows a chat name: the live title map (header tab labels + sidebar parity),
+  // the active chat + session title (in-chat header), the open editor tab, and
+  // the resolved-session cache. Every immediate rename path (header menu,
+  // autoname) calls this so the name stays in sync everywhere without waiting
+  // on a chat-list reload.
+  const applyChatRename = useCallback((chatId: string, rawName: string) => {
+    const name = rawName.trim()
+    if (!name) return
+    setLiveChatTitleById((prev) => {
+      if (prev.get(chatId) === name) return prev
+      const next = new Map(prev)
+      next.set(chatId, name)
+      return next
+    })
+    setActiveChat((prev) => (prev?.id === chatId && prev.name !== name ? { ...prev, name } : prev))
+    setActiveSessionTitle((prev) => (activeChatRef.current?.id === chatId ? name : prev))
+    const cached = resolvedChatCacheRef.current.get(chatId)
+    if (cached) {
+      resolvedChatCacheRef.current.set(chatId, { ...cached, chat: { ...cached.chat, name }, title: name })
+    }
+    dispatchGroups({
+      type: "UPDATE_TAB",
+      tabId: `chat:${chatId}`,
+      updates: { title: name },
+    })
+  }, [])
+
   useEffect(() => {
     if (!activeSpaceId) return
     let cancelled = false
@@ -702,9 +725,52 @@ function AppShell({
     }
   }, [activeSpaceId, rememberLiveChatTitles])
 
+  // Reconcile the open chat's name with the authoritative live title map. The
+  // sidebar rename dialog updates the server + chat list, which flows here via
+  // the localSync subscription above; this keeps the active chat + in-chat
+  // session title in step so renaming the currently-open chat from the sidebar
+  // updates the header tab AND the chat header, not just the sidebar row.
+  useEffect(() => {
+    const current = activeChatRef.current
+    if (!current?.id) return
+    const liveName = liveChatTitleById.get(current.id)
+    if (!liveName || isWeakChatName(liveName) || liveName === current.name) return
+    setActiveChat((prev) => (prev?.id === current.id && prev.name !== liveName ? { ...prev, name: liveName } : prev))
+    setActiveSessionTitle((prev) => (prev && prev !== liveName ? liveName : prev))
+  }, [liveChatTitleById])
+
   const focusedGroup = getFocusedGroup(editorGroups)
   const allTabs = editorGroups.groups.flatMap((g) => g.tabs)
   const totalNonDraftTabs = allTabs.filter((t) => t.kind !== "draft").length
+
+  // When a real session is open, the focused group's currently-SELECTED tab
+  // must BE that session. If the selected tab is still a "New Chat" placeholder
+  // — a draft, a weak/stale "New Chat" chat tab, or a chat tab still showing
+  // the weak "New Chat" name while we now have a real name —
+  // transform that selected tab IN PLACE into this session and keep it
+  // selected. i.e. the open "New Chat" BECOMES the created session (identity +
+  // name), instead of leaving a stale "New Chat" tab behind. The condition only
+  // matches placeholder tabs, so this never disturbs normal sidebar/tab
+  // selection of an existing chat (there the selected tab already IS its chat).
+  useEffect(() => {
+    if (effectiveActiveTab !== "chat") return
+    if (!activeChat?.id || !activeSessionKey) return
+    const group = getFocusedGroup(editorGroups)
+    const activeTab = group.tabs.find((t) => t.id === group.activeTabId)
+    if (!activeTab) return
+    if (!shouldPromoteActiveTabToSession(activeTab, activeChat)) return
+    dispatchGroups({
+      type: "PROMOTE_ACTIVE_TO_SESSION",
+      groupId: group.id,
+      tab: {
+        id: `chat:${activeChat.id}`,
+        title: chatTitleOrFallback(activeChat.name),
+        subtitle: "Chat",
+        kind: "chat",
+        chat: activeChat,
+      },
+    })
+  }, [activeChat, activeSessionKey, editorGroups, effectiveActiveTab])
   const displayedEditorGroups = useMemo(() => {
     const liveChatTitles = new Map<string, string | { chat: ActiveChat; sessionKey: string; title: string }>(liveChatTitleById)
     for (const [chatId, resolved] of resolvedChatCacheRef.current.entries()) {
@@ -735,7 +801,7 @@ function AppShell({
 
     if (activeChat) {
       const tabId = `chat:${activeChat.id}`
-      const title = isUndecidedChatTitle(activeChat.name) ? "New Chat" : activeChat.name
+      const title = chatTitleOrFallback(activeChat.name)
       dispatchGroups({
         type: "ADD_TAB",
         tab: {
@@ -823,7 +889,7 @@ function AppShell({
   }, [clearConversationState, editorGroups.focusedGroupId])
 
   useEffect(() => {
-    if (!activeChat || activeSessionKey || !isUndecidedChatTitle(activeChat.name)) return
+    if (!activeChat || activeSessionKey || !isPendingChatTitle(activeChat.name)) return
     const timer = window.setTimeout(() => {
       const route = parseRoute(getRoutePath())
       if (route.kind === "chat" && route.chatId === activeChat.id && !resolvedChatCacheRef.current.has(activeChat.id)) {
@@ -916,7 +982,7 @@ function AppShell({
       const expectedPath = `/${route.chatId}`
       const isCurrentPath = () => getRoutePath() === expectedPath
       const applyRouteChat = (chat: ActiveChat, sessionKey?: string | null, title?: string) => {
-        const finalTitle = title ?? (isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name)
+        const finalTitle = title ?? (chatTitleOrFallback(chat.name))
         const finalSessionKey = isRealChatSessionKey(sessionKey) ? sessionKey : null
         setActiveChat(chat)
         setActiveSessionKey(finalSessionKey)
@@ -960,7 +1026,7 @@ function AppShell({
         ) as RouteChatRecord | undefined
         if (cachedFound) {
           const cachedChat = { id: cachedFound.id, name: cachedFound.name, sessionKey: cachedFound.sessionKey, spaceId: cachedFound.spaceId }
-          const cachedTitle = isUndecidedChatTitle(cachedFound.name) ? "New Chat" : cachedFound.name
+          const cachedTitle = chatTitleOrFallback(cachedFound.name)
           if (isRealChatSessionKey(cachedFound.sessionKey)) {
             resolvedChatCacheRef.current.set(cachedFound.id, {
               chat: cachedChat,
@@ -1477,7 +1543,7 @@ function AppShell({
     setActiveTab("chat")
     setActiveTopic(null)
     setInitialMessages(undefined)
-    const provisionalTitle = isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name
+    const provisionalTitle = chatTitleOrFallback(chat.name)
     const provisionalSessionKey = isRealChatSessionKey(chat.sessionKey) ? chat.sessionKey : null
     const pushChatRoute = (chatId: string) => {
       const nextUrl = routeUrl(`/${chatId}`)
@@ -1512,7 +1578,7 @@ function AppShell({
     if (cached) {
       applyChatSelection(cached)
     } else if (isRealChatSessionKey(chat.sessionKey)) {
-      const title = isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name
+      const title = chatTitleOrFallback(chat.name)
       const selection = { chat, sessionKey: chat.sessionKey, title }
       resolvedChatCacheRef.current.set(chat.id, selection)
       applyChatSelection(selection)
@@ -1861,7 +1927,7 @@ function AppShell({
         groupId: editorGroups.focusedGroupId,
         tab: {
           id: `chat:${restoreSelection.chat.id}`,
-          title: restoreSelection.title ?? (isUndecidedChatTitle(restoreSelection.chat.name) ? "New Chat" : restoreSelection.chat.name),
+          title: restoreSelection.title ?? (chatTitleOrFallback(restoreSelection.chat.name)),
           subtitle: "Chat",
           kind: "chat",
           chat: restoreSelection.chat,
@@ -1874,7 +1940,7 @@ function AppShell({
           ? {
               chat: restoreSelection.chat,
               sessionKey: restoreSelection.sessionKey,
-              title: restoreSelection.title ?? (isUndecidedChatTitle(restoreSelection.chat.name) ? "New Chat" : restoreSelection.chat.name),
+              title: restoreSelection.title ?? (chatTitleOrFallback(restoreSelection.chat.name)),
             }
           : null,
       })
@@ -2146,16 +2212,12 @@ function AppShell({
       input: { chatId: chat.id, name: nextName },
     }).then(() => {
       invalidateChatListCache(activeSpaceId)
-      dispatchGroups({
-        type: "UPDATE_TAB",
-        tabId: `chat:${chat.id}`,
-        updates: { title: nextName, chat: { ...chat, name: nextName } },
-      })
+      applyChatRename(chat.id, nextName)
       emit("sidebar:refresh")
     }).catch((error) => {
       console.error("rename chat failed", error)
     })
-  }, [activeSpaceId, dispatchGroups])
+  }, [activeSpaceId, applyChatRename])
 
   const handleArchiveChatFromMenu = useCallback((chat: ActiveChat) => {
     invalidateChatListCache(activeSpaceId)
@@ -2319,7 +2381,7 @@ function AppShell({
         ? {
             chat: sourceFallbackChat,
             sessionKey: sourceFallbackChat.sessionKey,
-            title: isUndecidedChatTitle(sourceFallbackChat.name) ? "New Chat" : sourceFallbackChat.name,
+            title: chatTitleOrFallback(sourceFallbackChat.name),
           }
         : null
 
@@ -2767,6 +2829,16 @@ function AppShell({
             prev?.id === result.chat.id ? { ...prev, name: finalName } : prev,
           )
           setActiveSessionTitle((prev) => (prev === fallbackName ? finalName : prev))
+          // Keep the live title map authoritative too — the header chat tabs
+          // derive their labels from liveChatTitleById, so without this an
+          // autonamed quick-send chat would update the sidebar/tab but the
+          // header could fall back to a stale title.
+          setLiveChatTitleById((prev) => {
+            if (prev.get(result.chat.id) === finalName) return prev
+            const next = new Map(prev)
+            next.set(result.chat.id, finalName)
+            return next
+          })
           dispatchGroups({
             type: "UPDATE_TAB",
             tabId: `chat:${result.chat.id}`,

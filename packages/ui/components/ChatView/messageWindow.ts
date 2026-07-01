@@ -262,15 +262,17 @@ export function liveTailQuery(
 }
 
 /**
- * Returns true when a live patch should be dropped because its target row was
- * evicted from the tail (user scrolled up and we no longer hold the tail).
+ * Live patches are cursor-ordered events, while loaded message boundaries are
+ * gateway seqs. Those are different coordinate systems, so comparing
+ * `patch.cursor > newestLoadedSeq` can drop the user's current run while the
+ * persisted transcript is perfectly fine after reload. Keep live patches and
+ * let explicit pagination/trim logic manage the bounded window.
  */
 export function shouldDropPatchAsEvicted(input: {
   patchSessionCursor: number
   newestLoadedSeq: number | null
   hasNewer: boolean
 }): boolean {
-  if (!input.hasNewer) return false
-  if (input.newestLoadedSeq === null) return false
-  return input.patchSessionCursor > input.newestLoadedSeq
+  void input
+  return false
 }

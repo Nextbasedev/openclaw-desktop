@@ -2,6 +2,12 @@ import type { ChatMessage } from "../components/ChatView/types"
 import { isStandaloneChatErrorText } from "./chatErrorText"
 import { cleanUserMessageText } from "./chatHistoryParser"
 
+// Fuzzy optimistic/live-vs-final dedup only collides among rows from the same
+// (recent) turn, so we only scan this many trailing rows instead of the whole
+// history. Keeps dedup O(N) on long chats. Generous enough to span a turn's
+// user + optimistic echo + live + final rows and any interleaved tool rows.
+const FUZZY_DEDUP_WINDOW = 32
+
 const ATTACHMENT_PLACEHOLDER_RE =
   /(?:^|\n)\s*\[Attached [^:\]]+: [^\]]+\]\s*/g
 const EMBEDDED_ATTACHED_FILE_RE = /(?:<attached-file\b[^>]*>[\s\S]*?(?:<\/attached-file>|$)|&lt;attached-file\b[\s\S]*?(?:&lt;\/attached-file&gt;|$))\s*/gi
@@ -374,6 +380,11 @@ function canTextCollapseRepeatedMessages(a: ChatMessage, b: ChatMessage) {
 
 function collapseRepeatedBlocks(messages: ChatMessage[]) {
   const result = [...messages]
+  // Perf: messageSignature() allocates (collapseRepeatedAssistantText + regex).
+  // Computing it inside the O(N²) block scan made dedup quadratic-with-a-big-
+  // constant and janked streaming on long chats. Compute each signature once
+  // and compare by index; keep the sig array in lockstep with splices.
+  const sigs = result.map(messageSignature)
   let changed = true
 
   while (changed) {
@@ -382,11 +393,9 @@ function collapseRepeatedBlocks(messages: ChatMessage[]) {
       for (let start = 0; start + size * 2 <= result.length; start++) {
         let same = true
         for (let offset = 0; offset < size; offset++) {
-          const left = result[start + offset]
-          const right = result[start + size + offset]
           if (
-            messageSignature(left) !== messageSignature(right) ||
-            !canTextCollapseRepeatedMessages(left, right)
+            sigs[start + offset] !== sigs[start + size + offset] ||
+            !canTextCollapseRepeatedMessages(result[start + offset], result[start + size + offset])
           ) {
             same = false
             break
@@ -394,6 +403,7 @@ function collapseRepeatedBlocks(messages: ChatMessage[]) {
         }
         if (same) {
           result.splice(start + size, size)
+          sigs.splice(start + size, size)
           changed = true
           break
         }
@@ -413,16 +423,17 @@ function collapseRepeatedRoleBlocks(
     .map((message, index) => ({ message, index }))
     .filter((item) => item.message.role === role)
   const duplicateIndexes = new Set<number>()
+  // Perf: precompute signatures once (see collapseRepeatedBlocks) instead of
+  // re-deriving them O(N²) times inside the block scan.
+  const sigs = roleItems.map((item) => messageSignature(item.message))
 
   for (let size = Math.floor(roleItems.length / 2); size >= 2; size--) {
     for (let start = 0; start + size * 2 <= roleItems.length; start++) {
       let same = true
       for (let offset = 0; offset < size; offset++) {
-        const left = roleItems[start + offset].message
-        const right = roleItems[start + size + offset].message
         if (
-          messageSignature(left) !== messageSignature(right) ||
-          !canTextCollapseRepeatedMessages(left, right)
+          sigs[start + offset] !== sigs[start + size + offset] ||
+          !canTextCollapseRepeatedMessages(roleItems[start + offset].message, roleItems[start + size + offset].message)
         ) {
           same = false
           break
@@ -454,41 +465,41 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
   const sorted = messages
     .map((message, index) => ({ message, index }))
     .sort((a, b) => {
-      // Optimistic follow-up messages are intentionally appended into the
-      // current visible transcript while an older assistant answer may still be
-      // streaming. Preserve arrival order for optimistic rows; otherwise fresh
-      // assistant patch timestamps can sort below/over the user's new question
-      // and make that question appear hidden.
-      if (a.message.isOptimistic || b.message.isOptimistic) return a.index - b.index
-
       const aIndex = a.message.gatewayIndex
       const bIndex = b.message.gatewayIndex
       const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex) && aIndex > 0
       const bHasIndex = typeof bIndex === "number" && Number.isFinite(bIndex) && bIndex > 0
-      // gatewayIndex (messageSeq) is the most reliable ordering signal — use it
-      // first. Within the same seq, user messages sort before assistant.
-      if (aHasIndex && bHasIndex && aIndex !== bIndex) return aIndex - bIndex
-      if (aHasIndex && bHasIndex && a.message.role !== b.message.role) {
-        return roleOrder(a.message) - roleOrder(b.message)
+
+      // 1. Both rows carry the backend's monotonic gateway seq — authoritative.
+      //    Within the same seq, the user turn sorts before the assistant reply.
+      if (aHasIndex && bHasIndex) {
+        if (aIndex !== bIndex) return aIndex - bIndex
+        if (a.message.role !== b.message.role) return roleOrder(a.message) - roleOrder(b.message)
+        return a.index - b.index
       }
 
+      // 2. Otherwise at least one row is optimistic/live (no seq yet — a streamed
+      //    answer only acquires a seq on reload). Order by wall-clock time:
+      //    client send time for the just-sent message, server/model time for a
+      //    streaming or sequenced answer. This keeps every reply pinned under the
+      //    user turn it belongs to instead of floating to a stale array slot —
+      //    the multi-turn ordering bug where a new send pushed an older, still-
+      //    unsequenced answer below it. Same-turn ties keep the user first.
       const aTime = messageTimeMs(a.message)
       const bTime = messageTimeMs(b.message)
-      const aHasTime = typeof aTime === "number"
-      const bHasTime = typeof bTime === "number"
-      if (aHasTime && bHasTime && aTime === bTime && a.message.role !== b.message.role) {
-        return roleOrder(a.message) - roleOrder(b.message)
+      if (typeof aTime === "number" && typeof bTime === "number") {
+        // Guard against sub-second clock skew inverting a turn: if the two rows
+        // belong to the same run, force user-before-assistant regardless of time.
+        if (hasSameRunId(a.message, b.message) && a.message.role !== b.message.role) {
+          return roleOrder(a.message) - roleOrder(b.message)
+        }
+        if (aTime !== bTime) return aTime - bTime
+        if (a.message.role !== b.message.role) return roleOrder(a.message) - roleOrder(b.message)
+        return a.index - b.index
       }
 
-      if (aHasTime && bHasTime && aTime !== bTime) return aTime - bTime
-      if (aHasTime && bHasTime && a.message.role !== b.message.role) {
-        return roleOrder(a.message) - roleOrder(b.message)
-      }
-
-      // Do not let a newly-sent optimistic message jump above older restored
-      // history just because the old messages have no createdAt/gatewayIndex.
-      // When only one side has ordering metadata, preserve the current array
-      // order, which is already append/order-of-arrival from history or patches.
+      // 3. No comparable seq or time (e.g. restored legacy history without
+      //    metadata) — preserve array/arrival order.
       return a.index - b.index
     })
     .map((item) => item.message)
@@ -509,14 +520,22 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
   })
   const result: ChatMessage[] = []
   const seenIds = new Set<string>()
+  // Perf: dedup used to scan the entire growing `result` for every input
+  // message (exact-id + two fuzzy passes), which is O(N²). On a long chat this
+  // re-ran on every streaming token and janked rendering (~50ms/delta at 100
+  // msgs, ~280ms at 300). Exact-id matches go through a Map (O(1)), and the
+  // fuzzy optimistic/live-vs-final dedup only ever collides among RECENT rows
+  // (same turn), so we bound those scans to a trailing window. Net O(N).
+  const idToIndex = new Map<string, number>()
+  let lastUserResultIndex = -1
 
   for (const originalMessage of collapseRepeatedBlocks(normalizedInput)) {
     const message = originalMessage.role === "assistant"
       ? { ...originalMessage, text: collapseRepeatedAssistantText(originalMessage.text) }
       : originalMessage
-    const sameIdIndex = result.findIndex(
-      (existing) => existing.messageId === message.messageId
-    )
+    const sameIdIndex = idToIndex.has(message.messageId)
+      ? (idToIndex.get(message.messageId) as number)
+      : -1
     if (sameIdIndex >= 0) {
       const existing = result[sameIdIndex]
       result[sameIdIndex] = {
@@ -539,11 +558,16 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
     }
 
     const lastUserIndex = message.role === "assistant" && !isLiveAssistantEcho(message)
-      ? result.map((existing) => existing.role).lastIndexOf("user")
+      ? lastUserResultIndex
       : -1
-    const assistantIndex = result.findIndex((existing, index) =>
-      index > lastUserIndex && sameAssistantMessage(existing, message)
-    )
+    const assistantScanStart = Math.max(lastUserIndex + 1, result.length - FUZZY_DEDUP_WINDOW, 0)
+    let assistantIndex = -1
+    for (let index = assistantScanStart; index < result.length; index++) {
+      if (index > lastUserIndex && sameAssistantMessage(result[index], message)) {
+        assistantIndex = index
+        break
+      }
+    }
     if (assistantIndex >= 0) {
       const existing = result[assistantIndex]
       const preferred = isLiveAssistantEcho(existing) && !isLiveAssistantEcho(message)
@@ -565,13 +589,20 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
         toolCalls: mergeToolCalls(existing.toolCalls, message.toolCalls),
         attachments: mergeAttachments(existing.attachments, preferred.attachments),
       }
+      idToIndex.set(message.messageId, assistantIndex)
+      idToIndex.set(result[assistantIndex].messageId, assistantIndex)
       seenIds.add(message.messageId)
       continue
     }
 
-    const duplicateUserIndex = result.findIndex((existing) =>
-      sameUserMessage(existing, message)
-    )
+    const userScanStart = Math.max(result.length - FUZZY_DEDUP_WINDOW, 0)
+    let duplicateUserIndex = -1
+    for (let index = userScanStart; index < result.length; index++) {
+      if (sameUserMessage(result[index], message)) {
+        duplicateUserIndex = index
+        break
+      }
+    }
     if (duplicateUserIndex >= 0) {
       const existing = result[duplicateUserIndex]
       const preferIncoming =
@@ -600,11 +631,15 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
         sendStatus: preferIncoming ? undefined : preferred.sendStatus,
         sendError: preferIncoming ? null : preferred.sendError,
       }
+      idToIndex.set(message.messageId, duplicateUserIndex)
+      idToIndex.set(result[duplicateUserIndex].messageId, duplicateUserIndex)
       seenIds.add(message.messageId)
       continue
     }
 
     seenIds.add(message.messageId)
+    idToIndex.set(message.messageId, result.length)
+    if (message.role === "user") lastUserResultIndex = result.length
     result.push(message)
   }
 

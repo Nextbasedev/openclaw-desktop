@@ -360,45 +360,6 @@ function splitTextAndEmbeds(text: string, embeds?: EmbedContent[]) {
   return parts
 }
 
-// Rehype plugin: wrap each word of streamed text in a <span.md-stream-word> so
-// CSS can fade it in word-by-word ("fade mode"). Whitespace is kept as plain
-// text between spans so wrapping/spacing is unaffected. Text inside code/pre is
-// skipped (the code overrides need raw string children). Applied ONLY while
-// streaming; react-markdown keys spans by position, so as text grows the stable
-// prefix is reused (no re-animation) and only newly-revealed words fade in.
-function rehypeStreamWordFade() {
-  type HNode = { type: string; tagName?: string; value?: string; properties?: Record<string, unknown>; children?: HNode[] }
-  const walk = (node: HNode, inCode: boolean) => {
-    if (!node.children || node.children.length === 0) return
-    const out: HNode[] = []
-    for (const child of node.children) {
-      if (child.type === "element") {
-        const tag = child.tagName
-        walk(child, inCode || tag === "code" || tag === "pre")
-        out.push(child)
-      } else if (child.type === "text" && !inCode && typeof child.value === "string") {
-        for (const tok of child.value.split(/(\s+)/)) {
-          if (tok.length === 0) continue
-          if (/^\s+$/.test(tok)) {
-            out.push({ type: "text", value: tok })
-          } else {
-            out.push({
-              type: "element",
-              tagName: "span",
-              properties: { className: ["md-stream-word"] },
-              children: [{ type: "text", value: tok }],
-            })
-          }
-        }
-      } else {
-        out.push(child)
-      }
-    }
-    node.children = out
-  }
-  return (tree: HNode) => walk(tree, false)
-}
-
 export function MarkdownContent({
   text,
   className,
@@ -476,12 +437,7 @@ export function MarkdownContent({
         part.type === "embed" ? (
           <EmbedBlock key={`embed-${i}`} embed={part.embed} />
         ) : (
-          <ReactMarkdown
-            key={`md-${i}`}
-            remarkPlugins={[remarkGfm, remarkBreaks]}
-            rehypePlugins={streaming ? [rehypeStreamWordFade] : []}
-            components={highlightedComponents}
-          >
+          <ReactMarkdown key={`md-${i}`} remarkPlugins={[remarkGfm, remarkBreaks]} components={highlightedComponents}>
             {part.value}
           </ReactMarkdown>
         ),

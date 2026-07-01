@@ -1,6 +1,6 @@
 import type { ActiveChat } from "@/types/chat"
 import type { EditorGroupsState, EditorTab } from "@/lib/editorGroups"
-import { isWeakChatName } from "@/utils/chatDisplayName"
+import { DEFAULT_CHAT_TITLE, isWeakChatName, normalizeChatTitle } from "@/utils/chatDisplayName"
 
 type LiveChatRecord =
   | string
@@ -13,13 +13,8 @@ type LiveChatRecord =
 export type LiveChatTitleMap = ReadonlyMap<string, LiveChatRecord>
 
 function cleanTitle(value: string | null | undefined): string | null {
-  const trimmed = value?.trim()
-  if (!trimmed) return null
-  const normalized = trimmed.toLowerCase()
-  if (normalized === "opening chat..." || normalized === "opening chat…") {
-    return "New Chat"
-  }
-  return trimmed
+  if (!value?.trim()) return null
+  return normalizeChatTitle(value, DEFAULT_CHAT_TITLE)
 }
 
 export function chatIdFromTab(tab: EditorTab): string | null {
@@ -41,12 +36,25 @@ export function deriveChatTabTitle(
     ? cleanTitle(live)
     : cleanTitle(live?.chat?.name) ?? cleanTitle(live?.name) ?? cleanTitle(live?.title)
 
-  if (activeChat?.id === chatId) {
-    const activeTitle = cleanTitle(activeChat.name)
-    if (activeTitle && !isWeakChatName(activeTitle)) return activeTitle
-  }
+  const activeTitle = activeChat?.id === chatId ? cleanTitle(activeChat.name) : null
+  const tabTitle = cleanTitle(tab.title)
 
-  return liveTitle ?? cleanTitle(activeChat?.id === chatId ? activeChat.name : null) ?? tab.title
+  // Resolve from a single ordered list of synced sources so the header tab
+  // always matches the sidebar name. The live chat-list record
+  // (`liveChatTitles`) is the authoritative source — it is fed from the same
+  // server-backed chat list / localSync the sidebar renders, so any rename
+  // (sidebar dialog, header menu, autoname) lands here. It must win over a
+  // stale `activeChat.name` snapshot, otherwise renaming the *currently open*
+  // chat updates the sidebar but leaves the header tab on the old name.
+  // Fall back to the active-chat name, then the tab's own title, only when the
+  // live list has not resolved a real name for this chat yet (e.g. a brand-new
+  // chat mid-creation). Only when every source is still weak ("New Chat", a
+  // pending placeholder, or a raw id) do we show the placeholder.
+  const candidates = [liveTitle, activeTitle, tabTitle]
+  const strong = candidates.find((title) => title && !isWeakChatName(title))
+  if (strong) return strong
+
+  return liveTitle ?? activeTitle ?? tab.title ?? DEFAULT_CHAT_TITLE
 }
 
 export function deriveEditorGroupsTabTitles(

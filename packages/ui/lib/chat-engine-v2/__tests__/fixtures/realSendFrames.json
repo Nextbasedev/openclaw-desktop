@@ -1,0 +1,179 @@
+[
+  {
+    "cursor": 1,
+    "type": "chat.message.upsert",
+    "sessionKey": "s1",
+    "payload": {
+      "projectionVersion": 3,
+      "semanticType": "chat.user.created",
+      "sessionKey": "s1",
+      "runId": "run:idem-hyy",
+      "gatewayRunId": null,
+      "clientMessageId": "opt-hyy",
+      "idempotencyKey": "idem-hyy",
+      "runStatus": "thinking",
+      "status": "thinking",
+      "statusLabel": "Thinking",
+      "activeRun": {
+        "runId": "run:idem-hyy",
+        "gatewayRunId": null,
+        "clientMessageId": "opt-hyy",
+        "idempotencyKey": "idem-hyy",
+        "status": "thinking",
+        "statusLabel": "Thinking",
+        "startedAtMs": 0,
+        "updatedAtMs": 0
+      },
+      "messageId": "opt-hyy",
+      "message": {
+        "role": "user",
+        "text": "hyy",
+        "createdAt": 0,
+        "isOptimistic": true,
+        "__clientOptimistic": true,
+        "__openclaw": {
+          "id": "opt-hyy",
+          "clientMessageId": "opt-hyy",
+          "idempotencyKey": "idem-hyy",
+          "runId": "run:idem-hyy"
+        }
+      },
+      "optimistic": true
+    },
+    "createdAtMs": 0
+  },
+  {
+    "cursor": 2,
+    "type": "chat.status",
+    "sessionKey": "s1",
+    "payload": {
+      "projectionVersion": 3,
+      "semanticType": "chat.run.status",
+      "sessionKey": "s1",
+      "runId": "run:idem-hyy",
+      "gatewayRunId": null,
+      "clientMessageId": "opt-hyy",
+      "idempotencyKey": "idem-hyy",
+      "runStatus": "thinking",
+      "status": "thinking",
+      "statusLabel": "Thinking",
+      "activeRun": {
+        "runId": "run:idem-hyy",
+        "gatewayRunId": null,
+        "clientMessageId": "opt-hyy",
+        "idempotencyKey": "idem-hyy",
+        "status": "thinking",
+        "statusLabel": "Thinking",
+        "startedAtMs": 0,
+        "updatedAtMs": 0
+      },
+      "optimistic": true
+    },
+    "createdAtMs": 0
+  },
+  {
+    "cursor": 3,
+    "type": "chat.message.confirmed",
+    "sessionKey": "s1",
+    "payload": {
+      "projectionVersion": 3,
+      "semanticType": "chat.user.confirmed",
+      "sessionKey": "s1",
+      "runId": "run:idem-hyy",
+      "gatewayRunId": "gw-run-new",
+      "clientMessageId": "opt-hyy",
+      "idempotencyKey": "idem-hyy",
+      "runStatus": "thinking",
+      "status": "thinking",
+      "statusLabel": "Thinking",
+      "activeRun": {
+        "runId": "run:idem-hyy",
+        "gatewayRunId": "gw-run-new",
+        "clientMessageId": "opt-hyy",
+        "idempotencyKey": "idem-hyy",
+        "status": "thinking",
+        "statusLabel": "Thinking",
+        "startedAtMs": 0,
+        "updatedAtMs": 0
+      },
+      "messageId": "opt-hyy",
+      "message": {
+        "role": "user",
+        "text": "hyy",
+        "__openclaw": {
+          "id": "opt-hyy",
+          "seq": 4,
+          "runId": "gw-run-new",
+          "idempotencyKey": "idem-hyy",
+          "gatewayId": "gw-user-hyy",
+          "gatewaySeq": 4,
+          "segmentId": "s1::segment::unknown::0"
+        },
+        "isOptimistic": false,
+        "__clientOptimistic": false
+      },
+      "messageSeq": 4,
+      "optimisticId": "opt-hyy",
+      "gatewayMessageId": "gw-user-hyy"
+    },
+    "createdAtMs": 0
+  },
+  {
+    "cursor": 4,
+    "type": "chat.message.upsert",
+    "sessionKey": "s1",
+    "payload": {
+      "projectionVersion": 3,
+      "semanticType": "chat.assistant.final",
+      "sessionKey": "s1",
+      "runId": "run:idem-hyy",
+      "gatewayRunId": "gw-run-new",
+      "clientMessageId": "opt-hyy",
+      "idempotencyKey": "idem-hyy",
+      "runStatus": "thinking",
+      "status": "thinking",
+      "statusLabel": "Thinking",
+      "activeRun": {
+        "runId": "run:idem-hyy",
+        "gatewayRunId": "gw-run-new",
+        "clientMessageId": "opt-hyy",
+        "idempotencyKey": "idem-hyy",
+        "status": "thinking",
+        "statusLabel": "Thinking",
+        "startedAtMs": 0,
+        "updatedAtMs": 0
+      },
+      "messageId": "gw-a-new",
+      "message": {
+        "role": "assistant",
+        "text": "Hey Krish.",
+        "__openclaw": {
+          "id": "gw-a-new",
+          "seq": 5,
+          "runId": "gw-run-new"
+        }
+      },
+      "messageSeq": 5
+    },
+    "createdAtMs": 0
+  },
+  {
+    "cursor": 5,
+    "type": "chat.status",
+    "sessionKey": "s1",
+    "payload": {
+      "projectionVersion": 3,
+      "semanticType": "chat.run.done",
+      "sessionKey": "s1",
+      "runId": "run:idem-hyy",
+      "gatewayRunId": "gw-run-new",
+      "clientMessageId": "opt-hyy",
+      "idempotencyKey": "idem-hyy",
+      "runStatus": "done",
+      "status": "done",
+      "statusLabel": null,
+      "activeRun": null
+    },
+    "createdAtMs": 0
+  }
+]
