@@ -52,6 +52,22 @@ function fuzzyScore(candidate: string, query: string): number {
   return score
 }
 
+// Text a query is matched against for INCLUSION. Only the command's own
+// name / native name / explicit aliases — NOT the free-text description or
+// category. Matching descriptions with a loose subsequence made typing e.g.
+// "/status" surface every command whose description merely contained the
+// letters s-t-a-t-u-s in order (and "/sta" matched "/new" via "Start a new
+// chat"). Names are what the user is actually typing, so gate on them.
+export function commandNameText(command: SlashCommand): string[] {
+  return [
+    command.name,
+    command.nativeName ?? "",
+    ...(command.textAliases ?? []),
+  ].filter(Boolean)
+}
+
+// Kept for callers/tests that want the full searchable surface (name +
+// description + category + aliases). Not used for inclusion filtering.
 export function commandSearchText(command: SlashCommand): string[] {
   return [
     command.name,
@@ -69,13 +85,27 @@ export function filterSlashCommands(
   const query = filter.trim().toLowerCase()
   return commands
     .map((command) => {
-      const score = Math.max(
-        ...commandSearchText(command).map((text) => fuzzyScore(text, query)),
+      // Inclusion is decided ONLY by the command name / native name / aliases.
+      // This is what the user is typing after the slash; matching the free
+      // description was the source of the "/status shows everything" bug.
+      const nameScore = commandNameText(command).reduce(
+        (max, text) => Math.max(max, fuzzyScore(text, query)),
+        0,
       )
-      return { command, score }
+      // A contiguous substring hit in the description is used ONLY as a weak
+      // tiebreaker between equal name scores — never to include a command on
+      // its own — so intent-ish ranking survives without the old noise.
+      const description = (command.description ?? "").toLowerCase()
+      const descriptionRank = query.length >= 2 && description.includes(query) ? 1 : 0
+      return { command, nameScore, descriptionRank }
     })
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || a.command.name.localeCompare(b.command.name))
+    .filter((item) => item.nameScore > 0)
+    .sort(
+      (a, b) =>
+        b.nameScore - a.nameScore ||
+        b.descriptionRank - a.descriptionRank ||
+        a.command.name.localeCompare(b.command.name),
+    )
     .map((item) => item.command)
 }
 
