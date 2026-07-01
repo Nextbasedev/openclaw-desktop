@@ -303,10 +303,32 @@ export function isLiveAssistantEcho(message: ChatMessage) {
   return message.role === "assistant" && /^live:.+:assistant$/.test(message.messageId ?? "")
 }
 
+function isGatewayInjectedCommandReply(message: ChatMessage) {
+  return message.role === "assistant" && message.model === "gateway-injected"
+}
+
 function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "assistant" || b.role !== "assistant") return false
   const aText = collapseRepeatedAssistantText(a.text)
   const bText = collapseRepeatedAssistantText(b.text)
+
+  // Running the same slash command twice (e.g. /status then /status) produces
+  // two byte-identical gateway-injected replies. They are DISTINCT command
+  // results, not a streaming echo of one another (echoes are `live:*:assistant`
+  // rows or share a runId — both handled below). During the live stream the
+  // second reply has no gatewayIndex yet, so without this guard it falls
+  // through to the identical-text branch and gets merged into the first,
+  // leaving the repeated command stuck on "Writing…" with no answer. Model
+  // turns are never gateway-injected, so this never affects live streaming.
+  if (
+    isGatewayInjectedCommandReply(a) &&
+    isGatewayInjectedCommandReply(b) &&
+    a.messageId &&
+    b.messageId &&
+    a.messageId !== b.messageId
+  ) {
+    return false
+  }
 
   // A persisted websocket/live assistant row can arrive after the canonical
   // Gateway final message with a synthetic local seq/gatewayIndex. Treat exact
