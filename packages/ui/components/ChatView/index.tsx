@@ -3015,10 +3015,6 @@ export function ChatView({
                 messages: renderedMessages,
                 isGenerating,
               })
-              const isActiveAssistantTurn =
-                message.role === "assistant" &&
-                showThinkingState &&
-                index > latestRenderedUserIndex
               return (
               <div
                 key={renderedRowKeys[index]}
@@ -3078,7 +3074,7 @@ export function ChatView({
                     isActivelyStreaming={isStreamingAssistant}
                     animateAssistantText={animateAssistantText}
                     onTextAnimationComplete={handleTextAnimationComplete}
-                    suppressActions={message.role === "assistant" && (animateAssistantText || isActiveAssistantTurn)}
+                    suppressActions={message.role === "assistant" && animateAssistantText}
                     popoverOpen={activePopoverId === message.messageId}
                     onPopoverOpenChange={(open) =>
                       setActivePopoverId(open ? message.messageId : null)
