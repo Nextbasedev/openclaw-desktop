@@ -100,13 +100,50 @@ function initialStreamingText(target: string): string {
   return target.slice(0, lastSpace >= 8 ? lastSpace : 24)
 }
 
+// Reveal progress that survives component REMOUNTS — the second way a streamed
+// response can appear to "wipe and replay". During streaming the assistant row
+// can briefly leave and re-enter the rendered message list (dedupe /
+// reconciliation churn), which unmounts + remounts this hook's component and
+// would otherwise re-init the typewriter from a short `initialStreamingText`
+// prefix. The gateway issues a STABLE id for the streaming row
+// (`live:<runId>:assistant`), so we key the already-revealed text by that id and
+// resume on remount instead of restarting. Bounded so abandoned streams can't
+// grow the map without limit.
+const REVEAL_PROGRESS_CAP = 64
+const revealProgress = new Map<string, string>()
+
+export function rememberReveal(key: string | undefined, revealed: string): void {
+  if (!key || !revealed) return
+  if (!revealProgress.has(key) && revealProgress.size >= REVEAL_PROGRESS_CAP) {
+    const oldest = revealProgress.keys().next().value
+    if (oldest !== undefined) revealProgress.delete(oldest)
+  }
+  revealProgress.set(key, revealed)
+}
+
+// Resume only when the remembered text is still a prefix of the current target,
+// so a reused id can never surface stale/foreign text. Returning the full target
+// (prev === target) is fine: the row shows complete with no animation.
+export function recallReveal(key: string | undefined, target: string): string | null {
+  if (!key) return null
+  const prev = revealProgress.get(key)
+  if (prev && target.startsWith(prev)) return prev
+  return null
+}
+
+export function forgetReveal(key: string | undefined): void {
+  if (key) revealProgress.delete(key)
+}
+
 export function useStreamingText(
   target: string,
   streaming?: boolean,
   onRevealComplete?: () => void,
-  options?: { mode?: "buffered" | "immediate" },
+  options?: { mode?: "buffered" | "immediate"; revealKey?: string },
 ): { displayText: string; isRevealing: boolean } {
-  const initialDisplay = streaming ? initialStreamingText(target) : target
+  const revealKey = options?.revealKey
+  const resumedDisplay = streaming ? recallReveal(revealKey, target) : null
+  const initialDisplay = resumedDisplay ?? (streaming ? initialStreamingText(target) : target)
   const [display, setDisplay] = useState(() => initialDisplay)
   const [isRevealing, setIsRevealing] = useState(Boolean(streaming && initialDisplay.length < target.length))
   const rafRef = useRef<number | null>(null)
@@ -117,11 +154,19 @@ export function useStreamingText(
   const targetRef = useRef(target)
   const revealActiveRef = useRef(Boolean(streaming && initialDisplay.length < target.length))
   const completeRef = useRef(onRevealComplete)
+  const revealKeyRef = useRef(revealKey)
+  revealKeyRef.current = revealKey
   const mode = options?.mode ?? "buffered"
 
   useEffect(() => {
     completeRef.current = onRevealComplete
   }, [onRevealComplete])
+
+  useEffect(() => {
+    // Once a row settles (streaming ended), drop its remembered reveal so a
+    // future row that reuses the id cannot resume stale text.
+    if (!streaming) forgetReveal(revealKey)
+  }, [streaming, revealKey])
 
   useEffect(() => {
     let cancelled = false
@@ -196,6 +241,7 @@ export function useStreamingText(
       lastFrameAtRef.current = 0
       const next = canAnimate ? initialStreamingText(target) : target
       displayRef.current = next
+      rememberReveal(revealKeyRef.current, next)
       revealActiveRef.current = Boolean(canAnimate && next.length < target.length)
       commitState(next, Boolean(canAnimate && next.length < target.length))
     } else if (canAnimate) {
@@ -211,6 +257,7 @@ export function useStreamingText(
       const current = displayRef.current
 
       if (current.length >= latestTarget.length) {
+        rememberReveal(revealKeyRef.current, latestTarget)
         rafRef.current = null
         revealActiveRef.current = false
         setIsRevealing(false)
@@ -234,6 +281,7 @@ export function useStreamingText(
         // the final frame — so the markdown re-parse + shell repaint don't run
         // at full 60fps. See REVEAL_COMMIT_MS.
         displayRef.current = next
+        rememberReveal(revealKeyRef.current, next)
         const reachedTarget = next.length >= latestTarget.length
         if (shouldCommitRevealFrame({ now, lastCommitAt: lastCommitAtRef.current, reachedTarget })) {
           lastCommitAtRef.current = now

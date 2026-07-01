@@ -1117,7 +1117,8 @@ export const MessageBubble = memo(function MessageBubble({
   } = useStreamingText(
     assistantErrorText,
     isAssistantError && Boolean(animateAssistantText),
-    () => onTextAnimationComplete?.(message.messageId)
+    () => onTextAnimationComplete?.(message.messageId),
+    { revealKey: message.messageId ? `${message.messageId}:err` : undefined }
   )
   // `isOptimistic` can intentionally survive after the send ACK so the live
   // timeline can preserve the user row until the canonical Gateway echo/history
@@ -1557,6 +1558,7 @@ export const MessageBubble = memo(function MessageBubble({
                     embeds={message.embeds}
                     streaming={Boolean(animateAssistantText)}
                     revealMode="buffered"
+                    revealKey={message.messageId}
                     highlightTexts={referencedTexts}
                     onRevealComplete={() =>
                       onTextAnimationComplete?.(message.messageId)

@@ -368,6 +368,7 @@ export function MarkdownContent({
   highlightTexts,
   onRevealComplete,
   revealMode = "immediate",
+  revealKey,
 }: {
   text: string
   className?: string
@@ -376,12 +377,13 @@ export function MarkdownContent({
   highlightTexts?: string[]
   onRevealComplete?: () => void
   revealMode?: "buffered" | "immediate"
+  revealKey?: string
 }) {
   const { displayText, isRevealing } = useStreamingText(
     text,
     streaming,
     onRevealComplete,
-    { mode: revealMode },
+    { mode: revealMode, revealKey },
   )
   const parts = useMemo(
     () => splitTextAndEmbeds(displayText, embeds),
