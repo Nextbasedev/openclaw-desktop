@@ -16,6 +16,7 @@ import {
   sendChatV2,
 } from "@/lib/chat-engine-v2/client"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "@/lib/chat-engine-v2/applyPatches"
+import { resolveNextStreamStatus } from "./streamStatusResolver"
 import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
 import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
@@ -314,24 +315,6 @@ function activityAgentsToSubagents(
       toolCallId,
     }
   })
-}
-
-function isTerminalStatus(status: StreamStatus) {
-  return status === "done" || status === "idle" || status === "connected"
-}
-
-function shouldSuppressTerminalStatusDuringPendingUser({
-  currentStatus,
-  nextStatus,
-  messages,
-}: {
-  currentStatus: StreamStatus
-  nextStatus: StreamStatus | null
-  messages: ChatMessage[]
-}) {
-  if (!nextStatus || !isTerminalStatus(nextStatus)) return false
-  if (!isActiveStreamStatus(currentStatus)) return false
-  return !hasAssistantAnswerAfterLastUser(messages)
 }
 
 function summarizeToolInput(tool: InlineToolCall) {
@@ -1207,29 +1190,36 @@ export function ChatView({
             "debug"
           )
         }
-        const rawNextStatus = patchStatus?.status ??
+        // Single source of truth for how a patch moves stream status. Also
+        // recovers a dropped terminal "done" signal in the LIVE stream (settle
+        // on assistant.final) and refuses to resurrect "Writing…" once the turn
+        // is answered — while preserving the existing pending-user guard.
+        const naiveNextStatus = patchStatus?.status ??
           (patchImpliesActiveRun(frame) ? "thinking" : null)
-        const suppressTerminalStatus = shouldSuppressTerminalStatusDuringPendingUser({
+        const nextStatus = resolveNextStreamStatus({
+          semanticType,
+          explicitStatus: patchStatus?.status ?? null,
+          impliesActiveRun: patchImpliesActiveRun(frame),
           currentStatus: current.streamStatus,
-          nextStatus: rawNextStatus,
-          messages: orderedMessages,
+          hasAnswerAfterLastUser: hasAssistantAnswerAfterLastUser(orderedMessages),
         })
-        if (suppressTerminalStatus) {
-          frontendLog("chat", "chat-rebuild.status.suppress-stale-terminal", {
+        if (nextStatus !== (naiveNextStatus ?? current.streamStatus)) {
+          frontendLog("chat", "chat-rebuild.status.resolver-adjusted", {
             sessionKey,
             cursor: frame.patch.cursor,
             patchType: frame.patch.type,
             semanticType,
             currentStatus: current.streamStatus,
-            patchStatus: rawNextStatus,
+            naiveNextStatus,
+            resolvedNextStatus: nextStatus,
           }, "debug")
         }
-        const nextStatus = suppressTerminalStatus
-          ? current.streamStatus
-          : rawNextStatus ?? current.streamStatus
-        const nextStatusLabel = suppressTerminalStatus
-          ? current.statusLabel
-          : patchStatus?.label ?? current.statusLabel
+        const nextStatusLabel =
+          nextStatus === current.streamStatus
+            ? current.statusLabel
+            : isActiveStreamStatus(nextStatus)
+              ? patchStatus?.label ?? current.statusLabel
+              : null
 
         // Detect if a NEW message was appended (length grew at the tail).
         const previousLength = current.messages.length
