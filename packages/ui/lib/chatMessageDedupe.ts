@@ -303,10 +303,32 @@ export function isLiveAssistantEcho(message: ChatMessage) {
   return message.role === "assistant" && /^live:.+:assistant$/.test(message.messageId ?? "")
 }
 
+function isGatewayInjectedCommandReply(message: ChatMessage) {
+  return message.role === "assistant" && message.model === "gateway-injected"
+}
+
 function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "assistant" || b.role !== "assistant") return false
   const aText = collapseRepeatedAssistantText(a.text)
   const bText = collapseRepeatedAssistantText(b.text)
+
+  // Running the same slash command twice (e.g. /status then /status) produces
+  // two byte-identical gateway-injected replies. They are DISTINCT command
+  // results, not a streaming echo of one another (echoes are `live:*:assistant`
+  // rows or share a runId — both handled below). During the live stream the
+  // second reply has no gatewayIndex yet, so without this guard it falls
+  // through to the identical-text branch and gets merged into the first,
+  // leaving the repeated command stuck on "Writing…" with no answer. Model
+  // turns are never gateway-injected, so this never affects live streaming.
+  if (
+    isGatewayInjectedCommandReply(a) &&
+    isGatewayInjectedCommandReply(b) &&
+    a.messageId &&
+    b.messageId &&
+    a.messageId !== b.messageId
+  ) {
+    return false
+  }
 
   // A persisted websocket/live assistant row can arrive after the canonical
   // Gateway final message with a synthetic local seq/gatewayIndex. Treat exact
@@ -536,7 +558,21 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
     const sameIdIndex = idToIndex.has(message.messageId)
       ? (idToIndex.get(message.messageId) as number)
       : -1
-    if (sameIdIndex >= 0) {
+    // Two identical gateway-injected command replies (e.g. /status run twice
+    // back-to-back) can derive the SAME content-based messageId when upstream
+    // gives no stable id/seq (messageId() falls back to role+createdAt+text, and
+    // identical command output => identical text). When a USER turn separates the
+    // existing match from this new reply, they are DISTINCT command runs, not a
+    // backfill re-projection of one row — collapsing them by id drops the second
+    // answer and leaves the repeated command stuck on "Writing…". Re-projections
+    // of the SAME turn (no user turn in between) still collapse normally, and the
+    // fuzzy pass below already never merges across a user boundary.
+    const repeatedCommandAcrossUserTurn =
+      sameIdIndex >= 0 &&
+      isGatewayInjectedCommandReply(message) &&
+      isGatewayInjectedCommandReply(result[sameIdIndex]) &&
+      sameIdIndex < lastUserResultIndex
+    if (sameIdIndex >= 0 && !repeatedCommandAcrossUserTurn) {
       const existing = result[sameIdIndex]
       result[sameIdIndex] = {
         ...existing,

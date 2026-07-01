@@ -979,3 +979,81 @@ it("keeps refetched history in backend gateway sequence order", () => {
     "history-assistant-2",
   ])
 })
+
+it("keeps both replies when the same slash command is sent back-to-back (live, no seq yet on 2nd)", () => {
+  // Regression: /status then /status produce two byte-identical
+  // gateway-injected replies. In the live stream the 2nd has no gatewayIndex
+  // yet, so the identical-text fuzzy merge used to fold it into the 1st and the
+  // repeated command was left stuck on "Writing…" with no answer.
+  const card = "🐰 OCPlatform 2026.4.23\n🧠 Model: gpt-5.5\n📊 Tokens: 2.1k in / 581 out"
+  const messages = dedupeChatMessages([
+    { messageId: "u-status-1", role: "user", text: "/status", gatewayIndex: 1 },
+    { messageId: "r-status-1", role: "assistant", text: card, model: "gateway-injected", gatewayIndex: 2 },
+    { messageId: "u-status-2", role: "user", text: "/status", gatewayIndex: 3 },
+    { messageId: "r-status-2", role: "assistant", text: card, model: "gateway-injected" },
+  ])
+
+  expect(messages.map((m) => m.messageId)).toEqual([
+    "u-status-1",
+    "r-status-1",
+    "u-status-2",
+    "r-status-2",
+  ])
+})
+
+it("keeps both replies for identical commands even when neither reply has a seq", () => {
+  const card = "🐰 OCPlatform 2026.4.23 · gateway status"
+  const messages = dedupeChatMessages([
+    { messageId: "u1", role: "user", text: "/status" },
+    { messageId: "r1", role: "assistant", text: card, model: "gateway-injected" },
+    { messageId: "u2", role: "user", text: "/status" },
+    { messageId: "r2", role: "assistant", text: card, model: "gateway-injected" },
+  ])
+
+  expect(messages.filter((m) => m.role === "assistant")).toHaveLength(2)
+})
+
+it("keeps both replies when identical commands derive the SAME messageId (content-based id collision)", () => {
+  // Real-world case: gateway-injected /status replies get no stable id/seq, so
+  // messageId() falls back to role+createdAt+text. Two byte-identical replies
+  // then share ONE messageId and used to collapse in the exact-id (idToIndex)
+  // pass BEFORE the gateway-injected guard could run, dropping the 2nd answer
+  // and stranding the repeated command on "Writing…".
+  const card = "🐰 OCPlatform 2026.4.23\n🧠 Model: gpt-5.5"
+  const sharedId = "assistant:1717000000000:" + card.slice(0, 20)
+  const messages = dedupeChatMessages([
+    { messageId: "u1", role: "user", text: "/status" },
+    { messageId: sharedId, role: "assistant", text: card, model: "gateway-injected" },
+    { messageId: "u2", role: "user", text: "/status" },
+    { messageId: sharedId, role: "assistant", text: card, model: "gateway-injected" },
+  ])
+
+  expect(messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"])
+  expect(messages.filter((m) => m.role === "assistant")).toHaveLength(2)
+})
+
+it("still collapses a re-projected same-turn command reply sharing one id (no user turn between)", () => {
+  // Safety: a backfill/reload re-projection of the SAME command output (same id,
+  // no user turn in between) must still collapse to a single row.
+  const card = "🐰 OCPlatform 2026.4.23 status"
+  const sharedId = "assistant:1717000000000:reproject"
+  const messages = dedupeChatMessages([
+    { messageId: "u1", role: "user", text: "/status" },
+    { messageId: sharedId, role: "assistant", text: card, model: "gateway-injected" },
+    { messageId: sharedId, role: "assistant", text: card, model: "gateway-injected" },
+  ])
+
+  expect(messages.filter((m) => m.role === "assistant")).toHaveLength(1)
+})
+
+it("still merges a live assistant echo into its final answer (streaming untouched)", () => {
+  // Guard must NOT change normal streaming dedup: a live echo row and the
+  // canonical final answer (same runId, same text) still collapse to one.
+  const messages = dedupeChatMessages([
+    { messageId: "u1", role: "user", text: "hi", gatewayIndex: 1 },
+    { messageId: "live:run-1:assistant", role: "assistant", text: "hello there", runId: "run-1" },
+    { messageId: "final-1", role: "assistant", text: "hello there", runId: "run-1", gatewayIndex: 2 },
+  ])
+
+  expect(messages.filter((m) => m.role === "assistant")).toHaveLength(1)
+})

@@ -196,6 +196,33 @@ function inferAssistantSeqFromRun(state: ApplyPatchState, frame: PatchFrame, par
   return Math.max(messageSeq, floor)
 }
 
+// The optimistic user message is created before its run exists, so it carries
+// no runId. When this run's assistant patch arrives we stamp the run's id onto
+// the most-recent user turn. That lets sortChatMessagesByTimeline pin the
+// streaming reply directly under the user turn via its same-run guard, instead
+// of ordering it purely by time — which inverts the pair whenever the model's
+// createdAt predates the user's client send time (the reply floats ABOVE its
+// user message and the status stays stuck on "Writing…"). Only the most-recent
+// user is considered and only when it has no runId yet, so earlier turns and
+// repeat patches of the same run are never re-tagged.
+function tagTriggeringUserWithRunId(messages: ChatMessage[], runId: string | null): ChatMessage[] {
+  if (!runId) return messages
+  if (!messages.some((item) => item.role === "assistant" && item.runId === runId)) return messages
+  let lastUserIndex = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      lastUserIndex = i
+      break
+    }
+  }
+  if (lastUserIndex < 0) return messages
+  const user = messages[lastUserIndex]
+  if (user.runId) return messages
+  const next = [...messages]
+  next[lastUserIndex] = { ...user, runId }
+  return next
+}
+
 function shouldAnimateAssistantTextPatch(frame: PatchFrame, message: ChatMessage): boolean {
   if (message.role !== "assistant") return false
   if (!message.text.trim()) return false
@@ -756,7 +783,8 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
       : item
   )
   const merged = mergeToolOnlyAssistantMessages(baseMessages, animated, frame)
-  const ordered = preserveReplacedMessagePositions(state.messages, idsToReplace, merged)
+  const mergedWithUserRun = tagTriggeringUserWithRunId(merged, runId)
+  const ordered = preserveReplacedMessagePositions(state.messages, idsToReplace, mergedWithUserRun)
   return {
     cursor: frame.patch.cursor,
     messages: dedupeChatMessages(ordered),

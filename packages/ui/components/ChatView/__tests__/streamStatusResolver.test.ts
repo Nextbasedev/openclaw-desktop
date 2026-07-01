@@ -89,6 +89,19 @@ describe("resolveNextStreamStatus", () => {
     ).toBe("thinking")
   })
 
+  test("allows terminal slash command acks without an assistant answer", () => {
+    expect(
+      resolveNextStreamStatus({
+        ...base,
+        semanticType: "chat.run.done",
+        explicitStatus: "done",
+        currentStatus: "thinking",
+        hasAnswerAfterLastUser: false,
+        allowTerminalWithoutAnswer: true,
+      }),
+    ).toBe("done")
+  })
+
   test("does not settle on final if the patch itself is still active", () => {
     expect(
       resolveNextStreamStatus({

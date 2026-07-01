@@ -265,6 +265,11 @@ function hasAssistantAnswerAfterLastUser(messages: ChatMessage[]) {
   )
 }
 
+function latestUserIsSlashCommand(messages: ChatMessage[]) {
+  const lastUser = [...messages].reverse().find((message) => message.role === "user")
+  return Boolean(lastUser && /^\/[a-zA-Z]/.test(lastUser.text.trim()))
+}
+
 function hasAssistantOutput(messages: ChatMessage[]) {
   return messages.some((message) =>
     message.role === "assistant" &&
@@ -1246,6 +1251,7 @@ export function ChatView({
           impliesActiveRun: patchImpliesActiveRun(frame),
           currentStatus: current.streamStatus,
           hasAnswerAfterLastUser: hasAssistantAnswerAfterLastUser(orderedMessages),
+          allowTerminalWithoutAnswer: latestUserIsSlashCommand(orderedMessages),
         })
         if (nextStatus !== (naiveNextStatus ?? current.streamStatus)) {
           frontendLog("chat", "chat-rebuild.status.resolver-adjusted", {

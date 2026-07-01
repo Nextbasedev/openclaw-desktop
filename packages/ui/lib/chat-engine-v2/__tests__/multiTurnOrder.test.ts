@@ -33,3 +33,31 @@ describe("multi-turn ordering — new send must not push an old answer below it"
     ])
   })
 })
+
+// Reproduces the "Hey Krish." screenshot: a live reply whose model createdAt
+// PREDATES the user's client send time was sorting ABOVE the user turn, which
+// also stranded the status on "Writing…". Once the reply's run id is stamped
+// onto the user turn, the same-run guard pins the reply under the user turn
+// regardless of the inverted timestamps.
+describe("live reply must stay under its user turn even when model time predates send time", () => {
+  test("same-run reply with earlier createdAt still sorts below the user", () => {
+    const messages: ChatMessage[] = [
+      // user sent at 02:15:03, streaming reply stamped at model time 02:15:01.
+      { messageId: "u-hello", role: "user", text: "hello", runId: "run-x", createdAt: "2026-07-01T02:15:03Z" },
+      { messageId: "live:run-x:assistant", role: "assistant", text: "Hey Krish.", runId: "run-x", createdAt: "2026-07-01T02:15:01Z" },
+    ]
+    const rendered = orderChatMessages(dedupeChatMessages(messages)).map((m) => m.text)
+    expect(rendered).toEqual(["hello", "Hey Krish."])
+  })
+
+  test("without the run-id link, pure time order would invert them (guards the fix)", () => {
+    const messages: ChatMessage[] = [
+      { messageId: "u-hello", role: "user", text: "hello", createdAt: "2026-07-01T02:15:03Z" },
+      { messageId: "a-hey", role: "assistant", text: "Hey Krish.", runId: "run-x", createdAt: "2026-07-01T02:15:01Z" },
+    ]
+    // Documents the pre-fix behaviour the reducer now prevents by tagging the
+    // user turn with the run id (see applyPatches.tagTriggeringUserWithRunId).
+    const rendered = orderChatMessages(dedupeChatMessages(messages)).map((m) => m.text)
+    expect(rendered).toEqual(["Hey Krish.", "hello"])
+  })
+})
