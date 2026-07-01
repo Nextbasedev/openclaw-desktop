@@ -3,32 +3,28 @@ import { orderChatMessages } from "../orderChatMessages"
 import type { ChatMessage } from "../types"
 
 describe("orderChatMessages", () => {
-  test("sorts messages by createdAt date", () => {
-    const newest: ChatMessage = {
-      messageId: "newest",
-      role: "assistant",
-      text: "newest",
-      createdAt: "2026-06-16T05:00:02.000Z",
-      gatewayIndex: 1,
-    }
-    const oldest: ChatMessage = {
-      messageId: "oldest",
+  test("orders chronologically by gateway seq, not raw createdAt", () => {
+    // The assistant's createdAt is model-time and can predate the user's client
+    // send time. Seq is the reliable chronological key: user (seq 10) must stay
+    // before its answer (seq 11) even though the answer's timestamp is earlier.
+    const user: ChatMessage = {
+      messageId: "user",
       role: "user",
-      text: "oldest",
-      createdAt: "2026-06-16T05:00:00.000Z",
-      gatewayIndex: 2,
+      text: "hyy",
+      createdAt: "2026-07-01T09:32:05.000Z",
+      gatewayIndex: 10,
     }
-    const middle: ChatMessage = {
-      messageId: "middle",
+    const assistant: ChatMessage = {
+      messageId: "assistant",
       role: "assistant",
-      text: "middle",
-      createdAt: "2026-06-16T05:00:01.000Z",
+      text: "Hey Krish.",
+      createdAt: "2026-07-01T09:32:04.000Z",
+      gatewayIndex: 11,
     }
 
-    expect(orderChatMessages([newest, oldest, middle]).map((message) => message.messageId)).toEqual([
-      "oldest",
-      "middle",
-      "newest",
+    expect(orderChatMessages([assistant, user]).map((message) => message.messageId)).toEqual([
+      "user",
+      "assistant",
     ])
   })
 
