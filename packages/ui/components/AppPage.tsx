@@ -100,10 +100,52 @@ function readDraftModelId(draftKey: string): string | null {
   }
 }
 
+function writeDraftModelId(draftKey: string, modelId: string) {
+  if (typeof localStorage === "undefined") return
+  try {
+    localStorage.setItem(`openclaw-session-model:v1:${draftKey}`, modelId)
+  } catch {}
+}
+
 function clearDraftModelId(draftKey: string) {
   if (typeof localStorage === "undefined") return
   try {
     localStorage.removeItem(`openclaw-session-model:v1:${draftKey}`)
+  } catch {}
+}
+
+type PreparedDraftChat = {
+  chat: ActiveChat
+  sessionKey: string
+  spaceId?: string | null
+}
+
+const PREPARED_DRAFT_CHAT_KEY = "openclaw-prepared-draft-chat:v1:new-chat:draft"
+
+function readPreparedDraftChat(): PreparedDraftChat | null {
+  if (typeof localStorage === "undefined") return null
+  try {
+    const raw = localStorage.getItem(PREPARED_DRAFT_CHAT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PreparedDraftChat
+    if (!parsed?.chat?.id || !parsed.sessionKey) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writePreparedDraftChat(prepared: PreparedDraftChat) {
+  if (typeof localStorage === "undefined") return
+  try {
+    localStorage.setItem(PREPARED_DRAFT_CHAT_KEY, JSON.stringify(prepared))
+  } catch {}
+}
+
+function clearPreparedDraftChat() {
+  if (typeof localStorage === "undefined") return
+  try {
+    localStorage.removeItem(PREPARED_DRAFT_CHAT_KEY)
   } catch {}
 }
 
@@ -650,6 +692,7 @@ function AppShell({
     string,
     { chat: ActiveChat; sessionKey: string; title: string }
   >())
+  const preparedDraftChatRef = useRef<PreparedDraftChat | null>(null)
   activeChatRef.current = activeChat
 
   useEffect(() => {
@@ -2618,7 +2661,6 @@ function AppShell({
       return { sessionKey, draftKey: `topic:${activeTopic.projectId}:${activeTopic.id}:draft` }
     }
 
-    const targetGroupId = editorGroups.focusedGroupId
     const fallbackName = "New Chat"
     invalidateChatListCache(activeSpaceId)
     const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
@@ -2643,35 +2685,27 @@ function AppShell({
     }
     if (!sessionKey) throw new Error("New chat did not return a sessionKey")
 
-    setPendingPrompt(null)
-    setInitialMessages(undefined)
-    setActiveTab("chat")
-    setActiveTopic(null)
     const createdChat = { id: result.chat.id, name: fallbackName, sessionKey }
-    const sessionData = { chat: createdChat, sessionKey, title: fallbackName }
-    resolvedChatCacheRef.current.set(result.chat.id, sessionData)
-    setActiveChat(createdChat)
-    setActiveSessionKey(sessionKey)
-    setActiveSessionTitle(fallbackName)
-    dispatchGroups({
-      type: "ADD_TAB",
-      groupId: targetGroupId,
-      tab: { id: `chat:${result.chat.id}`, title: fallbackName, subtitle: "Chat", kind: "chat", chat: createdChat },
-    })
-    dispatchGroups({
-      type: "SET_SESSION_DATA",
-      groupId: targetGroupId,
-      sessionData,
+    const preparedDraft = {
+      chat: createdChat,
+      sessionKey,
+      spaceId: activeSpaceId,
+    }
+    preparedDraftChatRef.current = preparedDraft
+    writePreparedDraftChat(preparedDraft)
+    resolvedChatCacheRef.current.set(result.chat.id, {
+      chat: createdChat,
+      sessionKey,
+      title: fallbackName,
     })
     setChatRefreshTrigger((n) => n + 1)
-    window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
     return { sessionKey, draftKey: "new-chat:draft" }
-  }, [activeSpaceId, activeTopic, editorGroups.focusedGroupId])
+  }, [activeSpaceId, activeTopic])
 
   const handleDraftModelSelect = useCallback(async (modelId: string) => {
-    const { sessionKey, draftKey } = await ensureDraftSessionForModelSelect()
+    const { sessionKey } = await ensureDraftSessionForModelSelect()
+    writeDraftModelId(`chat:${sessionKey}`, modelId)
     await setSessionModel(sessionKey, modelId)
-    clearDraftModelId(draftKey)
     emit("chat:activity", { sessionKey })
   }, [ensureDraftSessionForModelSelect])
 
@@ -2709,13 +2743,18 @@ function AppShell({
       const targetGroupId = editorGroups.focusedGroupId
       const fallbackName = fallbackChatNameFromText(text)
 
-      // Pre-generate the session + chat ids on the client so the optimistic
+      // Reuse a silently-created draft chat/session when the user selected a
+      // model before sending. Otherwise pre-generate ids so the optimistic
       // user bubble + thinking state paint IMMEDIATELY on send, before any
       // round-trip to the middleware. middleware_chats_create accepts both ids,
-      // so the chat is created with these exact ids and no reconciliation is
-      // needed once the request resolves.
-      const sessionKey = `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-      const chatId = `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+      // so newly-created chats use these exact ids and need no reconciliation.
+      const rememberedDraft = preparedDraftChatRef.current ?? readPreparedDraftChat()
+      const preparedDraft =
+        rememberedDraft && rememberedDraft.spaceId === activeSpaceId
+          ? rememberedDraft
+          : null
+      const sessionKey = preparedDraft?.sessionKey ?? `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+      const chatId = preparedDraft?.chat.id ?? `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
       const optimisticId = randomId()
       const optimisticMessages: OptimisticMsg[] = [{
@@ -2770,12 +2809,20 @@ function AppShell({
         optimisticCount: optimisticMessages.length,
       })
 
-      // ---- create the chat/session on the middleware using our ids ----------
-      const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
-        "middleware_chats_create",
-        { input: { chatId, sessionKey, name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
-      )
-      if (!sessionKeyFromResponse(result)) {
+      // ---- create or finalize the chat/session on the middleware ----------
+      const result = preparedDraft
+        ? { chat: { id: chatId, name: fallbackName, sessionKey } }
+        : await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
+            "middleware_chats_create",
+            { input: { chatId, sessionKey, name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
+          )
+      if (preparedDraft) {
+        preparedDraftChatRef.current = null
+        clearPreparedDraftChat()
+        void invoke("middleware_chats_rename", {
+          input: { chatId, name: fallbackName },
+        }).catch(() => {})
+      } else if (!sessionKeyFromResponse(result)) {
         // Defensive: server did not echo our sessionKey — ensure the gateway
         // session/attachment exist before we send.
         await invoke("middleware_chats_attach_session", {
