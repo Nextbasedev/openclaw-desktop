@@ -36,6 +36,37 @@ type ConnectResult = {
 
 type DetectMessage = { ok: boolean; text: string }
 
+type ConnectPageSnapshot = {
+  url: string
+  token: string
+  setupMode: "choice" | "local" | "remote"
+  status: ConnectionStatus | null
+  connectResult: ConnectResult | null
+  error: string | null
+  loadingStatus: boolean
+  sessionConnected: boolean
+  detectMessage: DetectMessage | null
+}
+
+const CONNECT_SNAPSHOT_TTL_MS = 30_000
+let connectSnapshotCache: { snapshot: ConnectPageSnapshot; expiresAt: number } | null = null
+
+function getFreshConnectSnapshot(): ConnectPageSnapshot | null {
+  if (!connectSnapshotCache || connectSnapshotCache.expiresAt <= Date.now()) return null
+  return connectSnapshotCache.snapshot
+}
+
+function rememberConnectSnapshot(snapshot: ConnectPageSnapshot) {
+  connectSnapshotCache = {
+    snapshot,
+    expiresAt: Date.now() + CONNECT_SNAPSHOT_TTL_MS,
+  }
+}
+
+function forgetConnectSnapshot() {
+  connectSnapshotCache = null
+}
+
 function statusFromConnection(connected: boolean, url?: string, token?: string): ConnectionStatus {
   return {
     gatewayConfigured: Boolean(url),
@@ -97,26 +128,33 @@ function redirectToDashboard() {
 }
 
 export default function ConnectPage() {
-  const [url, setUrl] = useState("")
-  const [token, setToken] = useState("")
+  const initialSnapshot = getFreshConnectSnapshot()
+  const [url, setUrl] = useState(initialSnapshot?.url ?? "")
+  const [token, setToken] = useState(initialSnapshot?.token ?? "")
   const [showToken, setShowToken] = useState(false)
-  const [setupMode, setSetupMode] = useState<"choice" | "local" | "remote">("choice")
-  const [status, setStatus] = useState<ConnectionStatus | null>(null)
-  const [connectResult, setConnectResult] = useState<ConnectResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [setupMode, setSetupMode] = useState<"choice" | "local" | "remote">(initialSnapshot?.setupMode ?? "choice")
+  const [status, setStatus] = useState<ConnectionStatus | null>(initialSnapshot?.status ?? null)
+  const [connectResult, setConnectResult] = useState<ConnectResult | null>(initialSnapshot?.connectResult ?? null)
+  const [error, setError] = useState<string | null>(initialSnapshot?.error ?? null)
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
-  const [loadingStatus, setLoadingStatus] = useState(true)
-  const [sessionConnected, setSessionConnected] = useState(false)
-  const [detectMessage, setDetectMessage] = useState<DetectMessage | null>({ ok: true, text: "Checking for a local workspace service..." })
+  const [loadingStatus, setLoadingStatus] = useState(initialSnapshot?.loadingStatus ?? true)
+  const [sessionConnected, setSessionConnected] = useState(initialSnapshot?.sessionConnected ?? false)
+  const [detectMessage, setDetectMessage] = useState<DetectMessage | null>(initialSnapshot?.detectMessage ?? { ok: true, text: "Checking for a local workspace service..." })
 
   useEffect(() => {
     async function initializeConnection() {
       const saved = getMiddlewareConnection()
       if (saved) {
+        const cached = getFreshConnectSnapshot()
+        if (cached?.url === saved.url && cached.token === saved.token) return
+
         setUrl(saved.url)
         setToken(saved.token)
+        setStatus(statusFromConnection(false, saved.url, saved.token))
+        setSetupMode(isLoopbackMiddlewareUrl(saved.url) ? "local" : "remote")
+        setLoadingStatus(false)
         try {
           const health = await testMiddlewareConnection(saved)
           if (!isOpenClawConnected(health)) {
@@ -124,11 +162,35 @@ export default function ConnectPage() {
             setStatus(statusFromConnection(false, saved.url, saved.token))
             setConnectResult(null)
             setDetectMessage({ ok: false, text: "Saved Middleware is reachable, but OpenClaw is not connected there. The saved URL/token were kept; retry after OpenClaw starts." })
+            rememberConnectSnapshot({
+              url: saved.url,
+              token: saved.token,
+              setupMode: isLoopbackMiddlewareUrl(saved.url) ? "local" : "remote",
+              status: statusFromConnection(false, saved.url, saved.token),
+              connectResult: null,
+              error: null,
+              loadingStatus: false,
+              sessionConnected: false,
+              detectMessage: { ok: false, text: "Saved Middleware is reachable, but OpenClaw is not connected there. The saved URL/token were kept; retry after OpenClaw starts." },
+            })
             return
           }
+          const nextStatus = statusFromConnection(true, saved.url, saved.token)
+          const nextResult = { ok: true, url: saved.url, message: "Saved workspace connection verified" }
           setStatus(statusFromConnection(true, saved.url, saved.token))
           setSessionConnected(true)
-          setConnectResult({ ok: true, url: saved.url, message: "Saved workspace connection verified" })
+          setConnectResult(nextResult)
+          rememberConnectSnapshot({
+            url: saved.url,
+            token: saved.token,
+            setupMode: isLoopbackMiddlewareUrl(saved.url) ? "local" : "remote",
+            status: nextStatus,
+            connectResult: nextResult,
+            error: null,
+            loadingStatus: false,
+            sessionConnected: true,
+            detectMessage: { ok: true, text: "Saved workspace connection verified" },
+          })
           redirectToDashboard()
           return
         } catch (err) {
@@ -138,16 +200,29 @@ export default function ConnectPage() {
           const localSaved = isLoopbackMiddlewareUrl(saved.url)
           setSetupMode(localSaved ? "local" : "remote")
           if (isPairingOrAuthError(err)) setToken("")
-          setDetectMessage({
+          const nextMessage = {
             ok: false,
             text: localSaved
               ? "Local Middleware is reachable but not ready. Start OpenClaw locally, then try auto-detect again."
               : "Saved Middleware needs to pair again. Paste the Middleware URL and pairing code.",
+          }
+          setDetectMessage(nextMessage)
+          rememberConnectSnapshot({
+            url: saved.url,
+            token: isPairingOrAuthError(err) ? "" : saved.token,
+            setupMode: localSaved ? "local" : "remote",
+            status: statusFromConnection(false, saved.url, saved.token),
+            connectResult: null,
+            error: null,
+            loadingStatus: false,
+            sessionConnected: false,
+            detectMessage: nextMessage,
           })
           return
         }
       }
 
+      setLoadingStatus(false)
       setStatus(statusFromConnection(false))
       if (wasMiddlewareManuallyDisconnected()) {
         setDetectMessage({ ok: false, text: "Disconnected. Connect manually when ready." })
@@ -166,6 +241,17 @@ export default function ConnectPage() {
       setSessionConnected(true)
       setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
       setDetectMessage({ ok: true, text: "Local OpenClaw workspace ready." })
+      rememberConnectSnapshot({
+        url: detected.url,
+        token: detected.token,
+        setupMode: "local",
+        status: statusFromConnection(true, detected.url, detected.token),
+        connectResult: { ok: true, url: detected.url, message: "Local Middleware detected" },
+        error: null,
+        loadingStatus: false,
+        sessionConnected: true,
+        detectMessage: { ok: true, text: "Local OpenClaw workspace ready." },
+      })
       notifyShellConnected(detected.url)
       redirectToDashboard()
     }
@@ -192,10 +278,25 @@ export default function ConnectPage() {
       throw new Error("Middleware is reachable, but OpenClaw is not running there")
     }
     if (save) saveMiddlewareConnection(connection)
+    const nextStatus = statusFromConnection(save, connection.url, connection.token)
+    const nextResult = { ok: true, url: connection.url, message: `${health.service} ${health.version}` }
     setUrl(connection.url)
     setToken(connection.token)
-    setStatus(statusFromConnection(save, connection.url, connection.token))
-    setConnectResult({ ok: true, url: connection.url, message: `${health.service} ${health.version}` })
+    setStatus(nextStatus)
+    setConnectResult(nextResult)
+    if (save) {
+      rememberConnectSnapshot({
+        url: connection.url,
+        token: connection.token,
+        setupMode: isLoopbackMiddlewareUrl(connection.url) ? "local" : "remote",
+        status: nextStatus,
+        connectResult: nextResult,
+        error: null,
+        loadingStatus: false,
+        sessionConnected: true,
+        detectMessage,
+      })
+    }
     return health
   }
 
@@ -233,6 +334,7 @@ export default function ConnectPage() {
     setConnectResult(null)
     setDetectMessage(null)
     clearMiddlewareConnection()
+    forgetConnectSnapshot()
     setUrl("")
     setToken("")
     setSessionConnected(false)
@@ -284,6 +386,17 @@ export default function ConnectPage() {
         setSessionConnected(true)
         setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
         setDetectMessage({ ok: true, text: "Local OpenClaw workspace ready." })
+        rememberConnectSnapshot({
+          url: detected.url,
+          token: detected.token,
+          setupMode: "local",
+          status: statusFromConnection(true, detected.url, detected.token),
+          connectResult: { ok: true, url: detected.url, message: "Local Middleware detected" },
+          error: null,
+          loadingStatus: false,
+          sessionConnected: true,
+          detectMessage: { ok: true, text: "Local OpenClaw workspace ready." },
+        })
         notifyShellConnected(detected.url)
         redirectToDashboard()
       }}

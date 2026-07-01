@@ -1339,8 +1339,8 @@ export function ChatView({
             loading: false,
             error: null,
             messages: finalMessages,
-            streamStatus: effectiveNextStatus,
-            statusLabel: effectiveNextStatusLabel,
+            streamStatus: nextStatus,
+            statusLabel: nextStatusLabel,
           }
           }
           // Cannot safely evict: hasOlder is false, so evicting from start would
@@ -1371,8 +1371,8 @@ export function ChatView({
             loading: false,
             error: null,
             messages: orderedMessages,
-            streamStatus: effectiveNextStatus,
-            statusLabel: effectiveNextStatusLabel,
+            streamStatus: nextStatus,
+            statusLabel: nextStatusLabel,
           }
         }
 
@@ -1399,8 +1399,8 @@ export function ChatView({
           loading: false,
           error: null,
           messages: orderedMessages,
-          streamStatus: effectiveNextStatus,
-          statusLabel: effectiveNextStatusLabel,
+          streamStatus: nextStatus,
+          statusLabel: nextStatusLabel,
         }
       })
     })

@@ -37,6 +37,22 @@ const EMPTY_SUMMARY: UsageSummary = {
   totalTokens: 0,
 }
 
+const usageCache = new Map<UsagePeriod, ParsedUsage>()
+
+function loadingStateFromCache(period: UsagePeriod): ParsedUsage {
+  const cached = usageCache.get(period)
+  if (cached) return cached
+  return {
+    summary: EMPTY_SUMMARY,
+    providers: [],
+    daily: [],
+    loading: true,
+    rangeLoading: true,
+    error: null,
+    lastUpdated: null,
+  }
+}
+
 function fillMissingDays(daily: DailyEntry[], days: number): DailyEntry[] {
   if (days <= 0) return daily
   
@@ -71,26 +87,19 @@ function fillMissingDays(daily: DailyEntry[], days: number): DailyEntry[] {
 }
 
 export function useUsageData(period: UsagePeriod) {
-  const [data, setData] = useState<ParsedUsage>({
-    summary: EMPTY_SUMMARY,
-    providers: [],
-    daily: [],
-    loading: true,
-    rangeLoading: true,
-    error: null,
-    lastUpdated: null,
-  })
+  const [data, setData] = useState<ParsedUsage>(() => loadingStateFromCache(period))
   const loadedPeriodRef = useRef<UsagePeriod | null>(null)
 
   const periodRef = useRef(period)
   periodRef.current = period
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (options: { forceLoading?: boolean } = {}) => {
     const requestedPeriod = periodRef.current
+    const cached = usageCache.get(requestedPeriod)
     setData((prev) => ({
-      ...prev,
-      loading: true,
-      rangeLoading: loadedPeriodRef.current !== requestedPeriod,
+      ...(cached ?? prev),
+      loading: options.forceLoading || !cached,
+      rangeLoading: options.forceLoading || (!cached && loadedPeriodRef.current !== requestedPeriod),
       error: null,
     }))
     try {
@@ -115,7 +124,7 @@ export function useUsageData(period: UsagePeriod) {
       const displayDays = Math.max(2, days)
       const filledDaily = fillMissingDays(dailyRes.daily, displayDays)
 
-      setData({
+      const nextData = {
         summary: usageRes.summary,
         providers: usageRes.providers,
         daily: filledDaily,
@@ -123,8 +132,11 @@ export function useUsageData(period: UsagePeriod) {
         rangeLoading: false,
         error: null,
         lastUpdated: new Date(),
-      })
+      }
+      usageCache.set(requestedPeriod, nextData)
+      if (periodRef.current === requestedPeriod) setData(nextData)
     } catch (err) {
+      if (periodRef.current !== requestedPeriod) return
       setData((prev) => ({
         ...prev,
         loading: false,
@@ -138,6 +150,11 @@ export function useUsageData(period: UsagePeriod) {
   }, [])
 
   useEffect(() => {
+    const cached = usageCache.get(period)
+    if (cached) {
+      loadedPeriodRef.current = period
+      setData(cached)
+    }
     fetchAll()
   }, [period, fetchAll])
 
@@ -146,5 +163,5 @@ export function useUsageData(period: UsagePeriod) {
     return () => clearInterval(interval)
   }, [fetchAll])
 
-  return { ...data, refresh: fetchAll }
+  return { ...data, refresh: () => fetchAll({ forceLoading: true }) }
 }
