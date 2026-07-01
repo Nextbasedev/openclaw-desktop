@@ -3100,7 +3100,7 @@ export function ChatView({
             type="button"
             onClick={handleJumpToLatest}
             className={cn(
-              "animate-chat-latest-bob pointer-events-auto absolute left-1/2 top-0 flex size-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full",
+              "cursor-pointer animate-chat-latest-bob pointer-events-auto absolute left-1/2 top-0 flex size-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full",
               "border border-white/20 bg-background/45 text-foreground shadow-[0_18px_46px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl backdrop-saturate-150",
               "transition-[border-color,background-color,box-shadow,transform] duration-200 hover:-translate-x-1/2 hover:-translate-y-[calc(50%+2px)] hover:border-white/35 hover:bg-background/65 hover:shadow-[0_22px_56px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.1)] active:-translate-x-1/2 active:-translate-y-1/2"
             )}
