@@ -19,6 +19,30 @@ describe("system-injection turn (no fragmentation, no fake user bubble)", () => 
     expect(isSystemInjectedUserMessage(raw[0])).toBe(false) // real "check again"
   })
 
+  test("the /new session-startup prompt is classified as system, not user", () => {
+    const startup = {
+      role: "user",
+      text: "A new session was started via /new or /reset. Execute your Session Startup sequence now - read the required files before responding to the user. If BOOTSTRAP.md exists in the provided Project Context, read it and follow its instructions first.",
+    }
+    expect(isSystemInjectedUserMessage(startup as any)).toBe(true)
+    // A real user turn that merely mentions the words must NOT be hidden.
+    expect(isSystemInjectedUserMessage({ role: "user", text: "can you start a new session?" } as any)).toBe(false)
+  })
+
+  test("the /new session-startup prompt never renders (no phantom user bubble)", () => {
+    const rows = [
+      { role: "user", text: "A new session was started via /new or /reset. Execute your Session Startup sequence now - read the required files before responding to the user." },
+      { role: "assistant", text: "Hey Krish — what can I do for you?" },
+    ]
+    const parsed = parseChatHistory(rows as any[])
+    const roles = parsed.messages.map((m) => m.role)
+    expect(roles).toEqual(["assistant"]) // startup prompt dropped, greeting kept
+    for (const m of parsed.messages) {
+      expect(m.text ?? "").not.toContain("A new session was started")
+      expect(m.text ?? "").not.toContain("Session Startup sequence")
+    }
+  })
+
   test("one user turn renders one user bubble + one merged assistant card", () => {
     const parsed = parseChatHistory(raw)
     const ordered = orderChatMessages(parsed.messages)
