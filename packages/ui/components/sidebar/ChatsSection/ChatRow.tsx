@@ -69,12 +69,23 @@ export function ChatRow({
     x: 0,
     y: 0,
   })
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
   const contextMenuRef = useRef<HTMLDivElement>(null)
 
   const timeStr = chat.pendingFork ? "" : formatCompactTime(chat.updatedAt)
   const displayName = chatDisplayName(chat)
   const showRunningIndicator = isRunning && !chat.pendingFork
   const anyMenuOpen = dotMenuOpen || contextMenu.open
+
+  useEffect(() => {
+    function syncViewport() {
+      setIsMobileViewport(window.innerWidth < 768)
+    }
+
+    syncViewport()
+    window.addEventListener("resize", syncViewport)
+    return () => window.removeEventListener("resize", syncViewport)
+  }, [])
 
   useEffect(() => {
     function handleAnotherMenuOpened(event: Event) {
@@ -276,11 +287,11 @@ export function ChatRow({
             {dotMenuOpen && (
               <PopoverContent
                 forceMount
-                align="start"
-                side="right"
-                sideOffset={4}
+                align={isMobileViewport ? "end" : "start"}
+                side={isMobileViewport ? "bottom" : "right"}
+                sideOffset={isMobileViewport ? 6 : 4}
                 className={cn(
-                  "z-[120] w-52 gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none",
+                  "z-[120] w-52 gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none max-md:w-44",
                   "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
                   "backdrop-blur-[40px] backdrop-saturate-[180%]",
                   "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
