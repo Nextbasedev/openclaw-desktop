@@ -97,8 +97,16 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
           isCompactSidebar && compactSidebarOpen && "w-[236px] max-sm:w-[204px] max-[360px]:w-[188px]",
         )}
       >
-        <div className="px-4 py-4 max-lg:px-2 max-lg:py-3">
-          <div className="mb-3 flex items-center gap-2 max-lg:mb-2">
+        <div className={cn(
+          "px-4 py-4",
+          isCompactSidebar && !compactSidebarOpen && "px-2 py-2",
+          isCompactSidebar && compactSidebarOpen && "px-4 py-3",
+        )}>
+          <div className={cn(
+            "mb-3 flex items-center gap-2",
+            isCompactSidebar && !compactSidebarOpen && "mb-1",
+            isCompactSidebar && compactSidebarOpen && "mb-3",
+          )}>
             <button
               type="button"
               onClick={() => setCompactSidebarOpen((open) => !open)}
@@ -134,8 +142,16 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
           </div>
         </div>
 
-        <nav className="flex min-h-0 flex-1 flex-col px-3 py-3 max-lg:px-2 max-lg:py-2">
-          <div className="space-y-5 max-lg:space-y-2">
+        <nav className={cn(
+          "flex min-h-0 flex-1 flex-col px-3 py-3",
+          isCompactSidebar && !compactSidebarOpen && "px-2 py-1",
+          isCompactSidebar && compactSidebarOpen && "px-3 py-3",
+        )}>
+          <div className={cn(
+            "space-y-5",
+            isCompactSidebar && !compactSidebarOpen && "space-y-1.5",
+            isCompactSidebar && compactSidebarOpen && "space-y-4",
+          )}>
             {SECTION_GROUPS.map((group) => (
               <div key={group.label} className="space-y-1 max-lg:space-y-1.5">
                 <p className={cn(
