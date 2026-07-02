@@ -169,13 +169,17 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
                   {group.label}
                 </p>
                 {group.items.map((item) => (
-                  <SettingsNavButton
-                    key={item.id}
-                    item={item}
-                    isActive={resolvedSection === item.id}
-                    onClick={() => handleSidebarClick(item.id)}
-                    expanded={!isCompactSidebar || compactSidebarOpen}
-                  />
+                  <React.Fragment key={item.id}>
+                    <SettingsNavButton
+                      item={item}
+                      isActive={resolvedSection === item.id}
+                      onClick={() => handleSidebarClick(item.id)}
+                      expanded={!isCompactSidebar || compactSidebarOpen}
+                    />
+                    {item.id === "config" && isCompactSidebar && !compactSidebarOpen ? (
+                      <div className="mx-auto my-1.5 h-px w-7 bg-border/70" />
+                    ) : null}
+                  </React.Fragment>
                 ))}
               </div>
             ))}

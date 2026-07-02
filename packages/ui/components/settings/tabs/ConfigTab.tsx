@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
-import { LuFileText, LuRefreshCw, LuPencil, LuSave, LuX } from "react-icons/lu"
+import { LuArrowLeft, LuFileText, LuRefreshCw, LuPencil, LuSave, LuX } from "react-icons/lu"
 
 type ConfigFile = {
   path: string
@@ -55,6 +55,10 @@ function MarkdownPreview({ content }: { content: string }) {
 
 export function ConfigTab() {
   const [selected, setSelected] = React.useState<ConfigFile>(CONFIG_FILES[0])
+  const [isCompactConfig, setIsCompactConfig] = React.useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < 1024 : false,
+  )
+  const [compactDetailOpen, setCompactDetailOpen] = React.useState(false)
   const [content, setContent] = React.useState("")
   const [draft, setDraft] = React.useState("")
   const [loading, setLoading] = React.useState(false)
@@ -91,6 +95,23 @@ export function ConfigTab() {
     void loadFile(CONFIG_FILES[0])
   }, [loadFile])
 
+  React.useEffect(() => {
+    function updateCompactConfig() {
+      const compact = window.innerWidth < 1024
+      setIsCompactConfig(compact)
+      if (!compact) setCompactDetailOpen(false)
+    }
+
+    updateCompactConfig()
+    window.addEventListener("resize", updateCompactConfig)
+    return () => window.removeEventListener("resize", updateCompactConfig)
+  }, [])
+
+  function selectFile(file: ConfigFile) {
+    void loadFile(file)
+    if (isCompactConfig) setCompactDetailOpen(true)
+  }
+
   async function saveFile() {
     const pathAtSave = selected.path
     const draftAtSave = draft
@@ -117,7 +138,11 @@ export function ConfigTab() {
 
   return (
     <div className="flex h-full min-h-0 w-full bg-transparent">
-      <aside className="sticky top-0 flex h-full w-[230px] shrink-0 animate-in slide-in-from-left-8 fade-in-0 flex-col bg-black/[0.01] duration-300 dark:bg-white/[0.01]">
+      <aside className={cn(
+        "sticky top-0 flex h-full w-[230px] shrink-0 animate-in slide-in-from-left-8 fade-in-0 flex-col bg-black/[0.01] duration-300 dark:bg-white/[0.01]",
+        isCompactConfig && "w-full",
+        isCompactConfig && compactDetailOpen && "hidden",
+      )}>
         <div className="border-b border-black/[0.025] px-5 py-6 dark:border-white/[0.03]">
           <div className="min-w-0">
             <h2 className="text-[18px] font-semibold tracking-tight text-foreground">Config</h2>
@@ -134,7 +159,7 @@ export function ConfigTab() {
               <button
                 key={file.path}
                 type="button"
-                onClick={() => loadFile(file)}
+                onClick={() => selectFile(file)}
                 className={cn(
                   "flex w-full cursor-pointer items-start gap-3 rounded-xl px-3.5 py-3 text-left transition-all duration-200",
                   active ? "bg-black/[0.045] text-foreground dark:bg-white/[0.055]" : "text-muted-foreground/78 hover:translate-x-0.5 hover:bg-black/[0.025] hover:text-foreground dark:hover:bg-white/[0.03]",
@@ -157,9 +182,24 @@ export function ConfigTab() {
 
       </aside>
 
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col px-7 py-6">
+      <main className={cn(
+        "flex min-h-0 min-w-0 flex-1 flex-col px-7 py-6",
+        isCompactConfig && !compactDetailOpen && "hidden",
+        isCompactConfig && compactDetailOpen && "w-full px-4 py-5 max-[360px]:px-3",
+      )}>
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex items-center justify-between gap-3 px-2 pb-4 pr-12">
+          {isCompactConfig ? (
+            <button
+              type="button"
+              onClick={() => setCompactDetailOpen(false)}
+              className="mb-4 inline-flex w-fit cursor-pointer items-center gap-2 rounded-lg bg-black/[0.04] px-3 py-2 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.06] hover:text-foreground dark:bg-white/[0.045] dark:hover:bg-white/[0.07]"
+            >
+              <LuArrowLeft size={14} />
+              Back
+            </button>
+          ) : null}
+
+          <div className="flex items-center justify-between gap-3 px-2 pb-4 pr-12 max-lg:pr-2">
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
                 <h3 className="truncate text-[13px] font-semibold text-foreground">{selected.label}</h3>
