@@ -37,6 +37,7 @@
  */
 
 import type { ChatMessage, StreamStatus } from "../../components/ChatView/types"
+import type { WindowState } from "../../components/ChatView/messageWindow"
 import { frontendLog } from "../clientLogs"
 
 export type ActiveRunSnapshot = {
@@ -49,6 +50,8 @@ export type ActiveRunSnapshot = {
   statusLabel: string | null
   /** Global patch cursor the ChatView is observing for this session. */
   streamCursor: number | null
+  /** Current data-window pagination state; needed so reattach keeps older/newer loaders alive. */
+  windowState: WindowState | null
   /** Optional composer-level "sending" flag — kept here so a remount can avoid
    *  flashing the send button mid-transit. */
   sending: boolean
@@ -144,6 +147,7 @@ export function publish(sessionKey: string, update: ActiveRunUpdate): ActiveRunS
     streamStatus: nextStreamStatus,
     statusLabel: update.statusLabel ?? prev?.statusLabel ?? null,
     streamCursor: update.streamCursor ?? prev?.streamCursor ?? null,
+    windowState: update.windowState ?? prev?.windowState ?? null,
     sending: nextSending,
     updatedAt: Date.now(),
     isGenerating: isActiveRunStatus(nextStreamStatus) || nextSending,

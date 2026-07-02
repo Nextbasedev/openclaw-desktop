@@ -55,6 +55,30 @@ describe("activeRunRegistry", () => {
     expect(snap?.isGenerating).toBe(true)
   })
 
+  test("publish preserves windowState across partial updates", () => {
+    publish("s", {
+      messages: [msg("a1", "assistant", "older window")],
+      streamStatus: "streaming",
+      windowState: {
+        oldestLoadedSeq: 52,
+        newestLoadedSeq: 103,
+        hasOlder: true,
+        hasNewer: false,
+        isLoadingOlder: false,
+        isLoadingNewer: false,
+      },
+    })
+    publish("s", { streamStatus: "idle" })
+    expect(get("s")?.windowState).toEqual({
+      oldestLoadedSeq: 52,
+      newestLoadedSeq: 103,
+      hasOlder: true,
+      hasNewer: false,
+      isLoadingOlder: false,
+      isLoadingNewer: false,
+    })
+  })
+
   test("sending=true forces generating even on idle status", () => {
     publish("s", { messages: [], streamStatus: "idle", sending: true })
     expect(get("s")?.isGenerating).toBe(true)

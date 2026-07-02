@@ -880,12 +880,19 @@ export function ChatView({
           : null
       const initialQuery = liveTailQuery()
       setWindowState(
-        applyInitialPage({
-          returnedCount: seededMessages.length,
-          oldestSeq,
-          newestSeq,
-          requestedLimit: initialQuery.limit,
-        })
+        hydrateFromRegistry.windowState
+          ? {
+              ...hydrateFromRegistry.windowState,
+              isLoadingOlder: false,
+              isLoadingNewer: false,
+            }
+          : applyInitialPage({
+              returnedCount: seededMessages.length,
+              oldestSeq,
+              newestSeq,
+              requestedLimit: initialQuery.limit,
+              hasOlder: oldestSeq !== null && oldestSeq > 1,
+            })
       )
       const reattachCursor = hydrateFromRegistry.streamCursor ?? 0
       cursorRef.current = reattachCursor
@@ -934,6 +941,23 @@ export function ChatView({
           // If the fresh history is strictly newer (cursor advanced) OR has
           // more messages, swap to it. Otherwise keep the optimistic
           // registry snapshot to avoid flicker.
+          const freshFirst = freshMessages[0]
+          const freshLast = freshMessages[freshMessages.length - 1]
+          setWindowState(
+            applyInitialPage({
+              returnedCount: freshMessages.length,
+              oldestSeq:
+                freshFirst && typeof freshFirst.gatewayIndex === "number"
+                  ? freshFirst.gatewayIndex
+                  : null,
+              newestSeq:
+                freshLast && typeof freshLast.gatewayIndex === "number"
+                  ? freshLast.gatewayIndex
+                  : null,
+              requestedLimit: reconcileQuery.limit,
+              hasOlder: history.hasOlder,
+            }),
+          )
           if (
             freshCursor > reattachCursor ||
             freshMessages.length > seededMessages.length
@@ -962,23 +986,6 @@ export function ChatView({
               streamStatus: runLooksComplete ? "idle" : current.streamStatus,
               statusLabel: runLooksComplete ? null : current.statusLabel,
             }))
-            const freshFirst = freshMessages[0]
-            const freshLast = freshMessages[freshMessages.length - 1]
-            setWindowState(
-              applyInitialPage({
-                returnedCount: freshMessages.length,
-                oldestSeq:
-                  freshFirst && typeof freshFirst.gatewayIndex === "number"
-                    ? freshFirst.gatewayIndex
-                    : null,
-                newestSeq:
-                  freshLast && typeof freshLast.gatewayIndex === "number"
-                    ? freshLast.gatewayIndex
-                    : null,
-                requestedLimit: reconcileQuery.limit,
-                hasOlder: history.hasOlder,
-              }),
-            )
           }
         })
         .catch((error) => {
@@ -1109,6 +1116,7 @@ export function ChatView({
       streamStatus: state.streamStatus,
       statusLabel: state.statusLabel,
       streamCursor,
+      windowState,
       sending,
     })
   }, [
@@ -1120,6 +1128,7 @@ export function ChatView({
     state.statusLabel,
     state.streamStatus,
     streamCursor,
+    windowState,
   ])
 
   useEffect(() => {
