@@ -1269,6 +1269,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
       context.runs.updateRunStatus(runId, "aborted", { statusLabel: null });
       const completedTools = context.runs.completeRunningTools(input.sessionKey, runId, { status: "error", resultMeta: { reason: "aborted" }, updatedAtMs: nowMs() });
+      // Same orphan-sweep as /api/chat/abort: clear any other still-pending run
+      // so it can't hijack future runId-less terminals via findOldestPendingRun.
+      const alsoAborted = context.runs.abortPendingRuns(input.sessionKey, runId);
+      if (alsoAborted.length) log.warn("send.stop-command.orphan-pending-runs-cleared", { sessionKey: input.sessionKey, primaryRunId: runId, alsoAborted });
       const abortedRun = context.runs.getRun(runId);
       const abortMessageId = `${clientMessageId}:abort-confirmation`;
       const abortMessageSeq = context.messages.nextMessageSeq(input.sessionKey);
@@ -1744,6 +1748,11 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     if (projectedRun) {
       context.runs.updateRunStatus(projectedRun.runId, "aborted", { statusLabel: null });
       completedTools = context.runs.completeRunningTools(parsed.data.sessionKey, projectedRun.runId, { status: "error", resultMeta: { reason: "aborted" }, updatedAtMs: nowMs() });
+      // Sweep any OTHER still-pending run (abort<->send race / not-yet-recorded
+      // run) to terminal so it can't orphan and hijack future terminals via
+      // findOldestPendingRun. See RunsRepo.abortPendingRuns.
+      const alsoAborted = context.runs.abortPendingRuns(parsed.data.sessionKey, projectedRun.runId);
+      if (alsoAborted.length) log.warn("abort.orphan-pending-runs-cleared", { sessionKey: parsed.data.sessionKey, primaryRunId: projectedRun.runId, alsoAborted });
       context.messages.upsertSession({
         sessionKey: parsed.data.sessionKey,
         sessionId: context.messages.getSession(parsed.data.sessionKey)?.sessionId ?? null,
