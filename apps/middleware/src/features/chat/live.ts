@@ -861,12 +861,12 @@ export class ChatLiveIngest {
     const completed = data.completed === true;
     const runId = run?.runId ?? gatewayRunId ?? null;
 
-    // Keep the run's status label honest while compaction runs so the composer /
-    // typing affordance reflects reality instead of a stale "Streaming".
-    if (run && active && !["done", "error", "aborted"].includes(run.status)) {
-      const updated = this.context.runs.updateRunStatus(run.runId, run.status, { statusLabel: "Compacting\u2026" });
-      if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.compacting");
-    }
+    // NOTE: we intentionally do NOT override the run's statusLabel to
+    // "Compacting…" here. The chat surface already shows a dedicated
+    // "Compacting automatically" divider (driven by the chat.compaction.status
+    // patch below), so also stamping the composer/typing label produced a
+    // confusing DOUBLE "compacting" affordance in a single response.
+    // The divider is the single source of truth for compaction state.
 
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
@@ -892,6 +892,33 @@ export class ChatLiveIngest {
       createdAtMs: patch.createdAtMs,
     });
     this.log.info("compaction.status.broadcast", { sessionKey, runId, phase, active, completed, cursor: patch.cursor });
+
+    // When a live compaction FINISHES, OCPlatform appends the summary as a
+    // `type:"compaction"` transcript entry. In this runtime the separate
+    // `session.compaction` gateway event (which normally becomes the durable
+    // `chat.compaction.marker`) does not always fire, so the divider would
+    // otherwise vanish with no expandable summary. Re-scan the transcript so
+    // the just-written entry is surfaced as a persistent marker. Deduped by
+    // compactionId, so this never produces a duplicate marker if the
+    // session.compaction event DID fire. Deferred + retried to tolerate the
+    // transcript flush lag after the `end` event.
+    if (!active) {
+      this.scheduleCompactionEndBackfill(sessionKey);
+    }
+  }
+
+  private scheduleCompactionEndBackfill(sessionKey: string, attempt = 0) {
+    const delayMs = attempt === 0 ? 400 : 1200;
+    setTimeout(() => {
+      // Allow a re-scan even though this session was already backfilled once.
+      this.compactionBackfilled.delete(sessionKey);
+      void this.ensureCompactionBackfill(sessionKey)
+        .then(() => {
+          // If nothing new was found yet (flush lag), retry once more.
+          if (attempt < 1) this.scheduleCompactionEndBackfill(sessionKey, attempt + 1);
+        })
+        .catch(() => {});
+    }, delayMs);
   }
 
   // OCPlatform's `session.compaction` gateway event carries the compaction summary
