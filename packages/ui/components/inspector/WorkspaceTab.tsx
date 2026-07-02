@@ -136,6 +136,12 @@ function workspaceDirname(pathValue: string): string {
   return normalized.slice(0, normalized.lastIndexOf("/"))
 }
 
+function workspaceBasename(pathValue: string): string {
+  const normalized = pathValue.replace(/\/+$/, "")
+  if (!normalized) return pathValue
+  return normalized.split("/").pop() ?? normalized
+}
+
 function joinWorkspacePath(parentPath: string, name: string): string {
   const normalizedName = name.trim().replace(/^\/+/, "").replace(/\/+$/, "")
   if (!parentPath) return normalizedName
@@ -991,6 +997,7 @@ export function WorkspaceTab({
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
   const [tree, setTree] = useState<FileNode[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [openedFiles, setOpenedFiles] = useState<Array<{ id: string; name: string }>>([])
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [sidebarWidth, setSidebarWidth] = useState(fileSidebarRef.current.default)
   const [isDragging, setIsDragging] = useState(false)
@@ -1342,6 +1349,28 @@ export function WorkspaceTab({
     return findNode(tree, selectedId)
   }, [tree, selectedId])
 
+  useEffect(() => {
+    if (!selectedNode || selectedNode.type !== "file") return
+    setOpenedFiles((prev) => {
+      if (prev.some((file) => file.id === selectedNode.id)) return prev
+      return [...prev, { id: selectedNode.id, name: selectedNode.name }]
+    })
+  }, [selectedNode])
+
+  const handleWorkspaceNodeSelect = useCallback((nodeId: string) => {
+    setSelectedId(nodeId)
+  }, [])
+
+  const handleOpenedFileClose = useCallback((fileId: string) => {
+    const index = openedFiles.findIndex((file) => file.id === fileId)
+    if (index === -1) return
+    const next = openedFiles.filter((file) => file.id !== fileId)
+    setOpenedFiles(next)
+    if (selectedId === fileId) {
+      setSelectedId(next[index]?.id ?? next[index - 1]?.id ?? null)
+    }
+  }, [openedFiles, selectedId])
+
   const selectedDirectoryPath = useMemo(() => {
     if (!selectedNode) return ""
     return selectedNode.type === "dir"
@@ -1396,6 +1425,11 @@ export function WorkspaceTab({
           path: targetPath,
           content: "",
         })
+        setOpenedFiles((prev) => (
+          prev.some((file) => file.id === targetPath)
+            ? prev
+            : [...prev, { id: targetPath, name: workspaceBasename(targetPath) }]
+        ))
         setSelectedId(targetPath)
       }
       setNewItemType(null)
@@ -1415,18 +1449,22 @@ export function WorkspaceTab({
   ])
 
   const handleFileDeleted = useCallback(() => {
+    setOpenedFiles((prev) => prev.filter((file) => file.id !== selectedId))
     setSelectedId(null)
     if (workspaceRoot !== null) {
       void loadRoot(workspaceRoot, true)
     }
-  }, [loadRoot, workspaceRoot])
+  }, [loadRoot, selectedId, workspaceRoot])
 
   const handlePathChange = useCallback((nextPath: string) => {
+    setOpenedFiles((prev) => prev.map((file) => (
+      file.id === selectedId ? { id: nextPath, name: workspaceBasename(nextPath) } : file
+    )))
     setSelectedId(nextPath)
     if (workspaceRoot !== null) {
       void loadRoot(workspaceRoot, true)
     }
-  }, [loadRoot, workspaceRoot])
+  }, [loadRoot, selectedId, workspaceRoot])
 
   const handleWorkspaceRepoSelect = useCallback(async (repo: { name: string; path: string }) => {
     if (!projectId) return
@@ -1738,7 +1776,7 @@ export function WorkspaceTab({
                 node={node}
                 depth={0}
                 selectedId={selectedId}
-                onSelect={setSelectedId}
+                onSelect={handleWorkspaceNodeSelect}
                 onExpand={handleExpand}
                 expandedIds={expandedIds}
                 onToggleExpand={handleToggleExpand}
@@ -1761,6 +1799,44 @@ export function WorkspaceTab({
       {/* Right: preview pane */}
       {selectedNode && selectedNode.type === "file" && (
         <div ref={previewPaneRef} className="flex min-w-0 flex-1 flex-col overflow-hidden max-lg:w-full">
+          {openedFiles.length > 0 && (
+            <div className="hidden h-9 shrink-0 items-stretch overflow-x-auto overflow-y-hidden border-b border-border/40 bg-black/[0.02] max-lg:flex dark:bg-white/[0.025]">
+              {openedFiles.map((file) => {
+                const active = file.id === selectedId
+                return (
+                  <div
+                    key={file.id}
+                    title={file.id}
+                    className={cn(
+                      "group/tab flex max-w-[190px] shrink-0 items-center gap-2 border-r border-border/35 px-3 text-left text-[11px] transition-colors",
+                      active
+                        ? "bg-background text-foreground"
+                        : "text-muted-foreground hover:bg-black/[0.035] hover:text-foreground dark:hover:bg-white/[0.045]",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(file.id)}
+                      className="min-w-0 flex-1 truncate text-left font-medium"
+                    >
+                      {file.name}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Close ${file.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleOpenedFileClose(file.id)
+                      }}
+                      className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-black/[0.06] hover:text-foreground dark:hover:bg-white/10"
+                    >
+                      <VscClose className="size-3" />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
           <FilePreviewPane
             capabilities={capabilities}
             sessionKey={effectiveSessionKey}
