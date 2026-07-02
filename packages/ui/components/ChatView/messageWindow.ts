@@ -137,12 +137,13 @@ export function applyInitialPage(input: {
   oldestSeq: number | null
   newestSeq: number | null
   requestedLimit?: number
+  hasOlder?: boolean
 }): WindowState {
   const requestedLimit = input.requestedLimit ?? INITIAL_PAGE
   return {
     oldestLoadedSeq: input.oldestSeq,
     newestLoadedSeq: input.newestSeq,
-    hasOlder: input.returnedCount >= requestedLimit,
+    hasOlder: input.hasOlder ?? input.returnedCount >= requestedLimit,
     hasNewer: false,
     isLoadingOlder: false,
     isLoadingNewer: false,
@@ -161,6 +162,7 @@ export function applyOlderPage(input: {
   evictedFromEnd: number
   evictedNewestSeq: number | null
   requestedLimit?: number
+  hasOlder?: boolean
 }): WindowState {
   const requestedLimit = input.requestedLimit ?? OLDER_PAGE
   const { prevState, evictedFromEnd } = input
@@ -168,7 +170,7 @@ export function applyOlderPage(input: {
     oldestLoadedSeq: input.newOldestSeq ?? prevState.oldestLoadedSeq,
     newestLoadedSeq:
       evictedFromEnd > 0 ? input.evictedNewestSeq : prevState.newestLoadedSeq,
-    hasOlder: input.returnedCount >= requestedLimit,
+    hasOlder: input.hasOlder ?? input.returnedCount >= requestedLimit,
     hasNewer: prevState.hasNewer || evictedFromEnd > 0,
     isLoadingOlder: false,
     isLoadingNewer: prevState.isLoadingNewer,
@@ -186,6 +188,7 @@ export function applyNewerPage(input: {
   evictedFromStart: number
   evictedOldestSeq: number | null
   requestedLimit?: number
+  hasNewer?: boolean
 }): WindowState {
   const requestedLimit = input.requestedLimit ?? OLDER_PAGE
   const { prevState, evictedFromStart } = input
@@ -194,7 +197,7 @@ export function applyNewerPage(input: {
       evictedFromStart > 0 ? input.evictedOldestSeq : prevState.oldestLoadedSeq,
     newestLoadedSeq: input.newNewestSeq ?? prevState.newestLoadedSeq,
     hasOlder: prevState.hasOlder || evictedFromStart > 0,
-    hasNewer: input.returnedCount >= requestedLimit,
+    hasNewer: input.hasNewer ?? input.returnedCount >= requestedLimit,
     isLoadingOlder: prevState.isLoadingOlder,
     isLoadingNewer: false,
   }

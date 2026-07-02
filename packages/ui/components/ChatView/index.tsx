@@ -976,6 +976,7 @@ export function ChatView({
                     ? freshLast.gatewayIndex
                     : null,
                 requestedLimit: reconcileQuery.limit,
+                hasOlder: history.hasOlder,
               }),
             )
           }
@@ -1039,6 +1040,7 @@ export function ChatView({
             oldestSeq,
             newestSeq,
             requestedLimit: initialQuery.limit,
+            hasOlder: history.hasOlder,
           })
         )
         setState({
@@ -2262,6 +2264,7 @@ export function ChatView({
             evictedFromEnd,
             evictedNewestSeq,
             requestedLimit: OLDER_PAGE,
+            hasOlder: response.hasOlder,
           })
         )
 
@@ -2436,6 +2439,7 @@ export function ChatView({
             evictedFromStart,
             evictedOldestSeq,
             requestedLimit: OLDER_PAGE,
+            hasNewer: response.hasNewer,
           })
         )
 
@@ -2540,6 +2544,7 @@ export function ChatView({
           oldestSeq,
           newestSeq,
           requestedLimit: q.limit,
+          hasOlder: history.hasOlder,
         })
       )
       setState((current) => ({

@@ -240,6 +240,17 @@ describe("applyInitialPage", () => {
     expect(state.hasOlder).toBe(false)
   })
 
+  test("server hasOlder overrides short visible page when oldest seq is not first", () => {
+    const state = applyInitialPage({
+      returnedCount: 52,
+      oldestSeq: 10,
+      newestSeq: 61,
+      hasOlder: true,
+    })
+    expect(state.hasOlder).toBe(true)
+    expect(state.oldestLoadedSeq).toBe(10)
+  })
+
   test("custom requestedLimit respected", () => {
     expect(
       applyInitialPage({
@@ -323,6 +334,20 @@ describe("applyOlderPage", () => {
         evictedNewestSeq: null,
       }).hasOlder,
     ).toBe(false)
+  })
+
+  test("server hasOlder keeps top pagination alive after short older page", () => {
+    expect(
+      applyOlderPage({
+        prevState: baseState,
+        returnedCount: 52,
+        newOldestSeq: 10,
+        prevLoadedLength: 52,
+        evictedFromEnd: 0,
+        evictedNewestSeq: null,
+        hasOlder: true,
+      }).hasOlder,
+    ).toBe(true)
   })
 
   test("evictedNewestSeq only used when evictedFromEnd > 0", () => {
@@ -434,6 +459,19 @@ describe("applyNewerPage", () => {
         evictedOldestSeq: null,
       }).hasNewer,
     ).toBe(false)
+  })
+
+  test("server hasNewer overrides short visible newer page", () => {
+    expect(
+      applyNewerPage({
+        prevState: baseState,
+        returnedCount: 52,
+        newNewestSeq: 311,
+        evictedFromStart: 0,
+        evictedOldestSeq: null,
+        hasNewer: true,
+      }).hasNewer,
+    ).toBe(true)
   })
 
   test("evictedOldestSeq only used when evictedFromStart > 0", () => {
