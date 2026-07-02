@@ -326,10 +326,10 @@ function CronJobEditDialog({
           ? "Check the schedule, model, delivery, and prompt before OpenClaw starts running it."
           : job?.name
       }
-      className="w-[min(860px,calc(100vw-24px))] !rounded-md border-white/[0.1] bg-[var(--glass-bg)] px-5 py-5 shadow-[0_24px_72px_-32px_rgba(0,0,0,0.88),inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-[36px] backdrop-saturate-[180%]"
+      className="flex max-h-[min(820px,calc(100svh-40px))] w-[min(860px,calc(100vw-24px))] flex-col overflow-hidden !rounded-md border-white/[0.1] bg-[var(--glass-bg)] px-5 py-5 shadow-[0_24px_72px_-32px_rgba(0,0,0,0.88),inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-[36px] backdrop-saturate-[180%] max-md:max-h-[76svh] max-md:w-[calc(100vw-28px)] max-md:px-4 max-md:py-4 max-sm:max-h-[72svh] max-sm:px-3"
     >
       {draft && (
-        <div className="flex flex-col gap-4">
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-1 max-sm:gap-3">
           <div className="grid gap-3 md:grid-cols-2">
             <label className="flex flex-col gap-1.5">
               <span className="text-[11px] font-medium text-muted-foreground">Name</span>
@@ -456,7 +456,7 @@ function CronJobEditDialog({
               value={draft.prompt}
               onChange={(event) => setDraft((prev) => prev ? { ...prev, prompt: event.target.value } : prev)}
               className={cn(
-                "min-h-[96px] max-h-[200px] resize-y rounded-md border px-3 py-2.5",
+                "min-h-[96px] max-h-[200px] resize-y rounded-md border px-3 py-2.5 max-sm:min-h-[76px]",
                 "border-[var(--glass-input-border)] bg-[var(--glass-input-bg)]",
                 "text-[13px] leading-relaxed text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none",
                 "placeholder:text-muted-foreground/40 focus:border-white/15",
@@ -470,7 +470,7 @@ function CronJobEditDialog({
             </div>
           )}
 
-          <div className="mt-2 grid grid-cols-2 gap-2.5">
+          <div className="sticky bottom-0 -mx-1 mt-2 grid grid-cols-2 gap-2.5 border-t border-white/[0.06] bg-[var(--glass-bg)] px-1 pt-3 backdrop-blur-xl max-sm:grid-cols-1">
             <button
               type="button"
               onClick={() => onSave(job, draft)}
