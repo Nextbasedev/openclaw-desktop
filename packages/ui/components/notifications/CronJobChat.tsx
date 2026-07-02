@@ -278,7 +278,7 @@ export function CronJobChat({
         <>
           <RunStatusBanner lastRun={lastRun} />
           {messages.length === 0 ? (
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-5 py-12 text-center backdrop-blur-xl">
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-5 py-12 text-center backdrop-blur-xl mb-4">
               <Icons.Chat
                 size={28}
                 className="mx-auto mb-3 text-muted-foreground/40"
