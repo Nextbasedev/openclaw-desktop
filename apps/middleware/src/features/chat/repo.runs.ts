@@ -202,6 +202,37 @@ export class RunRepository {
     return row ? rowToRun(row) : null;
   }
 
+  listPendingRuns(sessionKey: string): ProjectedRun[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM v2_runs
+      WHERE session_key = @sessionKey AND status IN ('queued', 'thinking', 'streaming', 'tool_running')
+      ORDER BY started_at_ms ASC
+    `).all({ sessionKey }) as Record<string, unknown>[];
+    return rows.map(rowToRun);
+  }
+
+  // A user abort (or /stop) tears the WHOLE session down at the gateway
+  // (sessions.abort), so every run that is still pending in our projection must
+  // be moved to a terminal state too. If we only terminalize the one run the
+  // caller targeted, a second still-pending run (created by an abort<->send
+  // race, or an abort that arrived before the run was recorded) is left
+  // 'pending' forever. That orphan then poisons `findOldestPendingRun`, which is
+  // the fallback used to correlate every runId-less gateway event: the orphan
+  // (oldest) keeps stealing the terminal `chat.run.done` of every FUTURE run, so
+  // subsequent replies render in full but the UI stays stuck on "Writing...".
+  // Terminalizing all pending runs on an explicit abort is safe because the
+  // desktop UI only ever has one active run at a time.
+  abortPendingRuns(sessionKey: string, exceptRunId?: string): string[] {
+    const aborted: string[] = [];
+    for (const run of this.listPendingRuns(sessionKey)) {
+      if (exceptRunId && run.runId === exceptRunId) continue;
+      this.updateRunStatus(run.runId, "aborted", { statusLabel: null });
+      this.completeRunningTools(sessionKey, run.runId, { status: "error", resultMeta: { reason: "aborted" }, updatedAtMs: Date.now() });
+      aborted.push(run.runId);
+    }
+    return aborted;
+  }
+
   latestRun(sessionKey: string): ProjectedRun | null {
     const row = this.db.prepare(`SELECT * FROM v2_runs WHERE session_key = @sessionKey ORDER BY updated_at_ms DESC LIMIT 1`).get({ sessionKey }) as Record<string, unknown> | undefined;
     return row ? rowToRun(row) : null;
