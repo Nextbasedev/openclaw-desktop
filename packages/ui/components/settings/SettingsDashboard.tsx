@@ -130,7 +130,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
             (!isCompactSidebar || compactSidebarOpen) && "h-auto w-auto opacity-100",
           )}>
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 pl-1">
+              <div className="min-w-0">
                 <p className="whitespace-nowrap text-[15px] font-semibold text-foreground">Settings</p>
                 <p className="mt-1 whitespace-nowrap text-[12px] text-muted-foreground">Manage OpenClaw</p>
               </div>
