@@ -314,6 +314,28 @@ export class ChatLiveIngest {
     const projection = confirmed ? { upserted: 1, lastSeq: confirmed.openclawSeq } : this.context.messages.upsertMessages(normalized);
     if (!confirmed && projection.upserted === 0) {
       this.log.info("message.replay.noop", { sessionKey, role: projectedMessage.role, messageId: projectedMessage.messageId, messageSeq: projectedMessage.openclawSeq });
+      // A replayed/deduped assistant FINAL still has to settle its run. Live
+      // deltas already painted the full answer, but when this final message is an
+      // exact replay (upserted === 0) we would return here BEFORE the run
+      // finalization + terminal broadcast below -> the client shows the complete
+      // reply while the run stays active forever ("Writing..." stuck). This is
+      // intermittent: it only triggers when the final's text/seq exactly matches
+      // what live streaming already stored. Explicitly finalize the run and emit
+      // chat.run.done so the spinner clears (mirrors the history-backfill path).
+      if (projectedMessage.role === "assistant") {
+        const dedupRun = this.associatedRunForMessage(sessionKey, message, optimistic?.runId);
+        if (
+          dedupRun &&
+          ["queued", "thinking", "streaming", "tool_running"].includes(dedupRun.status) &&
+          !this.context.runs.hasRunningTools(sessionKey, dedupRun.runId)
+        ) {
+          this.context.runs.updateRunStatus(dedupRun.runId, "done", { statusLabel: null });
+          this.liveAssistantText.delete(dedupRun.runId);
+          const doneRun = this.context.runs.getRun(dedupRun.runId);
+          if (doneRun) this.broadcastRunStatus(sessionKey, doneRun, "chat.run.done");
+          this.log.info("message.replay.noop.run-finalized", { sessionKey, runId: dedupRun.runId });
+        }
+      }
       return;
     }
     const emittedMessage = confirmed?.data ?? message;
