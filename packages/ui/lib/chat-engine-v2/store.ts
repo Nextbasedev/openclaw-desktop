@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query"
-import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "../../components/ChatView/types"
+import type { ChatMessage, CompactionMarker, InlineToolCall, SpawnedSubagent, StreamStatus } from "../../components/ChatView/types"
 import { dedupeChatMessages } from "../chatMessageDedupe"
 import { isStandaloneChatErrorText } from "../chatErrorText"
 import { frontendLog } from "../clientLogs"
@@ -22,6 +22,11 @@ export type SessionState = {
   statusLabel: string | null
   pendingTools: InlineToolCall[]
   spawnedSubagents: SpawnedSubagent[]
+  // Auto-compaction surfaced from OCPlatform. `activeRunId` is set while a
+  // compaction is in-flight (drives the live "Compacting automatically"
+  // spinner divider); `markers` are the durable, replayable compaction records
+  // (summary/goal) rendered as click-to-expand dividers in the timeline.
+  compaction: { activeRunId: string | null; markers: CompactionMarker[] }
   lastPatchAtMs: number
   activityStartedAtMs: number
   // A bare terminal "done" chat.status that arrived BEFORE the active turn's
@@ -84,6 +89,7 @@ function cloneState(state: SessionState): SessionState {
     statusLabel: state.statusLabel,
     pendingTools: state.pendingTools,
     spawnedSubagents: state.spawnedSubagents,
+    compaction: state.compaction,
     lastPatchAtMs: state.lastPatchAtMs,
     activityStartedAtMs: state.activityStartedAtMs,
     pendingDoneStatus: state.pendingDoneStatus,
@@ -91,7 +97,7 @@ function cloneState(state: SessionState): SessionState {
 }
 
 function defaultState(): SessionState {
-  return { cursor: 0, messages: [], historyCoverage: "none", messageCount: null, status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0, pendingDoneStatus: null }
+  return { cursor: 0, messages: [], historyCoverage: "none", messageCount: null, status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], compaction: { activeRunId: null, markers: [] }, lastPatchAtMs: 0, activityStartedAtMs: 0, pendingDoneStatus: null }
 }
 
 function normalizedSpawnText(value: string | null | undefined) {
@@ -925,7 +931,69 @@ function carryReasoningToFinalAssistant(state: SessionState, frame: PatchFrame) 
   }
 }
 
+function applyCompactionFromPatch(state: SessionState, frame: PatchFrame): boolean {
+  const type = patchSemanticType(frame)
+  const rawType = frame.patch.type
+  const payload = patchPayload(frame)
+
+  if (type === "chat.compaction.status" || rawType === "chat.compaction.status") {
+    const active = payload?.active === true || (typeof payload?.phase === "string" && payload.phase === "start")
+    const runId = typeof payload?.runId === "string" ? payload.runId : null
+    state.compaction = {
+      ...state.compaction,
+      activeRunId: active ? (runId ?? state.compaction.activeRunId ?? "active") : null,
+    }
+    return true
+  }
+
+  if (type === "chat.compaction.marker" || rawType === "chat.compaction.marker") {
+    const id = typeof payload?.compactionId === "string" && payload.compactionId.trim()
+      ? payload.compactionId
+      : typeof payload?.messageId === "string" && payload.messageId.trim()
+        ? payload.messageId
+        : `compaction:${frame.patch.cursor}`
+    const marker: CompactionMarker = {
+      id,
+      runId: typeof payload?.runId === "string" ? payload.runId : null,
+      summary: typeof payload?.summary === "string" ? payload.summary : "",
+      tokensBefore: typeof payload?.tokensBefore === "number" ? payload.tokensBefore : null,
+      firstKeptEntryId: typeof payload?.firstKeptEntryId === "string" ? payload.firstKeptEntryId : null,
+      details: payload?.details ?? null,
+      fromHook: payload?.fromHook === true,
+      createdAtMs: frame.patch.createdAtMs || Date.now(),
+    }
+    // Live delivery and history replay can both surface the same compaction.
+    // Merge (preferring the first-seen timestamp + any populated field) so a
+    // sparser replay never blanks out data captured live.
+    const existing = state.compaction.markers.find((item) => item.id === marker.id)
+    const finalMarker: CompactionMarker = existing
+      ? {
+          id: marker.id,
+          runId: marker.runId ?? existing.runId ?? null,
+          summary: marker.summary || existing.summary,
+          tokensBefore: marker.tokensBefore ?? existing.tokensBefore ?? null,
+          firstKeptEntryId: marker.firstKeptEntryId ?? existing.firstKeptEntryId ?? null,
+          details: marker.details ?? existing.details ?? null,
+          fromHook: marker.fromHook || existing.fromHook,
+          createdAtMs: existing.createdAtMs,
+        }
+      : marker
+    const withoutDupe = state.compaction.markers.filter((item) => item.id !== marker.id)
+    const markers = [...withoutDupe, finalMarker].sort((a, b) => a.createdAtMs - b.createdAtMs)
+    // A completed compaction marker also clears any lingering "active" flag for
+    // the same run (the end status may have been missed on a reconnect/replay).
+    const activeRunId = finalMarker.runId && state.compaction.activeRunId === finalMarker.runId
+      ? null
+      : state.compaction.activeRunId
+    state.compaction = { activeRunId, markers }
+    return true
+  }
+
+  return false
+}
+
 function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
+  if (applyCompactionFromPatch(state, frame)) return
   if (applySubagentLifecycleFromPatch(state, frame)) return
   if (applyCanonicalToolFromPatch(state, frame)) return
   if (applyToolResultFromPatch(state, frame)) return

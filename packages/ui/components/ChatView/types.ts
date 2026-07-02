@@ -137,6 +137,18 @@ export type ChatMessage = {
   }
 }
 
+export type CompactionMarker = {
+  id: string
+  runId?: string | null
+  /** OCPlatform-authored summary (markdown Goal/Progress). Shown verbatim. */
+  summary: string
+  tokensBefore?: number | null
+  firstKeptEntryId?: string | null
+  details?: unknown
+  fromHook?: boolean
+  createdAtMs: number
+}
+
 export type SpawnedSubagent = {
   id: string
   label: string
