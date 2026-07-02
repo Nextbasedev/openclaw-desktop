@@ -13,7 +13,7 @@ import { InspectorPanel } from "@/components/inspector/InspectorPanel"
 import type { InspectorScope } from "@/components/inspector/inspectorScope"
 import { effectiveInspectorScope, readStoredInspectorScope, writeStoredInspectorScope } from "@/components/inspector/inspectorScope"
 import { SkillPage } from "@/components/SkillPage"
-import { type SettingSection } from "@/components/settings/SettingsDashboard"
+import { SettingsDashboard, type SettingSection } from "@/components/settings/SettingsDashboard"
 import { SettingsDialog } from "@/components/settings/SettingsDialog"
 import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
@@ -250,6 +250,10 @@ function fallbackPathForTab(tab: string): string {
   if (tab === "connect") return "/connect"
   if (tab === "notifications") return "/notifications"
   return "/"
+}
+
+function isMobileOrTabletSettingsViewport(): boolean {
+  return typeof window !== "undefined" && window.innerWidth < 1024
 }
 
 function shouldUseNativeWindowChrome(): boolean {
@@ -545,6 +549,7 @@ function AppShell({
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true
   )
+  const [settingsAsPage, setSettingsAsPage] = useState(() => isMobileOrTabletSettingsViewport())
   const [terminalActive, setTerminalActive] = useState(false)
   const [connectAutoOpenEnabled, setConnectAutoOpenEnabled] = useState(() =>
     Boolean(initialConnect),
@@ -563,7 +568,10 @@ function AppShell({
     if (typeof window === "undefined") return initialConnect ? "connect" : "chat"
     const route = parseRoute(getRoutePath())
     if (route.kind === "inspector") return "inspector"
-    if (route.kind === "tab") return route.tab === "settings" ? (initialConnect ? "connect" : "chat") : route.tab
+    if (route.kind === "tab") {
+      if (route.tab === "settings") return isMobileOrTabletSettingsViewport() ? "settings" : (initialConnect ? "connect" : "chat")
+      return route.tab
+    }
     return initialConnect ? "connect" : "chat"
   })
   const effectiveActiveTab =
@@ -944,7 +952,7 @@ function AppShell({
 
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("usage")
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(() =>
-    typeof window !== "undefined" && isSettingsRoute(getRoutePath())
+    typeof window !== "undefined" && isSettingsRoute(getRoutePath()) && !isMobileOrTabletSettingsViewport()
   )
 
   useEffect(() => {
@@ -998,7 +1006,12 @@ function AppShell({
       setComposerError(null)
       if (route.tab === "settings") {
         setSettingsSection("usage")
-        setSettingsDialogOpen(true)
+        if (settingsAsPage) {
+          setSettingsDialogOpen(false)
+          setActiveTab("settings")
+        } else {
+          setSettingsDialogOpen(true)
+        }
         return
       }
       setSettingsDialogOpen(false)
@@ -1202,7 +1215,7 @@ function AppShell({
         }
       }
     }
-  }, [activeSpaceId, clearConversationState, editorGroups.focusedGroupId, recoverToDraftRoute, switchSpace])
+  }, [activeSpaceId, clearConversationState, editorGroups.focusedGroupId, recoverToDraftRoute, settingsAsPage, switchSpace])
 
   useEffect(() => {
     if (!activeSpaceId) return
@@ -1346,8 +1359,14 @@ function AppShell({
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setComposerError(null)
     setSettingsSection(section)
-    setSettingsDialogOpen(true)
-  }, [activeTab])
+    if (settingsAsPage) {
+      setSettingsDialogOpen(false)
+      setActiveTab("settings")
+      clearConversationState()
+    } else {
+      setSettingsDialogOpen(true)
+    }
+  }, [activeTab, clearConversationState, settingsAsPage])
 
   useEffect(() => {
     function handleOpenSettings(event: Event) {
@@ -1493,6 +1512,8 @@ function AppShell({
   useEffect(() => {
     function onResize() {
       const w = window.innerWidth
+      const compactSettings = w < 1024
+      setSettingsAsPage(compactSettings)
       if (w < 1024) {
         setSidebarOpen(false)
         setInspectorOpen(false)
@@ -1501,6 +1522,19 @@ function AppShell({
     window.addEventListener("resize", onResize)
     return () => window.removeEventListener("resize", onResize)
   }, [])
+
+  useEffect(() => {
+    if (!isSettingsRoute(getRoutePath())) return
+    if (settingsAsPage) {
+      setSettingsDialogOpen(false)
+      setActiveTab("settings")
+      return
+    }
+    if (activeTab === "settings") {
+      setActiveTab(prevTabRef.current === "settings" ? "chat" : prevTabRef.current)
+    }
+    setSettingsDialogOpen(true)
+  }, [activeTab, settingsAsPage])
 
   useTerminalShortcut(toggleTerminal)
   useAppShortcuts()
@@ -3598,6 +3632,18 @@ function MainContent({
           onModelSelect={onDraftModelSelect}
           glowOnMount
           draftKey={`topic:${activeTopic.projectId}:${activeTopic.id}:draft`}
+        />
+      </div>
+    )
+  }
+
+  if (activeTab === "settings") {
+    return (
+      <div className="flex h-full w-full min-w-0 overflow-hidden">
+        <SettingsDashboard
+          onBack={onSettingsBack}
+          activeSection={settingsSection}
+          onSectionChange={onSettingsSectionChange}
         />
       </div>
     )
