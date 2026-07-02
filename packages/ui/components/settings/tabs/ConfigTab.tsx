@@ -136,6 +136,54 @@ export function ConfigTab() {
     setError(null)
   }
 
+  const actionControls = (
+    <div className="flex shrink-0 items-center gap-1 rounded-xl bg-black/[0.028] p-1 dark:bg-white/[0.035]">
+      {editing ? (
+        <>
+          <button
+            type="button"
+            onClick={saveFile}
+            disabled={saving}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-foreground px-2.5 py-1.5 text-[11px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <LuSave size={12} />
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={cancelEdit}
+            disabled={saving}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.055] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <LuX size={12} />
+            Cancel
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            disabled={loading}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.055] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <LuPencil size={12} />
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => loadFile(selected)}
+            disabled={loading}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.055] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <LuRefreshCw size={12} className={loading ? "animate-spin" : ""} />
+            Refresh
+          </button>
+        </>
+      )}
+    </div>
+  )
+
   return (
     <div className="flex h-full min-h-0 w-full bg-transparent">
       <aside className={cn(
@@ -189,14 +237,17 @@ export function ConfigTab() {
       )}>
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {isCompactConfig ? (
-            <button
-              type="button"
-              onClick={() => setCompactDetailOpen(false)}
-              className="mb-4 inline-flex w-fit cursor-pointer items-center gap-2 rounded-lg bg-black/[0.04] px-3 py-2 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.06] hover:text-foreground dark:bg-white/[0.045] dark:hover:bg-white/[0.07]"
-            >
-              <LuArrowLeft size={14} />
-              Back
-            </button>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setCompactDetailOpen(false)}
+                className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-lg bg-black/[0.04] px-3 py-2 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.06] hover:text-foreground dark:bg-white/[0.045] dark:hover:bg-white/[0.07]"
+              >
+                <LuArrowLeft size={14} />
+                Back
+              </button>
+              {actionControls}
+            </div>
           ) : null}
 
           <div className="flex items-center justify-between gap-3 px-2 pb-4 pr-12 max-lg:pr-2">
@@ -209,51 +260,7 @@ export function ConfigTab() {
               </div>
               <p className="mt-1 truncate text-[11px] text-muted-foreground/65">{selected.description}</p>
             </div>
-            <div className="flex shrink-0 items-center gap-1 rounded-xl bg-black/[0.028] p-1 dark:bg-white/[0.035]">
-              {editing ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={saveFile}
-                    disabled={saving}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-foreground px-2.5 py-1.5 text-[11px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <LuSave size={12} />
-                    {saving ? "Saving…" : "Save"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={cancelEdit}
-                    disabled={saving}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.055] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <LuX size={12} />
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setEditing(true)}
-                    disabled={loading}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.055] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <LuPencil size={12} />
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => loadFile(selected)}
-                    disabled={loading}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.055] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <LuRefreshCw size={12} className={loading ? "animate-spin" : ""} />
-                    Refresh
-                  </button>
-                </>
-              )}
-            </div>
+            {!isCompactConfig && actionControls}
           </div>
 
           {error && <div className="mx-4 mt-3 rounded-xl bg-red-500/10 px-4 py-2 text-[12px] text-red-400">{error}</div>}
