@@ -134,6 +134,7 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
     : context.runs.listToolCalls(params.sessionKey)
   ).map(toolCallProjection);
   const sessionStatus = legacySessionStatusFromRunStatus(runStatus);
+  const compactionMarkers = context.messages.listCompactionMarkers(params.sessionKey);
 
   return {
     ok: true,
@@ -151,6 +152,7 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
     oldestLoadedSeq: params.historyWindow?.oldestLoadedSeq ?? null,
     messages: params.messages,
     messageCount: params.messageCount,
+    compactionMarkers,
     tools,
     toolCalls: tools,
     cursor: params.cursor,

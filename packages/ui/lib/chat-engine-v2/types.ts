@@ -35,6 +35,17 @@ export type ToolCallProjectionV2 = {
 
 export type MessageProjectionV2 = unknown
 
+export type CompactionMarkerV2 = {
+  id: string
+  runId?: string | null
+  summary?: string | null
+  tokensBefore?: number | null
+  firstKeptEntryId?: string | null
+  details?: unknown
+  fromHook?: boolean
+  createdAtMs: number
+}
+
 export type ChatBootstrapV2 = {
   ok: boolean
   source?: string
@@ -51,6 +62,9 @@ export type ChatBootstrapV2 = {
   oldestLoadedSeq?: number | null
   messages: MessageProjectionV2[]
   messageCount: number
+  /** Durable auto-compaction markers, reconstructed from projection events so the
+   *  divider + summary survive reload (the live patch stream stale-skips old cursors). */
+  compactionMarkers?: CompactionMarkerV2[]
   tools?: ToolCallProjectionV2[]
   toolCalls?: ToolCallProjectionV2[]
   cursor?: number

@@ -1886,6 +1886,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       throw new HttpError(400, "Invalid chat messages query", "INVALID_QUERY", parsed.error.flatten());
     }
     log.info("messages.read.start", { sessionKey: parsed.data.sessionKey, afterSeq: parsed.data.afterSeq ?? null, beforeSeq: parsed.data.beforeSeq ?? null, limit: parsed.data.limit });
+    // Lazily surface historical auto-compaction markers for sessions opened via
+    // the windowed read fast-path (which skips the bootstrap/subscribe flow that
+    // normally triggers the backfill). Idempotent + guarded, so cheap to call.
+    void context.chatLive.ensureCompactionBackfill(parsed.data.sessionKey).catch(() => {});
     const hasWindowQuery =
       parsed.data.afterSeq !== undefined ||
       parsed.data.beforeSeq !== undefined ||
@@ -1924,7 +1928,12 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }
     const sessionCursor = context.messages.latestSessionCursor(parsed.data.sessionKey);
     const visibleMessages = messages.filter((message) => !isNonUserAttachedFileEcho(message));
-    log.info("messages.read.end", { sessionKey: parsed.data.sessionKey, messageCount: visibleMessages.length, cursor: sessionCursor });
+    const firstVisibleSeq = visibleMessages[0]?.openclawSeq ?? null;
+    const lastVisibleSeq = visibleMessages[visibleMessages.length - 1]?.openclawSeq ?? null;
+    const knownTotalMessages = Math.max(context.messages.nextMessageSeq(parsed.data.sessionKey) - 1, 0);
+    const hasOlder = firstVisibleSeq !== null && firstVisibleSeq > 1;
+    const hasNewer = lastVisibleSeq !== null && knownTotalMessages > lastVisibleSeq;
+    log.info("messages.read.end", { sessionKey: parsed.data.sessionKey, messageCount: visibleMessages.length, cursor: sessionCursor, hasOlder, hasNewer, knownTotalMessages, oldestLoadedSeq: firstVisibleSeq, newestLoadedSeq: lastVisibleSeq });
     return {
       ok: true,
       source: "middleware-projection",
@@ -1940,6 +1949,11 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         updatedAtMs: message.updatedAtMs,
       })),
       messageCount: visibleMessages.length,
+      hasOlder,
+      hasNewer,
+      oldestLoadedSeq: firstVisibleSeq,
+      newestLoadedSeq: lastVisibleSeq,
+      knownTotalMessages,
       cursor: sessionCursor,
     };
   });

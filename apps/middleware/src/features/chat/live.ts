@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import fsSync from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { AppContext } from "../../app.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
@@ -150,6 +154,9 @@ export class ChatLiveIngest {
   private recentlyConfirmedUsers = new Map<string, Array<{ id: string; text: string; runId?: string; idempotencyKey?: string; openclawSeq: number; confirmedAtMs: number }>>();
   private liveAssistantText = new Map<string, string>();
   private historyBackfillTimers = new Map<string, NodeJS.Timeout>();
+  // Sessions whose transcript we've already scanned for historical compaction
+  // markers (once per process; persisted markers dedupe across restarts).
+  private compactionBackfilled = new Set<string>();
   private readonly subagents = new SubagentCorrelation();
   private readonly log = createLogger("chat-live");
 
@@ -171,6 +178,10 @@ export class ChatLiveIngest {
       await this.context.gateway.request("sessions.messages.subscribe", { key: sessionKey });
       this.subscribed.add(sessionKey);
       this.log.info("session.subscribe.end", { sessionKey, subscribedSessions: this.subscribed.size });
+      // Surface any compaction markers that already exist in this session's
+      // transcript (compactions that happened before we were subscribed / before
+      // this feature shipped) so the divider shows on existing big-context chats.
+      void this.backfillCompactionMarkers(sessionKey);
     } catch (error) {
       this.log.error("session.subscribe.fail", { sessionKey, ...errorMeta(error) });
       throw error;
@@ -909,6 +920,13 @@ export class ChatLiveIngest {
     const compactionId = firstString(data.id, payload.id, firstKeptEntryId)
       ?? `compaction:${sessionKey}:${firstKeptEntryId ?? tokensBefore ?? "?"}`;
 
+    // Don't append a duplicate marker patch for a compaction we've already
+    // persisted (e.g. transcript backfill re-running, or live + replay overlap).
+    if (this.context.messages.hasCompactionMarker(sessionKey, compactionId)) {
+      this.log.info("compaction.marker.skip-duplicate", { sessionKey, compactionId });
+      return;
+    }
+
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.compaction.marker",
@@ -936,6 +954,80 @@ export class ChatLiveIngest {
       createdAtMs: patch.createdAtMs,
     });
     this.log.info("compaction.marker.broadcast", { sessionKey, compactionId, tokensBefore, summaryLength: summary.length, fromHook, cursor: patch.cursor });
+  }
+
+  // One-time scan of a session's transcript file for `type:"compaction"` entries,
+  // re-emitted through handleCompaction (which dedupes by compactionId). Lets
+  // existing big-context sessions render the compaction divider on load.
+  /** Public entry so read paths (e.g. windowed /api/chat/messages) can lazily
+   *  surface historical compaction markers even when the session was never
+   *  routed through the full bootstrap/subscribe flow. Idempotent + guarded. */
+  async ensureCompactionBackfill(sessionKey: string) {
+    await this.backfillCompactionMarkers(sessionKey);
+  }
+
+  private async backfillCompactionMarkers(sessionKey: string) {
+    if (this.compactionBackfilled.has(sessionKey)) return;
+    this.compactionBackfilled.add(sessionKey);
+    try {
+      let sessionFile = this.transcriptPathForSession(sessionKey);
+      if (!sessionFile) {
+        const history = await this.context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 1 }, 10_000).catch(() => null);
+        sessionFile = typeof history?.sessionFile === "string" ? history.sessionFile : null;
+      }
+      if (!sessionFile) {
+        this.log.info("compaction.backfill.no-session-file", { sessionKey });
+        return;
+      }
+      const raw = await fs.readFile(sessionFile, "utf8").catch((error) => {
+        this.log.info("compaction.backfill.read-fail", { sessionKey, sessionFile, ...errorMeta(error) });
+        return null;
+      });
+      if (!raw) return;
+      let found = 0;
+      for (const line of raw.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.includes("\"compaction\"")) continue;
+        let entry: unknown;
+        try { entry = JSON.parse(trimmed); } catch { continue; }
+        if (!isObject(entry) || entry.type !== "compaction") continue;
+        found += 1;
+        this.handleCompaction({ ...entry, sessionKey });
+      }
+      this.log.info("compaction.backfill.done", { sessionKey, sessionFile, found });
+    } catch (error) {
+      this.log.warn("compaction.backfill.fail", { sessionKey, ...errorMeta(error) });
+    }
+  }
+
+  private transcriptPathForSession(sessionKey: string): string | null {
+    const fromSegment = this.context.messages.getSessionFile(sessionKey);
+    if (fromSegment) return fromSegment;
+    const session = this.context.messages.getSession(sessionKey);
+    const data = isObject(session?.data) ? session?.data : null;
+    const fromData = data ? firstString(data.sessionFile, data.transcriptPath) : null;
+    if (fromData) return fromData;
+    // Fallback: derive from sessionId under the agent's sessions dir, matching
+    // the gateway layout (~/.openclaw/agents/<agentId>/sessions/<sessionId>.jsonl).
+    // Real sessions often don't populate segment.session_file, so this keeps the
+    // compaction backfill working for them.
+    const sessionId = session?.sessionId ?? this.context.messages.getActiveSegment(sessionKey)?.sessionId ?? null;
+    if (!sessionId) return null;
+    const agentId = sessionKey.startsWith("agent:") ? sessionKey.split(":")[1] || "main" : "main";
+    const dir = path.join(os.homedir(), ".openclaw", "agents", agentId, "sessions");
+    const direct = path.join(dir, `${sessionId}.jsonl`);
+    if (fsSync.existsSync(direct)) return direct;
+    // Topic-suffixed variant (<sessionId>-topic-<n>.jsonl), newest match wins.
+    try {
+      const match = fsSync.readdirSync(dir)
+        .filter((name) => name.startsWith(`${sessionId}-topic-`) && name.endsWith(".jsonl") && !name.includes(".trajectory") && !name.includes(".checkpoint"))
+        .sort()
+        .pop();
+      if (match) return path.join(dir, match);
+    } catch {
+      // sessions dir may not exist in this environment; fall through.
+    }
+    return null;
   }
 
   private projectAgentToolEvent(sessionKey: string, gatewayRunId: string | null, runId: string | null, stream: unknown, data: Record<string, unknown>) {

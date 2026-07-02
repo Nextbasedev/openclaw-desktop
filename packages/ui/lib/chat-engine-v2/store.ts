@@ -2084,6 +2084,7 @@ export function seedGlobalChatSession(params: {
   spawnedSubagents?: SpawnedSubagent[]
   messageCount?: number | null
   historyCoverage?: HistoryCoverageV2
+  compactionMarkers?: CompactionMarker[]
   queryClient?: QueryClient
 }) {
   if (params.queryClient) queryClientRef = params.queryClient
@@ -2130,6 +2131,33 @@ export function seedGlobalChatSession(params: {
     if (params.pendingTools) state.pendingTools = params.pendingTools
     if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
     if (params.spawnedSubagents) state.spawnedSubagents = dedupeSpawnedSubagents(params.spawnedSubagents)
+  }
+  // Seed durable compaction markers from the bootstrap snapshot. Markers live
+  // only in the projection-event log (never the message table) and the live
+  // patch stream stale-skips their old cursors, so reload persistence depends
+  // on this seed. Merge by id — never blank a field captured live, keep the
+  // earliest createdAtMs, then re-sort so the divider placement stays stable.
+  if (params.compactionMarkers && params.compactionMarkers.length > 0) {
+    const merged = new Map<string, CompactionMarker>()
+    for (const existing of state.compaction.markers) merged.set(existing.id, existing)
+    for (const incoming of params.compactionMarkers) {
+      const prior = merged.get(incoming.id)
+      if (!prior) { merged.set(incoming.id, incoming); continue }
+      merged.set(incoming.id, {
+        ...prior,
+        runId: prior.runId ?? incoming.runId,
+        summary: prior.summary || incoming.summary,
+        tokensBefore: prior.tokensBefore ?? incoming.tokensBefore,
+        firstKeptEntryId: prior.firstKeptEntryId ?? incoming.firstKeptEntryId,
+        details: prior.details ?? incoming.details,
+        fromHook: prior.fromHook || incoming.fromHook,
+        createdAtMs: Math.min(prior.createdAtMs, incoming.createdAtMs),
+      })
+    }
+    state.compaction = {
+      ...state.compaction,
+      markers: Array.from(merged.values()).sort((a, b) => a.createdAtMs - b.createdAtMs),
+    }
   }
   globalCursor = Math.max(globalCursor, state.cursor)
   cacheBootstrap(params.sessionKey, state)

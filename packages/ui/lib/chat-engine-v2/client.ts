@@ -4,7 +4,7 @@ import { getMiddlewareConnection } from "../middleware-client"
 import { registerScheduledRequest, type RequestPriority } from "../requestScheduler"
 import type { SessionTokenUsage } from "../sessionContextUsage"
 import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
-export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
+export type { ActiveRunV2, ChatBootstrapV2, CompactionMarkerV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
 const DEFAULT_MIDDLEWARE_URL = "http://127.0.0.1:8787"
 const CONNECTED_MIDDLEWARE_URL_KEY = "openclaw.middleware.url"
@@ -174,6 +174,11 @@ export type ChatMessagesPageV2 = {
     updatedAtMs: number
   }>
   messageCount: number
+  hasOlder?: boolean
+  hasNewer?: boolean
+  oldestLoadedSeq?: number | null
+  newestLoadedSeq?: number | null
+  knownTotalMessages?: number | null
   cursor?: number
 }
 

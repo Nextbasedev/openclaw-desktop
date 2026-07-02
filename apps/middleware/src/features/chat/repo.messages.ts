@@ -49,6 +49,77 @@ export class MessageRepository {
     return { segmentId: row.segment_id, sessionKey: row.session_key, sessionId: row.session_id, segmentIndex: row.segment_index, baseSeq: row.base_seq };
   }
 
+  /**
+   * Compaction markers for a session, reconstructed from persisted
+   * chat.compaction.marker projection events. Deduped/merged by compactionId
+   * so the bootstrap snapshot can seed markers that survive reload without
+   * relying on replaying old-cursor patches through the live stream.
+   */
+  listCompactionMarkers(sessionKey: string): Array<{
+    id: string;
+    runId: string | null;
+    summary: string | null;
+    tokensBefore: number | null;
+    firstKeptEntryId: string | null;
+    details: unknown;
+    fromHook: boolean;
+    createdAtMs: number;
+  }> {
+    const rows = this.db.prepare(`
+      SELECT cursor, payload_json, created_at_ms
+      FROM v2_projection_events
+      WHERE session_key = @sessionKey AND event_type = 'chat.compaction.marker'
+      ORDER BY cursor ASC
+    `).all({ sessionKey }) as Array<{ cursor: number; payload_json: string; created_at_ms: number }>;
+    const byId = new Map<string, {
+      id: string; runId: string | null; summary: string | null; tokensBefore: number | null;
+      firstKeptEntryId: string | null; details: unknown; fromHook: boolean; createdAtMs: number;
+    }>();
+    for (const row of rows) {
+      let payload: Record<string, unknown>;
+      try { payload = JSON.parse(row.payload_json) as Record<string, unknown>; } catch { continue; }
+      const id = typeof payload.compactionId === "string" && payload.compactionId
+        ? payload.compactionId
+        : `compaction:${row.cursor}`;
+      const incoming = {
+        id,
+        runId: typeof payload.runId === "string" ? payload.runId : null,
+        summary: typeof payload.summary === "string" ? payload.summary : null,
+        tokensBefore: typeof payload.tokensBefore === "number" ? payload.tokensBefore : null,
+        firstKeptEntryId: typeof payload.firstKeptEntryId === "string" ? payload.firstKeptEntryId : null,
+        details: payload.details ?? null,
+        fromHook: payload.fromHook === true,
+        createdAtMs: row.created_at_ms,
+      };
+      const existing = byId.get(id);
+      if (!existing) { byId.set(id, incoming); continue; }
+      // Merge: never blank out a field captured earlier; keep earliest createdAtMs.
+      byId.set(id, {
+        id,
+        runId: existing.runId ?? incoming.runId,
+        summary: existing.summary ?? incoming.summary,
+        tokensBefore: existing.tokensBefore ?? incoming.tokensBefore,
+        firstKeptEntryId: existing.firstKeptEntryId ?? incoming.firstKeptEntryId,
+        details: existing.details ?? incoming.details,
+        fromHook: existing.fromHook || incoming.fromHook,
+        createdAtMs: Math.min(existing.createdAtMs, incoming.createdAtMs),
+      });
+    }
+    return Array.from(byId.values()).sort((a, b) => a.createdAtMs - b.createdAtMs);
+  }
+
+  /** Transcript file path for the session's most recent segment, if known. */
+  getSessionFile(sessionKey: string): string | null {
+    const row = this.db.prepare(`
+      SELECT session_file
+      FROM v2_chat_segments
+      WHERE session_key = @sessionKey AND session_file IS NOT NULL
+      ORDER BY is_active DESC, segment_index DESC
+      LIMIT 1
+    `).get({ sessionKey }) as { session_file: string | null } | undefined;
+    return row?.session_file ?? null;
+  }
+
   getSegmentForTranscript(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; active?: boolean | null }) {
     if (params.active === false && params.sessionFile) {
       const row = this.db.prepare(`
@@ -1003,6 +1074,19 @@ export class MessageRepository {
       payload: fromJson(row.payload_json),
       createdAtMs: row.created_at_ms,
     };
+  }
+
+  /** True if a chat.compaction.marker patch with this compactionId already exists. */
+  hasCompactionMarker(sessionKey: string, compactionId: string): boolean {
+    const row = this.db.prepare(`
+      SELECT 1
+      FROM v2_projection_events
+      WHERE session_key = @sessionKey
+        AND event_type = 'chat.compaction.marker'
+        AND payload_json LIKE @needle
+      LIMIT 1
+    `).get({ sessionKey, needle: `%"compactionId":${JSON.stringify(compactionId)}%` }) as { 1: number } | undefined;
+    return Boolean(row);
   }
 
   latestSessionCursor(sessionKey: string): number {

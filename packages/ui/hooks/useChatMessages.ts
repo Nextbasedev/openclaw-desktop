@@ -64,6 +64,7 @@ import {
   type ActiveRunV2,
   type RunStatusV2,
   type ToolCallProjectionV2,
+  type CompactionMarkerV2,
   type ChatMessagesPageV2,
 } from "@/lib/chat-engine-v2/client"
 import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
@@ -132,6 +133,7 @@ type ChatBootstrapData = {
   oldestLoadedSeq?: number | null
   tools?: ToolCallProjectionV2[]
   toolCalls?: ToolCallProjectionV2[]
+  compactionMarkers?: CompactionMarkerV2[]
   // Compatibility mirror only. Prefer top-level messages/cursor/runStatus.
   history: { messages: unknown[]; sessionStatus?: string | null }
 }
@@ -440,9 +442,11 @@ async function fetchChatBootstrap(
     fullMessagesIncluded: result.fullMessagesIncluded,
     tools: result.tools ?? result.toolCalls ?? [],
     cursor: result.cursor ?? result.projection?.cursor,
+    compactionMarkers: result.compactionMarkers ?? [],
   }))
   return {
     source: freshHistory.source,
+    compactionMarkers: freshHistory.compactionMarkers,
     projectionVersion: freshHistory.projectionVersion,
     messages: freshHistory.messages,
     messageCount: freshHistory.messageCount,
@@ -2126,7 +2130,7 @@ export function useChatMessages(
         return
       }
       try {
-        const { messages: bootstrapMessages, messageCount: canonicalMessageCount, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools, hasOlder: bootstrapHasOlder, knownTotalMessages: bootstrapKnownTotal, oldestLoadedSeq: bootstrapOldestSeq, historyCoverage: bootstrapHistoryCoverage } = await queryClient.fetchQuery({
+        const { messages: bootstrapMessages, messageCount: canonicalMessageCount, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools, hasOlder: bootstrapHasOlder, knownTotalMessages: bootstrapKnownTotal, oldestLoadedSeq: bootstrapOldestSeq, historyCoverage: bootstrapHistoryCoverage, compactionMarkers: bootstrapCompactionMarkers } = await queryClient.fetchQuery({
           queryKey: queryKeys.chatBootstrap(sessionKey),
           queryFn: () => loadFreshChatBootstrap(sessionKey),
           staleTime: 0,
@@ -2273,6 +2277,18 @@ export function useChatMessages(
         const seedStatusLabel = shouldPreserveInitialOptimisticMessages || shouldPreserveExistingPatchMessages
           ? normalizeStatusLabelForStatus(statusRef.current, statusLabel)
           : canonicalLabel
+        const canonicalCompactionMarkers = (bootstrapCompactionMarkers ?? [])
+          .filter((marker): marker is CompactionMarkerV2 => Boolean(marker && typeof marker.id === "string"))
+          .map((marker) => ({
+            id: marker.id,
+            runId: marker.runId ?? null,
+            summary: typeof marker.summary === "string" ? marker.summary : "",
+            tokensBefore: marker.tokensBefore ?? null,
+            firstKeptEntryId: marker.firstKeptEntryId ?? null,
+            details: marker.details ?? null,
+            fromHook: marker.fromHook === true,
+            createdAtMs: typeof marker.createdAtMs === "number" ? marker.createdAtMs : Date.now(),
+          }))
         seedGlobalChatSession({
           sessionKey,
           messages: seedMessages,
@@ -2283,6 +2299,7 @@ export function useChatMessages(
           spawnedSubagents: canonicalSpawns,
           messageCount: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : (typeof canonicalMessageCount === "number" ? canonicalMessageCount : seedMessages.length),
           historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
+          compactionMarkers: canonicalCompactionMarkers,
           queryClient,
         })
         const globalAfterSeed = getGlobalChatSession(sessionKey)
