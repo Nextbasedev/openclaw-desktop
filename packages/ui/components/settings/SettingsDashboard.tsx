@@ -49,6 +49,10 @@ type SettingsDashboardProps = {
 
 export function SettingsDashboard({ onBack, activeSection, onSectionChange }: SettingsDashboardProps) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
+  const [isCompactSidebar, setIsCompactSidebar] = React.useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < 1024 : false,
+  )
+  const [compactSidebarOpen, setCompactSidebarOpen] = React.useState(false)
   const topNavItems = SECTION_GROUPS.flatMap((group) => group.items)
   const allNavItems = [...topNavItems, ...FOOTER_ITEMS]
   const resolvedSection = allNavItems.some((item) => item.id === activeSection)
@@ -59,27 +63,72 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
     if (scrollRef.current) scrollRef.current.scrollTop = 0
   }, [activeSection])
 
+  React.useEffect(() => {
+    function updateCompactSidebar() {
+      const compact = window.innerWidth < 1024
+      setIsCompactSidebar(compact)
+      if (!compact) setCompactSidebarOpen(false)
+    }
+
+    updateCompactSidebar()
+    window.addEventListener("resize", updateCompactSidebar)
+    return () => window.removeEventListener("resize", updateCompactSidebar)
+  }, [])
+
   function handleSidebarClick(id: SettingSection) {
     onSectionChange(id)
+    if (isCompactSidebar) {
+      setCompactSidebarOpen(false)
+      const activeElement = document.activeElement
+      if (activeElement instanceof HTMLElement) activeElement.blur()
+    }
   }
 
   return (
     <div
       className="relative flex h-full w-full min-w-0 overflow-hidden bg-transparent max-lg:bg-background/70"
     >
-      <aside className="group/settings-sidebar flex w-[220px] shrink-0 flex-col bg-black/[0.025] transition-[width,background-color,box-shadow] duration-300 ease-in-out dark:bg-white/[0.025] max-lg:absolute max-lg:inset-y-0 max-lg:left-0 max-lg:z-30 max-lg:w-14 max-lg:overflow-hidden max-lg:border-r max-lg:border-border/60 max-lg:bg-background/95 max-lg:shadow-[12px_0_32px_rgba(0,0,0,0.22)] max-lg:backdrop-blur-xl max-lg:hover:w-[220px] max-sm:hover:w-[188px] max-[360px]:hover:w-[176px] max-lg:focus-within:w-[220px] max-sm:focus-within:w-[188px] max-[360px]:focus-within:w-[176px]">
+      <aside
+        onMouseEnter={() => isCompactSidebar && setCompactSidebarOpen(true)}
+        onMouseLeave={() => isCompactSidebar && setCompactSidebarOpen(false)}
+        className={cn(
+          "group/settings-sidebar flex w-[220px] shrink-0 flex-col bg-black/[0.025] transition-[width,background-color,box-shadow] duration-300 ease-in-out dark:bg-white/[0.025]",
+          isCompactSidebar && "absolute inset-y-0 left-0 z-30 w-14 overflow-hidden border-r border-border/60 bg-background/95 shadow-[12px_0_32px_rgba(0,0,0,0.22)] backdrop-blur-xl",
+          isCompactSidebar && compactSidebarOpen && "w-[236px] max-sm:w-[204px] max-[360px]:w-[188px]",
+        )}
+      >
         <div className="px-4 py-4 max-lg:px-2 max-lg:py-3">
-          {onBack ? (
+          <div className="mb-3 flex items-center gap-2 max-lg:mb-2">
             <button
-              onClick={onBack}
-              aria-label="Back"
-              className="group mb-3 flex h-7 cursor-pointer items-center gap-2 rounded-md text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground max-lg:mb-2 max-lg:w-10 max-lg:justify-center max-lg:mx-auto max-lg:group-hover/settings-sidebar:mx-0 max-lg:group-hover/settings-sidebar:w-full max-lg:group-hover/settings-sidebar:justify-start max-lg:group-hover/settings-sidebar:px-2 max-lg:group-focus-within/settings-sidebar:mx-0 max-lg:group-focus-within/settings-sidebar:w-full max-lg:group-focus-within/settings-sidebar:justify-start max-lg:group-focus-within/settings-sidebar:px-2"
+              type="button"
+              onClick={() => setCompactSidebarOpen((open) => !open)}
+              aria-label={compactSidebarOpen ? "Close settings sidebar" : "Open settings sidebar"}
+              className="hidden size-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.045] max-lg:flex"
             >
-              <Icons.Back size={14} className="shrink-0 transition-transform group-hover:-translate-x-0.5" />
-              <span className="max-lg:w-0 max-lg:overflow-hidden max-lg:whitespace-nowrap max-lg:opacity-0 max-lg:transition-[opacity,width] max-lg:duration-200 max-lg:group-hover/settings-sidebar:w-auto max-lg:group-hover/settings-sidebar:opacity-100 max-lg:group-focus-within/settings-sidebar:w-auto max-lg:group-focus-within/settings-sidebar:opacity-100">Back</span>
+              {compactSidebarOpen ? <Icons.Close size={16} /> : <Icons.SidebarToggle size={16} />}
             </button>
-          ) : null}
-          <div className="max-lg:h-0 max-lg:w-0 max-lg:overflow-hidden max-lg:opacity-0 max-lg:transition-[opacity,height,width] max-lg:duration-200 max-lg:group-hover/settings-sidebar:h-auto max-lg:group-hover/settings-sidebar:w-auto max-lg:group-hover/settings-sidebar:opacity-100 max-lg:group-focus-within/settings-sidebar:h-auto max-lg:group-focus-within/settings-sidebar:w-auto max-lg:group-focus-within/settings-sidebar:opacity-100">
+
+            {onBack ? (
+              <button
+                onClick={onBack}
+                aria-label="Back"
+                className={cn(
+                  "group flex h-7 cursor-pointer items-center gap-2 rounded-md text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground lg:flex",
+                  isCompactSidebar && !compactSidebarOpen && "hidden",
+                  isCompactSidebar && compactSidebarOpen && "flex h-10 min-w-0 px-2",
+                )}
+              >
+                <Icons.Back size={14} className="shrink-0 transition-transform group-hover:-translate-x-0.5" />
+                <span className="truncate whitespace-nowrap">Back</span>
+              </button>
+            ) : null}
+          </div>
+
+          <div className={cn(
+            "transition-[opacity,height,width] duration-200",
+            isCompactSidebar && !compactSidebarOpen && "h-0 w-0 overflow-hidden opacity-0",
+            isCompactSidebar && compactSidebarOpen && "h-auto w-auto opacity-100",
+          )}>
             <p className="whitespace-nowrap text-[15px] font-semibold text-foreground">Settings</p>
             <p className="mt-1 whitespace-nowrap text-[12px] text-muted-foreground">Manage OpenClaw</p>
           </div>
@@ -89,7 +138,11 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
           <div className="space-y-5 max-lg:space-y-2">
             {SECTION_GROUPS.map((group) => (
               <div key={group.label} className="space-y-1 max-lg:space-y-1.5">
-                <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70 max-lg:h-0 max-lg:w-0 max-lg:overflow-hidden max-lg:p-0 max-lg:whitespace-nowrap max-lg:opacity-0 max-lg:transition-[opacity,height,padding,width] max-lg:duration-200 max-lg:group-hover/settings-sidebar:h-auto max-lg:group-hover/settings-sidebar:w-auto max-lg:group-hover/settings-sidebar:px-2 max-lg:group-hover/settings-sidebar:pb-1 max-lg:group-hover/settings-sidebar:opacity-100 max-lg:group-focus-within/settings-sidebar:h-auto max-lg:group-focus-within/settings-sidebar:w-auto max-lg:group-focus-within/settings-sidebar:px-2 max-lg:group-focus-within/settings-sidebar:pb-1 max-lg:group-focus-within/settings-sidebar:opacity-100">
+                <p className={cn(
+                  "px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70 transition-[opacity,height,padding,width] duration-200",
+                  isCompactSidebar && !compactSidebarOpen && "h-0 w-0 overflow-hidden p-0 whitespace-nowrap opacity-0",
+                  isCompactSidebar && compactSidebarOpen && "h-auto w-auto px-2 pb-1 opacity-100",
+                )}>
                   {group.label}
                 </p>
                 {group.items.map((item) => (
@@ -98,6 +151,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
                     item={item}
                     isActive={resolvedSection === item.id}
                     onClick={() => handleSidebarClick(item.id)}
+                    expanded={!isCompactSidebar || compactSidebarOpen}
                   />
                 ))}
               </div>
@@ -111,6 +165,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
                 item={item}
                 isActive={resolvedSection === item.id}
                 onClick={() => handleSidebarClick(item.id)}
+                expanded={!isCompactSidebar || compactSidebarOpen}
               />
             ))}
           </div>
@@ -149,10 +204,12 @@ function SettingsNavButton({
   item,
   isActive,
   onClick,
+  expanded = true,
 }: {
   item: { id: string; label: string; icon: React.ElementType }
   isActive: boolean
   onClick: () => void
+  expanded?: boolean
 }) {
   const Icon = item.icon
   return (
@@ -161,7 +218,9 @@ function SettingsNavButton({
       onClick={onClick}
       aria-label={item.label}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors max-lg:mx-auto max-lg:size-10 max-lg:justify-center max-lg:px-0 max-lg:py-0 max-lg:group-hover/settings-sidebar:mx-0 max-lg:group-hover/settings-sidebar:h-auto max-lg:group-hover/settings-sidebar:w-full max-lg:group-hover/settings-sidebar:justify-start max-lg:group-hover/settings-sidebar:px-2.5 max-lg:group-hover/settings-sidebar:py-2 max-lg:group-focus-within/settings-sidebar:mx-0 max-lg:group-focus-within/settings-sidebar:h-auto max-lg:group-focus-within/settings-sidebar:w-full max-lg:group-focus-within/settings-sidebar:justify-start max-lg:group-focus-within/settings-sidebar:px-2.5 max-lg:group-focus-within/settings-sidebar:py-2",
+        "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors",
+        !expanded && "mx-auto size-10 justify-center px-0 py-0",
+        expanded && "justify-start px-2.5 py-2",
         "outline-none focus-visible:bg-black/[0.055] dark:focus-visible:bg-white/[0.06]",
         isActive
           ? "bg-black/[0.055] text-foreground dark:bg-white/[0.075]"
@@ -169,7 +228,11 @@ function SettingsNavButton({
       )}
     >
       <Icon size={16} strokeWidth={isActive ? 2 : 1.5} className="shrink-0" />
-      <span className="truncate max-lg:w-0 max-lg:opacity-0 max-lg:transition-[opacity,width] max-lg:duration-200 max-lg:group-hover/settings-sidebar:w-auto max-lg:group-hover/settings-sidebar:opacity-100 max-lg:group-focus-within/settings-sidebar:w-auto max-lg:group-focus-within/settings-sidebar:opacity-100">{item.label}</span>
+      <span className={cn(
+        "truncate transition-[opacity,width] duration-200",
+        !expanded && "w-0 opacity-0",
+        expanded && "w-auto opacity-100",
+      )}>{item.label}</span>
     </button>
   )
 }
