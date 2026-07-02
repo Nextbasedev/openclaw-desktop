@@ -65,9 +65,9 @@ export function UsageBreakdown({
         {providers.map((p) => (
           <div
             key={p.provider}
-            className="flex items-center justify-between gap-4 rounded-[10px] bg-black/[0.025] px-5 py-4 transition-colors hover:bg-black/[0.045] dark:bg-white/[0.025] dark:hover:bg-white/[0.045]"
+            className="flex w-full items-center justify-between gap-4 rounded-[10px] bg-black/[0.025] px-5 py-4 transition-colors hover:bg-black/[0.045] dark:bg-white/[0.025] dark:hover:bg-white/[0.045]"
           >
-            <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
               <span className="truncate text-[14px] font-semibold text-foreground">
                 {p.displayName}
               </span>
@@ -102,7 +102,7 @@ export function UsageBreakdown({
               )}
             </div>
 
-            <div className="shrink-0 self-start pt-[1px]">
+            <div className="ml-auto shrink-0 self-start pt-[1px]">
               {statusBadge(p)}
             </div>
           </div>
