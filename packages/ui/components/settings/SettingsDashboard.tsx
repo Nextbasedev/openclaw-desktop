@@ -125,7 +125,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
           </div>
 
           <div className={cn(
-            "transition-[opacity,height,width] duration-200",
+            "transition-[opacity,height,width] duration-200 pl-2 sm:pl-0",
             isCompactSidebar && !compactSidebarOpen && "h-0 w-0 overflow-hidden opacity-0",
             isCompactSidebar && compactSidebarOpen && "h-auto w-auto opacity-100",
           )}>
