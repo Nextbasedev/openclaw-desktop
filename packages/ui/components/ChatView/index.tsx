@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { invoke } from "@/lib/ipc"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
@@ -68,6 +68,8 @@ import {
 import { VscArrowLeft, VscHubot } from "react-icons/vsc"
 import type { IconType } from "react-icons"
 import { MessageBubble } from "./MessageBubble"
+import { CompactionDivider, CompactionDividerLive } from "./CompactionDivider"
+import { assignCompactionMarkers } from "./compactionPlacement"
 import {
   INITIAL_WINDOW_STATE,
   MAX_LOADED,
@@ -100,7 +102,7 @@ import {
   indexSpawnsByToolCallId,
   mergeAuthoritativeSubagents,
 } from "./subagentDerive"
-import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "./types"
+import type { ChatMessage, CompactionMarker, InlineToolCall, SpawnedSubagent, StreamStatus } from "./types"
 import type { SubagentLifecycleStatus } from "@/lib/subagentLifecycle"
 import { orderChatMessages } from "./orderChatMessages"
 import { decideBootstrapRecovery } from "./bootstrapRecoveryGuard"
@@ -1744,6 +1746,8 @@ export function ChatView({
   )
 
   const [globalSpawnedSubagents, setGlobalSpawnedSubagents] = useState<SpawnedSubagent[]>([])
+  const [compactionMarkers, setCompactionMarkers] = useState<CompactionMarker[]>([])
+  const [compactionActive, setCompactionActive] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -1751,6 +1755,8 @@ export function ChatView({
       const globalState = getGlobalChatSession(sessionKey)
       if (cancelled) return
       setGlobalSpawnedSubagents(globalState?.spawnedSubagents ?? [])
+      setCompactionMarkers(globalState?.compaction?.markers ?? [])
+      setCompactionActive(Boolean(globalState?.compaction?.activeRunId))
     }
 
     syncGlobalSubagents()
@@ -1761,6 +1767,15 @@ export function ChatView({
       unsubscribe()
     }
   }, [sessionKey])
+
+  const compactionPlacement = useMemo(
+    () => assignCompactionMarkers(renderedMessages, compactionMarkers),
+    [renderedMessages, compactionMarkers],
+  )
+  // Show the live "Compacting automatically" spinner only when a compaction is
+  // in flight and its resolved marker hasn't landed yet (the marker replaces it).
+  const showLiveCompaction = compactionActive
+    && !compactionMarkers.some((marker) => Boolean(marker.runId) && marker.runId === getGlobalChatSession(sessionKey)?.compaction.activeRunId)
 
   const [childSubagentStatuses, setChildSubagentStatuses] = useState<
     Map<string, SubagentLifecycleStatus>
@@ -3035,9 +3050,13 @@ export function ChatView({
                 messages: renderedMessages,
                 isGenerating,
               })
+              const compactionBefore = compactionPlacement.before.get(index)
               return (
+              <Fragment key={renderedRowKeys[index]}>
+              {compactionBefore?.map((marker) => (
+                <CompactionDivider key={marker.id} marker={marker} />
+              ))}
               <div
-                key={renderedRowKeys[index]}
                 id={`message-${message.messageId}`}
                 data-chat-message-row="true"
                 data-message-id={message.messageId}
@@ -3105,8 +3124,13 @@ export function ChatView({
                   />
                 ) : null}
               </div>
+              </Fragment>
               )
             })}
+            {compactionPlacement.trailing.map((marker) => (
+              <CompactionDivider key={marker.id} marker={marker} />
+            ))}
+            {showLiveCompaction ? <CompactionDividerLive /> : null}
             {showThinkingState ? (
               <div className="mx-auto max-w-[44rem] px-4 pb-2 pt-0">
                 <GeneratingStatus label={statusText ?? "Thinking..."} tool={liveTool?.tool} />
