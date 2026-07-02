@@ -89,3 +89,42 @@ describe("reveal progress survives remount — no restart-from-scratch", () => {
     expect(recallReveal(undefined, "anything")).toBeNull()
   })
 })
+
+// Regression for the "types out, vanishes, restarts 7-8x" bug. When `chat.final`
+// lands mid-stream, the live row (`live:<runId>:assistant`) is REPLACED by a
+// canonical gateway-id row: `message.messageId` changes, the React key changes,
+// the bubble REMOUNTS. If the reveal is keyed by messageId, the remounted hook
+// recalls under the NEW id, finds nothing, and re-types from a short prefix.
+// Keying by the stable `runId` (which both rows carry) lets it resume.
+describe("reveal survives the live->canonical row swap (runId-keyed)", () => {
+  const runId = "run-xyz"
+  const liveId = `live:${runId}:assistant`
+  const canonicalId = "assistant-final-42"
+  const bodyRevealKey = (m: { messageId: string; runId?: string }) =>
+    m.runId ? `run:${m.runId}:text` : m.messageId
+  const full =
+    "This is a fairly long streaming assistant response that types out over time."
+
+  it("WIPES when keyed by the swapping messageId (documents the bug)", () => {
+    const revealed = full.slice(0, 40)
+    rememberReveal(liveId, revealed) // stored on the live row
+    // Remount as canonical row; messageId key no longer matches.
+    expect(recallReveal(canonicalId, full)).toBeNull()
+    forgetReveal(liveId)
+  })
+
+  it("RESUMES when keyed by the stable runId (the fix)", () => {
+    const revealed = full.slice(0, 40)
+    rememberReveal(bodyRevealKey({ messageId: liveId, runId }), revealed)
+    const resumed = recallReveal(
+      bodyRevealKey({ messageId: canonicalId, runId }),
+      full,
+    )
+    expect(resumed).toBe(revealed)
+    forgetReveal(bodyRevealKey({ messageId: canonicalId, runId }))
+  })
+
+  it("falls back to messageId for rows with no runId", () => {
+    expect(bodyRevealKey({ messageId: "optimistic-1" })).toBe("optimistic-1")
+  })
+})
