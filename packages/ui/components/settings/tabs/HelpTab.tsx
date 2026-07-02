@@ -26,8 +26,8 @@ const HELP_LINKS: HelpLink[] = [
 const HELP_SECTION_CLASS = "rounded-2xl bg-black/[0.025] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.70)] dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
 const HELP_ICON_CLASS = "flex size-8 shrink-0 items-center justify-center rounded-xl bg-black/[0.04] text-muted-foreground dark:bg-white/[0.055]"
 const HELP_FIELD_CLASS = "h-9 rounded-xl bg-black/[0.04] px-3 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/45 hover:bg-black/[0.055] focus:bg-black/[0.065] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-black/20 dark:hover:bg-white/[0.045] dark:focus:bg-white/[0.065]"
-const HELP_SECONDARY_BUTTON_CLASS = "inline-flex cursor-pointer items-center gap-2 rounded-xl bg-black/[0.045] px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-black/[0.065] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white/[0.055] dark:hover:bg-white/[0.085]"
-const HELP_PRIMARY_BUTTON_CLASS = "inline-flex cursor-pointer items-center gap-2 rounded-xl bg-foreground px-3 py-2 text-[12px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-50"
+const HELP_SECONDARY_BUTTON_CLASS = "inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-xl bg-black/[0.045] px-3 py-2 text-[12px] font-medium leading-none text-foreground transition-colors hover:bg-black/[0.065] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white/[0.055] dark:hover:bg-white/[0.085]"
+const HELP_PRIMARY_BUTTON_CLASS = "inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-xl bg-foreground px-3 py-2 text-[12px] font-medium leading-none text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-50"
 
 type HelpTabProps = {
   links?: HelpLink[]
