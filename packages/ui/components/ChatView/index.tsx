@@ -3152,7 +3152,7 @@ export function ChatView({
                 <GeneratingStatus label={statusText ?? "Thinking..."} tool={liveTool?.tool} />
               </div>
             ) : null}
-            <div className="h-6" />
+            <div className={cn("h-6", queuedMessages.length > 0 && "h-36 sm:h-32")} />
           </div>
         )}
       </div>
