@@ -134,8 +134,16 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
           </div>
         </div>
 
-        <nav className="flex min-h-0 flex-1 flex-col px-3 py-3 max-lg:px-2 max-lg:py-2">
-          <div className="space-y-5 max-lg:space-y-2">
+        <nav className={cn(
+          "flex min-h-0 flex-1 flex-col px-3 py-3",
+          isCompactSidebar && !compactSidebarOpen && "px-1.5 py-1",
+          isCompactSidebar && compactSidebarOpen && "px-3 py-3",
+        )}>
+          <div className={cn(
+            "space-y-5",
+            isCompactSidebar && !compactSidebarOpen && "space-y-1.5",
+            isCompactSidebar && compactSidebarOpen && "space-y-4",
+          )}>
             {SECTION_GROUPS.map((group) => (
               <div key={group.label} className="space-y-1 max-lg:space-y-1.5">
                 <p className={cn(
@@ -175,7 +183,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
       <div
         ref={scrollRef}
         className={cn(
-          "min-h-0 flex-1 scrollbar-hide max-lg:pl-14 max-[360px]:pl-12",
+          "min-h-0 flex-1 scrollbar-hide max-lg:pl-[72px] max-[360px]:pl-16",
           resolvedSection === "config" ? "overflow-hidden bg-transparent" : "overflow-y-auto",
           resolvedSection === "connect" ? "bg-transparent" : resolvedSection === "config" ? "bg-transparent" : "bg-transparent px-8 py-7 max-lg:bg-background/35 max-lg:py-5 max-lg:pr-4 max-sm:pr-3 max-[360px]:pr-2",
         )}
@@ -219,7 +227,7 @@ function SettingsNavButton({
       aria-label={item.label}
       className={cn(
         "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors",
-        !expanded && "mx-auto size-10 justify-center px-0 py-0",
+        !expanded && "h-10 w-full justify-start px-[13px] py-0",
         expanded && "justify-start px-2.5 py-2",
         "outline-none focus-visible:bg-black/[0.055] dark:focus-visible:bg-white/[0.06]",
         isActive
