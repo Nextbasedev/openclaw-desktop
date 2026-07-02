@@ -16,6 +16,7 @@ import {
   VscMarkdown,
   VscCode,
   VscChevronRight,
+  VscChevronLeft,
   VscChevronDown,
   VscNewFile,
   VscNewFolder,
@@ -513,6 +514,7 @@ function FilePreviewPane({
   filePath,
   fileName,
   compact,
+  onBack,
   onDelete,
   onPathChange,
 }: {
@@ -522,6 +524,7 @@ function FilePreviewPane({
   filePath: string
   fileName: string
   compact: boolean
+  onBack?: () => void
   onDelete?: () => void
   onPathChange?: (nextPath: string) => void
 }) {
@@ -681,6 +684,16 @@ function FilePreviewPane({
     <div className="flex h-full flex-col">
       {/* Preview header */}
       <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/40 px-2">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back to files"
+            className="mr-1 hidden size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground max-lg:flex dark:hover:bg-white/8"
+          >
+            <VscChevronLeft className="size-4" />
+          </button>
+        )}
         {isRenaming ? (
           <div className="flex min-w-0 items-center gap-1">
             <input
@@ -1539,7 +1552,10 @@ export function WorkspaceTab({
 
       {/* Left: file tree sidebar */}
       <div 
-        className="flex shrink-0 flex-col transition-[width] duration-200" 
+        className={cn(
+          "flex shrink-0 flex-col transition-[width] duration-200",
+          selectedNode?.type === "file" && "max-lg:hidden",
+        )}
         style={{ width: selectedNode && selectedNode.type === "file" ? sidebarWidth : "100%" }}
       >
         {/* Scope header */}
@@ -1738,13 +1754,13 @@ export function WorkspaceTab({
       {selectedNode && selectedNode.type === "file" && (
         <div
           onMouseDown={handleDragStart}
-          className="w-[3px] shrink-0 cursor-col-resize bg-transparent"
+          className="w-[3px] shrink-0 cursor-col-resize bg-transparent max-lg:hidden"
         />
       )}
 
       {/* Right: preview pane */}
       {selectedNode && selectedNode.type === "file" && (
-        <div ref={previewPaneRef} className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div ref={previewPaneRef} className="flex min-w-0 flex-1 flex-col overflow-hidden max-lg:w-full">
           <FilePreviewPane
             capabilities={capabilities}
             sessionKey={effectiveSessionKey}
@@ -1752,6 +1768,7 @@ export function WorkspaceTab({
             filePath={selectedId!}
             fileName={selectedNode.name}
             compact={previewCompact}
+            onBack={() => setSelectedId(null)}
             onDelete={handleFileDeleted}
             onPathChange={handlePathChange}
           />
