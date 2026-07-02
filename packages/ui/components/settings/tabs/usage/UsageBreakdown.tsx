@@ -43,17 +43,17 @@ export function UsageBreakdown({
 
   return (
     <div className="flex flex-col gap-0 overflow-hidden rounded-md bg-black/[0.025] dark:bg-white/[0.025]">
-      <div className="bg-black/[0.015] px-4 py-3 dark:bg-white/[0.015] sm:px-5 sm:py-4">
+      <div className="bg-black/[0.015] dark:bg-white/[0.015] px-5 py-4">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Provider Status
         </span>
       </div>
 
-      <div className="flex flex-col gap-2 p-3 sm:gap-3 sm:p-5">
+      <div className="flex flex-col gap-3 p-5">
         {providers.map((p) => (
           <div
             key={p.provider}
-            className="flex flex-col gap-3 rounded-[10px] bg-black/[0.025] px-4 py-3 transition-colors hover:bg-black/[0.045] dark:bg-white/[0.025] dark:hover:bg-white/[0.045] sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-4"
+            className="flex flex-col gap-4 rounded-[10px] bg-black/[0.025] dark:bg-white/[0.025] px-5 py-4 transition-colors hover:bg-black/[0.045] dark:hover:bg-white/[0.045] sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="flex flex-col gap-1">
               <span className="text-[14px] font-semibold text-foreground">
@@ -66,12 +66,12 @@ export function UsageBreakdown({
               )}
             </div>
 
-            <div className="mt-1 flex w-full items-center justify-between gap-3 sm:mt-0 sm:w-auto sm:justify-end sm:gap-8">
+            <div className="flex items-center justify-between sm:justify-end gap-6 sm:gap-8 w-full sm:w-auto mt-2 sm:mt-0">
               {p.windows.length > 0 && (
-                <div className="flex flex-1 flex-col gap-2 sm:flex-initial sm:gap-3">
+                <div className="flex flex-1 sm:flex-initial flex-col gap-3">
                   {p.windows.map((w) => (
                     <div key={w.label} className="flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between gap-4 sm:gap-6">
+                      <div className="flex items-center justify-between gap-6">
                         <span className="text-[12px] text-muted-foreground">
                           {w.label}
                         </span>
@@ -92,7 +92,7 @@ export function UsageBreakdown({
                 </div>
               )}
 
-              <div className="shrink-0 self-start pb-[2px] sm:self-auto sm:pb-0">
+              <div className="flex-shrink-0 self-end sm:self-auto pb-[2px] sm:pb-0">
                 {p.error ? (
                   <span className="rounded-[4px] bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-500 dark:text-red-400">
                     Error

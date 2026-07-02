@@ -87,7 +87,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-1 p-1 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-1 p-1 lg:grid-cols-4">
           <MiniMetricSkeleton />
           <MiniMetricSkeleton />
           <MiniMetricSkeleton />
@@ -107,8 +107,8 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
 
   return (
     <section className="flex flex-col rounded-md bg-black/[0.025] dark:bg-white/[0.025]">
-      <div className="p-4 sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="p-6">
+        <div className="flex flex-col gap-4 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between">
           <div className="flex flex-col gap-1.5">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Usage overview
@@ -121,7 +121,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-col rounded-md bg-black/[0.035] p-4 dark:bg-white/[0.035] sm:min-w-[150px] sm:p-5">
+          <div className="flex min-w-[150px] flex-col rounded-md bg-black/[0.035] dark:bg-white/[0.035] p-5">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Spend
             </div>
@@ -155,7 +155,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-1 p-1 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-1 p-1 lg:grid-cols-4">
         <MiniMetric
           label="Conversation"
           value={formatTokens(conversationTokens)}
