@@ -87,7 +87,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-1 p-1 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-1 p-1 min-[380px]:grid-cols-2 lg:grid-cols-4">
           <MiniMetricSkeleton />
           <MiniMetricSkeleton />
           <MiniMetricSkeleton />
@@ -155,7 +155,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-1 p-1 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-1 p-1 min-[380px]:grid-cols-2 lg:grid-cols-4">
         <MiniMetric
           label="Conversation"
           value={formatTokens(conversationTokens)}

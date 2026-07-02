@@ -92,10 +92,11 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
         onMouseEnter={() => isCompactSidebar && setCompactSidebarOpen(true)}
         onMouseLeave={() => isCompactSidebar && setCompactSidebarOpen(false)}
         className={cn(
-          "group/settings-sidebar flex w-[220px] shrink-0 flex-col bg-black/[0.025] transition-[width,background-color,box-shadow] duration-300 ease-in-out dark:bg-white/[0.025]",
+          "group/settings-sidebar flex w-[220px] shrink-0 flex-col bg-black/[0.025] transition-[width,transform,opacity,background-color,box-shadow] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] dark:bg-white/[0.025] data-[open=true]:duration-300",
           isCompactSidebar && "absolute inset-y-0 left-0 z-30 w-14 overflow-hidden border-r border-border/60 bg-background/95 shadow-[12px_0_32px_rgba(0,0,0,0.22)] backdrop-blur-xl",
           isCompactSidebar && compactSidebarOpen && "w-[236px] max-sm:w-[204px] max-[360px]:w-[188px]",
         )}
+        data-open={compactSidebarOpen ? "true" : "false"}
       >
         <div className={cn(
           "px-4 py-4",
@@ -125,7 +126,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
           ) : null}
 
           <div className={cn(
-            "transition-[opacity,height,width] duration-200 pl-2 sm:pl-0",
+            "pl-2 transition-[opacity,height,width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] sm:pl-0",
             isCompactSidebar && !compactSidebarOpen && "h-0 w-0 overflow-hidden opacity-0",
             (!isCompactSidebar || compactSidebarOpen) && "h-auto w-auto opacity-100",
           )}>
@@ -161,7 +162,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
             {SECTION_GROUPS.map((group) => (
               <div key={group.label} className="space-y-1 max-lg:space-y-1.5">
                 <p className={cn(
-                  "px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70 transition-[opacity,height,padding,width] duration-200",
+                  "px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70 transition-[opacity,height,padding,width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                   isCompactSidebar && !compactSidebarOpen && "h-0 w-0 overflow-hidden p-0 whitespace-nowrap opacity-0",
                   isCompactSidebar && compactSidebarOpen && "h-auto w-auto px-2 pb-1 opacity-100",
                 )}>
@@ -260,7 +261,7 @@ function SettingsNavButton({
     >
       <Icon size={16} strokeWidth={isActive ? 2 : 1.5} className="shrink-0" />
       <span className={cn(
-        "truncate transition-[opacity,width] duration-200",
+        "truncate transition-[opacity,width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
         !expanded && "w-0 opacity-0",
         expanded && "w-auto opacity-100",
       )}>{item.label}</span>
