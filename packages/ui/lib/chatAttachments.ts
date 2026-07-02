@@ -210,3 +210,35 @@ export function releaseAttachmentPreview(
     URL.revokeObjectURL(attachment.previewUrl)
   }
 }
+
+// When a user pastes a large block of text into the composer we upload it as a
+// .txt attachment instead of dumping it inline. Keeps the input readable and
+// mirrors how most chat apps treat oversized pastes.
+export const PASTE_TO_FILE_WORD_THRESHOLD = 700
+
+export function countWords(text: string): number {
+  const matches = text.trim().match(/\S+/g)
+  return matches ? matches.length : 0
+}
+
+export function shouldUploadPastedTextAsFile(
+  text: string,
+  threshold: number = PASTE_TO_FILE_WORD_THRESHOLD,
+): boolean {
+  return countWords(text) >= threshold
+}
+
+function pastedTextFileName(now: Date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0")
+  const stamp =
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  return `pasted-text-${stamp}.txt`
+}
+
+export function buildPastedTextFile(text: string, now: Date = new Date()): File {
+  return new File([text], pastedTextFileName(now), {
+    type: "text/plain",
+    lastModified: now.getTime(),
+  })
+}

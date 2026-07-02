@@ -20,7 +20,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { LuChevronDown, LuFile, LuImage, LuSparkles, LuX } from "react-icons/lu"
 import {
+  buildPastedTextFile,
   execPolicyForAutonomyMode,
+  shouldUploadPastedTextAsFile,
   stripComposerAttachment,
   toChatComposerAttachment,
   type ChatComposerSubmit,
@@ -702,6 +704,16 @@ export function ChatBox({
       e.preventDefault()
       if (isComposerDisabled || isPreparingAttachments) return
       void processFiles(files)
+      return
+    }
+
+    // Large text pastes get uploaded as a .txt file instead of flooding the
+    // composer with an unmanageable wall of text.
+    const pastedText = e.clipboardData.getData("text/plain")
+    if (pastedText && shouldUploadPastedTextAsFile(pastedText)) {
+      e.preventDefault()
+      if (isComposerDisabled || isPreparingAttachments) return
+      void processFiles([buildPastedTextFile(pastedText)])
     }
   }
 
