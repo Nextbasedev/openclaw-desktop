@@ -67,29 +67,29 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
     <div
       className="flex h-full w-full min-w-0 overflow-hidden bg-transparent"
     >
-      <aside className="group/settings-sidebar flex w-[220px] shrink-0 flex-col overflow-hidden bg-black/[0.025] transition-[width] duration-300 ease-in-out dark:bg-white/[0.025] max-lg:w-14 max-lg:hover:w-[220px]">
-        <div className="px-4 py-4 max-lg:px-2">
+      <aside className="flex w-[220px] shrink-0 flex-col bg-black/[0.025] dark:bg-white/[0.025]">
+        <div className="px-4 py-4">
           {onBack ? (
             <button
               onClick={onBack}
               aria-label="Back"
-              className="group mb-3 flex h-7 cursor-pointer items-center gap-2 rounded-md text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground max-lg:w-full max-lg:justify-center max-lg:group-hover/settings-sidebar:justify-start max-lg:group-hover/settings-sidebar:px-2"
+              className="group mb-3 flex cursor-pointer items-center gap-2 rounded-md text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
-              <Icons.Back size={14} className="shrink-0 transition-transform group-hover:-translate-x-0.5" />
-              <span className="max-lg:w-0 max-lg:overflow-hidden max-lg:opacity-0 max-lg:transition-[opacity,width] max-lg:duration-200 max-lg:group-hover/settings-sidebar:w-auto max-lg:group-hover/settings-sidebar:opacity-100">Back</span>
+              <Icons.Back size={14} className="transition-transform group-hover:-translate-x-0.5" />
+              <span>Back</span>
             </button>
           ) : null}
-          <div className="max-lg:w-0 max-lg:overflow-hidden max-lg:opacity-0 max-lg:transition-[opacity,width] max-lg:duration-200 max-lg:group-hover/settings-sidebar:w-auto max-lg:group-hover/settings-sidebar:opacity-100">
-            <p className="whitespace-nowrap text-[15px] font-semibold text-foreground">Settings</p>
-            <p className="mt-1 whitespace-nowrap text-[12px] text-muted-foreground">Manage OpenClaw</p>
+          <div>
+            <p className="text-[15px] font-semibold text-foreground">Settings</p>
+            <p className="mt-1 text-[12px] text-muted-foreground">Manage OpenClaw</p>
           </div>
         </div>
 
-        <nav className="flex min-h-0 flex-1 flex-col px-3 py-3 max-lg:px-2">
+        <nav className="flex min-h-0 flex-1 flex-col px-3 py-3">
           <div className="space-y-5">
             {SECTION_GROUPS.map((group) => (
               <div key={group.label} className="space-y-1">
-                <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70 max-lg:w-0 max-lg:overflow-hidden max-lg:opacity-0 max-lg:transition-[opacity,width] max-lg:duration-200 max-lg:group-hover/settings-sidebar:w-auto max-lg:group-hover/settings-sidebar:opacity-100">
+                <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">
                   {group.label}
                 </p>
                 {group.items.map((item) => (
@@ -122,7 +122,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
         className={cn(
           "min-h-0 flex-1 scrollbar-hide",
           resolvedSection === "config" ? "overflow-hidden bg-transparent" : "overflow-y-auto",
-          resolvedSection === "connect" ? "bg-transparent" : resolvedSection === "config" ? "bg-transparent" : "bg-transparent px-8 py-7 max-lg:px-4 max-lg:py-5 max-sm:px-3",
+          resolvedSection === "connect" ? "bg-transparent" : resolvedSection === "config" ? "bg-transparent" : "bg-transparent px-8 py-7",
         )}
       >
         <div className={cn("mx-auto min-h-full", resolvedSection === "config" && "h-full", resolvedSection === "connect" || resolvedSection === "config" ? "max-w-none" : "max-w-2xl")}>
@@ -161,7 +161,7 @@ function SettingsNavButton({
       onClick={onClick}
       aria-label={item.label}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors max-lg:justify-center max-lg:px-0 max-lg:group-hover/settings-sidebar:justify-start max-lg:group-hover/settings-sidebar:px-2.5",
+        "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors",
         "outline-none focus-visible:bg-black/[0.055] dark:focus-visible:bg-white/[0.06]",
         isActive
           ? "bg-black/[0.055] text-foreground dark:bg-white/[0.075]"
@@ -169,7 +169,7 @@ function SettingsNavButton({
       )}
     >
       <Icon size={16} strokeWidth={isActive ? 2 : 1.5} className="shrink-0" />
-      <span className="truncate max-lg:w-0 max-lg:opacity-0 max-lg:transition-[opacity,width] max-lg:duration-200 max-lg:group-hover/settings-sidebar:w-auto max-lg:group-hover/settings-sidebar:opacity-100">{item.label}</span>
+      <span className="truncate">{item.label}</span>
     </button>
   )
 }

@@ -797,7 +797,7 @@ export function ChatBox({
                 y: 4,
                 transition: { duration: 0.16, ease: "easeInOut" },
               }}
-              className="relative z-20 mx-2 mt-2 max-h-64 origin-bottom overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg"
+              className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-full origin-bottom overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg"
             >
               <div className="py-1">
                 <div className="flex items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
