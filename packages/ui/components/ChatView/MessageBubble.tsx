@@ -1137,6 +1137,20 @@ export const MessageBubble = memo(function MessageBubble({
     [isAssistantError, isUser, message.text]
   )
   const renderedAssistantText = mediaDirectives?.text ?? message.text
+  // Reveal-progress key that survives the mid-stream row swap. The live
+  // streaming row (`live:<runId>:assistant`) is REPLACED by a canonical
+  // gateway-id row when `chat.final` lands, which changes `message.messageId`
+  // and therefore the React key → the bubble REMOUNTS. If the reveal key were
+  // the messageId, the remounted hook would recall progress under the NEW id,
+  // find nothing, and re-type from a short prefix — the "wipe & replay 7-8x"
+  // bug. `runId` is stable across the live→canonical swap (both rows carry it),
+  // so keying the reveal by runId lets the remounted bubble resume exactly
+  // where it left off. Falls back to messageId when a row has no runId
+  // (optimistic user rows, malformed projections). recallReveal's prefix guard
+  // prevents any cross-row contamination for a shared runId.
+  const bodyRevealKey = message.runId
+    ? `run:${message.runId}:text`
+    : message.messageId
   const renderedAttachments = mergeChatAttachments(
     message.attachments,
     mediaDirectives?.attachments
@@ -1558,7 +1572,7 @@ export const MessageBubble = memo(function MessageBubble({
                     embeds={message.embeds}
                     streaming={Boolean(animateAssistantText)}
                     revealMode="buffered"
-                    revealKey={message.messageId}
+                    revealKey={bodyRevealKey}
                     highlightTexts={referencedTexts}
                     onRevealComplete={() =>
                       onTextAnimationComplete?.(message.messageId)
