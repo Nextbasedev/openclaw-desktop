@@ -12,6 +12,7 @@ import { CollapsedSpacesPopover } from "./CollapsedSpacesPopover"
 import { cn } from "@/lib/utils"
 import { SidebarItem, type SidebarNavItem } from "./SidebarItem"
 import type { Space } from "@/types/space"
+import { Icons } from "@/components/icons"
 
 const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = []
 
@@ -157,7 +158,7 @@ export function Sidebar({
         aria-label="Close sidebar"
         onClick={onClose}
         className={cn(
-          "fixed inset-0 z-30 bg-black/30 transition-opacity duration-200 md:hidden",
+          "fixed inset-0 z-[60] bg-black/30 backdrop-blur-[2px] transition-opacity duration-200 md:hidden",
           collapsed ? "pointer-events-none opacity-0" : "opacity-100"
         )}
       />
@@ -175,7 +176,7 @@ export function Sidebar({
             ? "bg-gradient-to-b from-[#F4F7FF] to-[#E6EEFE] dark:from-[#0D1424] dark:to-[#060913]"
             : "bg-white dark:bg-[#151518]",
           "shadow-none transition-[width,transform,opacity] duration-[var(--panel-close-dur)] ease-[var(--panel-ease)] data-[open=true]:duration-[var(--panel-open-dur)]",
-          "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:h-svh max-md:w-[var(--sidebar-mobile-width)] max-md:shadow-xl",
+          "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-[70] max-md:h-svh max-md:w-[min(var(--sidebar-mobile-width),calc(100vw-24px))] max-md:shadow-xl",
           collapsed
             ? "max-md:pointer-events-none max-md:-translate-x-full max-md:opacity-0"
             : "max-md:translate-x-0 max-md:opacity-100",
@@ -189,6 +190,20 @@ export function Sidebar({
             uniqueSidebarBg ? "opacity-0" : "opacity-60"
           )}
         />
+
+        <div className="relative z-10 flex h-12 shrink-0 items-center justify-between border-b border-black/[0.07] px-3 md:hidden dark:border-white/[0.06]">
+          <span className="truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+            OpenClaw
+          </span>
+          <button
+            type="button"
+            aria-label="Close sidebar"
+            onClick={onClose}
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/8"
+          >
+            <Icons.Close size={15} strokeWidth={2} />
+          </button>
+        </div>
 
         <nav
           className={cn(

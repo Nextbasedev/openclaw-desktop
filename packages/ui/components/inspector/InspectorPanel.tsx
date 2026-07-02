@@ -114,7 +114,7 @@ export function InspectorPanel({ open, onClose, onOpenFullWindow, onWidthChange,
         open
           ? "w-[var(--inspector-width)] opacity-100 max-md:w-screen max-md:translate-x-0"
           : "w-0 opacity-0 max-md:pointer-events-none max-md:w-screen max-md:translate-x-full",
-        "max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40 max-md:border-l max-md:shadow-xl",
+        "max-md:fixed max-md:bottom-0 max-md:right-0 max-md:top-11 max-md:z-40 max-md:border-l max-md:shadow-xl",
         "md:relative",
       )}
       aria-hidden={!open}

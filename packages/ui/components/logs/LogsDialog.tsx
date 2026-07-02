@@ -312,7 +312,7 @@ export function LogsDialog({
           <motion.div
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              "relative flex max-h-[85vh] w-[92vw] max-w-[1100px] flex-col overflow-hidden rounded-[22px]",
+              "relative flex max-h-[85vh] w-[92vw] max-w-[1100px] flex-col overflow-hidden rounded-[22px] max-md:max-h-[calc(100svh-16px)] max-md:w-[calc(100vw-16px)] max-md:rounded-[18px]",
               "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
               "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
               "backdrop-blur-[40px] backdrop-saturate-[180%]",
@@ -327,22 +327,22 @@ export function LogsDialog({
             }}
             style={{ transformOrigin: "top center" }}
           >
-        <div className="flex items-center justify-between gap-3 border-b border-border/70 px-5 py-3.5 dark:border-white/6">
-          <div className="flex items-center gap-2.5">
+        <div className="flex items-center justify-between gap-3 border-b border-border/70 px-5 py-3.5 max-md:px-3 max-md:py-3 dark:border-white/6">
+          <div className="flex min-w-0 items-center gap-2.5">
             <span className="flex size-7 items-center justify-center rounded-md border border-black/[0.08] bg-black/[0.035] text-foreground/80 dark:border-white/10 dark:bg-white/4">
               <VscOutput className="size-4" />
             </span>
-            <div className="flex flex-col">
+            <div className="flex min-w-0 flex-col">
               <h2 className="text-[14px] font-semibold leading-tight text-foreground">
                 Logs
               </h2>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="truncate text-[11px] text-muted-foreground">
                 Combined frontend & backend output
                 {backendPath ? ` · ${backendPath}` : ""}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {stats.errors > 0 && (
               <span className="rounded border border-[#FF4D4D]/30 bg-[#FF4D4D]/10 px-2 py-0.5 text-[10px] font-semibold text-[#FF4D4D]">
                 {stats.errors} error{stats.errors === 1 ? "" : "s"}
@@ -363,8 +363,8 @@ export function LogsDialog({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 border-b border-border/70 px-5 py-3 dark:border-white/6">
-          <div className="flex rounded-md border border-black/[0.08] bg-black/[0.025] p-0.5 dark:border-white/8 dark:bg-white/2">
+        <div className="flex flex-wrap items-center gap-3 border-b border-border/70 px-5 py-3 max-md:gap-2 max-md:px-3 max-md:py-2.5 dark:border-white/6">
+          <div className="flex max-w-full overflow-x-auto rounded-md border border-black/[0.08] bg-black/[0.025] p-0.5 dark:border-white/8 dark:bg-white/2">
             {(["all", "frontend", "backend"] as const).map((opt) => (
               <button
                 key={opt}
@@ -381,7 +381,7 @@ export function LogsDialog({
             ))}
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex max-w-full items-center gap-1 overflow-x-auto">
             {ALL_LEVELS.map((level) => {
               const active = activeLevels.has(level)
               return (
@@ -401,14 +401,14 @@ export function LogsDialog({
             })}
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
-            <div className="relative">
+          <div className="ml-auto flex min-w-0 items-center gap-2 max-md:ml-0 max-md:w-full max-md:flex-wrap">
+            <div className="relative max-md:min-w-0 max-md:flex-1">
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search…"
-                className="w-44 rounded-md border border-black/[0.08] bg-black/[0.025] px-2.5 py-1 text-[12px] text-foreground placeholder:text-muted-foreground/50 focus:border-black/20 focus:outline-none dark:border-white/8 dark:bg-white/2 dark:focus:border-white/20"
+                className="w-44 rounded-md border border-black/[0.08] bg-black/[0.025] px-2.5 py-1 text-[12px] text-foreground placeholder:text-muted-foreground/50 focus:border-black/20 focus:outline-none max-md:w-full dark:border-white/8 dark:bg-white/2 dark:focus:border-white/20"
               />
             </div>
             <button
@@ -424,10 +424,10 @@ export function LogsDialog({
             <button
               onClick={handleCopyDebugBundle}
               title="Copy debug bundle for Cozy"
-              className="flex items-center gap-1.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/15 dark:border-[#00D492]/25 dark:bg-[#00D492]/10 dark:text-[#00D492] dark:hover:bg-[#00D492]/15 cursor-pointer"
+              className="flex min-w-0 items-center gap-1.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/15 max-[360px]:max-w-[108px] dark:border-[#00D492]/25 dark:bg-[#00D492]/10 dark:text-[#00D492] dark:hover:bg-[#00D492]/15 cursor-pointer"
             >
               <VscCopy className="size-3.5" />
-              Copy debug bundle
+              <span className="truncate">Copy debug bundle</span>
             </button>
             <button
               onClick={handleCopy}
@@ -448,10 +448,10 @@ export function LogsDialog({
 
         <div
           ref={scrollRef}
-          className="min-h-0 flex-1 overflow-y-auto bg-white font-mono text-[12px] leading-relaxed text-foreground dark:bg-[#0a0b0d]"
+          className="min-h-0 flex-1 overflow-y-auto bg-white font-mono text-[12px] leading-relaxed text-foreground max-md:text-[11px] dark:bg-[#0a0b0d]"
         >
           {backendError && (
-            <div className="border-b border-red-500/20 bg-red-500/5 px-5 py-2 text-[11px] text-red-600 dark:border-[#FF4D4D]/20 dark:bg-[#FF4D4D]/5 dark:text-[#FF4D4D]">
+            <div className="border-b border-red-500/20 bg-red-500/5 px-5 py-2 text-[11px] text-red-600 max-md:px-3 dark:border-[#FF4D4D]/20 dark:bg-[#FF4D4D]/5 dark:text-[#FF4D4D]">
               Backend log: {backendError}
             </div>
           )}
@@ -473,7 +473,7 @@ export function LogsDialog({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-border/70 px-5 py-2.5 text-[11px] text-muted-foreground dark:border-white/6">
+        <div className="flex items-center justify-between gap-3 border-t border-border/70 px-5 py-2.5 text-[11px] text-muted-foreground max-md:px-3 dark:border-white/6">
           <label className="flex cursor-pointer select-none items-center gap-2">
             <input
               type="checkbox"
@@ -500,7 +500,7 @@ export function LogsDialog({
 
 function LogRow({ entry }: { entry: LogEntry }) {
   return (
-    <div className="flex items-start gap-3 px-5 py-1.5 hover:bg-black/[0.025] dark:hover:bg-white/2">
+    <div className="flex items-start gap-3 px-5 py-1.5 hover:bg-black/[0.025] max-md:grid max-md:grid-cols-[auto_auto_1fr] max-md:gap-x-2 max-md:gap-y-1 max-md:px-3 dark:hover:bg-white/2">
       <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-muted-foreground/60">
         {formatTime(entry.timestamp)}
       </span>
@@ -519,7 +519,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
       >
         {entry.source}
       </span>
-      <pre className="min-w-0 flex-1 whitespace-pre-wrap break-words text-foreground/85">
+      <pre className="min-w-0 flex-1 whitespace-pre-wrap break-words text-foreground/85 max-md:col-span-3">
         {entry.message}
       </pre>
     </div>
