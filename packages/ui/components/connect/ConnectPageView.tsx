@@ -149,6 +149,23 @@ Setup:
 5. Run it as an auto-restarting service that survives crashes and reboot.
 6. Middleware URL rule: use the URL Desktop can actually reach - HTTPS reverse proxy first, then Tailscale MagicDNS/100.x.y.z, then private IP/LAN, then public IP:8787 only if firewall/security-group allows it.
 
+Tailscale-specific gate:
+- Do not invent or guess a Tailscale URL. Only use a Tailscale URL if every check below is green.
+- Check Tailscale is installed:
+  - command -v tailscale
+- Check this VPS is logged in and connected to the tailnet:
+  - tailscale status
+  - tailscale netcheck
+- Get the real VPS Tailscale IPv4 from Tailscale itself:
+  - tailscale ip -4
+- If tailscale ip -4 returns nothing, or tailscale status says the machine is stopped/not logged in, stop and report the exact blocker. Do not generate a fake 100.x.y.z URL.
+- Start Middleware with HOST=0.0.0.0, then verify the service is reachable through the actual Tailscale IP:
+  - curl -fsS http://<actual-tailscale-ip>:8787/health
+- If the Desktop/user tailnet device name or IP is known, also verify tailnet reachability:
+  - tailscale ping <desktop-tailnet-device-or-ip>
+- If any Tailscale check fails, return Blocker with the failing command and reason instead of returning Middleware URL.
+- Only after these checks pass, use http://<actual-tailscale-ip>:8787 as the Middleware URL.
+
 Mandatory verification:
 Run the repo smoke-test script. It checks health, pairing/token, auth APIs, admin commands, cron, stream, chat send, workspace, and terminal.
 
@@ -158,7 +175,7 @@ MIDDLEWARE_TEST_URL=<middleware-url> MIDDLEWARE_PAIRING_CODE=<pairing-code> docs
 If you already know the token, use:
 MIDDLEWARE_TEST_URL=<middleware-url> MIDDLEWARE_TOKEN=<token> docs/installation/desktop-middleware-smoke-test.sh
 
-If the script fails because no model/API key is configured, say Middleware is working but chat model/provider is the blocker. For any other failure, fix it and rerun the script. Do not give the URL/code until the script prints DESKTOP_MIDDLEWARE_SMOKE_TEST_OK or you have one exact blocker.
+If the script fails because no model/API key is configured, say Middleware is working but chat model/provider is the blocker. For any other failure, fix it and rerun the script. Do not give the URL/code until the script prints DESKTOP_MIDDLEWARE_SMOKE_TEST_OK or you have one exact blocker. For Tailscale, run the smoke test against the real Tailscale URL, not localhost, before returning the URL.
 
 When finished, reply only:
 Middleware URL: <reachable-url>
