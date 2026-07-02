@@ -1,11 +1,6 @@
 "use client"
 
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-  type Options as NotificationOptions,
-} from "@tauri-apps/plugin-notification"
+import type { Options as NotificationOptions } from "@tauri-apps/plugin-notification"
 import { invoke } from "@/lib/ipc"
 
 let permissionCache: boolean | null = null
@@ -19,12 +14,17 @@ function canUseBrowserNotifications(): boolean {
   return typeof window !== "undefined" && "Notification" in window
 }
 
+async function checkTauriPermission(): Promise<boolean> {
+  const { isPermissionGranted } = await import("@tauri-apps/plugin-notification")
+  const granted = await isPermissionGranted()
+  permissionCache = granted
+  return granted
+}
+
 async function checkPermission(): Promise<boolean> {
   if (permissionCache !== null) return permissionCache
   if (isTauriRuntime()) {
-    const granted = await isPermissionGranted()
-    permissionCache = granted
-    return granted
+    return checkTauriPermission()
   }
   const granted = canUseBrowserNotifications() && Notification.permission === "granted"
   permissionCache = granted
@@ -35,6 +35,7 @@ export async function ensureNotificationPermission(): Promise<boolean> {
   const granted = await checkPermission()
   if (granted) return true
   if (isTauriRuntime()) {
+    const { requestPermission } = await import("@tauri-apps/plugin-notification")
     const result = await requestPermission()
     permissionCache = result === "granted"
     return permissionCache
@@ -52,6 +53,7 @@ export async function notify(options: NotificationOptions): Promise<void> {
   const hasPermission = await ensureNotificationPermission()
   if (!hasPermission) return
   if (isTauriRuntime()) {
+    const { sendNotification } = await import("@tauri-apps/plugin-notification")
     sendNotification(options)
     return
   }
