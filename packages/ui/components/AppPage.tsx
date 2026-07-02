@@ -1412,6 +1412,24 @@ function AppShell({
     }
   }, [activateRoute])
 
+  const handleNotificationsBack = useCallback(() => {
+    const previousPath = previousContentPathRef.current
+    const url =
+      previousPath &&
+      !isSettingsRoute(previousPath) &&
+      !isNotificationsRoute(previousPath)
+        ? previousPath
+        : fallbackPathForTab(prevTabRef.current)
+
+    if (isNotificationsRoute(getRoutePath())) {
+      window.history.replaceState(null, "", routeUrl(url))
+      void activateRoute(parseRoute(url))
+      return
+    }
+
+    setActiveTab(prevTabRef.current === "notifications" ? "chat" : prevTabRef.current)
+  }, [activateRoute])
+
   const handleInspectorBack = useCallback(() => {
     setInspectorOpen(true)
     const previousPath = previousContentPathRef.current
@@ -3236,6 +3254,7 @@ function AppShell({
                   routeResolving={initialConversationRouteResolving}
                   sessionError={sessionError}
                   onSettingsBack={handleSettingsBack}
+                  onNotificationsBack={handleNotificationsBack}
                   settingsSection={settingsSection}
                   onSettingsSectionChange={setSettingsSection}
                   onFirstMessageSent={handleFirstMessageSent}
@@ -3297,6 +3316,7 @@ function AppShell({
                           routeResolving={false}
                           sessionError={null}
                           onSettingsBack={handleSettingsBack}
+                          onNotificationsBack={handleNotificationsBack}
                           settingsSection={settingsSection}
                           onSettingsSectionChange={setSettingsSection}
                           onFirstMessageSent={handleFirstMessageSent}
@@ -3339,6 +3359,7 @@ function AppShell({
                 routeResolving={initialConversationRouteResolving}
                 sessionError={sessionError}
                 onSettingsBack={handleSettingsBack}
+                onNotificationsBack={handleNotificationsBack}
                 settingsSection={settingsSection}
                 onSettingsSectionChange={setSettingsSection}
                 onFirstMessageSent={handleFirstMessageSent}
@@ -3468,6 +3489,7 @@ function MainContent({
   routeResolving = false,
   sessionError,
   onSettingsBack,
+  onNotificationsBack,
   settingsSection,
   onSettingsSectionChange,
   onFirstMessageSent,
@@ -3502,6 +3524,7 @@ function MainContent({
   routeResolving?: boolean
   sessionError: string | null
   onSettingsBack: () => void
+  onNotificationsBack: () => void
   settingsSection: SettingsSection
   onSettingsSectionChange: (section: SettingsSection) => void
   onFirstMessageSent: (text: string) => void
@@ -3528,7 +3551,7 @@ function MainContent({
         <NotificationDashboard
           activeSessionKey={activeSessionKey ?? lastActiveSessionKey}
           initialSelectedJob={cronConversationTarget}
-          onBack={onSettingsBack}
+          onBack={onNotificationsBack}
           onDraftPrompt={onDraftPrompt}
           onNavigateToChat={onNavigateToChat}
         />
