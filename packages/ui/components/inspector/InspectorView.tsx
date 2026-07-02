@@ -166,7 +166,7 @@ export function InspectorView({
             aria-label="Close panel"
             className={cn(
               onOpenFullWindow
-                ? "ml-1 flex size-6 cursor-pointer items-center justify-center"
+                ? "ml-1 flex size-6 cursor-pointer items-center justify-center max-md:ml-auto"
                 : "ml-auto flex size-6 cursor-pointer items-center justify-center",
               "text-muted-foreground transition-colors hover:text-foreground",
             )}
