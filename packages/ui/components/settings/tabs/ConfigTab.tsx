@@ -28,7 +28,7 @@ type ReadResponse = { content: string }
 function MarkdownPreview({ content }: { content: string }) {
   return (
     <div className={cn(
-      "max-w-none px-2 py-1 text-[13px] leading-7 text-foreground/88",
+      "max-w-none py-1 text-[13px] leading-7 text-foreground/88",
       "[&>*:first-child]:mt-0 [&>*+*]:mt-3",
       "[&_h1]:mb-3 [&_h1]:mt-8 [&_h1]:border-b [&_h1]:border-foreground/10 [&_h1]:pb-3 [&_h1]:text-[24px] [&_h1]:font-semibold [&_h1]:tracking-tight [&_h1]:text-foreground [&_h1]:first:mt-0",
       "[&_h2]:mb-2.5 [&_h2]:mt-7 [&_h2]:flex [&_h2]:items-center [&_h2]:gap-2 [&_h2]:text-[17px] [&_h2]:font-semibold [&_h2]:tracking-tight [&_h2]:text-foreground before:[&_h2]:h-4 before:[&_h2]:w-1 before:[&_h2]:rounded-full before:[&_h2]:bg-violet-500/65",
@@ -191,7 +191,7 @@ export function ConfigTab() {
         isCompactConfig && "w-full",
         isCompactConfig && compactDetailOpen && "hidden",
       )}>
-        <div className="border-b border-black/[0.025] px-5 py-6 dark:border-white/[0.03]">
+        <div className="border-b border-black/[0.025] py-6 px-2 dark:border-white/[0.03]">
           <div className="min-w-0">
             <h2 className="text-[18px] font-semibold tracking-tight text-foreground">Config</h2>
             <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground/60">
@@ -200,7 +200,7 @@ export function ConfigTab() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
+        <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 py-3">
           {CONFIG_FILES.map((file) => {
             const active = selected.path === file.path
             return (
@@ -233,7 +233,7 @@ export function ConfigTab() {
       <main className={cn(
         "flex min-h-0 min-w-0 flex-1 flex-col px-7 py-6",
         isCompactConfig && !compactDetailOpen && "hidden",
-        isCompactConfig && compactDetailOpen && "w-full px-4 py-5 max-[360px]:px-3",
+        isCompactConfig && compactDetailOpen && "w-full px-3 py-5 max-[360px]:px-3",
       )}>
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {isCompactConfig ? (
@@ -250,7 +250,7 @@ export function ConfigTab() {
             </div>
           ) : null}
 
-          <div className="flex items-center justify-between gap-3 px-2 pb-4 pr-12 max-lg:pr-2">
+          <div className="flex items-center justify-between gap-3 px-0 pb-4 pr-12 max-lg:pr-2">
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
                 <h3 className="truncate text-[13px] font-semibold text-foreground">{selected.label}</h3>
