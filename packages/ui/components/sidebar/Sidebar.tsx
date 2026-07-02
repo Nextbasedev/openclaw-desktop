@@ -131,7 +131,7 @@ export function Sidebar({
     () =>
       ({
         "--sidebar-width": `${width}px`,
-        "--sidebar-mobile-width": `${Math.min(width, 320)}px`,
+        "--sidebar-mobile-width": `${Math.min(Math.max(width, 320), 360)}px`,
       }) as CSSProperties,
     [width]
   )

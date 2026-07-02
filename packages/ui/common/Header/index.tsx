@@ -470,7 +470,7 @@ export function Header({
           {displayOpenClawVersion && (
             <span
               title={nodeVersion ? `OpenClaw ${displayOpenClawVersion} · Middleware Node ${nodeVersion}` : `OpenClaw ${displayOpenClawVersion}`}
-              className="inline-flex h-[17px] shrink-0 items-center gap-1.5 rounded-full border border-foreground/[0.07] bg-foreground/[0.025] px-2 text-[9px] font-medium leading-none tracking-[0.02em] text-muted-foreground/72 dark:border-white/[0.08] dark:bg-white/[0.035] dark:text-white/58"
+              className="inline-flex h-[17px] shrink-0 items-center gap-1.5 rounded-full border border-foreground/[0.07] bg-foreground/[0.025] px-2 text-[9px] font-medium leading-none tracking-[0.02em] text-muted-foreground/72 max-md:hidden dark:border-white/[0.08] dark:bg-white/[0.035] dark:text-white/58"
             >
               <span className="size-1 rounded-full bg-emerald-400/70" />
               {displayOpenClawVersion}
