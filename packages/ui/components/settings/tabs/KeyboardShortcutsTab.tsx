@@ -96,7 +96,7 @@ export function KeyboardShortcutsTable({ className }: ShortcutsTableProps) {
         className
       )}
     >
-      <div className="grid grid-cols-[minmax(0,1fr)_150px_80px] items-center gap-4 border-b border-black/[0.06] bg-black/[0.035] px-5 py-3 dark:border-white/[0.06] dark:bg-white/[0.045]">
+      <div className="hidden grid-cols-[minmax(0,1fr)_150px_80px] items-center gap-4 border-b border-black/[0.06] bg-black/[0.035] px-5 py-3 dark:border-white/[0.06] dark:bg-white/[0.045] sm:grid">
         <span className="text-[10px] font-semibold tracking-[0.16em] text-muted-foreground/70 uppercase">
           Command
         </span>
@@ -111,14 +111,14 @@ export function KeyboardShortcutsTable({ className }: ShortcutsTableProps) {
         <div
           key={shortcut.command}
           className={cn(
-            "grid grid-cols-[minmax(0,1fr)_150px_80px] items-center gap-4 px-5 py-3.5 transition-colors hover:bg-black/[0.035] dark:hover:bg-white/[0.045]",
+            "flex flex-col gap-2 px-4 py-4 transition-colors hover:bg-black/[0.035] dark:hover:bg-white/[0.045] sm:grid sm:grid-cols-[minmax(0,1fr)_150px_80px] sm:items-center sm:gap-4 sm:px-5 sm:py-3.5",
             idx > 0 && "border-t border-black/[0.045] dark:border-white/[0.055]"
           )}
         >
-          <span className="min-w-0 truncate text-[13px] font-medium text-foreground">
+          <span className="min-w-0 whitespace-normal break-words text-[13px] font-medium leading-snug text-foreground sm:truncate">
             {shortcut.command}
           </span>
-          <div className="flex items-center justify-end gap-1">
+          <div className="flex items-center justify-start gap-1 sm:justify-end">
             {getKeys(shortcut).map((key, i) => (
               <React.Fragment key={`${shortcut.command}-${key}-${i}`}>
                 {i > 0 && (
@@ -132,8 +132,8 @@ export function KeyboardShortcutsTable({ className }: ShortcutsTableProps) {
               </React.Fragment>
             ))}
           </div>
-          <span className="text-right text-[11px] text-muted-foreground/70">
-            {shortcut.scope}
+          <span className="text-left text-[11px] text-muted-foreground/70 sm:text-right">
+            <span className="sm:hidden">Scope: </span>{shortcut.scope}
           </span>
         </div>
       ))}
