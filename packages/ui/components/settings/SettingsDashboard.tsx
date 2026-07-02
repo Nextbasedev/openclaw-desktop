@@ -159,8 +159,9 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
             isCompactSidebar && !compactSidebarOpen && "space-y-1.5",
             isCompactSidebar && compactSidebarOpen && "space-y-4",
           )}>
-            {SECTION_GROUPS.map((group) => (
-              <div key={group.label} className="space-y-1 max-lg:space-y-1.5">
+            {SECTION_GROUPS.map((group, groupIndex) => (
+              <React.Fragment key={group.label}>
+                <div className="space-y-1 max-lg:space-y-1.5">
                 <p className={cn(
                   "px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70 transition-[opacity,height,padding,width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                   isCompactSidebar && !compactSidebarOpen && "h-0 w-0 overflow-hidden p-0 whitespace-nowrap opacity-0",
@@ -176,12 +177,13 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
                       onClick={() => handleSidebarClick(item.id)}
                       expanded={!isCompactSidebar || compactSidebarOpen}
                     />
-                    {item.id === "config" && isCompactSidebar && !compactSidebarOpen ? (
-                      <div className="mx-auto my-1.5 h-px w-7 bg-border/70" />
-                    ) : null}
                   </React.Fragment>
                 ))}
-              </div>
+                </div>
+                {groupIndex === 0 && isCompactSidebar && !compactSidebarOpen ? (
+                  <div className="mx-auto my-1.5 h-px w-7 bg-border/70" />
+                ) : null}
+              </React.Fragment>
             ))}
           </div>
 
