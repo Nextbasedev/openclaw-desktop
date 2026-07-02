@@ -30,15 +30,15 @@ function MiniMetric({
   className?: string
 }) {
   return (
-    <div className={`flex min-w-0 flex-col rounded-md bg-black/[0.025] dark:bg-white/[0.025] p-5 ${className}`}>
+    <div className={`flex min-w-0 flex-col rounded-md bg-black/[0.025] p-3.5 dark:bg-white/[0.025] lg:p-5 ${className}`}>
       <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
-      <div className="mt-3 truncate text-[22px] font-semibold tabular-nums tracking-tight text-foreground">
+      <div className="mt-2 truncate text-[20px] font-semibold tabular-nums tracking-tight text-foreground lg:mt-3 lg:text-[22px]">
         {value}
       </div>
       {helper && (
-        <div className="mt-1 text-[12px] text-muted-foreground">
+        <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground lg:mt-1 lg:text-[12px]">
           {helper}
         </div>
       )}
@@ -48,7 +48,7 @@ function MiniMetric({
 
 function MiniMetricSkeleton({ className = "" }: { className?: string }) {
   return (
-    <div className={`flex h-[98px] min-w-0 flex-col rounded-md bg-black/[0.025] dark:bg-white/[0.025] p-5 ${className}`}>
+    <div className={`flex min-h-[76px] min-w-0 flex-col rounded-md bg-black/[0.025] p-3.5 dark:bg-white/[0.025] lg:min-h-[98px] lg:p-5 ${className}`}>
       <Skeleton className="h-3 w-16" />
       <Skeleton className="mt-4 h-7 w-20" />
       <Skeleton className="mt-2 h-3 w-24" />
