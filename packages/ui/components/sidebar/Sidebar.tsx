@@ -148,6 +148,11 @@ export function Sidebar({
     if (isMobileViewport) onClose?.()
   }, [isMobileViewport, onClose, onNewChat])
 
+  const handleChatSelect = useCallback((chat: ActiveChat) => {
+    onChatSelect(chat)
+    if (isMobileViewport) onClose?.()
+  }, [isMobileViewport, onChatSelect, onClose])
+
   const isHiddenMobileSidebar = collapsed && isMobileViewport
   const showExpandedContent = !collapsed || previewExpanded || isMobileViewport
   const itemCollapsed = isMobileViewport ? false : collapsed && !previewExpanded
@@ -270,7 +275,7 @@ export function Sidebar({
                 collapsed={false}
                 sectionLabel={activeSpaceName}
                 activeChat={activeChat}
-                onChatSelect={onChatSelect}
+                onChatSelect={handleChatSelect}
                 onChatOpenInNewWindow={onChatOpenInNewWindow}
                 onChatClear={onChatClear}
                 onNewChat={handleNewChat}
