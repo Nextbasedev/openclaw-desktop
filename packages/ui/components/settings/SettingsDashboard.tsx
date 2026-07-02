@@ -94,7 +94,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
         className={cn(
           "group/settings-sidebar flex w-[220px] shrink-0 flex-col bg-black/[0.025] transition-[width,transform,opacity,background-color,box-shadow] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] dark:bg-white/[0.025] data-[open=true]:duration-300",
           isCompactSidebar && "absolute inset-y-0 left-0 z-30 w-14 overflow-hidden border-r border-border/60 bg-background/95 shadow-[12px_0_32px_rgba(0,0,0,0.22)] backdrop-blur-xl",
-          isCompactSidebar && compactSidebarOpen && "w-[236px] max-sm:w-[204px] max-[360px]:w-[188px]",
+          isCompactSidebar && compactSidebarOpen && "w-[236px] max-sm:w-[230px] max-[360px]:w-[188px]",
         )}
         data-open={compactSidebarOpen ? "true" : "false"}
       >
