@@ -734,17 +734,17 @@ export function CronJobsTab({ activeSessionKey, onDraftPrompt }: CronJobsTabProp
   }, [activeSessionKey, fetchJobs])
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">
+    <div className="flex min-w-0 flex-col gap-6 max-sm:gap-4">
+      <div className="flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-start">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-foreground max-sm:text-base">
             Cron Jobs
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground max-sm:text-[12px]">
             Manage your scheduled tasks.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 max-sm:w-full max-sm:flex-wrap">
           <button
             type="button"
             data-testid="cron-create-review"
@@ -754,7 +754,7 @@ export function CronJobsTab({ activeSessionKey, onDraftPrompt }: CronJobsTabProp
               setCreateDraft(blankCronDraft())
             }}
             className={cn(
-              "flex items-center gap-1.5 rounded-md px-3 py-1.5",
+              "flex items-center gap-1.5 rounded-md px-3 py-1.5 max-sm:flex-1 max-sm:justify-center max-sm:px-2.5",
               "text-[12px] font-medium text-foreground",
               "cursor-pointer border border-white/10 bg-white/[0.06] transition-colors",
               "hover:bg-white/[0.09]",
@@ -769,7 +769,7 @@ export function CronJobsTab({ activeSessionKey, onDraftPrompt }: CronJobsTabProp
             onClick={fetchJobs}
             disabled={loading}
             className={cn(
-              "flex items-center gap-1.5 rounded-md px-3 py-1.5",
+              "flex items-center gap-1.5 rounded-md px-3 py-1.5 max-sm:flex-1 max-sm:justify-center max-sm:px-2.5",
               "text-[12px] font-medium text-muted-foreground",
               "cursor-pointer transition-colors",
               "hover:bg-secondary/50 hover:text-foreground",
@@ -864,4 +864,3 @@ export function CronJobsTab({ activeSessionKey, onDraftPrompt }: CronJobsTabProp
     </div>
   )
 }
-

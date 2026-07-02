@@ -106,7 +106,7 @@ function ActionButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5",
+        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 max-sm:flex-1 max-sm:justify-center max-sm:px-2",
         "text-[11px] font-medium transition-colors",
         "cursor-pointer",
         "disabled:cursor-not-allowed disabled:opacity-50",
@@ -180,11 +180,11 @@ export function CronJobRow({
         !job.enabled && "opacity-60",
       )}
     >
-      <div className="flex items-start justify-between gap-4 px-4 py-3">
+      <div className="flex items-start justify-between gap-4 px-4 py-3 max-sm:gap-2 max-sm:px-3">
         <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Icons.Cron size={14} className="shrink-0 text-muted-foreground" />
-            <span className="truncate text-[13px] font-medium text-foreground">
+            <span className="min-w-0 max-w-full truncate text-[13px] font-medium text-foreground max-sm:basis-[calc(100%-28px)]">
               {job.name}
             </span>
             <ScheduleBadge type={job.scheduleType} />
@@ -200,7 +200,7 @@ export function CronJobRow({
             )}
             <LastRunBadge job={job} />
           </div>
-          <div className="flex flex-wrap items-center gap-2 pl-[22px]">
+          <div className="flex flex-wrap items-center gap-2 pl-[22px] max-sm:pl-0">
             <span
               className="text-[11px] font-medium text-muted-foreground"
               title={job.schedule}
@@ -216,14 +216,14 @@ export function CronJobRow({
             )}
           </div>
           {job.message && (
-            <p className="line-clamp-1 pl-[22px] text-[11px] text-muted-foreground/70 italic">
+            <p className="line-clamp-2 pl-[22px] text-[11px] text-muted-foreground/70 italic max-sm:pl-0">
               {job.message}
             </p>
           )}
           {failedLastRun?.error && (
             <div
               data-cron-failure-detail={job.jobId}
-              className="ml-[22px] mt-1 rounded-lg border border-red-500/15 bg-red-500/[0.04] px-3 py-2"
+              className="ml-[22px] mt-1 rounded-lg border border-red-500/15 bg-red-500/[0.04] px-3 py-2 max-sm:ml-0"
             >
               <div className="mb-1 flex items-center gap-1.5">
                 <span className="size-1.5 rounded-full bg-red-400" />
@@ -261,7 +261,7 @@ export function CronJobRow({
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center justify-end gap-2 border-t border-white/[0.06] px-4 py-2">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t border-white/[0.06] px-4 py-2 max-sm:px-3">
         {failedLastRun && onDiagnoseFailure && (
           <ActionButton
             icon={Icons.Wrench}

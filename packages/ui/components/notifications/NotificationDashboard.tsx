@@ -69,17 +69,17 @@ export function NotificationDashboard({
   }
 
   return (
-    <div className="flex h-full w-full justify-center gap-15 pt-10">
+    <div className="flex h-full w-full justify-center gap-15 pt-10 max-lg:flex-col max-lg:justify-start max-lg:gap-3 max-lg:px-4 max-lg:pt-4 max-sm:px-3">
       <nav
         data-testid="notifications-sidebar"
-        className="flex w-[180px] shrink-0 flex-col px-3 py-6"
+        className="flex w-[180px] shrink-0 flex-col px-3 py-6 max-lg:w-full max-lg:px-0 max-lg:py-0"
       >
         {onBack && (
           <button
             type="button"
             data-testid="notifications-back"
             onClick={onBack}
-            className="group mb-4 flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[14px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            className="group mb-4 flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[14px] font-medium text-muted-foreground transition-colors hover:text-foreground max-lg:mb-2 max-lg:w-fit max-lg:px-0"
           >
             <Icons.Back
               size={14}
@@ -89,10 +89,10 @@ export function NotificationDashboard({
           </button>
         )}
 
-        <p className="mb-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+        <p className="mb-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50 max-lg:px-0">
           Notifications
         </p>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.5 max-lg:flex-row max-lg:gap-2 max-lg:overflow-x-auto max-lg:pb-1">
           {SIDEBAR_ITEMS.map((item) => {
             const Icon = item.icon
             const isActive = activeSection === item.id
@@ -104,7 +104,7 @@ export function NotificationDashboard({
                 data-active={isActive ? "true" : "false"}
                 onClick={() => handleSectionChange(item.id)}
                 className={cn(
-                  "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[14px] transition-colors",
+                  "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[14px] transition-colors max-lg:w-auto max-lg:shrink-0 max-lg:whitespace-nowrap max-sm:text-[13px]",
                   isActive
                     ? "bg-foreground/5 text-foreground"
                     : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
@@ -122,7 +122,7 @@ export function NotificationDashboard({
         </div>
       </nav>
 
-      <div className="my-2 w-full max-w-xl overflow-y-auto scrollbar-hide md:my-4 lg:my-6">
+      <div className="my-2 w-full max-w-xl overflow-y-auto scrollbar-hide max-lg:my-0 max-lg:max-w-none max-lg:min-w-0 md:my-4 lg:my-6">
         {selectedJob ? (
           <CronJobChat
             jobId={selectedJob.jobId}
