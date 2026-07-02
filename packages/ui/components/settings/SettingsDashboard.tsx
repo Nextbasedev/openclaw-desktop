@@ -141,7 +141,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
                   aria-label="Close settings sidebar"
                   className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.045]"
                 >
-                  <Icons.Close size={14} />
+                  <Icons.SidebarToggle size={14} />
                 </button>
               ) : null}
             </div>
@@ -193,6 +193,15 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
           </div>
         </nav>
       </aside>
+
+      {isCompactSidebar && compactSidebarOpen ? (
+        <button
+          type="button"
+          aria-label="Close settings sidebar overlay"
+          className="absolute inset-0 z-20 cursor-default bg-transparent"
+          onClick={() => setCompactSidebarOpen(false)}
+        />
+      ) : null}
 
       <div
         ref={scrollRef}
