@@ -65,25 +65,19 @@ export function UsageBreakdown({
         {providers.map((p) => (
           <div
             key={p.provider}
-            className="flex flex-col gap-4 rounded-[10px] bg-black/[0.025] dark:bg-white/[0.025] px-5 py-4 transition-colors hover:bg-black/[0.045] dark:hover:bg-white/[0.045] sm:flex-row sm:items-center sm:justify-between"
+            className="flex items-center justify-between gap-4 rounded-[10px] bg-black/[0.025] px-5 py-4 transition-colors hover:bg-black/[0.045] dark:bg-white/[0.025] dark:hover:bg-white/[0.045]"
           >
             <div className="flex min-w-0 flex-col gap-1">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate text-[14px] font-semibold text-foreground">
-                  {p.displayName}
-                </span>
-                {p.windows.length === 0 && <span className="shrink-0">{statusBadge(p)}</span>}
-              </div>
+              <span className="truncate text-[14px] font-semibold text-foreground">
+                {p.displayName}
+              </span>
               {p.plan && (
                 <span className="text-[12px] text-muted-foreground">
                   {p.plan}
                 </span>
               )}
-            </div>
-
-            <div className="flex items-center justify-between sm:justify-end gap-6 sm:gap-8 w-full sm:w-auto mt-2 sm:mt-0">
               {p.windows.length > 0 && (
-                <div className="flex flex-1 sm:flex-initial flex-col gap-3">
+                <div className="mt-2 flex flex-col gap-3">
                   {p.windows.map((w) => (
                     <div key={w.label} className="flex flex-col gap-1.5">
                       <div className="flex items-center justify-between gap-6">
@@ -106,12 +100,10 @@ export function UsageBreakdown({
                   ))}
                 </div>
               )}
+            </div>
 
-              {p.windows.length > 0 && (
-                <div className="flex-shrink-0 self-end pb-[2px] sm:self-auto sm:pb-0">
-                  {statusBadge(p)}
-                </div>
-              )}
+            <div className="shrink-0 self-start pt-[1px]">
+              {statusBadge(p)}
             </div>
           </div>
         ))}
