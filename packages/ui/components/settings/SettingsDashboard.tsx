@@ -140,9 +140,9 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
                   type="button"
                   onClick={() => setCompactSidebarOpen(false)}
                   aria-label="Close settings sidebar"
-                  className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md bg-black/[0.055] text-foreground transition-colors hover:bg-black/[0.075] dark:bg-white/[0.075] dark:hover:bg-white/[0.095]"
+                  className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.045]"
                 >
-                  <Icons.SidebarToggle size={14} strokeWidth={2} />
+                  <Icons.SidebarToggle size={14} />
                 </button>
               ) : null}
             </div>
