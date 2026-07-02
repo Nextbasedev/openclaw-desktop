@@ -154,7 +154,7 @@ export function InspectorView({
             onClick={() => onOpenFullWindow(activeTab)}
             aria-label={`Open ${activeTab} in full window`}
             title="Open in full window"
-            className="ml-auto flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+            className="ml-auto flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground max-md:hidden"
           >
             <Icons.ExpandPanel size={12} strokeWidth={1.8} className="size-[13px]" />
           </button>

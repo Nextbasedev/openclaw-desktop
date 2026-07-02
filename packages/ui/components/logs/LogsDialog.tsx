@@ -312,7 +312,7 @@ export function LogsDialog({
           <motion.div
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              "relative flex max-h-[85vh] w-[92vw] max-w-[1100px] flex-col overflow-hidden rounded-[22px] max-md:max-h-[calc(100svh-16px)] max-md:w-[calc(100vw-16px)] max-md:rounded-[18px]",
+              "relative flex max-h-[85vh] w-[92vw] max-w-[1100px] flex-col overflow-hidden rounded-[22px] max-md:max-h-[72svh] max-md:w-[calc(100vw-16px)] max-md:rounded-[18px]",
               "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
               "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
               "backdrop-blur-[40px] backdrop-saturate-[180%]",
