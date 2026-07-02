@@ -253,6 +253,10 @@ export class ChatLiveIngest {
       this.handleChatEvent(event.payload);
       return;
     }
+    if (event.event === "session.compaction") {
+      this.handleCompaction(event.payload);
+      return;
+    }
     if (event.event === "agent" || event.event === "agent.event") {
       this.handleAgentEvent(event.payload);
     }
@@ -764,6 +768,10 @@ export class ChatLiveIngest {
     if (!sessionKey) return;
     const gatewayRunId = firstString(payload.runId, data.runId, payload.id, data.id);
     const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findOldestPendingRun(sessionKey);
+    if (payload.stream === "compaction") {
+      this.handleCompactionStatus(sessionKey, gatewayRunId, run, data);
+      return;
+    }
     if (payload.stream === "item" || payload.stream === "command_output") {
       this.projectAgentToolEvent(sessionKey, gatewayRunId, run?.runId ?? null, payload.stream, data);
       return;
@@ -802,6 +810,110 @@ export class ChatLiveIngest {
     });
     this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
     this.log.info("reasoning.delta.broadcast", { sessionKey, runId: run.runId, cursor: patch.cursor, textLength: text?.length ?? 0, deltaLength: delta?.length ?? 0 });
+  }
+
+  // OCPlatform emits a live `agent` event with stream:"compaction" and
+  // data.phase ("start" | "end", plus data.completed) when a session auto-compacts
+  // mid-run. We surface this as an ephemeral `chat.compaction.status` patch so the
+  // chat screen can show/clear the "Compacting automatically" divider. The durable
+  // record (with the summary) arrives separately via `session.compaction`.
+  private handleCompactionStatus(
+    sessionKey: string,
+    gatewayRunId: string | null,
+    run: ProjectedRun | null,
+    data: Record<string, unknown>,
+  ) {
+    const phase = typeof data.phase === "string" ? data.phase.toLowerCase() : null;
+    const active = phase === "start";
+    const completed = data.completed === true;
+    const runId = run?.runId ?? gatewayRunId ?? null;
+
+    // Keep the run's status label honest while compaction runs so the composer /
+    // typing affordance reflects reality instead of a stale "Streaming".
+    if (run && active && !["done", "error", "aborted"].includes(run.status)) {
+      const updated = this.context.runs.updateRunStatus(run.runId, run.status, { statusLabel: "Compacting\u2026" });
+      if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.compacting");
+    }
+
+    const patch = this.context.messages.appendProjectionEvent({
+      sessionKey,
+      eventType: "chat.compaction.status",
+      payload: canonicalPatchPayload({
+        sessionKey,
+        semanticType: "chat.compaction.status",
+        run,
+        payload: {
+          sessionKey,
+          ...(runId ? { runId } : {}),
+          phase: phase ?? "unknown",
+          active,
+          completed,
+        },
+      }),
+    });
+    this.context.patchBus.broadcast({
+      cursor: patch.cursor,
+      type: patch.eventType,
+      sessionKey: patch.sessionKey,
+      payload: patch.payload,
+      createdAtMs: patch.createdAtMs,
+    });
+    this.log.info("compaction.status.broadcast", { sessionKey, runId, phase, active, completed, cursor: patch.cursor });
+  }
+
+  // OCPlatform's `session.compaction` gateway event carries the compaction summary
+  // (an OCPlatform-authored markdown Goal/Progress block) plus token/entry metadata.
+  // Fires both live (when the transcript entry is appended) and during history
+  // replay. We persist it as a `chat.compaction.marker` projection event so it is
+  // cached and replayed on reload; the frontend dedupes by compactionId.
+  private handleCompaction(payload: unknown) {
+    if (!isObject(payload)) return;
+    const data = isObject(payload.data) ? payload.data : payload;
+    const sessionKey = firstString(payload.sessionKey, data.sessionKey, payload.key, data.key);
+    if (!sessionKey) return;
+    const gatewayRunId = firstString(payload.runId, data.runId, payload.id, data.id);
+    const run = gatewayRunId
+      ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId)
+      : this.context.runs.findOldestPendingRun(sessionKey) ?? this.context.runs.latestRun(sessionKey);
+
+    const summary = firstString(data.summary, payload.summary) ?? "";
+    const firstKeptEntryId = firstString(data.firstKeptEntryId, payload.firstKeptEntryId) ?? null;
+    const tokensBefore = typeof data.tokensBefore === "number" ? data.tokensBefore
+      : typeof payload.tokensBefore === "number" ? payload.tokensBefore
+        : null;
+    const details = data.details ?? payload.details ?? null;
+    const fromHook = data.fromHook === true || payload.fromHook === true;
+    // Stable id so live + replay of the same compaction collapse to one marker.
+    const compactionId = firstString(data.id, payload.id, firstKeptEntryId)
+      ?? `compaction:${sessionKey}:${firstKeptEntryId ?? tokensBefore ?? "?"}`;
+
+    const patch = this.context.messages.appendProjectionEvent({
+      sessionKey,
+      eventType: "chat.compaction.marker",
+      payload: canonicalPatchPayload({
+        sessionKey,
+        semanticType: "chat.compaction.marker",
+        run,
+        payload: {
+          sessionKey,
+          compactionId,
+          ...(run?.runId ? { runId: run.runId } : gatewayRunId ? { runId: gatewayRunId } : {}),
+          summary,
+          firstKeptEntryId,
+          tokensBefore,
+          details,
+          fromHook,
+        },
+      }),
+    });
+    this.context.patchBus.broadcast({
+      cursor: patch.cursor,
+      type: patch.eventType,
+      sessionKey: patch.sessionKey,
+      payload: patch.payload,
+      createdAtMs: patch.createdAtMs,
+    });
+    this.log.info("compaction.marker.broadcast", { sessionKey, compactionId, tokensBefore, summaryLength: summary.length, fromHook, cursor: patch.cursor });
   }
 
   private projectAgentToolEvent(sessionKey: string, gatewayRunId: string | null, runId: string | null, stream: unknown, data: Record<string, unknown>) {
