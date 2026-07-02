@@ -97,40 +97,54 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
           isCompactSidebar && compactSidebarOpen && "w-[236px] max-sm:w-[204px] max-[360px]:w-[188px]",
         )}
       >
-        <div className="px-4 py-4 max-lg:px-2 max-lg:py-3">
-          <div className="mb-3 flex items-center gap-2 max-lg:mb-2">
+        <div className={cn(
+          "px-4 py-4",
+          isCompactSidebar && !compactSidebarOpen && "px-2 py-2",
+          isCompactSidebar && compactSidebarOpen && "px-4 py-3",
+        )}>
+          {isCompactSidebar && !compactSidebarOpen ? (
             <button
               type="button"
-              onClick={() => setCompactSidebarOpen((open) => !open)}
-              aria-label={compactSidebarOpen ? "Close settings sidebar" : "Open settings sidebar"}
-              className="hidden size-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.045] max-lg:flex"
+              onClick={() => setCompactSidebarOpen(true)}
+              aria-label="Open settings sidebar"
+              className="flex size-10 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.045]"
             >
-              {compactSidebarOpen ? <Icons.Close size={16} /> : <Icons.SidebarToggle size={16} />}
+              <Icons.SidebarToggle size={16} />
             </button>
+          ) : null}
 
-            {onBack ? (
-              <button
-                onClick={onBack}
-                aria-label="Back"
-                className={cn(
-                  "group flex h-7 cursor-pointer items-center gap-2 rounded-md text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground lg:flex",
-                  isCompactSidebar && !compactSidebarOpen && "hidden",
-                  isCompactSidebar && compactSidebarOpen && "flex h-10 min-w-0 px-2",
-                )}
-              >
-                <Icons.Back size={14} className="shrink-0 transition-transform group-hover:-translate-x-0.5" />
-                <span className="truncate whitespace-nowrap">Back</span>
-              </button>
-            ) : null}
-          </div>
+          {!isCompactSidebar && onBack ? (
+            <button
+              onClick={onBack}
+              aria-label="Back"
+              className="group mb-3 flex h-7 cursor-pointer items-center gap-2 rounded-md text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Icons.Back size={14} className="shrink-0 transition-transform group-hover:-translate-x-0.5" />
+              <span className="truncate whitespace-nowrap">Back</span>
+            </button>
+          ) : null}
 
           <div className={cn(
             "transition-[opacity,height,width] duration-200 pl-2 sm:pl-0",
             isCompactSidebar && !compactSidebarOpen && "h-0 w-0 overflow-hidden opacity-0",
-            isCompactSidebar && compactSidebarOpen && "h-auto w-auto opacity-100",
+            (!isCompactSidebar || compactSidebarOpen) && "h-auto w-auto opacity-100",
           )}>
-            <p className="whitespace-nowrap text-[15px] font-semibold text-foreground">Settings</p>
-            <p className="mt-1 whitespace-nowrap text-[12px] text-muted-foreground">Manage OpenClaw</p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 pl-1">
+                <p className="whitespace-nowrap text-[15px] font-semibold text-foreground">Settings</p>
+                <p className="mt-1 whitespace-nowrap text-[12px] text-muted-foreground">Manage OpenClaw</p>
+              </div>
+              {isCompactSidebar ? (
+                <button
+                  type="button"
+                  onClick={() => setCompactSidebarOpen(false)}
+                  aria-label="Close settings sidebar"
+                  className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.045]"
+                >
+                  <Icons.Close size={14} />
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
 
