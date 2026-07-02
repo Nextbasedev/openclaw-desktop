@@ -183,7 +183,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
       <div
         ref={scrollRef}
         className={cn(
-          "min-h-0 flex-1 scrollbar-hide max-lg:pl-[72px] max-[360px]:pl-16",
+          "min-h-0 flex-1 scrollbar-hide max-lg:pl-[64px] max-[360px]:pl-16",
           resolvedSection === "config" ? "overflow-hidden bg-transparent" : "overflow-y-auto",
           resolvedSection === "connect" ? "bg-transparent" : resolvedSection === "config" ? "bg-transparent" : "bg-transparent px-8 py-7 max-lg:bg-background/35 max-lg:py-5 max-lg:pr-4 max-sm:pr-3 max-[360px]:pr-2",
         )}

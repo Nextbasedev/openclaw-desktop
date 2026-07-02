@@ -206,7 +206,7 @@ export function ConnectPageView({
   }, [connectResult, error, isConnected])
 
   return (
-    <div className="h-full min-h-0 w-full overflow-y-auto bg-transparent px-5 py-6 sm:px-8 sm:py-7">
+    <div className="h-full min-h-0 w-full overflow-y-auto bg-transparent px-2 py-6 sm:px-8 sm:py-7">
       <div
         className={cn(
           "mx-auto flex min-h-full w-full justify-center",
