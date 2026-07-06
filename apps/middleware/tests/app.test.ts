@@ -1162,8 +1162,15 @@ describe("middleware app", () => {
     save.run("activeSpaceId", JSON.stringify("space_default"), timestamp);
     save.run("projects", JSON.stringify([{ id: "proj_old", name: "Krish & MK", spaceId: "space_default", importedFrom: { kind: "telegram", groupId: "-1001" } }]), timestamp);
     save.run("topics", JSON.stringify([{ id: "topic_old", projectId: "proj_old", name: "Topic 42", importedFrom: { kind: "telegram", sourceSessionKey: sourceKey } }]), timestamp);
-    save.run("sessions", JSON.stringify([{ id: "session_old", key: "agent:main:desktop:migrated-telegram-old", sessionKey: "agent:main:desktop:migrated-telegram-old", label: "Topic 42", spaceId: "space_default", projectId: "proj_old", topicId: "topic_old", importedFrom: { kind: "telegram", sourceSessionKey: sourceKey } }]), timestamp);
-    save.run("chats", JSON.stringify([{ id: "chat_old", name: "Topic 42", sessionKey: "agent:main:desktop:migrated-telegram-old", spaceId: "space_default", projectId: "proj_old", topicId: "topic_old", importedFrom: { kind: "telegram", sourceSessionKey: sourceKey } }]), timestamp);
+    save.run("sessions", JSON.stringify([
+      { id: "session_old", key: "agent:main:desktop:migrated-telegram-old", sessionKey: "agent:main:desktop:migrated-telegram-old", label: "Topic 42", spaceId: "space_default", projectId: "proj_old", topicId: "topic_old", importedFrom: { kind: "telegram", sourceSessionKey: sourceKey } },
+      { id: "session_duplicate", key: "agent:main:desktop:migrated-telegram-duplicate", sessionKey: "agent:main:desktop:migrated-telegram-duplicate", label: "Topic 42", spaceId: "space_default", projectId: "proj_old", topicId: "topic_old", importedFrom: { kind: "telegram", sourceSessionKey: sourceKey } },
+    ]), timestamp);
+    save.run("chats", JSON.stringify([
+      { id: "chat_old", name: "Topic 42", sessionKey: "agent:main:desktop:migrated-telegram-old", spaceId: "space_default", projectId: "proj_old", topicId: "topic_old", importedFrom: { kind: "telegram", sourceSessionKey: sourceKey } },
+      { id: "chat_duplicate", name: "Topic 42", sessionKey: "agent:main:desktop:migrated-telegram-duplicate", spaceId: "space_default", projectId: "proj_old", topicId: "topic_old", importedFrom: { kind: "telegram", sourceSessionKey: sourceKey } },
+      { id: "chat_gateway_mirror", name: "Topic 42", sessionKey: "agent:main:desktop:migrated-telegram-old", spaceId: "space_default", projectId: null, topicId: null },
+    ]), timestamp);
     db.close();
 
     const app = await createApp(config);
@@ -1190,9 +1197,11 @@ describe("middleware app", () => {
       expect.objectContaining({ importedFrom: { kind: "telegram", sourceSessionKey: sourceKey }, projectId: null, topicId: null }),
     ]));
     expect(sessions.json().sessions.every((session: { projectId?: unknown; topicId?: unknown }) => session.projectId == null && session.topicId == null)).toBe(true);
+    expect(sessions.json().sessions).toHaveLength(1);
     const chats = await app.inject({ method: "GET", url: `/api/chats?spaceId=${telegramSpace.id}` });
     expect(chats.json().chats).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: null, topicId: null })]));
     expect(chats.json().chats.every((chat: { projectId?: unknown; topicId?: unknown }) => chat.projectId == null && chat.topicId == null)).toBe(true);
+    expect(chats.json().chats).toHaveLength(1);
     await app.close();
   });
 

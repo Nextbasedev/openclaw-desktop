@@ -1312,6 +1312,55 @@ function isImportedSourceSession(kind: ImportedPlatformKind, sourceSessionKey: u
     || compatState.chats.some((chat) => chat.importedFrom?.kind === kind && chat.importedFrom?.sourceSessionKey === sourceKey);
 }
 
+function dedupeImportedPlatformRecords(kind: ImportedPlatformKind, timestamp = nowIso()) {
+  let changed = false;
+  const retire = (record: CompatRecord) => {
+    if (record.deleted && record.archived) return;
+    record.deleted = true;
+    record.archived = true;
+    record.updatedAt = timestamp;
+    changed = true;
+  };
+  const groups = new Map<string, { sessions: CompatRecord[]; chats: CompatRecord[] }>();
+  const sessionKeyToSourceKey = new Map<string, string>();
+  for (const session of compatState.sessions) {
+    if (session.importedFrom?.kind !== kind) continue;
+    const sessionKey = String(session.sessionKey || session.key || "");
+    if (sessionKey) sessionKeyToSourceKey.set(sessionKey, importedSessionSourceKey(session));
+  }
+  const add = (type: "sessions" | "chats", record: CompatRecord, fallbackSourceKey?: string | null) => {
+    const sourceKey = record.importedFrom?.kind === kind ? importedSessionSourceKey(record) : fallbackSourceKey;
+    if (!sourceKey) return;
+    const group = groups.get(sourceKey) ?? { sessions: [], chats: [] };
+    group[type].push(record);
+    groups.set(sourceKey, group);
+  };
+  for (const session of compatState.sessions) add("sessions", session);
+  for (const chat of compatState.chats) add("chats", chat, sessionKeyToSourceKey.get(String(chat.sessionKey || "")) ?? null);
+  for (const [sourceKey, group] of groups) {
+    const liveSessions = group.sessions.filter(notDeleted);
+    const liveChats = group.chats.filter(notDeleted);
+    const keepSession = liveSessions[0];
+    const keepChat = liveChats.find((chat) => chat.importedFrom?.kind === kind && chat.importedFrom?.sourceSessionKey === sourceKey) ?? liveChats[0];
+    for (const session of liveSessions.slice(1)) retire(session);
+    for (const chat of liveChats) {
+      if (chat !== keepChat) retire(chat);
+    }
+    const sessionKey = String(keepSession?.sessionKey || keepSession?.key || "");
+    if (keepChat && sessionKey && keepChat.sessionKey !== sessionKey) {
+      keepChat.sessionKey = sessionKey;
+      keepChat.updatedAt = timestamp;
+      changed = true;
+    }
+    if (keepChat && keepChat.importedFrom?.sourceSessionKey !== sourceKey) {
+      keepChat.importedFrom = { kind, sourceSessionKey: sourceKey };
+      keepChat.updatedAt = timestamp;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function ensureImportedFlatChat(kind: ImportedPlatformKind, input: {
   sourceSessionKey: string;
   targetSpaceId: string;
@@ -1321,7 +1370,9 @@ function ensureImportedFlatChat(kind: ImportedPlatformKind, input: {
   timestamp?: string;
 }) {
   const timestamp = input.timestamp ?? nowIso();
-  const existing = compatState.chats.find((chat) => chat.importedFrom?.kind === kind && chat.importedFrom?.sourceSessionKey === input.sourceSessionKey)
+  const existing = compatState.chats.find((chat) => notDeleted(chat) && chat.importedFrom?.kind === kind && chat.importedFrom?.sourceSessionKey === input.sourceSessionKey)
+    ?? compatState.chats.find((chat) => notDeleted(chat) && input.sessionKey && chat.sessionKey === input.sessionKey)
+    ?? compatState.chats.find((chat) => chat.importedFrom?.kind === kind && chat.importedFrom?.sourceSessionKey === input.sourceSessionKey)
     ?? compatState.chats.find((chat) => input.sessionKey && chat.sessionKey === input.sessionKey);
   const patch = {
     name: input.label,
@@ -1330,6 +1381,7 @@ function ensureImportedFlatChat(kind: ImportedPlatformKind, input: {
     spaceId: input.targetSpaceId,
     projectId: null,
     topicId: null,
+    deleted: false,
     archived: false,
     updatedAt: timestamp,
     lastActiveAt: existing?.lastActiveAt || timestamp,
@@ -1378,7 +1430,7 @@ function normalizeImportedPlatformState(kind: ImportedPlatformKind, timestamp = 
   const space = ensureImportedPlatformSpace(kind, timestamp);
   const spaceId = String(space.id);
   for (const session of compatState.sessions) {
-    if (session.importedFrom?.kind !== kind) continue;
+    if (session.importedFrom?.kind !== kind || !notDeleted(session)) continue;
     const sourceSessionKey = importedSessionSourceKey(session);
     const sessionKey = String(session.sessionKey || session.key || "");
     const label = String(session.label || session.name || `${importedPlatformProjectName(kind)} import`);
@@ -1398,7 +1450,7 @@ function normalizeImportedPlatformState(kind: ImportedPlatformKind, timestamp = 
     }
   }
   for (const chat of compatState.chats) {
-    if (chat.importedFrom?.kind !== kind) continue;
+    if (chat.importedFrom?.kind !== kind || !notDeleted(chat)) continue;
     chat.spaceId = spaceId;
     chat.projectId = null;
     chat.topicId = null;
@@ -1406,6 +1458,7 @@ function normalizeImportedPlatformState(kind: ImportedPlatformKind, timestamp = 
     chat.updatedAt = timestamp;
   }
   retireImportedPlatformProjectStructure(kind, timestamp);
+  dedupeImportedPlatformRecords(kind, timestamp);
   const after = JSON.stringify({ spaces: compatState.spaces, projects: compatState.projects, topics: compatState.topics, sessions: compatState.sessions, chats: compatState.chats });
   return before !== after;
 }
