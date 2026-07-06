@@ -787,10 +787,35 @@ function readJsonFile(file: string): CompatRecord {
   try { return JSON.parse(fs.readFileSync(file, "utf8")) as CompatRecord; } catch { return {}; }
 }
 
+function readFirstLines(file: string, maxLines: number) {
+  if (maxLines <= 0) return [] as string[];
+  const fd = fs.openSync(file, "r");
+  try {
+    const chunks: Buffer[] = [];
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    let bytesRead = 0;
+    let newlineCount = 0;
+    do {
+      bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
+      if (bytesRead > 0) {
+        const chunk = Buffer.from(buffer.subarray(0, bytesRead));
+        chunks.push(chunk);
+        for (let i = 0; i < chunk.length; i += 1) {
+          if (chunk[i] === 10) newlineCount += 1;
+        }
+      }
+    } while (bytesRead > 0 && newlineCount < maxLines);
+    return Buffer.concat(chunks).toString("utf8").split(/\r?\n/).filter(Boolean).slice(0, maxLines);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function readJsonlFile(file: string, maxLines?: number) {
   try {
-    const lines = fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean);
-    const selected = typeof maxLines === "number" && maxLines >= 0 ? lines.slice(0, maxLines) : lines;
+    const selected = typeof maxLines === "number" && maxLines >= 0
+      ? readFirstLines(file, maxLines)
+      : fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean);
     return selected.flatMap((line) => {
       try { return [JSON.parse(line) as CompatRecord]; } catch { return []; }
     });
@@ -834,6 +859,19 @@ function bestTelegramTranscriptFile(files: string[]) {
   })[0] ?? "";
 }
 
+function topicIdFromTranscriptFilename(file: string) {
+  const match = path.basename(file).match(/(?:^|-)topic-(\d+)\.jsonl(?:\.|$)/);
+  return match?.[1] ?? null;
+}
+
+function knownTelegramGroupId(index: CompatRecord) {
+  for (const key of Object.keys(index)) {
+    const parsed = parseTelegramSessionKey(key);
+    if (parsed?.kind === "group" && parsed.groupId) return parsed.groupId;
+  }
+  return null;
+}
+
 function mergeTelegramSessionIndexes(...indexes: CompatRecord[]) {
   const merged: CompatRecord = {};
   for (const index of indexes) {
@@ -850,36 +888,54 @@ function mergeTelegramSessionIndexes(...indexes: CompatRecord[]) {
   return merged;
 }
 
+let telegramDiscoveryCache: { cacheKey: string; expiresAt: number; index: CompatRecord } | null = null;
+
 function discoveredTelegramTranscriptEntries(agentId: string, knownIndex: CompatRecord = {}) {
+  const now = Date.now();
+  const cacheKey = `${agentId}:${gatewaySessionsDir(agentId)}`;
+  if (telegramDiscoveryCache?.cacheKey === cacheKey && telegramDiscoveryCache.expiresAt > now) return telegramDiscoveryCache.index;
   const buckets = new Map<string, { files: string[]; meta: ReturnType<typeof telegramMetaFromMessages> }>();
   const knownKeys = new Set(Object.keys(knownIndex));
+  const fallbackGroupId = knownTelegramGroupId(knownIndex);
   for (const file of telegramTranscriptFiles(agentId)) {
-    const messages = transcriptMessagesFromJsonl(file, 80);
-    const identity = telegramIdentityFromMessages(messages);
-    if (!identity) continue;
-    const sourceSessionKey = identity.kind === "group"
-      ? `agent:${agentId}:telegram:group:${identity.groupId}${identity.topicId ? `:topic:${identity.topicId}` : ""}`
-      : (knownKeys.has(`agent:${agentId}:telegram:slash:${identity.userId}`) ? `agent:${agentId}:telegram:slash:${identity.userId}` : `agent:${agentId}:telegram:direct:${identity.userId}`);
+    const filenameTopicId = topicIdFromTranscriptFilename(file);
+    if (!filenameTopicId) continue;
+    let sourceSessionKey: string | null = null;
+    let meta: ReturnType<typeof telegramMetaFromMessages> = null;
+    if (filenameTopicId && fallbackGroupId) {
+      sourceSessionKey = `agent:${agentId}:telegram:group:${fallbackGroupId}:topic:${filenameTopicId}`;
+    } else {
+      const messages = transcriptMessagesFromJsonl(file, 40);
+      const identity = telegramIdentityFromMessages(messages);
+      if (!identity) continue;
+      sourceSessionKey = identity.kind === "group"
+        ? `agent:${agentId}:telegram:group:${identity.groupId}${identity.topicId ? `:topic:${identity.topicId}` : ""}`
+        : (knownKeys.has(`agent:${agentId}:telegram:slash:${identity.userId}`) ? `agent:${agentId}:telegram:slash:${identity.userId}` : `agent:${agentId}:telegram:direct:${identity.userId}`);
+      meta = telegramMetaFromMessages(messages);
+    }
+    if (!sourceSessionKey) continue;
     const bucket = buckets.get(sourceSessionKey) ?? { files: [], meta: null };
     bucket.files.push(file);
-    bucket.meta = bucket.meta ?? telegramMetaFromMessages(messages);
+    bucket.meta = bucket.meta ?? meta;
     buckets.set(sourceSessionKey, bucket);
   }
   const entries: CompatRecord = {};
   for (const [sourceSessionKey, bucket] of buckets) {
     const sourceSessionFile = bestTelegramTranscriptFile(bucket.files);
+    const meta = bucket.meta ?? telegramMetaFromMessages(transcriptMessagesFromJsonl(sourceSessionFile, 80));
     entries[sourceSessionKey] = {
       agentId,
       sessionId: path.basename(sourceSessionFile).replace(/\.jsonl(?:\..*)?$/, ""),
       sessionFile: sourceSessionFile,
-      subject: bucket.meta?.groupSubject,
-      groupSubject: bucket.meta?.groupSubject,
-      topicName: bucket.meta?.topicName,
-      displayName: bucket.meta?.groupSubject || bucket.meta?.sender,
+      subject: meta?.groupSubject,
+      groupSubject: meta?.groupSubject,
+      topicName: meta?.topicName,
+      displayName: meta?.groupSubject || meta?.sender,
       relatedTranscriptFiles: bucket.files.filter((file) => file !== sourceSessionFile),
       updatedAt: fs.statSync(sourceSessionFile, { throwIfNoEntry: false })?.mtimeMs ?? null,
     };
   }
+  telegramDiscoveryCache = { cacheKey, expiresAt: now + 60_000, index: entries };
   return entries;
 }
 
@@ -1081,6 +1137,17 @@ function telegramTranscriptFilesForSession(session: CompatRecord) {
 
 function telegramSourceMessagesForSession(session: CompatRecord) {
   return telegramTranscriptFilesForSession(session).flatMap((file) => transcriptMessagesFromJsonl(file));
+}
+
+function sampleTelegramMessagesForScan(sourceSessionFile: string, relatedTranscriptFiles: string[]) {
+  const sampleFiles = [sourceSessionFile, ...relatedTranscriptFiles.slice(0, 2)].filter(Boolean);
+  return sampleFiles.flatMap((file) => transcriptMessagesFromJsonl(file, 80));
+}
+
+function entryMessageCount(entry: CompatRecord) {
+  const value = entry.messageCount ?? entry.messagesCount ?? entry.totalMessages ?? entry.message_count;
+  const count = Number(value);
+  return Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0;
 }
 
 function discordMetaFromMessages(messages: CompatRecord[]) {
@@ -1696,7 +1763,9 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
   loadCompatState(context);
   const agentId = String(input.agentId || "main");
   const diskIndex = readJsonFile(gatewaySessionsIndexPath(agentId));
-  const gatewayIndex = await gatewayTelegramSessionEntries(context, agentId, input);
+  const gatewayIndex = input.includeGateway === true || input.includeGateway === "true"
+    ? await gatewayTelegramSessionEntries(context, agentId, input)
+    : {};
   const discoveredIndex = discoveredTelegramTranscriptEntries(agentId, { ...gatewayIndex, ...diskIndex });
   const index = mergeTelegramSessionIndexes(discoveredIndex, gatewayIndex, diskIndex);
   const limit = Math.max(0, Number(input.limit || 0));
@@ -1711,19 +1780,19 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
     if (!parsed) return null;
     const sourceSessionFile = String(entry.sessionFile || entry.transcriptPath || "");
     const relatedTranscriptFiles = Array.isArray(entry.relatedTranscriptFiles) ? entry.relatedTranscriptFiles.map(String) : [];
-    const archiveFiles = sourceSessionFile ? archivedTelegramTranscriptFiles(sourceSessionFile, parsed) : [];
-    const transcriptFiles = Array.from(new Set([...relatedTranscriptFiles, ...archiveFiles, sourceSessionFile].filter(Boolean)));
+    const transcriptFiles = Array.from(new Set([...relatedTranscriptFiles, sourceSessionFile].filter(Boolean)));
     const archivedTranscriptFiles = transcriptFiles.filter((file) => file !== sourceSessionFile);
-    const messages = transcriptFiles.flatMap((file) => transcriptMessagesFromJsonl(file));
-    const telegramMeta = telegramMetaFromMessages(messages);
+    const sampleMessages = sampleTelegramMessagesForScan(sourceSessionFile, relatedTranscriptFiles);
+    const telegramMeta = telegramMetaFromMessages(sampleMessages);
     const topicName = parsed.kind === "group"
       ? (telegramMeta?.topicName || telegramTopicFallback(entry, parsed.topicId))
       : undefined;
     const fallback = parsed.kind === "direct"
       ? (telegramMeta?.sender || "Telegram direct")
       : (topicName || telegramTopicFallback(entry, parsed.topicId));
-    const preview = lastUserMessagePreview(messages);
+    const preview = lastUserMessagePreview(sampleMessages);
     const proposedName = uniqueName(parsed.kind === "group" ? fallback : (preview ? preview.slice(0, 45).trim() : fallback), usedNames);
+    const messageCount = entryMessageCount(entry);
     return {
       sourceSessionKey,
       sourceSessionId: String(entry.sessionId || ""),
@@ -1731,8 +1800,8 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
       agentId: parsed.agentId,
       archivedTranscriptFiles,
       proposedName,
-      messageCount: messages.filter((message) => message?.role && message.role !== "system").length,
-      archivedMessageCount: archivedTranscriptFiles.flatMap((file) => transcriptMessagesFromJsonl(file)).filter((message) => message?.role && message.role !== "system").length,
+      messageCount,
+      archivedMessageCount: 0,
       lastUserMessagePreview: preview,
       updatedAt: typeof entry.updatedAt === "number" ? entry.updatedAt : (timeMs(entry.updatedAt) || null),
       chatType: parsed.kind,
