@@ -1947,8 +1947,8 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item
 }
 
 function migrationImportConcurrency(input: CompatRecord) {
-  const value = Number(input.concurrency ?? input.importConcurrency ?? 4);
-  return Number.isFinite(value) && value > 0 ? Math.min(8, Math.max(1, Math.floor(value))) : 4;
+  const value = Number(input.concurrency ?? input.importConcurrency ?? 8);
+  return Number.isFinite(value) && value > 0 ? Math.min(8, Math.max(1, Math.floor(value))) : 8;
 }
 
 function agentIdFromSessionKey(sessionKey: string) {
@@ -2335,7 +2335,7 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
       // Gateway sessions index, so linking them as parentSessionKey makes
       // sessions.create fail. Preserve source linkage in compat importedFrom
       // metadata instead; the copied transcript is the durable history.
-      const created = await context.gateway.request<CompatRecord>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label }, 30_000);
+      const created = await context.gateway.request<CompatRecord>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label: gatewaySessionLabel(label, desktopSessionKey) }, 30_000);
       const transcriptPath = sessionFileFromCreateResult(created);
       if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
       copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
@@ -2431,7 +2431,7 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
     try {
       const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-discord-${crypto.randomUUID()}`;
       const label = session.proposedName || "Discord import";
-      const created = await context.gateway.request<CompatRecord>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label, parentSessionKey: session.sourceSessionKey }, 30_000);
+      const created = await context.gateway.request<CompatRecord>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label: gatewaySessionLabel(label, desktopSessionKey), parentSessionKey: session.sourceSessionKey }, 30_000);
       const transcriptPath = created?.payload?.entry?.sessionFile || created?.entry?.sessionFile;
       if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
       copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
