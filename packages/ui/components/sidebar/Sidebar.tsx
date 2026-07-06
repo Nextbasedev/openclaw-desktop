@@ -287,6 +287,8 @@ export function Sidebar({
                   onTopicClear={onTopicClear}
                   spaceId={effectiveSpaceId}
                   autoExpandSingleProject
+                  flattenSingleProject
+                  flatSectionLabel={activeSpaceName}
                 />
               ) : (
                 <ChatsSection
