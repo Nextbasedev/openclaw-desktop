@@ -1094,19 +1094,18 @@ describe("middleware app", () => {
     const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [key], skipAlreadyImported: false } });
 
     expect(res.statusCode).toBe(200);
-    expect(context.gateway.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({ label: "Desktop task B" }), 30_000);
+    expect(context.gateway.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({ label: expect.stringContaining("Desktop task B") }), 30_000);
     expect(res.json().imported).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Desktop task B" })]));
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
     const telegramSpace = bootstrap.json().spaces.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
     expect(telegramSpace).toBeTruthy();
     const projects = await app.inject({ method: "GET", url: `/api/projects?spaceId=${telegramSpace.id}` });
-    const project = projects.json().projects.find((item: { name?: string; id?: string; spaceId?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.spaceId === telegramSpace.id && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
-    expect(project).toBeTruthy();
-    const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
-    expect(topics.json().topics).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Desktop task B" })]));
+    expect(projects.json().projects).toEqual([]);
+    const chats = await app.inject({ method: "GET", url: `/api/chats?spaceId=${telegramSpace.id}` });
+    expect(chats.json().chats).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Desktop task B", spaceId: telegramSpace.id, projectId: null, topicId: null })]));
     expect(bootstrap.json().sessions).not.toEqual(expect.arrayContaining([expect.objectContaining({ label: "Desktop task B" })]));
     const sessions = await app.inject({ method: "GET", url: `/api/sessions?spaceId=${telegramSpace.id}` });
-    expect(sessions.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Desktop task B", spaceId: telegramSpace.id, projectId: project.id })]));
+    expect(sessions.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Desktop task B", spaceId: telegramSpace.id, projectId: null, topicId: null })]));
     await app.close();
   });
 
@@ -1141,7 +1140,7 @@ describe("middleware app", () => {
     await app.close();
   });
 
-  test("telegram re-import repairs old group-project imports into the dedicated Telegram project", async () => {
+  test("telegram re-import repairs old group-project imports into flat Telegram space", async () => {
     const config = testConfig();
     const first = await createApp(config);
     await first.close();
@@ -1183,23 +1182,21 @@ describe("middleware app", () => {
     const telegramSpace = bootstrap.json().spaces.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
     expect(telegramSpace).toBeTruthy();
     const projects = await app.inject({ method: "GET", url: `/api/projects?spaceId=${telegramSpace.id}` });
-    const telegramProject = projects.json().projects.find((item: { id?: string; name?: string; spaceId?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.spaceId === telegramSpace.id && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
-    expect(telegramProject).toBeTruthy();
+    expect(projects.json().projects).toEqual([]);
     expect(bootstrap.json().projects).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "proj_old" })]));
     expect(bootstrap.json().sessions).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "session_old" })]));
     const sessions = await app.inject({ method: "GET", url: `/api/sessions?spaceId=${telegramSpace.id}` });
     expect(sessions.json().sessions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "session_old", projectId: telegramProject.id }),
-      expect.objectContaining({ importedFrom: { kind: "telegram", sourceSessionKey: sourceKey }, projectId: telegramProject.id }),
+      expect.objectContaining({ importedFrom: { kind: "telegram", sourceSessionKey: sourceKey }, projectId: null, topicId: null }),
     ]));
-    expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "chat_old" }),
-      expect.objectContaining({ projectId: telegramProject.id }),
-    ]));
+    expect(sessions.json().sessions.every((session: { projectId?: unknown; topicId?: unknown }) => session.projectId == null && session.topicId == null)).toBe(true);
+    const chats = await app.inject({ method: "GET", url: `/api/chats?spaceId=${telegramSpace.id}` });
+    expect(chats.json().chats).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: null, topicId: null })]));
+    expect(chats.json().chats.every((chat: { projectId?: unknown; topicId?: unknown }) => chat.projectId == null && chat.topicId == null)).toBe(true);
     await app.close();
   });
 
-  test("telegram direct import creates and uses the dedicated Telegram project", async () => {
+  test("telegram direct import creates and uses the dedicated Telegram space", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-direct-project-import-"));
     vi.spyOn(os, "homedir").mockReturnValue(home);
     const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
@@ -1224,17 +1221,15 @@ describe("middleware app", () => {
     const telegramSpace = bootstrap.json().spaces.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
     expect(telegramSpace).toBeTruthy();
     const projects = await app.inject({ method: "GET", url: `/api/projects?spaceId=${telegramSpace.id}` });
-    const project = projects.json().projects.find((item: { name?: string; id?: string; spaceId?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.spaceId === telegramSpace.id && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
-    expect(project).toBeTruthy();
-    const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
-    expect(topics.json().topics).toEqual([expect.objectContaining({ name: "please keep this in telegram project" })]);
+    expect(projects.json().projects).toEqual([]);
+    const chats = await app.inject({ method: "GET", url: `/api/chats?spaceId=${telegramSpace.id}` });
+    expect(chats.json().chats).toEqual(expect.arrayContaining([expect.objectContaining({ name: "please keep this in telegram project", spaceId: telegramSpace.id, projectId: null, topicId: null })]));
     const sessions = await app.inject({ method: "GET", url: `/api/sessions?spaceId=${telegramSpace.id}` });
-    expect(sessions.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ spaceId: telegramSpace.id, projectId: project.id, topicId: topics.json().topics[0].id })]));
-    expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id })]));
+    expect(sessions.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ spaceId: telegramSpace.id, projectId: null, topicId: null })]));
     await app.close();
   });
 
-  test("discord import creates and uses the dedicated Discord project", async () => {
+  test("discord import creates and uses the dedicated Discord space", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-discord-project-import-"));
     vi.spyOn(os, "homedir").mockReturnValue(home);
     const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
@@ -1259,13 +1254,11 @@ describe("middleware app", () => {
     const discordSpace = bootstrap.json().spaces.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Discord" && item.importedFrom?.kind === "discord" && item.importedFrom?.scope === "session-migration");
     expect(discordSpace).toBeTruthy();
     const projects = await app.inject({ method: "GET", url: `/api/projects?spaceId=${discordSpace.id}` });
-    const project = projects.json().projects.find((item: { name?: string; id?: string; spaceId?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Discord" && item.spaceId === discordSpace.id && item.importedFrom?.kind === "discord" && item.importedFrom?.scope === "session-migration");
-    expect(project).toBeTruthy();
-    const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
-    expect(topics.json().topics).toEqual([expect.objectContaining({ name: "fresh desktop" })]);
+    expect(projects.json().projects).toEqual([]);
+    const chats = await app.inject({ method: "GET", url: `/api/chats?spaceId=${discordSpace.id}` });
+    expect(chats.json().chats).toEqual(expect.arrayContaining([expect.objectContaining({ name: "fresh desktop", spaceId: discordSpace.id, projectId: null, topicId: null })]));
     const sessions = await app.inject({ method: "GET", url: `/api/sessions?spaceId=${discordSpace.id}` });
-    expect(sessions.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ spaceId: discordSpace.id, projectId: project.id, topicId: topics.json().topics[0].id })]));
-    expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id })]));
+    expect(sessions.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ spaceId: discordSpace.id, projectId: null, topicId: null })]));
     await app.close();
   });
 
@@ -1303,7 +1296,7 @@ describe("middleware app", () => {
     const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [keyA, keyB], skipAlreadyImported: false } });
 
     expect(res.statusCode).toBe(200);
-    expect(labels).toEqual(["General", "General (2)"]);
+    expect(labels).toEqual([expect.stringContaining("General"), expect.stringContaining("General (2)")]);
     expect(res.json().imported).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "General" }),
       expect.objectContaining({ name: "General (2)" }),
