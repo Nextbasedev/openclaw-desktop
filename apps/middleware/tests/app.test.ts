@@ -1136,6 +1136,57 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("telegram re-import repairs old group-project imports into the dedicated Telegram project", async () => {
+    const config = testConfig();
+    const first = await createApp(config);
+    await first.close();
+
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-repair-project-import-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const sourceKey = "agent:main:telegram:group:-1001:topic:42";
+    const sourceFile = path.join(sessionsDir, "topic-42.jsonl");
+    const targetFile = path.join(sessionsDir, "imported-topic-42.jsonl");
+    const meta = JSON.stringify({ chat_id: "telegram:-1001", topic_id: "42", group_subject: "Group", topic_name: "Topic 42", is_group_chat: true });
+    fs.writeFileSync(sourceFile, `${JSON.stringify({ type: "message", id: "r1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\nrepair old import` } })}\n`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({ [sourceKey]: { sessionId: "topic", sessionFile: sourceFile, chatType: "group", subject: "Group" } }));
+
+    const timestamp = Date.now();
+    const db = new Database(config.databasePath);
+    const save = db.prepare("INSERT INTO v2_compat_state(key, data_json, updated_at_ms) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET data_json = excluded.data_json, updated_at_ms = excluded.updated_at_ms");
+    save.run("spaces", JSON.stringify([{ id: "space_default", name: "My Workspace", archived: false }]), timestamp);
+    save.run("activeSpaceId", JSON.stringify("space_default"), timestamp);
+    save.run("projects", JSON.stringify([{ id: "proj_old", name: "Krish & MK", spaceId: "space_default", importedFrom: { kind: "telegram", groupId: "-1001" } }]), timestamp);
+    save.run("topics", JSON.stringify([{ id: "topic_old", projectId: "proj_old", name: "Topic 42", importedFrom: { kind: "telegram", sourceSessionKey: sourceKey } }]), timestamp);
+    save.run("sessions", JSON.stringify([{ id: "session_old", key: "agent:main:desktop:migrated-telegram-old", sessionKey: "agent:main:desktop:migrated-telegram-old", label: "Topic 42", spaceId: "space_default", projectId: "proj_old", topicId: "topic_old", importedFrom: { kind: "telegram", sourceSessionKey: sourceKey } }]), timestamp);
+    save.run("chats", JSON.stringify([{ id: "chat_old", name: "Topic 42", sessionKey: "agent:main:desktop:migrated-telegram-old", spaceId: "space_default", projectId: "proj_old", topicId: "topic_old", importedFrom: { kind: "telegram", sourceSessionKey: sourceKey } }]), timestamp);
+    db.close();
+
+    const app = await createApp(config);
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "sessions.create") return { payload: { entry: { sessionFile: targetFile } }, label: params?.label };
+      return {};
+    });
+
+    const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [sourceKey], skipAlreadyImported: false } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().summary).toMatchObject({ imported: 1, skipped: 0, failed: 0 });
+    const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
+    const telegramProject = bootstrap.json().projects.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
+    expect(telegramProject).toBeTruthy();
+    expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "session_old", projectId: telegramProject.id }),
+      expect.objectContaining({ importedFrom: { kind: "telegram", sourceSessionKey: sourceKey }, projectId: telegramProject.id }),
+    ]));
+    expect(bootstrap.json().chats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "chat_old", projectId: telegramProject.id }),
+    ]));
+    await app.close();
+  });
+
   test("telegram direct import creates and uses the dedicated Telegram project", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-direct-project-import-"));
     vi.spyOn(os, "homedir").mockReturnValue(home);

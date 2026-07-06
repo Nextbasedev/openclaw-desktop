@@ -2124,8 +2124,8 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
   const outcomes = await mapWithConcurrency(sessionsToImport, migrationImportConcurrency(input), async (session) => {
     const parsed = telegramSessionSourceFromScan(session);
     if (!parsed) return { type: "skipped" as const, value: { sourceSessionKey: session.sourceSessionKey, reason: "invalid_session_key" } };
+    const repaired = session.alreadyImported ? repairImportedSessionSpace("telegram", session.sourceSessionKey, targetSpaceId) : false;
     if (skipAlreadyImported && session.alreadyImported) {
-      const repaired = repairImportedSessionSpace("telegram", session.sourceSessionKey, targetSpaceId);
       // Repair missing chat entries for previously imported group topics
       // that only had session + topic but no chat (pre-fix imports).
       let repairedChat = false;
@@ -2244,8 +2244,8 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
     if (selectedKeys && !selectedKeys.has(session.sourceSessionKey)) continue;
     const parsed = parseDiscordSessionKey(session.sourceSessionKey);
     if (!parsed) continue;
+    const repaired = session.alreadyImported ? repairImportedSessionSpace("discord", session.sourceSessionKey, targetSpaceId) : false;
     if (skipAlreadyImported && session.alreadyImported) {
-      const repaired = repairImportedSessionSpace("discord", session.sourceSessionKey, targetSpaceId);
       skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired });
       continue;
     }
