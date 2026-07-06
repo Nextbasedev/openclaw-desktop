@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { motion, AnimatePresence, Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { useProjectsData } from "@/hooks/useProjectsData"
@@ -17,6 +17,7 @@ type Props = {
   onTopicSelect: (topic: ActiveTopic) => void
   onTopicClear: () => void
   spaceId?: string | null
+  autoExpandSingleProject?: boolean
 }
 
 const PROJECT_INITIAL_LIMIT = 5
@@ -28,6 +29,7 @@ export function ProjectsSection({
   onTopicSelect,
   onTopicClear,
   spaceId,
+  autoExpandSingleProject = false,
 }: Props) {
   const [isOpen, setIsOpen] = useState(true)
   const [showAllProjects, setShowAllProjects] = useState(false)
@@ -40,6 +42,13 @@ export function ProjectsSection({
     handleArchiveProject, handleArchiveTopic, handleDeleteTopic,
     dialogState, dialogActions,
   } = useProjectsData(onTopicSelect, activeTopic, onTopicClear, spaceId)
+
+  useEffect(() => {
+    if (!autoExpandSingleProject || projects.length !== 1) return
+    const [project] = projects
+    if (expandedProjects.has(project.id)) return
+    handleProjectClick(project)
+  }, [autoExpandSingleProject, expandedProjects, handleProjectClick, projects])
 
   return (
     <>

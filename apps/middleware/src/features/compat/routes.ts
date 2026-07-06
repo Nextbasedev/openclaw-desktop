@@ -2911,6 +2911,11 @@ function projectSpaceId(projectId?: unknown) {
   return typeof project?.spaceId === "string" && project.spaceId.trim() ? project.spaceId : null;
 }
 
+function topicSpaceId(topic: CompatRecord) {
+  if (typeof topic.spaceId === "string" && topic.spaceId.trim()) return topic.spaceId;
+  return projectSpaceId(topic.projectId) ?? DEFAULT_SPACE_ID;
+}
+
 function sessionSpaceId(session: CompatRecord) {
   if (typeof session.spaceId === "string" && session.spaceId.trim()) return session.spaceId;
   const fromProject = projectSpaceId(session.projectId);
@@ -2929,6 +2934,7 @@ function wantsGlobalList(query: CompatRecord) {
 
 function listSpaceId(query: CompatRecord) {
   if (wantsGlobalList(query)) return undefined;
+  if (query.projectId || query.topicId) return undefined;
   return typeof query.spaceId === "string" && query.spaceId.trim() ? query.spaceId : activeSpaceId();
 }
 
@@ -4778,7 +4784,12 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   app.get("/api/topics", async (request) => {
     const query = request.query as CompatRecord;
-    return { topics: compatState.topics.filter((topic) => notDeleted(topic) && (!query.projectId || topic.projectId === query.projectId)) };
+    const spaceId = listSpaceId(query);
+    return { topics: compatState.topics.filter((topic) =>
+      notDeleted(topic) &&
+      (!spaceId || topicSpaceId(topic) === spaceId) &&
+      (!query.projectId || topic.projectId === query.projectId)
+    ) };
   });
   app.post("/api/topics", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;

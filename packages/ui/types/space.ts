@@ -15,6 +15,10 @@ export type SpaceIconEmoji = {
 export type Space = {
   id: string
   name: string
+  importedFrom?: {
+    kind?: "telegram" | "discord" | string
+    scope?: string
+  }
   iconEmoji?: SpaceIconEmoji
   iconImage?: SpaceIconImage
   repoRoot?: string

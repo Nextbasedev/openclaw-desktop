@@ -8,6 +8,7 @@ import {
 import { Reorder } from "framer-motion"
 import type { ActiveTopic } from "@/types/project"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
+import { ProjectsSection } from "./ProjectsSection"
 import { CollapsedSpacesPopover } from "./CollapsedSpacesPopover"
 import { cn } from "@/lib/utils"
 import { SidebarItem, type SidebarNavItem } from "./SidebarItem"
@@ -73,6 +74,9 @@ export function Sidebar({
   onTabChange,
   items,
   onItemsReorder,
+  activeTopic,
+  onTopicSelect,
+  onTopicClear,
   activeChat,
   onChatSelect,
   onChatOpenInNewWindow,
@@ -158,8 +162,11 @@ export function Sidebar({
   const itemCollapsed = isMobileViewport ? false : collapsed && !previewExpanded
   const showPrimaryNav = items.length > 0
   const effectiveSpaceId = previewExpanded && previewSpaceId ? previewSpaceId : activeSpaceId
-  const activeSpaceName =
-    spaces.find((space) => space.id === effectiveSpaceId)?.name ?? "MySpace"
+  const activeSpace = spaces.find((space) => space.id === effectiveSpaceId)
+  const activeSpaceName = activeSpace?.name ?? "MySpace"
+  const isImportedPlatformSpace =
+    activeSpace?.importedFrom?.scope === "session-migration" &&
+    (activeSpace.importedFrom.kind === "telegram" || activeSpace.importedFrom.kind === "discord")
 
   return (
     <>
@@ -271,18 +278,30 @@ export function Sidebar({
                 showPrimaryNav && "mt-2 border-t border-border/10 pt-2"
               )}
             >
-              <ChatsSection
-                collapsed={false}
-                sectionLabel={activeSpaceName}
-                activeChat={activeChat}
-                onChatSelect={handleChatSelect}
-                onChatOpenInNewWindow={onChatOpenInNewWindow}
-                onChatClear={onChatClear}
-                onNewChat={handleNewChat}
-                refreshTrigger={chatRefreshTrigger}
-                spaceId={effectiveSpaceId}
-                spaces={spaces}
-              />
+              {isImportedPlatformSpace ? (
+                <ProjectsSection
+                  collapsed={false}
+                  collapsible={false}
+                  activeTopic={activeTopic}
+                  onTopicSelect={onTopicSelect}
+                  onTopicClear={onTopicClear}
+                  spaceId={effectiveSpaceId}
+                  autoExpandSingleProject
+                />
+              ) : (
+                <ChatsSection
+                  collapsed={false}
+                  sectionLabel={activeSpaceName}
+                  activeChat={activeChat}
+                  onChatSelect={handleChatSelect}
+                  onChatOpenInNewWindow={onChatOpenInNewWindow}
+                  onChatClear={onChatClear}
+                  onNewChat={handleNewChat}
+                  refreshTrigger={chatRefreshTrigger}
+                  spaceId={effectiveSpaceId}
+                  spaces={spaces}
+                />
+              )}
             </div>
           </div>
         </nav>
