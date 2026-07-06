@@ -1,5 +1,19 @@
+import { execFileSync } from "node:child_process";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
+
+function readMiddlewareBranch() {
+  try {
+    return execFileSync("git", ["branch", "--show-current"], { cwd: process.cwd(), encoding: "utf8", timeout: 5_000, stdio: ["ignore", "pipe", "ignore"] }).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function middlewareRuntimeInfo() {
+  const branch = readMiddlewareBranch();
+  return branch ? { branch, currentBranch: branch, runningBranch: branch } : {};
+}
 
 export async function registerSystemRoutes(app: FastifyInstance, context: AppContext) {
   app.get("/health", async () => {
@@ -12,6 +26,7 @@ export async function registerSystemRoutes(app: FastifyInstance, context: AppCon
       host: context.config.host,
       port: context.config.port,
       uptimeMs: Date.now() - context.startedAtMs,
+      middleware: middlewareRuntimeInfo(),
       gateway,
       // Legacy Connect page/client contract. The old middleware exposed
       // `openclaw.connected`; without this alias the UI reports a false
@@ -34,5 +49,6 @@ export async function registerSystemRoutes(app: FastifyInstance, context: AppCon
     databasePath: context.config.databasePath,
     gatewayUrl: context.config.openclawGatewayUrl,
     uptimeMs: Date.now() - context.startedAtMs,
+    middleware: middlewareRuntimeInfo(),
   }));
 }

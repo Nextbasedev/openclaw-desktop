@@ -1014,6 +1014,8 @@ type MiddlewareUpdateStatus = {
   message?: string;
   repoRoot?: string;
   branch?: string;
+  currentBranch?: string;
+  runningBranch?: string;
   logPath?: string;
   git?: MiddlewareGitStatus;
 };
@@ -1027,6 +1029,14 @@ type MiddlewareUpdateBranch = {
   sha?: string;
   updatedAt?: string;
   url?: string;
+};
+
+type MiddlewareUpdateBranchesResult = {
+  branches: MiddlewareUpdateBranch[];
+  defaultBranch: string;
+  currentBranch?: string;
+  runningBranch?: string;
+  source: string;
 };
 
 const UPDATE_REPO_URL = "https://github.com/Nextbasedev/openclaw-desktop.git";
@@ -1049,6 +1059,22 @@ function findMiddlewareRepoRoot() {
 
 function gitOutput(repoRoot: string, args: string[]) {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8", timeout: 15_000, stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+function tryGitOutput(repoRoot: string, args: string[]) {
+  try {
+    const out = gitOutput(repoRoot, args);
+    return out || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readRunningMiddlewareBranch() {
+  const repoRoot = findMiddlewareRepoRoot();
+  return tryGitOutput(repoRoot, ["branch", "--show-current"])
+    || tryGitOutput(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"])
+    || undefined;
 }
 
 function shortSha(value?: string) {
@@ -1163,7 +1189,15 @@ function readMiddlewareUpdateStatus(input: MiddlewareUpdateInput = {}): Middlewa
   const statusMessage = status.state === "running" || status.state === "restarting" || status.state === "failed" || status.state === "succeeded"
     ? status.message
     : undefined;
-  return { ...status, branch: git.targetBranch || status.branch, repoRoot: git.repoRoot || status.repoRoot, git, message: statusMessage || middlewareGitStatusMessage(git) };
+  return {
+    ...status,
+    branch: git.targetBranch || status.branch,
+    currentBranch: git.currentBranch || status.currentBranch,
+    runningBranch: git.currentBranch || status.runningBranch,
+    repoRoot: git.repoRoot || status.repoRoot,
+    git,
+    message: statusMessage || middlewareGitStatusMessage(git),
+  };
 }
 
 function isStaleMiddlewareUpdateStatus(status: MiddlewareUpdateStatus) {
@@ -1184,24 +1218,30 @@ function writeMiddlewareUpdateStatus(status: MiddlewareUpdateStatus) {
   fs.writeFileSync(UPDATE_STATUS_PATH, JSON.stringify({ ...status, updatedAt: nowIso() }, null, 2));
 }
 
-function fallbackMiddlewareUpdateBranches(source = "fallback"): { branches: MiddlewareUpdateBranch[]; defaultBranch: string; source: string } {
-  const names = new Set<string>([DEFAULT_UPDATE_BRANCH, "main", "dev-2-temp", "dev-2", "dev-3-harsh"]);
+function fallbackMiddlewareUpdateBranches(source = "fallback"): MiddlewareUpdateBranchesResult {
+  const repoRoot = findMiddlewareRepoRoot();
+  const currentBranch = readRunningMiddlewareBranch();
+  const defaultBranch = currentBranch || DEFAULT_UPDATE_BRANCH;
+  const names = new Set<string>([defaultBranch, DEFAULT_UPDATE_BRANCH, "main", "dev-2-temp", "dev-2", "dev-3-harsh"]);
   try {
-    const repoRoot = findMiddlewareRepoRoot();
     const refs = gitOutput(repoRoot, ["branch", "-r", "--format=%(refname:short)"]);
     for (const ref of refs.split(/\r?\n/).filter(Boolean)) {
-      const name = ref.replace(/^origin\//, "").trim();
+      const trimmed = ref.trim();
+      if (!trimmed || trimmed === "origin" || trimmed === "origin/HEAD" || trimmed.endsWith("/HEAD")) continue;
+      const name = trimmed.replace(/^origin\//, "").trim();
       if (name && name !== "HEAD") names.add(name);
     }
   } catch {}
   return {
     branches: [...names].filter(Boolean).map((name) => ({ name, url: `https://github.com/Nextbasedev/openclaw-desktop/tree/${encodeURIComponent(name)}` })),
-    defaultBranch: DEFAULT_UPDATE_BRANCH,
+    defaultBranch,
+    currentBranch,
+    runningBranch: currentBranch,
     source,
   };
 }
 
-async function listMiddlewareUpdateBranches(): Promise<{ branches: MiddlewareUpdateBranch[]; defaultBranch: string; source: string }> {
+async function listMiddlewareUpdateBranches(): Promise<MiddlewareUpdateBranchesResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
@@ -1211,7 +1251,7 @@ async function listMiddlewareUpdateBranches(): Promise<{ branches: MiddlewareUpd
     });
     if (!res.ok) return fallbackMiddlewareUpdateBranches(`github-${res.status}`);
     const rawBranches = await res.json() as Array<{ name?: string; commit?: { sha?: string; url?: string } }>;
-    const branches = await Promise.all(rawBranches.map(async (branch): Promise<MiddlewareUpdateBranch | null> => {
+    const remoteBranches = await Promise.all(rawBranches.map(async (branch): Promise<MiddlewareUpdateBranch | null> => {
       const name = String(branch.name || "").trim();
       if (!name) return null;
       let updatedAt: string | undefined;
@@ -1229,10 +1269,15 @@ async function listMiddlewareUpdateBranches(): Promise<{ branches: MiddlewareUpd
       }
       return { name, sha: branch.commit?.sha, updatedAt, url: `https://github.com/Nextbasedev/openclaw-desktop/tree/${encodeURIComponent(name)}` };
     }));
-    const sorted = branches
-      .filter(Boolean) as MiddlewareUpdateBranch[];
+    const sorted = remoteBranches
+      .filter((branch): branch is MiddlewareUpdateBranch => Boolean(branch));
     sorted.sort((a, b) => Date.parse(b.updatedAt || "0") - Date.parse(a.updatedAt || "0") || a.name.localeCompare(b.name));
-    return { branches: sorted.length > 0 ? sorted : fallbackMiddlewareUpdateBranches().branches, defaultBranch: DEFAULT_UPDATE_BRANCH, source: "github" };
+    const currentBranch = readRunningMiddlewareBranch();
+    const defaultBranch = currentBranch || DEFAULT_UPDATE_BRANCH;
+    const hasCurrent = currentBranch ? sorted.some((branch) => branch.name === currentBranch) : true;
+    const branches = sorted.length > 0 ? [...sorted] : fallbackMiddlewareUpdateBranches().branches;
+    if (currentBranch && !hasCurrent) branches.unshift({ name: currentBranch, url: `https://github.com/Nextbasedev/openclaw-desktop/tree/${encodeURIComponent(currentBranch)}` });
+    return { branches, defaultBranch, currentBranch, runningBranch: currentBranch, source: "github" };
   } catch {
     return fallbackMiddlewareUpdateBranches("fallback");
   } finally {

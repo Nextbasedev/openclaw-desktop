@@ -61,6 +61,8 @@ type MiddlewareUpdateStatus = {
   message?: string
   repoRoot?: string
   branch?: string
+  currentBranch?: string
+  runningBranch?: string
   logPath?: string
   git?: MiddlewareGitStatus
 }
@@ -84,6 +86,8 @@ type MiddlewareUpdateBranch = {
 type MiddlewareUpdateBranchesResponse = {
   branches: MiddlewareUpdateBranch[]
   defaultBranch?: string
+  currentBranch?: string
+  runningBranch?: string
   source?: string
 }
 
@@ -223,6 +227,7 @@ function MiddlewareUpdateCard() {
   const [branchesError, setBranchesError] = React.useState<string | null>(null)
   const [branchMenuOpen, setBranchMenuOpen] = React.useState(false)
   const lastToastMessageRef = React.useRef<string | null>(null)
+  const branchTouchedRef = React.useRef(false)
 
   const updateBranch = selectedBranch === "custom" ? customBranch.trim() : selectedBranch
 
@@ -253,8 +258,9 @@ function MiddlewareUpdateCard() {
       const res = await invoke<MiddlewareUpdateBranchesResponse>("middleware_self_update_branches")
       if (Array.isArray(res.branches) && res.branches.length > 0) {
         setBranches(res.branches)
-        if (!res.branches.some((branch) => branch.name === selectedBranch) && selectedBranch !== "custom") {
-          setSelectedBranch(res.defaultBranch || res.branches[0]?.name || FALLBACK_UPDATE_BRANCH_OPTIONS[0])
+        const runningBranch = res.runningBranch || res.currentBranch || res.defaultBranch || res.branches[0]?.name || FALLBACK_UPDATE_BRANCH_OPTIONS[0]
+        if (selectedBranch !== "custom" && (!res.branches.some((branch) => branch.name === selectedBranch) || (!branchTouchedRef.current && selectedBranch === FALLBACK_UPDATE_BRANCH_OPTIONS[0]))) {
+          setSelectedBranch(runningBranch)
         }
       }
     } catch (err) {
@@ -266,6 +272,7 @@ function MiddlewareUpdateCard() {
 
   React.useEffect(() => {
     refreshBranches().catch(() => undefined)
+    refreshStatus().catch(() => undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -283,9 +290,11 @@ function MiddlewareUpdateCard() {
     return false
   }
 
-  async function refreshStatus(branch = updateBranch) {
-    const next = await invoke<MiddlewareUpdateStatus>("middleware_self_update_status", { branch })
+  async function refreshStatus(branch?: string) {
+    const next = await invoke<MiddlewareUpdateStatus>("middleware_self_update_status", branch ? { branch } : undefined)
     setStatus(next)
+    const runningBranch = next.runningBranch || next.currentBranch || next.git?.currentBranch || next.branch
+    if (runningBranch && !branchTouchedRef.current && selectedBranch !== "custom") setSelectedBranch(runningBranch)
     if (busy || next.state === "running" || next.state === "restarting") updateMiddlewareToast(next)
     return next
   }
@@ -423,6 +432,7 @@ function MiddlewareUpdateCard() {
                         active ? "bg-black/[0.055] dark:bg-white/[0.075]" : "hover:bg-black/[0.045] dark:hover:bg-white/[0.055]",
                       )}
                       onClick={() => {
+                        branchTouchedRef.current = true
                         setSelectedBranch(branch.name)
                         setBranchMenuOpen(false)
                       }}
@@ -439,6 +449,7 @@ function MiddlewareUpdateCard() {
                     selectedBranch === "custom" ? "bg-black/[0.055] dark:bg-white/[0.075]" : "hover:bg-black/[0.045] dark:hover:bg-white/[0.055]",
                   )}
                   onClick={() => {
+                    branchTouchedRef.current = true
                     setSelectedBranch("custom")
                     setBranchMenuOpen(false)
                   }}
