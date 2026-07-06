@@ -1023,6 +1023,54 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("telegram migration scan merges canonical Telegram sessions from Gateway history", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-gateway-scan-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const diskKey = "agent:main:telegram:group:-1001:topic:42";
+    const gatewayOnlyKey = "agent:main:telegram:group:-1001:topic:43";
+    const gatewayChannelKey = "agent:main:subagent:abc";
+    const ignoredSubagentKey = "agent:main:subagent:def";
+    const diskFile = path.join(sessionsDir, "disk-topic-42.jsonl");
+    const gatewayFile = path.join(sessionsDir, "gateway-topic-43.jsonl");
+    const meta = (topicId: string, topicName: string) => JSON.stringify({ chat_id: "telegram:-1001", topic_id: topicId, group_subject: "Group", topic_name: topicName, is_group_chat: true });
+    const line = (topicId: string, topicName: string, text: string) => JSON.stringify({ type: "message", id: `m-${topicId}`, timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta(topicId, topicName)}\n\`\`\`\n\n${text}` } });
+    fs.writeFileSync(diskFile, `${line("42", "Disk topic", "disk message")}\n`);
+    fs.writeFileSync(gatewayFile, `${line("43", "Gateway topic", "gateway message")}\n`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({
+      [diskKey]: { sessionId: "disk", sessionFile: diskFile, chatType: "group", subject: "Group" },
+    }));
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { status: ReturnType<typeof vi.fn>; request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.status = vi.fn(() => ({ connected: true, lastError: null }));
+    context.gateway.request = vi.fn(async (method: string) => {
+      if (method === "sessions.list") {
+        return { sessions: [
+          { key: gatewayOnlyKey, sessionId: "gateway", transcriptPath: gatewayFile, displayName: "Group", updatedAt: "2026-05-20T00:01:00.000Z" },
+          { key: gatewayChannelKey, channel: "telegram", displayName: "Telegram subagent", transcriptPath: gatewayFile, deliveryContext: { channel: "telegram", to: "telegram:-1001", threadId: "44" } },
+          { key: ignoredSubagentKey, channel: "webchat", displayName: "Desktop subagent", transcriptPath: path.join(sessionsDir, "subagent.jsonl") },
+          { key: "agent:main:discord:channel:1", displayName: "Discord" },
+        ] };
+      }
+      return {};
+    });
+
+    const scan = await app.inject({ method: "GET", url: "/api/migration/telegram/scan?agentId=main" });
+
+    expect(scan.statusCode).toBe(200);
+    expect(context.gateway.request).toHaveBeenCalledWith("sessions.list", expect.objectContaining({ limit: 1000 }), 10_000);
+    expect(scan.json().sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceSessionKey: diskKey, sourceSessionFile: diskFile, proposedName: "Disk topic" }),
+      expect.objectContaining({ sourceSessionKey: gatewayOnlyKey, sourceSessionFile: gatewayFile, proposedName: "Gateway topic" }),
+      expect.objectContaining({ sourceSessionKey: gatewayChannelKey, sourceSessionFile: gatewayFile, groupId: "-1001", topicId: "44" }),
+    ]));
+    expect(scan.json().sessions).not.toEqual(expect.arrayContaining([expect.objectContaining({ sourceSessionKey: ignoredSubagentKey })]));
+    expect(scan.json().summary).toMatchObject({ total: 3, groups: 1, topics: 3 });
+    await app.close();
+  });
+
   test("telegram group import names the desktop session from the topic name", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-topic-import-"));
     vi.spyOn(os, "homedir").mockReturnValue(home);
