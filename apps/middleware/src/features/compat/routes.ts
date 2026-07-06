@@ -1305,6 +1305,13 @@ function importedSessionSourceKey(record: CompatRecord) {
   return String(record.importedFrom?.sourceSessionKey || record.sessionKey || record.key || record.id || id("import"));
 }
 
+function isImportedSourceSession(kind: ImportedPlatformKind, sourceSessionKey: unknown) {
+  const sourceKey = String(sourceSessionKey || "");
+  if (!sourceKey) return false;
+  return compatState.sessions.some((session) => session.importedFrom?.kind === kind && session.importedFrom?.sourceSessionKey === sourceKey)
+    || compatState.chats.some((chat) => chat.importedFrom?.kind === kind && chat.importedFrom?.sourceSessionKey === sourceKey);
+}
+
 function ensureImportedFlatChat(kind: ImportedPlatformKind, input: {
   sourceSessionKey: string;
   targetSpaceId: string;
@@ -2349,7 +2356,6 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
   loadCompatState(context);
   const scan = await scanTelegramSessions(context, input);
   const selectedKeys = Array.isArray(input.sourceSessionKeys) && input.sourceSessionKeys.length > 0 ? new Set(input.sourceSessionKeys.map(String)) : null;
-  const skipAlreadyImported = input.skipAlreadyImported !== false;
   const dryRun = Boolean(input.dryRun);
   const targetSpaceId = dryRun ? activeSpaceId() : String(ensureImportedPlatformSpace("telegram").id);
   const imported: CompatRecord[] = [];
@@ -2359,24 +2365,10 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
   const outcomes = await mapWithConcurrency(sessionsToImport, migrationImportConcurrency(input), async (session) => {
     const parsed = telegramSessionSourceFromScan(session);
     if (!parsed) return { type: "skipped" as const, value: { sourceSessionKey: session.sourceSessionKey, reason: "invalid_session_key" } };
-    const repaired = session.alreadyImported ? repairImportedSessionSpace("telegram", session.sourceSessionKey, targetSpaceId) : false;
-    if (skipAlreadyImported && session.alreadyImported) {
-      // Repair missing chat entries for previously imported group topics
-      // that only had session + topic but no chat (pre-fix imports).
-      let repairedChat = false;
-      if (parsed.kind === "group") {
-        const hasChat = compatState.chats.some((chat) => chat.importedFrom?.sourceSessionKey === session.sourceSessionKey);
-        if (!hasChat) {
-          const existingSession = compatState.sessions.find((s) => s.importedFrom?.sourceSessionKey === session.sourceSessionKey);
-          if (existingSession?.sessionKey) {
-            const chatId = id("chat");
-            const timestamp = nowIso();
-            compatState.chats.push({ id: chatId, name: existingSession.label || session.proposedName || "Telegram import", sessionKey: existingSession.sessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, projectId: existingSession.projectId ?? null, topicId: existingSession.topicId ?? null, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
-            repairedChat = true;
-          }
-        }
-      }
-      return { type: "skipped" as const, value: { sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired, repairedChat } };
+    const alreadyImported = Boolean(session.alreadyImported) || isImportedSourceSession("telegram", session.sourceSessionKey);
+    const repaired = alreadyImported ? repairImportedSessionSpace("telegram", session.sourceSessionKey, targetSpaceId) : false;
+    if (alreadyImported) {
+      return { type: "skipped" as const, value: { sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired } };
     }
     const sourceMessages = telegramSourceMessagesForSession(session);
     const label = parsed.kind === "group"
@@ -2456,7 +2448,6 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
   loadCompatState(context);
   const scan = scanDiscordSessions(context, input);
   const selectedKeys = Array.isArray(input.sourceSessionKeys) && input.sourceSessionKeys.length > 0 ? new Set(input.sourceSessionKeys.map(String)) : null;
-  const skipAlreadyImported = input.skipAlreadyImported !== false;
   const dryRun = Boolean(input.dryRun);
   const targetSpaceId = dryRun ? activeSpaceId() : String(ensureImportedPlatformSpace("discord").id);
   const imported: CompatRecord[] = [];
@@ -2466,8 +2457,9 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
     if (selectedKeys && !selectedKeys.has(session.sourceSessionKey)) continue;
     const parsed = parseDiscordSessionKey(session.sourceSessionKey);
     if (!parsed) continue;
-    const repaired = session.alreadyImported ? repairImportedSessionSpace("discord", session.sourceSessionKey, targetSpaceId) : false;
-    if (skipAlreadyImported && session.alreadyImported) {
+    const alreadyImported = Boolean(session.alreadyImported) || isImportedSourceSession("discord", session.sourceSessionKey);
+    const repaired = alreadyImported ? repairImportedSessionSpace("discord", session.sourceSessionKey, targetSpaceId) : false;
+    if (alreadyImported) {
       skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired });
       continue;
     }

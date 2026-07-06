@@ -745,14 +745,14 @@ const SESSION_MIGRATION_COPY: Record<SessionMigrationPlatform, {
     title: "Telegram migration",
     scanLabel: "Scan Telegram",
     importLabel: "Import Telegram",
-    description: "Import Telegram history into Desktop. Direct chats become normal chats. Groups become projects, and Telegram topics become topics inside those projects.",
+    description: "Import Telegram history into a dedicated Telegram space. Already imported sessions are repaired in place and never duplicated.",
     channelLabel: "Groups",
   },
   discord: {
     title: "Discord migration",
     scanLabel: "Scan Discord",
     importLabel: "Import Discord",
-    description: "Import Discord history into Desktop. DMs become normal chats. Channels and threads become topics grouped inside Desktop projects.",
+    description: "Import Discord history into a dedicated Discord space. Already imported sessions are repaired in place and never duplicated.",
     channelLabel: "Channels",
   },
 }
@@ -781,7 +781,7 @@ function SessionMigrationCard({ platform }: { platform: SessionMigrationPlatform
     setBusy("import")
     setError(null)
     try {
-      const imported = await invoke<SessionMigrationImport>(`middleware_migration_${platform}_import`, { input: { skipAlreadyImported: false } })
+      const imported = await invoke<SessionMigrationImport>(`middleware_migration_${platform}_import`)
       setResult(imported)
       invalidateMiddlewareStartupBootstrap()
       emit("sidebar:refresh")
