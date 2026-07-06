@@ -1097,11 +1097,73 @@ describe("middleware app", () => {
     expect(context.gateway.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({ label: "Desktop task B" }), 30_000);
     expect(res.json().imported).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Desktop task B" })]));
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
-    const project = bootstrap.json().projects.find((item: { name?: string; id?: string }) => item.name === "Group");
+    const project = bootstrap.json().projects.find((item: { name?: string; id?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
     expect(project).toBeTruthy();
     const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
     expect(topics.json().topics).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Desktop task B" })]));
     expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Desktop task B" })]));
+    await app.close();
+  });
+
+  test("telegram direct import creates and uses the dedicated Telegram project", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-direct-project-import-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const key = "agent:main:telegram:direct:5229873315";
+    const currentFile = path.join(sessionsDir, "telegram-direct.jsonl");
+    const targetFile = path.join(sessionsDir, "imported-telegram-direct.jsonl");
+    fs.writeFileSync(currentFile, `${JSON.stringify({ type: "message", id: "d1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: "please keep this in telegram project" } })}\n`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({ [key]: { sessionId: "direct", sessionFile: currentFile, chatType: "direct", displayName: "Telegram direct" } }));
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "sessions.create") return { payload: { entry: { sessionFile: targetFile } }, label: params?.label };
+      return {};
+    });
+
+    const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [key], skipAlreadyImported: false } });
+
+    expect(res.statusCode).toBe(200);
+    const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
+    const project = bootstrap.json().projects.find((item: { name?: string; id?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
+    expect(project).toBeTruthy();
+    const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
+    expect(topics.json().topics).toEqual([expect.objectContaining({ name: "please keep this in telegram project" })]);
+    expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id, topicId: topics.json().topics[0].id })]));
+    expect(bootstrap.json().chats).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id, topicId: topics.json().topics[0].id })]));
+    await app.close();
+  });
+
+  test("discord import creates and uses the dedicated Discord project", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-discord-project-import-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const key = "agent:main:discord:channel:777:thread:888";
+    const currentFile = path.join(sessionsDir, "discord-thread.jsonl");
+    const targetFile = path.join(sessionsDir, "imported-discord-thread.jsonl");
+    fs.writeFileSync(currentFile, `${JSON.stringify({ type: "message", id: "c1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: "discord thread import request" } })}\n`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({ [key]: { sessionId: "thread", sessionFile: currentFile, channelName: "fresh desktop", displayName: "Discord channel" } }));
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "sessions.create") return { payload: { entry: { sessionFile: targetFile } }, label: params?.label };
+      return {};
+    });
+
+    const res = await app.inject({ method: "POST", url: "/api/migration/discord/import", payload: { sourceSessionKeys: [key], skipAlreadyImported: false } });
+
+    expect(res.statusCode).toBe(200);
+    const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
+    const project = bootstrap.json().projects.find((item: { name?: string; id?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Discord" && item.importedFrom?.kind === "discord" && item.importedFrom?.scope === "session-migration");
+    expect(project).toBeTruthy();
+    const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
+    expect(topics.json().topics).toEqual([expect.objectContaining({ name: "fresh desktop" })]);
+    expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id, topicId: topics.json().topics[0].id })]));
+    expect(bootstrap.json().chats).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id, topicId: topics.json().topics[0].id })]));
     await app.close();
   });
 

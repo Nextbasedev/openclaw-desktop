@@ -1117,6 +1117,80 @@ function uniqueName(base: string, used: Set<string>) {
   return name;
 }
 
+type ImportedPlatformKind = "telegram" | "discord";
+
+function importedPlatformProjectName(kind: ImportedPlatformKind) {
+  return kind === "telegram" ? "Telegram" : "Discord";
+}
+
+function importedPlatformProjectMarker(kind: ImportedPlatformKind) {
+  return { kind, scope: "session-migration" };
+}
+
+function isImportedPlatformProject(project: CompatRecord, kind: ImportedPlatformKind) {
+  const importedFrom = project.importedFrom && typeof project.importedFrom === "object" ? project.importedFrom as CompatRecord : {};
+  return importedFrom.kind === kind && importedFrom.scope === "session-migration";
+}
+
+function ensureImportedPlatformProject(kind: ImportedPlatformKind, targetSpaceId: string, timestamp = nowIso()) {
+  const name = importedPlatformProjectName(kind);
+  let project = compatState.projects.find((item) => isImportedPlatformProject(item, kind));
+  if (!project) {
+    project = compatState.projects.find((item) => {
+      const importedFrom = item.importedFrom && typeof item.importedFrom === "object" ? item.importedFrom as CompatRecord : null;
+      return notDeleted(item)
+        && String(item.name || "").trim().toLowerCase() === name.toLowerCase()
+        && (!importedFrom || importedFrom.kind === kind);
+    });
+  }
+  if (!project) {
+    project = {
+      id: id("proj"),
+      name,
+      workspaceRoot: path.join(os.homedir(), ".openclaw", "workspace"),
+      spaceId: targetSpaceId,
+      archived: false,
+      pinned: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      importedFrom: importedPlatformProjectMarker(kind),
+    };
+    compatState.projects.push(project);
+    return project;
+  }
+  project.name = String(project.name || "").trim() || name;
+  project.spaceId = targetSpaceId;
+  project.archived = false;
+  project.deleted = false;
+  project.updatedAt = timestamp;
+  project.importedFrom = {
+    ...(project.importedFrom && typeof project.importedFrom === "object" ? project.importedFrom as CompatRecord : {}),
+    ...importedPlatformProjectMarker(kind),
+  };
+  return project;
+}
+
+function importedTopicMetadata(kind: ImportedPlatformKind, sourceSessionKey: string, extra: CompatRecord = {}) {
+  return { kind, sourceSessionKey, ...extra };
+}
+
+function createImportedSessionTopic(kind: ImportedPlatformKind, projectId: string, label: string, timestamp: string, sourceSessionKey: string, extra: CompatRecord = {}) {
+  const topicId = id("topic");
+  compatState.topics.push({
+    id: topicId,
+    projectId,
+    name: label,
+    archived: false,
+    pinned: false,
+    unreadCount: 0,
+    sortOrder: Date.now(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    importedFrom: importedTopicMetadata(kind, sourceSessionKey, extra),
+  });
+  return topicId;
+}
+
 function telegramGroupName(entry: CompatRecord, groupId: string) {
   return String(entry.subject || entry.groupSubject || entry.displayName || entry.label || `Telegram group ${groupId}`).replace(/^telegram:g-/, "").trim() || `Telegram group ${groupId}`;
 }
@@ -2064,28 +2138,21 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
       copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
       const timestamp = nowIso();
       let chatId: string | null = null;
-      let projectId: string | null = null;
-      let topicId: string | null = null;
-      if (parsed.kind === "group") {
-        let project = compatState.projects.find((item) => item.importedFrom?.kind === "telegram" && item.importedFrom?.groupId === parsed.groupId);
-        if (!project) {
-          project = { id: id("proj"), name: session.groupName || `Telegram group ${parsed.groupId}`, workspaceRoot: path.join(os.homedir(), ".openclaw", "workspace"), spaceId: targetSpaceId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", groupId: parsed.groupId } };
-          compatState.projects.push(project);
-        } else if (project.spaceId !== targetSpaceId) {
-          project.spaceId = targetSpaceId;
-          project.updatedAt = timestamp;
-        }
-        projectId = project.id;
-        topicId = id("topic");
-        compatState.topics.push({ id: topicId, projectId, name: label, archived: false, pinned: false, unreadCount: 0, sortOrder: Date.now(), createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey, groupId: parsed.groupId, topicId: parsed.topicId } });
-        compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId, topicId, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
-        // Also create a chat entry so group topics appear in the sidebar chat list
-        chatId = id("chat");
-        compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, projectId, topicId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
-      } else {
-        chatId = id("chat");
-        compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
-      }
+      const project = ensureImportedPlatformProject("telegram", targetSpaceId, timestamp);
+      const projectId = String(project.id);
+      const topicId = createImportedSessionTopic(
+        "telegram",
+        projectId,
+        label,
+        timestamp,
+        session.sourceSessionKey,
+        parsed.kind === "group" ? { groupId: parsed.groupId, topicId: parsed.topicId } : { userId: parsed.userId },
+      );
+      compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId, topicId, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
+      // Keep a chat row pointing at the project topic so imported sessions remain
+      // reachable from both the flat chat list and the project/topic sidebar.
+      chatId = id("chat");
+      compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, projectId, topicId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
       // Fire-and-forget pre-warm: don't block the import loop since each
       // prewarm can take seconds. The first chat open will still be fast
       // if prewarm finishes in the background before the user clicks.
@@ -2099,35 +2166,39 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
   return { imported, skipped, failed, summary: { imported: imported.length, skipped: skipped.length, failed: failed.length } };
 }
 
-function repairImportedSessionSpace(kind: "telegram" | "discord", sourceSessionKey: unknown, targetSpaceId: string) {
+function repairImportedSessionSpace(kind: ImportedPlatformKind, sourceSessionKey: unknown, targetSpaceId: string) {
   const sourceKey = String(sourceSessionKey || "");
   if (!sourceKey || !targetSpaceId) return false;
   const timestamp = nowIso();
+  const project = ensureImportedPlatformProject(kind, targetSpaceId, timestamp);
+  const projectId = String(project.id);
+  const matchingSessions = compatState.sessions.filter((session) => session.importedFrom?.kind === kind && session.importedFrom?.sourceSessionKey === sourceKey);
+  const matchingChats = compatState.chats.filter((chat) => chat.importedFrom?.kind === kind && chat.importedFrom?.sourceSessionKey === sourceKey);
+  if (matchingSessions.length === 0 && matchingChats.length === 0) return false;
   let changed = false;
-  for (const chat of compatState.chats) {
-    if (chat.importedFrom?.kind !== kind || chat.importedFrom?.sourceSessionKey !== sourceKey) continue;
-    if (chat.spaceId !== targetSpaceId) {
-      chat.spaceId = targetSpaceId;
-      chat.updatedAt = timestamp;
-      changed = true;
-    }
+  const existingTopic = compatState.topics.find((topic) => topic.importedFrom?.kind === kind && topic.importedFrom?.sourceSessionKey === sourceKey);
+  let topicId = typeof existingTopic?.id === "string" ? existingTopic.id : null;
+  const label = String(matchingSessions[0]?.label || matchingChats[0]?.name || `${importedPlatformProjectName(kind)} import`);
+  if (!topicId) {
+    topicId = createImportedSessionTopic(kind, projectId, label, timestamp, sourceKey);
+    changed = true;
+  } else if (existingTopic && (existingTopic.projectId !== projectId || existingTopic.name !== label)) {
+    existingTopic.projectId = projectId;
+    existingTopic.name = label;
+    existingTopic.updatedAt = timestamp;
+    changed = true;
   }
-  for (const session of compatState.sessions) {
-    if (session.importedFrom?.kind !== kind || session.importedFrom?.sourceSessionKey !== sourceKey) continue;
-    if (session.spaceId !== targetSpaceId) {
-      session.spaceId = targetSpaceId;
-      session.updatedAt = timestamp;
-      changed = true;
-    }
-    const projectId = typeof session.projectId === "string" ? session.projectId : null;
-    if (projectId) {
-      const project = compatState.projects.find((item) => item.id === projectId);
-      if (project && project.spaceId !== targetSpaceId) {
-        project.spaceId = targetSpaceId;
-        project.updatedAt = timestamp;
-        changed = true;
-      }
-    }
+  for (const session of matchingSessions) {
+    if (session.spaceId !== targetSpaceId) { session.spaceId = targetSpaceId; changed = true; }
+    if (session.projectId !== projectId) { session.projectId = projectId; changed = true; }
+    if (session.topicId !== topicId) { session.topicId = topicId; changed = true; }
+    if (changed) session.updatedAt = timestamp;
+  }
+  for (const chat of matchingChats) {
+    if (chat.spaceId !== targetSpaceId) { chat.spaceId = targetSpaceId; changed = true; }
+    if (chat.projectId !== projectId) { chat.projectId = projectId; changed = true; }
+    if (chat.topicId !== topicId) { chat.topicId = topicId; changed = true; }
+    if (changed) chat.updatedAt = timestamp;
   }
   return changed;
 }
@@ -2162,26 +2233,22 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
       copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
       const timestamp = nowIso();
       let chatId: string | null = null;
-      let projectId: string | null = null;
-      let topicId: string | null = null;
-      if (parsed.kind === "channel") {
-        const projectImportKey = String(session.groupId || parsed.channelId);
-        let project = compatState.projects.find((item) => item.importedFrom?.kind === "discord" && item.importedFrom?.groupId === projectImportKey);
-        if (!project) {
-          project = { id: id("proj"), name: session.groupName || `Discord channel ${parsed.channelId}`, workspaceRoot: path.join(os.homedir(), ".openclaw", "workspace"), spaceId: targetSpaceId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "discord", groupId: projectImportKey, channelId: parsed.channelId } };
-          compatState.projects.push(project);
-        } else if (project.spaceId !== targetSpaceId) {
-          project.spaceId = targetSpaceId;
-          project.updatedAt = timestamp;
-        }
-        projectId = project.id;
-        topicId = id("topic");
-        compatState.topics.push({ id: topicId, projectId, name: label, archived: false, pinned: false, unreadCount: 0, sortOrder: Date.now(), createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey, groupId: projectImportKey, channelId: parsed.channelId, threadId: parsed.threadId } });
-        compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId, topicId, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey } });
-      } else {
-        chatId = id("chat");
-        compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey } });
-      }
+      const project = ensureImportedPlatformProject("discord", targetSpaceId, timestamp);
+      const projectId = String(project.id);
+      const projectImportKey = parsed.kind === "channel" ? String(session.groupId || parsed.channelId) : undefined;
+      const topicId = createImportedSessionTopic(
+        "discord",
+        projectId,
+        label,
+        timestamp,
+        session.sourceSessionKey,
+        parsed.kind === "channel"
+          ? { groupId: projectImportKey, channelId: parsed.channelId, threadId: parsed.threadId }
+          : { userId: parsed.userId },
+      );
+      compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId, topicId, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey } });
+      chatId = id("chat");
+      compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, projectId, topicId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey } });
       imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, transcriptPath });
     } catch (error) {
       failed.push({ sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) });
