@@ -1030,14 +1030,15 @@ describe("middleware app", () => {
     fs.mkdirSync(sessionsDir, { recursive: true });
     const diskKey = "agent:main:telegram:group:-1001:topic:42";
     const gatewayOnlyKey = "agent:main:telegram:group:-1001:topic:43";
-    const gatewayChannelKey = "agent:main:subagent:abc";
-    const ignoredSubagentKey = "agent:main:subagent:def";
+    const ignoredSubagentKey = "agent:main:subagent:abc";
     const diskFile = path.join(sessionsDir, "disk-topic-42.jsonl");
     const gatewayFile = path.join(sessionsDir, "gateway-topic-43.jsonl");
+    const transcriptOnlyFile = path.join(sessionsDir, "transcript-only-topic-45.jsonl");
     const meta = (topicId: string, topicName: string) => JSON.stringify({ chat_id: "telegram:-1001", topic_id: topicId, group_subject: "Group", topic_name: topicName, is_group_chat: true });
     const line = (topicId: string, topicName: string, text: string) => JSON.stringify({ type: "message", id: `m-${topicId}`, timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta(topicId, topicName)}\n\`\`\`\n\n${text}` } });
     fs.writeFileSync(diskFile, `${line("42", "Disk topic", "disk message")}\n`);
     fs.writeFileSync(gatewayFile, `${line("43", "Gateway topic", "gateway message")}\n`);
+    fs.writeFileSync(transcriptOnlyFile, `${line("45", "Transcript-only topic", "transcript-only message")}\n`);
     fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({
       [diskKey]: { sessionId: "disk", sessionFile: diskFile, chatType: "group", subject: "Group" },
     }));
@@ -1049,8 +1050,7 @@ describe("middleware app", () => {
       if (method === "sessions.list") {
         return { sessions: [
           { key: gatewayOnlyKey, sessionId: "gateway", transcriptPath: gatewayFile, displayName: "Group", updatedAt: "2026-05-20T00:01:00.000Z" },
-          { key: gatewayChannelKey, channel: "telegram", displayName: "Telegram subagent", transcriptPath: gatewayFile, deliveryContext: { channel: "telegram", to: "telegram:-1001", threadId: "44" } },
-          { key: ignoredSubagentKey, channel: "webchat", displayName: "Desktop subagent", transcriptPath: path.join(sessionsDir, "subagent.jsonl") },
+          { key: ignoredSubagentKey, channel: "telegram", displayName: "Telegram subagent", transcriptPath: gatewayFile, deliveryContext: { channel: "telegram", to: "telegram:-1001", threadId: "44" } },
           { key: "agent:main:discord:channel:1", displayName: "Discord" },
         ] };
       }
@@ -1064,7 +1064,7 @@ describe("middleware app", () => {
     expect(scan.json().sessions).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceSessionKey: diskKey, sourceSessionFile: diskFile, proposedName: "Disk topic" }),
       expect.objectContaining({ sourceSessionKey: gatewayOnlyKey, sourceSessionFile: gatewayFile, proposedName: "Gateway topic" }),
-      expect.objectContaining({ sourceSessionKey: gatewayChannelKey, sourceSessionFile: gatewayFile, groupId: "-1001", topicId: "44" }),
+      expect.objectContaining({ sourceSessionKey: "agent:main:telegram:group:-1001:topic:45", sourceSessionFile: transcriptOnlyFile, proposedName: "Transcript-only topic" }),
     ]));
     expect(scan.json().sessions).not.toEqual(expect.arrayContaining([expect.objectContaining({ sourceSessionKey: ignoredSubagentKey })]));
     expect(scan.json().summary).toMatchObject({ total: 3, groups: 1, topics: 3 });
