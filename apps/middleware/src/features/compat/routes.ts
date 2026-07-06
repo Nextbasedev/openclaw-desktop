@@ -1170,6 +1170,26 @@ function ensureImportedPlatformProject(kind: ImportedPlatformKind, targetSpaceId
   return project;
 }
 
+function pruneEmptyLegacyImportedPlatformProjects(kind: ImportedPlatformKind, timestamp = nowIso()) {
+  const canonical = compatState.projects.find((item) => isImportedPlatformProject(item, kind));
+  if (!canonical?.id) return false;
+  let changed = false;
+  for (const project of compatState.projects) {
+    if (project.id === canonical.id) continue;
+    const importedFrom = project.importedFrom && typeof project.importedFrom === "object" ? project.importedFrom as CompatRecord : {};
+    if (importedFrom.kind !== kind || importedFrom.scope === "session-migration") continue;
+    const hasTopics = compatState.topics.some((topic) => notDeleted(topic) && topic.projectId === project.id);
+    const hasSessions = compatState.sessions.some((session) => notDeleted(session) && session.projectId === project.id);
+    const hasChats = compatState.chats.some((chat) => notDeleted(chat) && chat.projectId === project.id);
+    if (hasTopics || hasSessions || hasChats) continue;
+    project.deleted = true;
+    project.archived = true;
+    project.updatedAt = timestamp;
+    changed = true;
+  }
+  return changed;
+}
+
 function importedTopicMetadata(kind: ImportedPlatformKind, sourceSessionKey: string, extra: CompatRecord = {}) {
   return { kind, sourceSessionKey, ...extra };
 }
@@ -2159,7 +2179,6 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
       if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
       copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
       const timestamp = nowIso();
-      let chatId: string | null = null;
       const project = ensureImportedPlatformProject("telegram", targetSpaceId, timestamp);
       const projectId = String(project.id);
       const topicId = createImportedSessionTopic(
@@ -2171,15 +2190,11 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
         parsed.kind === "group" ? { groupId: parsed.groupId, topicId: parsed.topicId } : { userId: parsed.userId },
       );
       compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId, topicId, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
-      // Keep a chat row pointing at the project topic so imported sessions remain
-      // reachable from both the flat chat list and the project/topic sidebar.
-      chatId = id("chat");
-      compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, projectId, topicId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
       // Fire-and-forget pre-warm: don't block the import loop since each
       // prewarm can take seconds. The first chat open will still be fast
       // if prewarm finishes in the background before the user clicks.
       void prewarmArchivedHistory(context, desktopSessionKey).catch(() => { /* non-fatal */ });
-      return { type: "imported" as const, value: { sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], transcriptPath } };
+      return { type: "imported" as const, value: { sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId: null, projectId, topicId, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], transcriptPath } };
     } catch (error) {
       return { type: "failed" as const, value: { sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) } };
     }
@@ -2189,6 +2204,7 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
     else if (outcome.type === "skipped") skipped.push(outcome.value);
     else failed.push(outcome.value);
   }
+  pruneEmptyLegacyImportedPlatformProjects("telegram");
   if (!dryRun) saveCompatState(context);
   return { imported, skipped, failed, summary: { imported: imported.length, skipped: skipped.length, failed: failed.length } };
 }
@@ -2259,7 +2275,6 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
       if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
       copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
       const timestamp = nowIso();
-      let chatId: string | null = null;
       const project = ensureImportedPlatformProject("discord", targetSpaceId, timestamp);
       const projectId = String(project.id);
       const projectImportKey = parsed.kind === "channel" ? String(session.groupId || parsed.channelId) : undefined;
@@ -2274,13 +2289,12 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
           : { userId: parsed.userId },
       );
       compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId, topicId, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey } });
-      chatId = id("chat");
-      compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, projectId, topicId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey } });
-      imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, transcriptPath });
+      imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId: null, projectId, topicId, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, transcriptPath });
     } catch (error) {
       failed.push({ sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) });
     }
   }
+  pruneEmptyLegacyImportedPlatformProjects("discord");
   if (!dryRun) saveCompatState(context);
   return { imported, skipped, failed, summary: { imported: imported.length, skipped: skipped.length, failed: failed.length } };
 }
@@ -2358,9 +2372,15 @@ function chatForResponse(chat: CompatRecord) {
   return { ...chat, createdAt, updatedAt: activityAt, lastActiveAt: activityAt, lastMessageAt: activityAt };
 }
 
+function isProjectScopedChat(chat: CompatRecord) {
+  return typeof chat.projectId === "string" && chat.projectId.trim()
+    || typeof chat.topicId === "string" && chat.topicId.trim();
+}
+
 function sortedChatsForResponse(spaceId?: unknown, archived?: boolean) {
   return listBySpace(compatState.chats, spaceId)
     .filter((chat) => !isSubagentRecord(chat))
+    .filter((chat) => !isProjectScopedChat(chat))
     .filter((chat) => typeof archived === "boolean" ? Boolean(chat.archived) === archived : !chat.archived)
     .map(chatForResponse)
     .sort((a, b) => {
@@ -4311,6 +4331,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       applyProjectedChatActivity(context);
     }
     const spaceId = activeSpaceId();
+    const prunedLegacyImports = pruneEmptyLegacyImportedPlatformProjects("telegram") || pruneEmptyLegacyImportedPlatformProjects("discord");
+    if (prunedLegacyImports) saveCompatCollection(context, "projects");
     const projects = listBySpace(compatState.projects, spaceId);
     const projectIds = new Set(projects.map((project) => project.id).filter(Boolean));
     return {

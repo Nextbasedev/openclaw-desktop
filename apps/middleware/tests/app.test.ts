@@ -1177,12 +1177,14 @@ describe("middleware app", () => {
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
     const telegramProject = bootstrap.json().projects.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
     expect(telegramProject).toBeTruthy();
+    expect(bootstrap.json().projects).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "proj_old" })]));
     expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "session_old", projectId: telegramProject.id }),
       expect.objectContaining({ importedFrom: { kind: "telegram", sourceSessionKey: sourceKey }, projectId: telegramProject.id }),
     ]));
-    expect(bootstrap.json().chats).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "chat_old", projectId: telegramProject.id }),
+    expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "chat_old" }),
+      expect.objectContaining({ projectId: telegramProject.id }),
     ]));
     await app.close();
   });
@@ -1214,7 +1216,7 @@ describe("middleware app", () => {
     const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
     expect(topics.json().topics).toEqual([expect.objectContaining({ name: "please keep this in telegram project" })]);
     expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id, topicId: topics.json().topics[0].id })]));
-    expect(bootstrap.json().chats).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id, topicId: topics.json().topics[0].id })]));
+    expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id })]));
     await app.close();
   });
 
@@ -1245,7 +1247,7 @@ describe("middleware app", () => {
     const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
     expect(topics.json().topics).toEqual([expect.objectContaining({ name: "fresh desktop" })]);
     expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id, topicId: topics.json().topics[0].id })]));
-    expect(bootstrap.json().chats).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id, topicId: topics.json().topics[0].id })]));
+    expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id })]));
     await app.close();
   });
 
