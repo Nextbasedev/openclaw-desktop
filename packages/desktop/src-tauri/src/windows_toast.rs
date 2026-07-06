@@ -12,9 +12,13 @@ use windows::{
 static LAST_ACTIVATION: Mutex<Option<(String, Instant)>> = Mutex::new(None);
 const DEBOUNCE_MS: u64 = 500;
 
-/// Keep the most recent ToastNotification alive so Windows can route
-/// body-clicks and button-clicks back to its Activated handler.
-static LAST_TOAST: Mutex<Option<ToastNotification>> = Mutex::new(None);
+/// Keep recent ToastNotification objects alive so Windows can route
+/// body-clicks and button-clicks back to their Activated handlers.
+///
+/// If we only retain the most recent toast, clicking or replying to an older
+/// completion notification can lose the session-specific handler.
+static ACTIVE_TOASTS: Mutex<Vec<ToastNotification>> = Mutex::new(Vec::new());
+const MAX_ACTIVE_TOASTS: usize = 32;
 
 fn escape_xml(s: &str) -> String {
   s.replace('&', "&amp;")
@@ -160,9 +164,13 @@ pub async fn show_reply_notification<R: Runtime>(
     .map_err(|e| e.to_string())?;
   notifier.Show(&toast).map_err(|e| e.to_string())?;
 
-  // Store the toast in a static so its Activated handler stays alive.
-  if let Ok(mut guard) = LAST_TOAST.lock() {
-    *guard = Some(toast);
+  // Store recent toasts in a static so every Activated handler stays alive.
+  if let Ok(mut guard) = ACTIVE_TOASTS.lock() {
+    guard.push(toast);
+    let overflow = guard.len().saturating_sub(MAX_ACTIVE_TOASTS);
+    if overflow > 0 {
+      guard.drain(0..overflow);
+    }
   }
 
   log::info!("[windows_toast] toast shown successfully");

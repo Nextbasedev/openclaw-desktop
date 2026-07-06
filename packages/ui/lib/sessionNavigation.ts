@@ -44,6 +44,7 @@ export type SessionNavigationTarget =
       topic: ActiveTopic
       sessionKey: string
       title: string
+      spaceId?: string
     }
 
 type SessionNavigationOptions = {
@@ -190,6 +191,7 @@ export async function resolveSessionNavigationTarget(
         topic,
         sessionKey: session.key,
         title: session.label?.trim() || topic.name,
+        spaceId: session.spaceId,
       }
     }
   }

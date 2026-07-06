@@ -40,6 +40,7 @@ import { mountRunWatcher } from "@/lib/chat-engine-v2/runWatcher"
 import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
 import { getGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
+import { parseToastOpenPayload, sendToastReplyMessage } from "@/lib/desktopToastActions"
 import { abortSessionRequests } from "@/lib/requestScheduler"
 import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
@@ -701,6 +702,7 @@ function AppShell({
     { chat: ActiveChat; sessionKey: string; title: string }
   >())
   const preparedDraftChatRef = useRef<PreparedDraftChat | null>(null)
+  const toastUnlistenRef = useRef<{ reply?: () => void; open?: () => void }>({})
   activeChatRef.current = activeChat
 
   useEffect(() => {
@@ -2537,10 +2539,17 @@ function AppShell({
     setActiveTab("chat")
 
     try {
-      const target = await resolveSessionNavigationTarget(sessionKey, { activeSpaceId })
+      const target =
+        await resolveSessionNavigationTarget(sessionKey, { activeSpaceId })
+        ?? await resolveSessionNavigationTarget(sessionKey)
       if (!target) {
         handleNewChat()
         return
+      }
+
+      const targetSpaceId = target.kind === "topic" ? target.spaceId : target.chat.spaceId
+      if (targetSpaceId && targetSpaceId !== activeSpaceId) {
+        await handleSpaceSwitch(targetSpaceId, { openSidebar: false }).catch(() => {})
       }
 
       if (target.kind === "topic") {
@@ -2570,7 +2579,136 @@ function AppShell({
       console.error("Failed to navigate to session", err)
       handleNewChat()
     }
-  }, [activeSpaceId, handleNewChat])
+  }, [activeSpaceId, handleNewChat, handleSpaceSwitch])
+
+  const handleToastSessionOpen = useCallback(async (sessionKey: string) => {
+    if (!isRealChatSessionKey(sessionKey)) return false
+
+    setConnectAutoOpenEnabled(false)
+    routeRequestRef.current += 1
+    setPendingPrompt(null)
+    setComposerError(null)
+    setInitialMessages(undefined)
+    setActiveTab("chat")
+    setCronConversationTarget(null)
+
+    try {
+      const target = await resolveSessionNavigationTarget(sessionKey)
+      if (!target) return false
+
+      const targetSpaceId = target.kind === "topic" ? target.spaceId : target.chat.spaceId
+      if (targetSpaceId && targetSpaceId !== activeSpaceId) {
+        await handleSpaceSwitch(targetSpaceId, { openSidebar: false }).catch(() => {})
+      }
+
+      if (target.kind === "topic") {
+        setActiveChat(null)
+        setActiveTopic(target.topic)
+        setActiveSessionKey(target.sessionKey)
+        setActiveSessionTitle(target.title)
+        window.history.pushState(
+          null,
+          "",
+          routeUrl(`/${target.topic.projectId}/${target.topic.id}`),
+        )
+        return true
+      }
+
+      setActiveTopic(null)
+      setActiveChat(target.chat)
+      setActiveSessionKey(target.sessionKey)
+      setActiveSessionTitle(target.title)
+      resolvedChatCacheRef.current.set(target.chat.id, {
+        chat: target.chat,
+        sessionKey: target.sessionKey,
+        title: target.title,
+      })
+      dispatchGroups({
+        type: "ADD_TAB",
+        tab: {
+          id: `chat:${target.chat.id}`,
+          title: target.title,
+          subtitle: "Chat",
+          kind: "chat",
+          chat: target.chat,
+        },
+      })
+      dispatchGroups({
+        type: "SET_SESSION_DATA",
+        groupId: editorGroups.focusedGroupId,
+        sessionData: {
+          chat: target.chat,
+          sessionKey: target.sessionKey,
+          title: target.title,
+        },
+      })
+      window.history.pushState(null, "", routeUrl(`/${target.chat.id}`))
+      return true
+    } catch (err) {
+      console.error("Failed to open toast session", err)
+      return false
+    }
+  }, [activeSpaceId, editorGroups.focusedGroupId, handleSpaceSwitch])
+
+  useEffect(() => {
+    const tauri = (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    if (!tauri) return
+
+    let cancelled = false
+    async function focusCurrentWindow() {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window")
+        const win = getCurrentWindow()
+        await win.unminimize().catch(() => {})
+        await win.setFocus().catch(() => {})
+      } catch {}
+    }
+
+    async function setupToastListeners() {
+      try {
+        const { listen } = await import("@tauri-apps/api/event")
+        toastUnlistenRef.current.reply?.()
+        toastUnlistenRef.current.open?.()
+
+        const replyUnlisten = await listen("toast-reply", async (event) => {
+          const reply = await sendToastReplyMessage((event as { payload?: unknown }).payload)
+            .catch((err) => {
+              console.error("Failed to send toast reply", err)
+              return null
+            })
+          if (reply) {
+            setChatRefreshTrigger((n) => n + 1)
+            const opened = await handleToastSessionOpen(reply.sessionKey)
+            if (opened) await focusCurrentWindow()
+          }
+        })
+        const openUnlisten = await listen("toast-open", async (event) => {
+          const payload = parseToastOpenPayload((event as { payload?: unknown }).payload)
+          if (!payload) return
+          const opened = await handleToastSessionOpen(payload.sessionKey)
+          if (opened) await focusCurrentWindow()
+        })
+
+        if (cancelled) {
+          replyUnlisten()
+          openUnlisten()
+          return
+        }
+        toastUnlistenRef.current.reply = replyUnlisten
+        toastUnlistenRef.current.open = openUnlisten
+      } catch {
+        // Tauri APIs are unavailable in browser-only/test runtimes.
+      }
+    }
+
+    void setupToastListeners()
+    return () => {
+      cancelled = true
+      toastUnlistenRef.current.reply?.()
+      toastUnlistenRef.current.open?.()
+      toastUnlistenRef.current = {}
+    }
+  }, [handleToastSessionOpen])
 
   const handlePromptDraft = useCallback((prompt: string) => {
     setConnectAutoOpenEnabled(false)
