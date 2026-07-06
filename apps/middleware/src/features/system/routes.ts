@@ -16,6 +16,8 @@ function middlewareRuntimeInfo() {
 }
 
 export async function registerSystemRoutes(app: FastifyInstance, context: AppContext) {
+  app.get("/", async () => middlewareRuntimeInfo());
+
   app.get("/health", async () => {
     const gateway = context.gateway.status();
     return {
@@ -26,7 +28,6 @@ export async function registerSystemRoutes(app: FastifyInstance, context: AppCon
       host: context.config.host,
       port: context.config.port,
       uptimeMs: Date.now() - context.startedAtMs,
-      middleware: middlewareRuntimeInfo(),
       gateway,
       // Legacy Connect page/client contract. The old middleware exposed
       // `openclaw.connected`; without this alias the UI reports a false
@@ -49,6 +50,5 @@ export async function registerSystemRoutes(app: FastifyInstance, context: AppCon
     databasePath: context.config.databasePath,
     gatewayUrl: context.config.openclawGatewayUrl,
     uptimeMs: Date.now() - context.startedAtMs,
-    middleware: middlewareRuntimeInfo(),
   }));
 }
