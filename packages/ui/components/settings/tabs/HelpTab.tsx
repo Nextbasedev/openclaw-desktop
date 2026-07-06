@@ -378,6 +378,7 @@ function MiddlewareUpdateCard() {
 
   const success = status?.state === "succeeded"
   const failed = status?.state === "failed" || error
+  const runningBranch = status?.runningBranch || status?.currentBranch || status?.git?.currentBranch || updateBranch || "unknown"
 
   return (
     <section className={HELP_SECTION_CLASS}>
@@ -386,7 +387,12 @@ function MiddlewareUpdateCard() {
           <LuRefreshCw size={16} className={busy ? "animate-spin" : ""} />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="text-[13px] font-medium text-foreground">VPS Middleware update</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-[13px] font-medium text-foreground">VPS Middleware update</h3>
+            <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
+              Running: {runningBranch}
+            </span>
+          </div>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
             Pick a branch, pull latest OpenClaw Desktop Middleware, rebuild it, restart the VPS service, and verify OpenClaw is connected.
           </p>
