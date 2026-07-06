@@ -268,15 +268,15 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_git_commit_details":
       return middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }) })
     case "middleware_migration_telegram_scan":
-      return middlewareFetch<T>("/api/migration/telegram/scan")
+      return middlewareFetch<T>("/api/migration/telegram/scan", { timeoutMs: 120_000 })
     case "middleware_migration_telegram_import":
-      return middlewareFetch<T>("/api/migration/telegram/import", { method: "POST", body: JSON.stringify(input) })
+      return middlewareFetch<T>("/api/migration/telegram/import", { method: "POST", body: JSON.stringify(input), timeoutMs: 120_000 })
     case "middleware_migration_discord_scan":
-      return middlewareFetch<T>("/api/migration/discord/scan")
+      return middlewareFetch<T>("/api/migration/discord/scan", { timeoutMs: 60_000 })
     case "middleware_migration_discord_import":
-      return middlewareFetch<T>("/api/migration/discord/import", { method: "POST", body: JSON.stringify(input) })
+      return middlewareFetch<T>("/api/migration/discord/import", { method: "POST", body: JSON.stringify(input), timeoutMs: 120_000 })
     case "middleware_migration_v1_sqlite_import":
-      return middlewareFetch<T>("/api/migration/v1-sqlite/import", { method: "POST", body: JSON.stringify(input) })
+      return middlewareFetch<T>("/api/migration/v1-sqlite/import", { method: "POST", body: JSON.stringify(input), timeoutMs: 120_000 })
     case "middleware_self_update":
       return middlewareFetch<T>("/api/middleware/update", { method: "POST", body: JSON.stringify(input) })
     case "middleware_self_update_status":
