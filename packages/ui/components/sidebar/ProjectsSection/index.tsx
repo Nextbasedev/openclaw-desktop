@@ -1,11 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { motion, AnimatePresence, Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { useProjectsData } from "@/hooks/useProjectsData"
 import { SortableProjectRow } from "./SortableProjectRow"
-import { SortableTopicRow } from "./SortableTopicRow"
 import { ProjectDialogs } from "./ProjectDialogs"
 import type { ActiveTopic } from "@/types/project"
 
@@ -18,9 +17,6 @@ type Props = {
   onTopicSelect: (topic: ActiveTopic) => void
   onTopicClear: () => void
   spaceId?: string | null
-  autoExpandSingleProject?: boolean
-  flattenSingleProject?: boolean
-  flatSectionLabel?: string
 }
 
 const PROJECT_INITIAL_LIMIT = 5
@@ -32,9 +28,6 @@ export function ProjectsSection({
   onTopicSelect,
   onTopicClear,
   spaceId,
-  autoExpandSingleProject = false,
-  flattenSingleProject = false,
-  flatSectionLabel,
 }: Props) {
   const [isOpen, setIsOpen] = useState(true)
   const [showAllProjects, setShowAllProjects] = useState(false)
@@ -47,99 +40,6 @@ export function ProjectsSection({
     handleArchiveProject, handleArchiveTopic, handleDeleteTopic,
     dialogState, dialogActions,
   } = useProjectsData(onTopicSelect, activeTopic, onTopicClear, spaceId)
-
-  useEffect(() => {
-    if ((!autoExpandSingleProject && !flattenSingleProject) || projects.length !== 1) return
-    const [project] = projects
-    if (expandedProjects.has(project.id)) return
-    handleProjectClick(project)
-  }, [autoExpandSingleProject, expandedProjects, flattenSingleProject, handleProjectClick, projects])
-
-  const flatProject = flattenSingleProject && projects.length > 0 ? projects[0] : null
-  const flatTopics = flatProject ? projectTopics[flatProject.id] || [] : []
-  const flatTopicIds = flatProject ? topicOrder[flatProject.id] || flatTopics.map((topic) => topic.id) : []
-
-  if (flattenSingleProject) {
-    return (
-      <>
-        <div>
-          <div className="mb-1.5 flex items-center justify-between px-2.5">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-foreground">
-              {flatSectionLabel || flatProject?.name || "Sessions"}
-            </span>
-            <button
-              onClick={() => flatProject && dialogActions.openCreateTopic(flatProject)}
-              title="New session"
-              disabled={!flatProject}
-              className="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-muted-foreground/50 transition-colors hover:text-foreground"
-            >
-              <Icons.Plus size={13} strokeWidth={2} />
-            </button>
-          </div>
-          <div className="flex flex-col gap-0.5 px-1">
-            {!flatProject && (
-              <div className="flex items-center gap-2 px-2.5 py-2">
-                <span className="h-1 w-1 animate-pulse rounded-full bg-muted-foreground/40" />
-                <span className="animate-pulse text-[11px] text-muted-foreground/40">Loading…</span>
-              </div>
-            )}
-            {flatProject && loadingProject === flatProject.id && flatTopics.length === 0 && (
-              <div className="flex items-center gap-2 px-2.5 py-2">
-                <span className="h-1 w-1 animate-pulse rounded-full bg-muted-foreground/40" />
-                <span className="animate-pulse text-[11px] text-muted-foreground/40">Loading…</span>
-              </div>
-            )}
-            {flatProject && loadingProject !== flatProject.id && flatTopics.length === 0 && (
-              <button
-                onClick={() => dialogActions.openCreateTopic(flatProject)}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border/30 px-2.5 py-2 text-left text-[12px] text-muted-foreground/40 transition-colors hover:border-border/50 hover:text-muted-foreground"
-              >
-                <Icons.Plus size={12} strokeWidth={1.5} />
-                <span>Start your first session</span>
-              </button>
-            )}
-            {flatProject && flatTopicIds.length > 0 && (
-              <Reorder.Group
-                axis="y"
-                values={flatTopicIds}
-                onReorder={(newOrder) => setTopicOrder((prev) => ({ ...prev, [flatProject.id]: newOrder }))}
-                as="div"
-                className="flex flex-col gap-0.5"
-              >
-                {flatTopicIds.map((topicId) => (
-                  <SortableTopicRow
-                    key={topicId}
-                    topicId={topicId}
-                    topics={flatTopics}
-                    isActive={activeTopic?.id === topicId}
-                    isPinned={pinnedTopics.has(topicId)}
-                    onClick={() => {
-                      const topic = flatTopics.find((item) => item.id === topicId)
-                      if (topic) onTopicSelect({ id: topic.id, name: topic.name, projectId: flatProject.id, projectName: flatProject.name })
-                    }}
-                    onPin={() => togglePinTopic(topicId, flatProject.id)}
-                    onRename={() => {
-                      const topic = flatTopics.find((item) => item.id === topicId)
-                      if (topic) dialogActions.openRenameTopic(topic)
-                    }}
-                    onArchive={() => {
-                      const topic = flatTopics.find((item) => item.id === topicId)
-                      if (topic) handleArchiveTopic(topic)
-                    }}
-                    onDelete={() => {
-                      const topic = flatTopics.find((item) => item.id === topicId)
-                      if (topic) dialogActions.openDeleteTopic(topic)
-                    }}
-                  />
-                ))}
-              </Reorder.Group>
-            )}
-          </div>
-        </div>
-        <ProjectDialogs dialog={dialogState} actions={dialogActions} />
-      </>
-    )
-  }
 
   return (
     <>
