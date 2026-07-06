@@ -18,6 +18,7 @@ import { SettingsDialog } from "@/components/settings/SettingsDialog"
 import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
+import { useActiveRunCompletionNotify } from "@/hooks/useActiveRunCompletionNotify"
 import { useSpaces } from "@/hooks/useSpaces"
 import { useTopicSession } from "@/hooks/useTopicSession"
 import ConnectPage from "@/components/ConnectPage"
@@ -688,6 +689,12 @@ function AppShell({
     }
     frontendLog("session", "active-session.change", { sessionKey: activeSessionKey, title: activeSessionTitle })
   }, [activeSessionKey, activeSessionTitle])
+
+  useActiveRunCompletionNotify({
+    visibleSessionKey: activeSessionKey,
+    visibleSessionTitle: activeSessionTitle,
+    isVisible: effectiveActiveTab === "chat" && Boolean(activeSessionKey),
+  })
 
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null)
   const [editorGroups, dispatchGroups] = useReducer(
