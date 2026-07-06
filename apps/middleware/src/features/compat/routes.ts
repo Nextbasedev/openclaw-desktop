@@ -1751,6 +1751,25 @@ function copyHistoryMessagesToTranscript(transcriptPath: string, messages: Compa
   fs.writeFileSync(transcriptPath, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
+async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>) {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await worker(items[index], index);
+    }
+  }));
+  return results;
+}
+
+function migrationImportConcurrency(input: CompatRecord) {
+  const value = Number(input.concurrency ?? input.importConcurrency ?? 4);
+  return Number.isFinite(value) && value > 0 ? Math.min(8, Math.max(1, Math.floor(value))) : 4;
+}
+
 function agentIdFromSessionKey(sessionKey: string) {
   const match = sessionKey.match(/^agent:([^:]+):/);
   return match?.[1] || "main";
@@ -2101,10 +2120,10 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
   const imported: CompatRecord[] = [];
   const skipped: CompatRecord[] = [];
   const failed: CompatRecord[] = [];
-  for (const session of scan.sessions) {
-    if (selectedKeys && !selectedKeys.has(session.sourceSessionKey)) continue;
+  const sessionsToImport = scan.sessions.filter((session) => !selectedKeys || selectedKeys.has(session.sourceSessionKey));
+  const outcomes = await mapWithConcurrency(sessionsToImport, migrationImportConcurrency(input), async (session) => {
     const parsed = telegramSessionSourceFromScan(session);
-    if (!parsed) continue;
+    if (!parsed) return { type: "skipped" as const, value: { sourceSessionKey: session.sourceSessionKey, reason: "invalid_session_key" } };
     if (skipAlreadyImported && session.alreadyImported) {
       const repaired = repairImportedSessionSpace("telegram", session.sourceSessionKey, targetSpaceId);
       // Repair missing chat entries for previously imported group topics
@@ -2122,18 +2141,21 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
           }
         }
       }
-      skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired, repairedChat });
-      continue;
+      return { type: "skipped" as const, value: { sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired, repairedChat } };
     }
     const sourceMessages = telegramSourceMessagesForSession(session);
     const label = parsed.kind === "group"
       ? String(session.proposedName || session.topicName || "Telegram import")
       : String(session.proposedName || "Telegram import");
-    if (dryRun) { imported.push({ sourceSessionKey: session.sourceSessionKey, name: label, copiedMessages: sourceMessages.length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], dryRun: true }); continue; }
+    if (dryRun) return { type: "imported" as const, value: { sourceSessionKey: session.sourceSessionKey, name: label, copiedMessages: sourceMessages.length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], dryRun: true } };
     try {
       const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-telegram-${crypto.randomUUID()}`;
-      const created = await context.gateway.request<CompatRecord>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label, parentSessionKey: session.sourceSessionKey }, 30_000);
-      const transcriptPath = created?.payload?.entry?.sessionFile || created?.entry?.sessionFile;
+      // Transcript-discovered Telegram topics often do not exist in the
+      // Gateway sessions index, so linking them as parentSessionKey makes
+      // sessions.create fail. Preserve source linkage in compat importedFrom
+      // metadata instead; the copied transcript is the durable history.
+      const created = await context.gateway.request<CompatRecord>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label }, 30_000);
+      const transcriptPath = sessionFileFromCreateResult(created);
       if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
       copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
       const timestamp = nowIso();
@@ -2157,10 +2179,15 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
       // prewarm can take seconds. The first chat open will still be fast
       // if prewarm finishes in the background before the user clicks.
       void prewarmArchivedHistory(context, desktopSessionKey).catch(() => { /* non-fatal */ });
-      imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], transcriptPath });
+      return { type: "imported" as const, value: { sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], transcriptPath } };
     } catch (error) {
-      failed.push({ sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) });
+      return { type: "failed" as const, value: { sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) } };
     }
+  });
+  for (const outcome of outcomes) {
+    if (outcome.type === "imported") imported.push(outcome.value);
+    else if (outcome.type === "skipped") skipped.push(outcome.value);
+    else failed.push(outcome.value);
   }
   if (!dryRun) saveCompatState(context);
   return { imported, skipped, failed, summary: { imported: imported.length, skipped: skipped.length, failed: failed.length } };

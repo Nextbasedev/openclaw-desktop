@@ -781,7 +781,7 @@ function SessionMigrationCard({ platform }: { platform: SessionMigrationPlatform
     setBusy("import")
     setError(null)
     try {
-      const imported = await invoke<SessionMigrationImport>(`middleware_migration_${platform}_import`, { input: { skipAlreadyImported: true } })
+      const imported = await invoke<SessionMigrationImport>(`middleware_migration_${platform}_import`, { input: { skipAlreadyImported: false } })
       setResult(imported)
       invalidateMiddlewareStartupBootstrap()
       emit("sidebar:refresh")

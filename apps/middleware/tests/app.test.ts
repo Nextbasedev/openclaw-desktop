@@ -1105,6 +1105,37 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("telegram import handles transcript-discovered sessions without gateway parent linkage", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-transcript-only-import-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const sourceKey = "agent:main:telegram:group:-1001:topic:45";
+    const sourceFile = path.join(sessionsDir, "transcript-only-topic-45.jsonl");
+    const targetFile = path.join(sessionsDir, "imported-transcript-only-topic-45.jsonl");
+    const meta = JSON.stringify({ chat_id: "telegram:-1001", topic_id: "45", group_subject: "Group", topic_name: "Transcript-only", is_group_chat: true });
+    fs.writeFileSync(sourceFile, `${JSON.stringify({ type: "message", id: "t1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\ntranscript-only import` } })}\n`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({}));
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "sessions.create") {
+        if (params && "parentSessionKey" in params) throw new Error("parent session not found");
+        return { payload: { entry: { sessionFile: targetFile } }, label: params?.label };
+      }
+      return {};
+    });
+
+    const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [sourceKey], skipAlreadyImported: false } });
+
+    expect(res.statusCode).toBe(200);
+    expect(context.gateway.request).toHaveBeenCalledWith("sessions.create", expect.not.objectContaining({ parentSessionKey: sourceKey }), 30_000);
+    expect(res.json().summary).toMatchObject({ imported: 1, skipped: 0, failed: 0 });
+    expect(fs.readFileSync(targetFile, "utf8")).toContain("transcript-only import");
+    await app.close();
+  });
+
   test("telegram direct import creates and uses the dedicated Telegram project", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-direct-project-import-"));
     vi.spyOn(os, "homedir").mockReturnValue(home);
