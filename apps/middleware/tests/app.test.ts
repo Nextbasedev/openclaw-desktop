@@ -1097,11 +1097,16 @@ describe("middleware app", () => {
     expect(context.gateway.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({ label: "Desktop task B" }), 30_000);
     expect(res.json().imported).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Desktop task B" })]));
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
-    const project = bootstrap.json().projects.find((item: { name?: string; id?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
+    const telegramSpace = bootstrap.json().spaces.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
+    expect(telegramSpace).toBeTruthy();
+    const projects = await app.inject({ method: "GET", url: `/api/projects?spaceId=${telegramSpace.id}` });
+    const project = projects.json().projects.find((item: { name?: string; id?: string; spaceId?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.spaceId === telegramSpace.id && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
     expect(project).toBeTruthy();
     const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
     expect(topics.json().topics).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Desktop task B" })]));
-    expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Desktop task B" })]));
+    expect(bootstrap.json().sessions).not.toEqual(expect.arrayContaining([expect.objectContaining({ label: "Desktop task B" })]));
+    const sessions = await app.inject({ method: "GET", url: `/api/sessions?spaceId=${telegramSpace.id}` });
+    expect(sessions.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Desktop task B", spaceId: telegramSpace.id, projectId: project.id })]));
     await app.close();
   });
 
@@ -1175,10 +1180,15 @@ describe("middleware app", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().summary).toMatchObject({ imported: 1, skipped: 0, failed: 0 });
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
-    const telegramProject = bootstrap.json().projects.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
+    const telegramSpace = bootstrap.json().spaces.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
+    expect(telegramSpace).toBeTruthy();
+    const projects = await app.inject({ method: "GET", url: `/api/projects?spaceId=${telegramSpace.id}` });
+    const telegramProject = projects.json().projects.find((item: { id?: string; name?: string; spaceId?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.spaceId === telegramSpace.id && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
     expect(telegramProject).toBeTruthy();
     expect(bootstrap.json().projects).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "proj_old" })]));
-    expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([
+    expect(bootstrap.json().sessions).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "session_old" })]));
+    const sessions = await app.inject({ method: "GET", url: `/api/sessions?spaceId=${telegramSpace.id}` });
+    expect(sessions.json().sessions).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "session_old", projectId: telegramProject.id }),
       expect.objectContaining({ importedFrom: { kind: "telegram", sourceSessionKey: sourceKey }, projectId: telegramProject.id }),
     ]));
@@ -1211,11 +1221,15 @@ describe("middleware app", () => {
 
     expect(res.statusCode).toBe(200);
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
-    const project = bootstrap.json().projects.find((item: { name?: string; id?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
+    const telegramSpace = bootstrap.json().spaces.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
+    expect(telegramSpace).toBeTruthy();
+    const projects = await app.inject({ method: "GET", url: `/api/projects?spaceId=${telegramSpace.id}` });
+    const project = projects.json().projects.find((item: { name?: string; id?: string; spaceId?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.spaceId === telegramSpace.id && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
     expect(project).toBeTruthy();
     const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
     expect(topics.json().topics).toEqual([expect.objectContaining({ name: "please keep this in telegram project" })]);
-    expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id, topicId: topics.json().topics[0].id })]));
+    const sessions = await app.inject({ method: "GET", url: `/api/sessions?spaceId=${telegramSpace.id}` });
+    expect(sessions.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ spaceId: telegramSpace.id, projectId: project.id, topicId: topics.json().topics[0].id })]));
     expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id })]));
     await app.close();
   });
@@ -1242,11 +1256,15 @@ describe("middleware app", () => {
 
     expect(res.statusCode).toBe(200);
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
-    const project = bootstrap.json().projects.find((item: { name?: string; id?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Discord" && item.importedFrom?.kind === "discord" && item.importedFrom?.scope === "session-migration");
+    const discordSpace = bootstrap.json().spaces.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Discord" && item.importedFrom?.kind === "discord" && item.importedFrom?.scope === "session-migration");
+    expect(discordSpace).toBeTruthy();
+    const projects = await app.inject({ method: "GET", url: `/api/projects?spaceId=${discordSpace.id}` });
+    const project = projects.json().projects.find((item: { name?: string; id?: string; spaceId?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Discord" && item.spaceId === discordSpace.id && item.importedFrom?.kind === "discord" && item.importedFrom?.scope === "session-migration");
     expect(project).toBeTruthy();
     const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
     expect(topics.json().topics).toEqual([expect.objectContaining({ name: "fresh desktop" })]);
-    expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id, topicId: topics.json().topics[0].id })]));
+    const sessions = await app.inject({ method: "GET", url: `/api/sessions?spaceId=${discordSpace.id}` });
+    expect(sessions.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ spaceId: discordSpace.id, projectId: project.id, topicId: topics.json().topics[0].id })]));
     expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.id })]));
     await app.close();
   });

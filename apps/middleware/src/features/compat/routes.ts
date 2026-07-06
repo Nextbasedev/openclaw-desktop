@@ -1123,8 +1123,52 @@ function importedPlatformProjectName(kind: ImportedPlatformKind) {
   return kind === "telegram" ? "Telegram" : "Discord";
 }
 
+function importedPlatformSpaceName(kind: ImportedPlatformKind) {
+  return importedPlatformProjectName(kind);
+}
+
 function importedPlatformProjectMarker(kind: ImportedPlatformKind) {
   return { kind, scope: "session-migration" };
+}
+
+function importedPlatformSpaceMarker(kind: ImportedPlatformKind) {
+  return { kind, scope: "session-migration" };
+}
+
+function isImportedPlatformSpace(space: CompatRecord, kind: ImportedPlatformKind) {
+  const importedFrom = space.importedFrom && typeof space.importedFrom === "object" ? space.importedFrom as CompatRecord : {};
+  return importedFrom.kind === kind && importedFrom.scope === "session-migration";
+}
+
+function ensureImportedPlatformSpace(kind: ImportedPlatformKind, timestamp = nowIso()) {
+  const name = importedPlatformSpaceName(kind);
+  let space = compatState.spaces.find((item) => isImportedPlatformSpace(item, kind));
+  if (!space) {
+    space = compatState.spaces.find((item) => visibleSpace(item) && String(item.name || "").trim().toLowerCase() === name.toLowerCase());
+  }
+  if (!space) {
+    space = {
+      id: id("space"),
+      name,
+      archived: false,
+      deleted: false,
+      sortOrder: compatState.spaces.length,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      importedFrom: importedPlatformSpaceMarker(kind),
+    };
+    compatState.spaces.push(space);
+    return space;
+  }
+  space.name = name;
+  space.archived = false;
+  space.deleted = false;
+  space.updatedAt = timestamp;
+  space.importedFrom = {
+    ...(space.importedFrom && typeof space.importedFrom === "object" ? space.importedFrom as CompatRecord : {}),
+    ...importedPlatformSpaceMarker(kind),
+  };
+  return space;
 }
 
 function isImportedPlatformProject(project: CompatRecord, kind: ImportedPlatformKind) {
@@ -1188,6 +1232,54 @@ function pruneEmptyLegacyImportedPlatformProjects(kind: ImportedPlatformKind, ti
     changed = true;
   }
   return changed;
+}
+
+function normalizeImportedPlatformState(kind: ImportedPlatformKind, timestamp = nowIso()) {
+  const hasImports = compatState.projects.some((project) => project.importedFrom?.kind === kind)
+    || compatState.topics.some((topic) => topic.importedFrom?.kind === kind)
+    || compatState.sessions.some((session) => session.importedFrom?.kind === kind)
+    || compatState.chats.some((chat) => chat.importedFrom?.kind === kind);
+  if (!hasImports) return false;
+  const before = JSON.stringify({ spaces: compatState.spaces, projects: compatState.projects, topics: compatState.topics, sessions: compatState.sessions, chats: compatState.chats });
+  const space = ensureImportedPlatformSpace(kind, timestamp);
+  const spaceId = String(space.id);
+  const project = ensureImportedPlatformProject(kind, spaceId, timestamp);
+  const projectId = String(project.id);
+  const topicBySource = new Map<string, CompatRecord>();
+  for (const topic of compatState.topics) {
+    if (topic.importedFrom?.kind !== kind) continue;
+    const sourceKey = String(topic.importedFrom?.sourceSessionKey || "");
+    if (sourceKey && !topicBySource.has(sourceKey)) topicBySource.set(sourceKey, topic);
+    topic.projectId = projectId;
+    topic.updatedAt = timestamp;
+  }
+  for (const session of compatState.sessions) {
+    if (session.importedFrom?.kind !== kind) continue;
+    const sourceKey = String(session.importedFrom?.sourceSessionKey || "");
+    let topic = sourceKey ? topicBySource.get(sourceKey) : null;
+    if (!topic) {
+      const label = String(session.label || `${importedPlatformProjectName(kind)} import`);
+      const topicId = createImportedSessionTopic(kind, projectId, label, timestamp, sourceKey || String(session.sessionKey || session.key || id("import")));
+      topic = compatState.topics.find((item) => item.id === topicId) ?? null;
+      if (topic && sourceKey) topicBySource.set(sourceKey, topic);
+    }
+    session.spaceId = spaceId;
+    session.projectId = projectId;
+    if (topic?.id) session.topicId = topic.id;
+    session.updatedAt = timestamp;
+  }
+  for (const chat of compatState.chats) {
+    if (chat.importedFrom?.kind !== kind) continue;
+    const sourceKey = String(chat.importedFrom?.sourceSessionKey || "");
+    const topic = sourceKey ? topicBySource.get(sourceKey) : null;
+    chat.spaceId = spaceId;
+    chat.projectId = projectId;
+    if (topic?.id) chat.topicId = topic.id;
+    chat.updatedAt = timestamp;
+  }
+  pruneEmptyLegacyImportedPlatformProjects(kind, timestamp);
+  const after = JSON.stringify({ spaces: compatState.spaces, projects: compatState.projects, topics: compatState.topics, sessions: compatState.sessions, chats: compatState.chats });
+  return before !== after;
 }
 
 function importedTopicMetadata(kind: ImportedPlatformKind, sourceSessionKey: string, extra: CompatRecord = {}) {
@@ -2133,10 +2225,10 @@ async function createEditPreview(context: AppContext, input: CompatRecord) {
 async function importTelegramSessions(context: AppContext, input: CompatRecord = {}) {
   loadCompatState(context);
   const scan = await scanTelegramSessions(context, input);
-  const targetSpaceId = String(input.spaceId || activeSpaceId());
   const selectedKeys = Array.isArray(input.sourceSessionKeys) && input.sourceSessionKeys.length > 0 ? new Set(input.sourceSessionKeys.map(String)) : null;
   const skipAlreadyImported = input.skipAlreadyImported !== false;
   const dryRun = Boolean(input.dryRun);
+  const targetSpaceId = dryRun ? activeSpaceId() : String(ensureImportedPlatformSpace("telegram").id);
   const imported: CompatRecord[] = [];
   const skipped: CompatRecord[] = [];
   const failed: CompatRecord[] = [];
@@ -2204,7 +2296,7 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
     else if (outcome.type === "skipped") skipped.push(outcome.value);
     else failed.push(outcome.value);
   }
-  pruneEmptyLegacyImportedPlatformProjects("telegram");
+  if (!dryRun) normalizeImportedPlatformState("telegram");
   if (!dryRun) saveCompatState(context);
   return { imported, skipped, failed, summary: { imported: imported.length, skipped: skipped.length, failed: failed.length } };
 }
@@ -2249,10 +2341,10 @@ function repairImportedSessionSpace(kind: ImportedPlatformKind, sourceSessionKey
 async function importDiscordSessions(context: AppContext, input: CompatRecord = {}) {
   loadCompatState(context);
   const scan = scanDiscordSessions(context, input);
-  const targetSpaceId = String(input.spaceId || activeSpaceId());
   const selectedKeys = Array.isArray(input.sourceSessionKeys) && input.sourceSessionKeys.length > 0 ? new Set(input.sourceSessionKeys.map(String)) : null;
   const skipAlreadyImported = input.skipAlreadyImported !== false;
   const dryRun = Boolean(input.dryRun);
+  const targetSpaceId = dryRun ? activeSpaceId() : String(ensureImportedPlatformSpace("discord").id);
   const imported: CompatRecord[] = [];
   const skipped: CompatRecord[] = [];
   const failed: CompatRecord[] = [];
@@ -2294,7 +2386,7 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
       failed.push({ sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) });
     }
   }
-  pruneEmptyLegacyImportedPlatformProjects("discord");
+  if (!dryRun) normalizeImportedPlatformState("discord");
   if (!dryRun) saveCompatState(context);
   return { imported, skipped, failed, summary: { imported: imported.length, skipped: skipped.length, failed: failed.length } };
 }
@@ -4331,8 +4423,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       applyProjectedChatActivity(context);
     }
     const spaceId = activeSpaceId();
-    const prunedLegacyImports = pruneEmptyLegacyImportedPlatformProjects("telegram") || pruneEmptyLegacyImportedPlatformProjects("discord");
-    if (prunedLegacyImports) saveCompatCollection(context, "projects");
+    const normalizedImports = normalizeImportedPlatformState("telegram") || normalizeImportedPlatformState("discord");
+    if (normalizedImports) saveCompatState(context);
     const projects = listBySpace(compatState.projects, spaceId);
     const projectIds = new Set(projects.map((project) => project.id).filter(Boolean));
     return {
