@@ -1187,6 +1187,9 @@ describe("middleware app", () => {
     const lazyHistory = await app.inject({ method: "POST", url: "/api/commands/middleware_chat_history", payload: { input: { sessionKey: "agent:main:desktop:migrated-telegram-old" } } });
     expect(lazyHistory.statusCode).toBe(200);
     expect(lazyHistory.json().messages.map((message: { content?: string }) => message.content).join("\n")).toContain("repair old import");
+    const pageMessages = await app.inject({ method: "GET", url: `/api/chat/messages?sessionKey=${encodeURIComponent("agent:main:desktop:migrated-telegram-old")}&beforeSeq=9007199254740991&limit=160` });
+    expect(pageMessages.statusCode).toBe(200);
+    expect(pageMessages.json().messages.map((message: { data?: { content?: string } }) => message.data?.content).join("\n")).toContain("repair old import");
 
     const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [sourceKey], skipAlreadyImported: false } });
 

@@ -4611,7 +4611,15 @@ function closeCompatTerminal(term: CompatTerminal, event: "exit" | "error" | "ki
 
 export async function registerCompatRoutes(app: FastifyInstance, context: AppContext) {
   loadCompatState(context);
-  context.compat = { touchChatActivity: (input) => touchCompatChatActivity(context, input) };
+  context.compat = {
+    touchChatActivity: (input) => touchCompatChatActivity(context, input),
+    hydrateImportedChatHistory: async (sessionKey) => {
+      loadCompatState(context);
+      const link = importedPlatformSessionLink(sessionKey);
+      if (!link) return { hydrated: false, reason: "not_imported_platform_session" };
+      return hydrateImportedPlatformSessionMessages(context, link.kind, link.sourceSessionKey, link.label);
+    },
+  };
   if (compatState.spaces.length === 0) {
     ensureDefaultSpace();
     saveCompatState(context);
