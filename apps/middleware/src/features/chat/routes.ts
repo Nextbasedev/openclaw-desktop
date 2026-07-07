@@ -1822,6 +1822,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
     const projectedTools = await projectCanonicalBootstrapToolCalls(context, sessionKey, normalized, canonicalStatus);
     const archived = await persistArchivedHistorySegments(context, sessionKey, history);
+    if (normalized.length === 0 && archived.upserted === 0) {
+      await context.compat?.hydrateImportedChatHistory?.(sessionKey);
+    }
     const bootstrapPruned = normalized.length === 0 || context.runs.findLatestPendingRun(sessionKey)
       ? 0
       : context.messages.pruneSegmentToCanonicalMessages({ sessionKey, segmentId: segment.segmentId, baseSeq: segment.baseSeq, canonicalMessages: normalized });
@@ -1888,6 +1891,19 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
           limit: parsed.data.limit,
         })
       : context.messages.listAllMessages(parsed.data.sessionKey);
+    if (messages.length === 0) {
+      const hydrated = await context.compat?.hydrateImportedChatHistory?.(parsed.data.sessionKey);
+      if (hydrated?.hydrated) {
+        messages = hasWindowQuery
+          ? context.messages.listMessages(parsed.data.sessionKey, {
+              afterSeq: parsed.data.afterSeq,
+              beforeSeq: parsed.data.beforeSeq,
+              limit: parsed.data.limit,
+            })
+          : context.messages.listAllMessages(parsed.data.sessionKey);
+        log.info("messages.read.imported-hydrated", { sessionKey: parsed.data.sessionKey, upserted: hydrated.upserted ?? null, messageCount: messages.length });
+      }
+    }
     if (parsed.data.beforeSeq !== undefined && messages.length === 0) {
       try {
         const refillLimit = Math.min(10_000, parsed.data.beforeSeq + (parsed.data.limit ?? 200));
