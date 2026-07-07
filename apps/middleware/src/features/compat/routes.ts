@@ -2046,6 +2046,29 @@ function copyHistoryMessagesToTranscript(transcriptPath: string, messages: Compa
   fs.writeFileSync(transcriptPath, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
+function persistImportedChatMessages(context: AppContext, input: { sessionKey: string; sessionId: string; transcriptPath: string; label: string; messages: CompatRecord[] }) {
+  const segment = context.messages.ensureActiveSegment({
+    sessionKey: input.sessionKey,
+    sessionId: input.sessionId,
+    sessionFile: input.transcriptPath,
+  });
+  const normalized = normalizeHistoryMessages(input.sessionKey, input.messages);
+  const result = normalized.length > 0
+    ? context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq })
+    : { upserted: 0 };
+  context.messages.upsertSession({
+    sessionKey: input.sessionKey,
+    sessionId: input.sessionId,
+    data: { sessionKey: input.sessionKey, sessionId: input.sessionId, status: "done", statusLabel: null, label: input.label, sessionFile: input.transcriptPath },
+  });
+  context.messages.appendProjectionEvent({
+    sessionKey: input.sessionKey,
+    eventType: "session.upsert",
+    payload: { sessionKey: input.sessionKey, sessionId: input.sessionId, label: input.label },
+  });
+  return result.upserted;
+}
+
 async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>) {
   const results: R[] = new Array(items.length);
   let next = 0;
@@ -2438,6 +2461,8 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
       const transcriptPath = sessionFileFromCreateResult(created);
       if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
       copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
+      const sessionId = sessionIdFromCreateResult(created, desktopSessionKey);
+      persistImportedChatMessages(context, { sessionKey: desktopSessionKey, sessionId, transcriptPath, label, messages: sourceMessages });
       const timestamp = nowIso();
       compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId: null, topicId: null, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
       const chat = ensureImportedFlatChat("telegram", { sourceSessionKey: session.sourceSessionKey, targetSpaceId, label, sessionKey: desktopSessionKey, agentId: parsed.agentId, timestamp });
@@ -2522,9 +2547,11 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
       const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-discord-${crypto.randomUUID()}`;
       const label = session.proposedName || "Discord import";
       const created = await context.gateway.request<CompatRecord>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label: gatewaySessionLabel(label, desktopSessionKey), parentSessionKey: session.sourceSessionKey }, 30_000);
-      const transcriptPath = created?.payload?.entry?.sessionFile || created?.entry?.sessionFile;
+      const transcriptPath = sessionFileFromCreateResult(created);
       if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
       copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
+      const sessionId = sessionIdFromCreateResult(created, desktopSessionKey);
+      persistImportedChatMessages(context, { sessionKey: desktopSessionKey, sessionId, transcriptPath, label, messages: sourceMessages });
       const timestamp = nowIso();
       compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId: null, topicId: null, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey } });
       const chat = ensureImportedFlatChat("discord", { sourceSessionKey: session.sourceSessionKey, targetSpaceId, label, sessionKey: desktopSessionKey, agentId: parsed.agentId, timestamp });

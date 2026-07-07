@@ -1137,6 +1137,10 @@ describe("middleware app", () => {
     expect(context.gateway.request).toHaveBeenCalledWith("sessions.create", expect.not.objectContaining({ parentSessionKey: sourceKey }), 30_000);
     expect(res.json().summary).toMatchObject({ imported: 1, skipped: 0, failed: 0 });
     expect(fs.readFileSync(targetFile, "utf8")).toContain("transcript-only import");
+    const importedSessionKey = res.json().imported[0].desktopSessionKey;
+    const messages = await app.inject({ method: "GET", url: `/api/chat/messages?sessionKey=${encodeURIComponent(importedSessionKey)}` });
+    expect(messages.statusCode).toBe(200);
+    expect(messages.json().messages.map((message: { data?: { content?: string } }) => message.data?.content).join("\n")).toContain("transcript-only import");
     await app.close();
   });
 
@@ -1227,6 +1231,12 @@ describe("middleware app", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().summary).toMatchObject({ imported: 1, skipped: 0, failed: 0 });
+    const importedSessionKey = res.json().imported[0].desktopSessionKey;
+    const messages = await app.inject({ method: "GET", url: `/api/chat/messages?sessionKey=${encodeURIComponent(importedSessionKey)}` });
+    expect(messages.statusCode).toBe(200);
+    expect(messages.json().messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ data: expect.objectContaining({ content: "please keep this in telegram project" }) }),
+    ]));
     const secondRes = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [key], skipAlreadyImported: false } });
     expect(secondRes.statusCode).toBe(200);
     expect(secondRes.json().summary).toMatchObject({ imported: 0, skipped: 1, failed: 0 });
@@ -1267,6 +1277,12 @@ describe("middleware app", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().summary).toMatchObject({ imported: 1, skipped: 0, failed: 0 });
+    const importedSessionKey = res.json().imported[0].desktopSessionKey;
+    const messages = await app.inject({ method: "GET", url: `/api/chat/messages?sessionKey=${encodeURIComponent(importedSessionKey)}` });
+    expect(messages.statusCode).toBe(200);
+    expect(messages.json().messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ data: expect.objectContaining({ content: "discord thread import request" }) }),
+    ]));
     const secondRes = await app.inject({ method: "POST", url: "/api/migration/discord/import", payload: { sourceSessionKeys: [key], skipAlreadyImported: false } });
     expect(secondRes.statusCode).toBe(200);
     expect(secondRes.json().summary).toMatchObject({ imported: 0, skipped: 1, failed: 0 });
