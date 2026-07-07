@@ -2069,6 +2069,43 @@ function persistImportedChatMessages(context: AppContext, input: { sessionKey: s
   return result.upserted;
 }
 
+function importedPlatformSessionLink(sessionKey: string) {
+  const session = compatState.sessions.find((item) => (item.sessionKey === sessionKey || item.key === sessionKey) && item.importedFrom?.kind && item.importedFrom?.sourceSessionKey);
+  const chat = compatState.chats.find((item) => item.sessionKey === sessionKey && item.importedFrom?.kind && item.importedFrom?.sourceSessionKey);
+  const source = session?.importedFrom ?? chat?.importedFrom;
+  const kind = source?.kind === "telegram" || source?.kind === "discord" ? source.kind as ImportedPlatformKind : null;
+  const sourceSessionKey = typeof source?.sourceSessionKey === "string" ? source.sourceSessionKey : null;
+  if (!kind || !sourceSessionKey) return null;
+  return { kind, sourceSessionKey, label: String(session?.label || session?.name || chat?.name || `${importedPlatformProjectName(kind)} import`) };
+}
+
+function importedDesktopSessionKey(kind: ImportedPlatformKind, sourceSessionKey: string) {
+  const session = compatState.sessions.find((item) => item.importedFrom?.kind === kind && item.importedFrom?.sourceSessionKey === sourceSessionKey && (item.sessionKey || item.key));
+  if (session) return String(session.sessionKey || session.key);
+  const chat = compatState.chats.find((item) => item.importedFrom?.kind === kind && item.importedFrom?.sourceSessionKey === sourceSessionKey && item.sessionKey);
+  return chat?.sessionKey ? String(chat.sessionKey) : null;
+}
+
+async function hydrateImportedPlatformSessionMessages(context: AppContext, kind: ImportedPlatformKind, sourceSessionKey: string, fallbackLabel?: string, sourceRecord?: CompatRecord) {
+  const desktopSessionKey = importedDesktopSessionKey(kind, sourceSessionKey);
+  if (!desktopSessionKey) return { hydrated: false, reason: "missing_desktop_session" };
+  const scan = sourceRecord ? null : kind === "telegram"
+    ? await scanTelegramSessions(context, { sourceSessionKeys: [sourceSessionKey] })
+    : scanDiscordSessions(context, { sourceSessionKeys: [sourceSessionKey] });
+  const source = sourceRecord ?? scan?.sessions.find((item: CompatRecord) => item.sourceSessionKey === sourceSessionKey);
+  if (!source) return { hydrated: false, reason: "missing_source_session", desktopSessionKey };
+  const sourceMessages = kind === "telegram" ? telegramSourceMessagesForSession(source) : transcriptMessagesFromJsonl(source.sourceSessionFile);
+  if (sourceMessages.length === 0) return { hydrated: false, reason: "empty_source_messages", desktopSessionKey };
+  const transcriptPath = kind === "telegram"
+    ? (telegramTranscriptFilesForSession(source).slice(-1)[0] || String(source.sourceSessionFile || ""))
+    : String(source.sourceSessionFile || "");
+  if (!transcriptPath) return { hydrated: false, reason: "missing_source_file", desktopSessionKey };
+  const label = String(fallbackLabel || source.proposedName || `${importedPlatformProjectName(kind)} import`);
+  const sessionId = String(source.sourceSessionId || desktopSessionKey);
+  const upserted = persistImportedChatMessages(context, { sessionKey: desktopSessionKey, sessionId, transcriptPath, label, messages: sourceMessages });
+  return { hydrated: true, desktopSessionKey, upserted, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length };
+}
+
 async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>) {
   const results: R[] = new Array(items.length);
   let next = 0;
@@ -2444,7 +2481,11 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
     const alreadyImported = Boolean(session.alreadyImported) || isImportedSourceSession("telegram", session.sourceSessionKey);
     const repaired = alreadyImported ? repairImportedSessionSpace("telegram", session.sourceSessionKey, targetSpaceId) : false;
     if (alreadyImported) {
-      return { type: "skipped" as const, value: { sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired } };
+      const label = parsed.kind === "group"
+        ? String(session.proposedName || session.topicName || "Telegram import")
+        : String(session.proposedName || "Telegram import");
+      const hydrated = dryRun ? null : await hydrateImportedPlatformSessionMessages(context, "telegram", session.sourceSessionKey, label, session);
+      return { type: "skipped" as const, value: { sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired, hydrated } };
     }
     const sourceMessages = telegramSourceMessagesForSession(session);
     const label = parsed.kind === "group"
@@ -2538,7 +2579,8 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
     const alreadyImported = Boolean(session.alreadyImported) || isImportedSourceSession("discord", session.sourceSessionKey);
     const repaired = alreadyImported ? repairImportedSessionSpace("discord", session.sourceSessionKey, targetSpaceId) : false;
     if (alreadyImported) {
-      skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired });
+      const hydrated = dryRun ? null : await hydrateImportedPlatformSessionMessages(context, "discord", session.sourceSessionKey, session.proposedName || "Discord import", session);
+      skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired, hydrated });
       continue;
     }
     const sourceMessages = transcriptMessagesFromJsonl(session.sourceSessionFile);
@@ -5434,7 +5476,15 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const sessionKey = String(input.sessionKey ?? "");
         if (!sessionKey) return reply.code(400).send({ ok: false, error: { message: "sessionKey required" } });
         try {
-          const rows = context.messages.listMessages(sessionKey, { limit: 1000 });
+          let rows = context.messages.listMessages(sessionKey, { limit: 1000 });
+          if (rows.length === 0) {
+            loadCompatState(context);
+            const link = importedPlatformSessionLink(sessionKey);
+            if (link) {
+              await hydrateImportedPlatformSessionMessages(context, link.kind, link.sourceSessionKey, link.label);
+              rows = context.messages.listMessages(sessionKey, { limit: 1000 });
+            }
+          }
           return { messages: rows.map((r) => r.data) };
         } catch { return { messages: [] }; }
       }

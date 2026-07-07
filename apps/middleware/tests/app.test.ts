@@ -1184,10 +1184,15 @@ describe("middleware app", () => {
       return {};
     });
 
+    const lazyHistory = await app.inject({ method: "POST", url: "/api/commands/middleware_chat_history", payload: { input: { sessionKey: "agent:main:desktop:migrated-telegram-old" } } });
+    expect(lazyHistory.statusCode).toBe(200);
+    expect(lazyHistory.json().messages.map((message: { content?: string }) => message.content).join("\n")).toContain("repair old import");
+
     const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [sourceKey], skipAlreadyImported: false } });
 
     expect(res.statusCode).toBe(200);
     expect(res.json().summary).toMatchObject({ imported: 0, skipped: 1, failed: 0 });
+    expect(res.json().skipped[0].hydrated).toMatchObject({ hydrated: true });
     expect(context.gateway.request).not.toHaveBeenCalledWith("sessions.create", expect.anything(), expect.anything());
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
     const telegramSpace = bootstrap.json().spaces.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
