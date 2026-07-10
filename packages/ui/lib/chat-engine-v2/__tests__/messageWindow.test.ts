@@ -11,6 +11,7 @@ import {
   detectEdgeProximity,
   sortMessagesByGatewayIndex,
 } from "../messageWindow"
+import { UI_INITIAL_WINDOW } from "../constants"
 
 type Msg = { gatewayIndex?: number; isOptimistic?: boolean; sendStatus?: string }
 
@@ -230,5 +231,13 @@ describe("constants", () => {
     expect(PAGE_SIZE).toBe(100)
     expect(WINDOW_SIZE).toBe(200)
     expect(LOAD_THRESHOLD_RATIO).toBe(0.2)
+  })
+
+  test("UI_INITIAL_WINDOW is the open/bootstrap contract (160); store WINDOW_SIZE is scroll buffer headroom", () => {
+    // Per imported-session 160-window plan: bootstrap + ChatView open at 160;
+    // store may hold up to WINDOW_SIZE (200) while paging. Both apply to all
+    // sessions (imported and normal) — no imported special-case.
+    expect(UI_INITIAL_WINDOW).toBe(160)
+    expect(WINDOW_SIZE).toBeGreaterThanOrEqual(UI_INITIAL_WINDOW)
   })
 })

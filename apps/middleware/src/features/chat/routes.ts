@@ -1905,28 +1905,34 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       }
     }
     if (parsed.data.beforeSeq !== undefined && messages.length === 0) {
-      try {
-        const refillLimit = Math.min(10_000, parsed.data.beforeSeq + (parsed.data.limit ?? 200));
-        const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey: parsed.data.sessionKey, limit: refillLimit });
-        const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
-        const existingSession = context.messages.getSession(sessionKey);
-        const segment = context.messages.ensureActiveSegment({
-          sessionKey,
-          sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
-          sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
-        });
-        const normalized = normalizeHistoryMessages(sessionKey, history.messages ?? []);
-        if (normalized.length > 0) {
-          context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-          await projectArchivedSegmentToolCalls(context, sessionKey, normalized);
-          messages = context.messages.listMessages(parsed.data.sessionKey, {
-            afterSeq: parsed.data.afterSeq,
-            beforeSeq: parsed.data.beforeSeq,
-            limit: parsed.data.limit,
+      // Imported Telegram/Discord sessions have no gateway history to refill
+      // from — the source of truth is the local v2 projection (the full
+      // transcript was copied on import). Skip the wasted chat.history call.
+      const importedLink = context.compat?.importedPlatformSessionLink?.(parsed.data.sessionKey);
+      if (!importedLink) {
+        try {
+          const refillLimit = Math.min(10_000, parsed.data.beforeSeq + (parsed.data.limit ?? 200));
+          const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey: parsed.data.sessionKey, limit: refillLimit });
+          const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
+          const existingSession = context.messages.getSession(sessionKey);
+          const segment = context.messages.ensureActiveSegment({
+            sessionKey,
+            sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+            sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
           });
+          const normalized = normalizeHistoryMessages(sessionKey, history.messages ?? []);
+          if (normalized.length > 0) {
+            context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+            await projectArchivedSegmentToolCalls(context, sessionKey, normalized);
+            messages = context.messages.listMessages(parsed.data.sessionKey, {
+              afterSeq: parsed.data.afterSeq,
+              beforeSeq: parsed.data.beforeSeq,
+              limit: parsed.data.limit,
+            });
+          }
+        } catch (error) {
+          log.warn("messages.read.gateway-backfill.fail_ignored", { sessionKey: parsed.data.sessionKey, ...errorMeta(error) });
         }
-      } catch (error) {
-        log.warn("messages.read.gateway-backfill.fail_ignored", { sessionKey: parsed.data.sessionKey, ...errorMeta(error) });
       }
     }
     const sessionCursor = context.messages.latestSessionCursor(parsed.data.sessionKey);

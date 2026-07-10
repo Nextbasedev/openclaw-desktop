@@ -4619,6 +4619,12 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       if (!link) return { hydrated: false, reason: "not_imported_platform_session" };
       return hydrateImportedPlatformSessionMessages(context, link.kind, link.sourceSessionKey, link.label);
     },
+    // Used by /api/chat/messages to skip gateway chat.history refill for
+    // imported Telegram/Discord sessions (source of truth is the local projection).
+    importedPlatformSessionLink: (sessionKey) => {
+      loadCompatState(context);
+      return importedPlatformSessionLink(sessionKey);
+    },
   };
   if (compatState.spaces.length === 0) {
     ensureDefaultSpace();

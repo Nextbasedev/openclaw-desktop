@@ -3,6 +3,7 @@ import { logChatStreamRecoveryDecision } from "../chatTimelineDiagnostics"
 import { getMiddlewareConnection } from "../middleware-client"
 import { registerScheduledRequest, type RequestPriority } from "../requestScheduler"
 import type { SessionTokenUsage } from "../sessionContextUsage"
+import { UI_INITIAL_WINDOW } from "./constants"
 import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
 export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
@@ -141,7 +142,7 @@ async function fetchJson<T>(path: string, init?: RequestInit & { schedulerPriori
   }
 }
 
-const CHAT_BOOTSTRAP_INITIAL_LIMIT = 160
+const CHAT_BOOTSTRAP_INITIAL_LIMIT = UI_INITIAL_WINDOW
 
 export async function fetchChatBootstrapV2(sessionKey: string): Promise<ChatBootstrapV2> {
   const key = `bootstrap:${sessionKey}`

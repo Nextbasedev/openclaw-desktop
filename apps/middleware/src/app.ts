@@ -31,6 +31,7 @@ export type AppContext = {
   compat?: {
     touchChatActivity: (input: { sessionKey: string; at?: string; lastMessageText?: string | null }) => void;
     hydrateImportedChatHistory?: (sessionKey: string) => Promise<{ hydrated: boolean; reason?: string; upserted?: number; copiedMessages?: number }>;
+    importedPlatformSessionLink?: (sessionKey: string) => { kind: string; sourceSessionKey: string; label: string } | null;
   };
   startedAtMs: number;
 };

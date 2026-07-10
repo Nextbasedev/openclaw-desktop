@@ -12,10 +12,12 @@
  * §5 Step 1, and §10 (constants) for the design context.
  */
 
+import { UI_INITIAL_WINDOW } from "@/lib/chat-engine-v2/constants"
+
 /** Maximum number of messages we hold in the active data window. */
-export const MAX_LOADED = 160
+export const MAX_LOADED = UI_INITIAL_WINDOW
 /** Page size for the initial fetch when opening a chat. */
-export const INITIAL_PAGE = 160
+export const INITIAL_PAGE = UI_INITIAL_WINDOW
 /** Page size for subsequent older/newer page fetches. */
 export const OLDER_PAGE = 100
 /** Number of rows above/below the viewport at which a paging fetch fires. */
