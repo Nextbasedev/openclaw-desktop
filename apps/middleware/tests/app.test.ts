@@ -1974,4 +1974,282 @@ describe("imported session 160-message window contract", () => {
     );
     await app.close();
   });
+
+  test("after continue-send, windowed gateway history must NOT prune the imported projection (root race)", async () => {
+    // ROOT CAUSE regression:
+    // 1) Import seeds full local projection (seq 1..TOTAL)
+    // 2) User continues chat → gateway now has transcript
+    // 3) Next bootstrap fetches chat.history(limit=160) → returns TAIL only
+    // 4) Old code pruned SQLite to that tail → loadOlder/render broke
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    const sessionKey = "agent:main:desktop:migrated-telegram-after-send-prune";
+    const sourceSessionKey = "agent:main:telegram:group:-1001:topic:99";
+    markImported(context, sessionKey, sourceSessionKey);
+    seedProjection(context, sessionKey, TOTAL);
+    expect(context.messages.listAllMessages(sessionKey).length).toBe(TOTAL);
+
+    // Simulate post-send gateway: only the latest INITIAL_WINDOW messages exist
+    // in the history RPC response (windowed sample — not full transcript).
+    context.gateway.request = vi.fn(async (method: string, payload?: Record<string, unknown>) => {
+      if (method === "chat.history") {
+        const limit = typeof payload?.limit === "number" ? payload.limit : INITIAL_WINDOW;
+        const all = buildHistoryMessages(TOTAL);
+        return {
+          sessionKey,
+          sessionId: "imported-sid",
+          sessionFile: null,
+          status: "done",
+          messages: all.slice(-Math.min(limit, TOTAL)),
+        };
+      }
+      return {};
+    }) as unknown as AppContext["gateway"]["request"];
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}&limit=${INITIAL_WINDOW}`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.messages.length).toBe(INITIAL_WINDOW);
+    expect(body.hasOlder).toBe(true);
+
+    // Critical: full imported projection must still be in SQLite.
+    expect(context.messages.listAllMessages(sessionKey).length).toBe(TOTAL);
+
+    // Older pages must still resolve contiguously from the preserved projection.
+    const oldest = body.oldestLoadedSeq as number;
+    expect(oldest).toBe(TOTAL - INITIAL_WINDOW + 1);
+    const page = await app.inject({
+      method: "GET",
+      url: `/api/chat/messages?sessionKey=${encodeURIComponent(sessionKey)}&beforeSeq=${oldest}&limit=100`,
+    });
+    expect(page.statusCode).toBe(200);
+    const pageSeqs = (page.json().messages as PageMsg[]).map((m) => m.openclawSeq);
+    expect(pageSeqs.length).toBe(100);
+    expect(Math.max(...pageSeqs)).toBe(oldest - 1);
+    expect(Math.min(...pageSeqs)).toBe(oldest - 100);
+    await app.close();
+  });
+
+  test("Phase 3: exact 160 → 100 → 100 → 100 → remainder sequence with no holes (imported)", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    const sessionKey = "agent:main:desktop:migrated-telegram-phase3-seq";
+    markImported(context, sessionKey, "agent:main:telegram:group:-1001:topic:phase3");
+    mockGatewayHistory(context, sessionKey, TOTAL, true);
+    seedProjection(context, sessionKey, TOTAL);
+
+    const bootstrap = await app.inject({
+      method: "GET",
+      url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}&limit=${INITIAL_WINDOW}`,
+    });
+    expect(bootstrap.statusCode).toBe(200);
+    const body = bootstrap.json();
+    expect(body.messages.length).toBe(INITIAL_WINDOW);
+    expect(body.hasOlder).toBe(true);
+    expect(body.historyCoverage).toBe("windowed");
+
+    // Expected page plan for TOTAL=500: open 341..500 (160), then 241..340,
+    // 141..240, 41..140, 1..40 (remainder < 100).
+    const expectedPages = [
+      { before: TOTAL - INITIAL_WINDOW + 1, count: 100, min: 241, max: 340 },
+      { before: 241, count: 100, min: 141, max: 240 },
+      { before: 141, count: 100, min: 41, max: 140 },
+      { before: 41, count: 40, min: 1, max: 40 },
+    ];
+    let cursor = body.oldestLoadedSeq as number;
+    expect(cursor).toBe(TOTAL - INITIAL_WINDOW + 1);
+
+    for (const expected of expectedPages) {
+      expect(cursor).toBe(expected.before);
+      const page = await app.inject({
+        method: "GET",
+        url: `/api/chat/messages?sessionKey=${encodeURIComponent(sessionKey)}&beforeSeq=${cursor}&limit=100`,
+      });
+      expect(page.statusCode).toBe(200);
+      const seqs = (page.json().messages as PageMsg[]).map((m) => m.openclawSeq);
+      expect(seqs.length).toBe(expected.count);
+      expect(Math.min(...seqs)).toBe(expected.min);
+      expect(Math.max(...seqs)).toBe(expected.max);
+      // Contiguous block, no holes.
+      const sorted = [...seqs].sort((a, b) => a - b);
+      for (let i = 1; i < sorted.length; i += 1) {
+        expect(sorted[i]).toBe(sorted[i - 1]! + 1);
+      }
+      cursor = Math.min(...seqs);
+    }
+    expect(cursor).toBe(1);
+    await app.close();
+  });
+
+  test("Phase 3: short session (<160) reports full coverage and hasOlder=false (parity)", async () => {
+    const SHORT = 47;
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    const sessionKey = "agent:main:desktop:short-parity";
+    mockGatewayHistory(context, sessionKey, SHORT, false);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}&limit=${INITIAL_WINDOW}`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.messages.length).toBe(SHORT);
+    expect(body.hasOlder).toBe(false);
+    expect(body.historyCoverage).toBe("full");
+    expect(body.oldestLoadedSeq).toBe(1);
+    await app.close();
+  });
+
+  test("Phase 4: normal short session STILL prunes stale local rows (no regression on prune)", async () => {
+    // Safety: Phase 1 skip-prune for windowed/imported must not disable prune
+    // for short complete gateway histories (stale duplicate cleanup).
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    const sessionKey = "agent:main:desktop:phase4-still-prunes";
+    vi.spyOn(context.gateway, "status").mockReturnValue({
+      connected: true,
+      gatewayUrl: "ws://127.0.0.1:1",
+      connectedAtMs: Date.now(),
+      lastError: null,
+      pendingRequests: 0,
+      listenerCount: 0,
+    });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") {
+        return {
+          sessionKey,
+          sessionId: "session-p4",
+          messages: [
+            { role: "user", text: "one", __openclaw: { id: "u1", seq: 1 } },
+            { role: "assistant", text: "two", __openclaw: { id: "a1", seq: 2 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    context.messages.upsertSession({ sessionKey, sessionId: "session-p4", data: { sessionKey, sessionId: "session-p4", status: "done" } });
+    const segment = context.messages.ensureActiveSegment({ sessionKey, sessionId: "session-p4" });
+    context.messages.upsertMessages(normalizeHistoryMessages(sessionKey, [
+      { role: "user", text: "one", __openclaw: { id: "u1", seq: 1 } },
+      { role: "assistant", text: "two", __openclaw: { id: "a1", seq: 2 } },
+      { role: "user", text: "stale", __openclaw: { id: "stale-u", seq: 3 } },
+      { role: "assistant", text: "stale-a", __openclaw: { id: "stale-a", seq: 4 } },
+    ]), { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+
+    const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().messages).toHaveLength(2);
+    await waitFor(() => context.messages.countMessages(sessionKey) === 2);
+    expect(context.messages.listMessages(sessionKey).map((m) => m.messageId)).toEqual(["u1", "a1"]);
+    await app.close();
+  });
+
+  test("Phase 4: imported continue path — bootstrap windowed + page older still full projection", async () => {
+    // End-to-end data path for the user bug: open → "send" (gateway has tail) →
+    // bootstrap again → older page still works (projection not wiped).
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    const sessionKey = "agent:main:desktop:phase4-continue-e2e";
+    const sourceSessionKey = "agent:main:telegram:group:-1001:topic:p4";
+    markImported(context, sessionKey, sourceSessionKey);
+    seedProjection(context, sessionKey, TOTAL);
+
+    // Open (empty gateway)
+    mockGatewayHistory(context, sessionKey, TOTAL, true);
+    const open = await app.inject({
+      method: "GET",
+      url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}&limit=${INITIAL_WINDOW}`,
+    });
+    expect(open.statusCode).toBe(200);
+    expect(open.json().messages.length).toBe(INITIAL_WINDOW);
+    expect(context.messages.listAllMessages(sessionKey).length).toBe(TOTAL);
+
+    // After continue: gateway returns windowed tail only
+    context.gateway.request = vi.fn(async (method: string, payload?: Record<string, unknown>) => {
+      if (method === "chat.history") {
+        const limit = typeof payload?.limit === "number" ? payload.limit : INITIAL_WINDOW;
+        return {
+          sessionKey,
+          sessionId: "imported-sid",
+          status: "done",
+          messages: buildHistoryMessages(TOTAL).slice(-Math.min(limit, TOTAL)),
+        };
+      }
+      if (method === "chat.send") return { runId: "run-p4", status: "started" };
+      return {};
+    }) as unknown as AppContext["gateway"]["request"];
+
+    await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: {
+        sessionKey,
+        message: "continue after import",
+        clientMessageId: "p4-client",
+        idempotencyKey: "p4-idem",
+      },
+    });
+
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}&limit=${INITIAL_WINDOW}`,
+    });
+    expect(after.statusCode).toBe(200);
+    expect(after.json().messages.length).toBeLessThanOrEqual(INITIAL_WINDOW + 5); // +optimistic/live room
+    // Projection must still hold the full import (the actual wipe bug).
+    expect(context.messages.listAllMessages(sessionKey).length).toBeGreaterThanOrEqual(TOTAL);
+
+    const oldest = after.json().oldestLoadedSeq as number;
+    expect(typeof oldest).toBe("number");
+    if (oldest > 1) {
+      const page = await app.inject({
+        method: "GET",
+        url: `/api/chat/messages?sessionKey=${encodeURIComponent(sessionKey)}&beforeSeq=${oldest}&limit=100`,
+      });
+      expect(page.statusCode).toBe(200);
+      expect((page.json().messages as PageMsg[]).length).toBeGreaterThan(0);
+      expect(Math.max(...(page.json().messages as PageMsg[]).map((m) => m.openclawSeq))).toBe(oldest - 1);
+    }
+    await app.close();
+  });
+
+  test("Phase 3: imported vs normal open window shapes are identical for same projection size", async () => {
+    const appImported = await createApp(testConfig());
+    const ctxImported = (appImported as typeof appImported & { v2Context: AppContext }).v2Context;
+    const importedKey = "agent:main:desktop:parity-imported";
+    markImported(ctxImported, importedKey, "agent:main:telegram:group:-1:topic:parity");
+    mockGatewayHistory(ctxImported, importedKey, TOTAL, true);
+    seedProjection(ctxImported, importedKey, TOTAL);
+
+    const appNormal = await createApp(testConfig());
+    const ctxNormal = (appNormal as typeof appNormal & { v2Context: AppContext }).v2Context;
+    const normalKey = "agent:main:desktop:parity-normal";
+    mockGatewayHistory(ctxNormal, normalKey, TOTAL, false);
+    seedProjection(ctxNormal, normalKey, TOTAL);
+
+    const importedBoot = await appImported.inject({
+      method: "GET",
+      url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(importedKey)}&limit=${INITIAL_WINDOW}`,
+    });
+    const normalBoot = await appNormal.inject({
+      method: "GET",
+      url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(normalKey)}&limit=${INITIAL_WINDOW}`,
+    });
+    expect(importedBoot.statusCode).toBe(200);
+    expect(normalBoot.statusCode).toBe(200);
+    const i = importedBoot.json();
+    const n = normalBoot.json();
+    expect(i.messages.length).toBe(n.messages.length);
+    expect(i.messages.length).toBe(INITIAL_WINDOW);
+    expect(i.hasOlder).toBe(n.hasOlder);
+    expect(i.historyCoverage).toBe(n.historyCoverage);
+    expect(i.oldestLoadedSeq).toBe(n.oldestLoadedSeq);
+    await appImported.close();
+    await appNormal.close();
+  });
 });

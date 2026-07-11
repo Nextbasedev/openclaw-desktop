@@ -10,13 +10,14 @@ import {
   persistentCacheSet,
 } from "@/lib/persistentCache"
 
+import { UI_INITIAL_WINDOW } from "@/lib/chat-engine-v2/constants"
+
 export const WARM_CHAT_FRESH_MS = 2 * 60 * 1000
 export const WARM_CHAT_DISPLAYABLE_MS = 24 * 60 * 60 * 1000
 export const WARM_CHAT_MAX_CHATS = 30
-// Aligned to CHAT_BOOTSTRAP_MESSAGE_LIMIT so app-reload first paint shows
-// the same row count as a sidebar session click (warm cache restored count
-// matches bootstrap fetch count) — no "count shrinks then grows" flash.
-export const WARM_CHAT_MAX_MESSAGES = 200
+// Aligned to UI_INITIAL_WINDOW so app-reload first paint matches bootstrap
+// (160) — no "count shrinks then grows" flash when warm cache → fresh bootstrap.
+export const WARM_CHAT_MAX_MESSAGES = UI_INITIAL_WINDOW
 export const WARM_CHAT_MAX_APPROX_BYTES_PER_CHAT = 500 * 1024
 export const WARM_CHAT_WRITE_DEBOUNCE_MS = 1000
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { CHAT_BOOTSTRAP_MESSAGE_LIMIT, CHAT_OLDER_PAGE_LIMIT, activeSessionMessages, canonicalMessagesFromRawHistory, dataSourceAfterWarmCacheApplied, mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, mergePaginatedRawHistory, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
+import { CHAT_BOOTSTRAP_MESSAGE_LIMIT, CHAT_OLDER_PAGE_LIMIT, activeSessionMessages, canonicalMessagesFromRawHistory, dataSourceAfterWarmCacheApplied, mergeActiveBootstrapTimeline, mergeActivePreservedReconcileMessages, mergeOptimisticMessagesWithCanonical, mergePaginatedRawHistory, shouldApplyBootstrapRecoveryReload, shouldPreserveActiveBootstrapTimeline, shouldPreserveActiveReconcile, shouldPreserveTimelineStoreRows, timelineMessageChanged } from "../../hooks/useChatMessages"
 import { dedupeChatMessages } from "../chatMessageDedupe"
 import { parseChatHistory } from "../chatHistoryParser"
 import type { ChatMessage } from "@/components/ChatView/types"
@@ -105,6 +105,50 @@ describe("chat reconcile active-state guards", () => {
     expect(shouldPreserveTimelineStoreRows({ loadingOlderMessages: false, status: "done" })).toBe(false)
   })
 
+  test("Phase 2: preserves active bootstrap timeline when local list is longer or optimistic", () => {
+    expect(shouldPreserveActiveBootstrapTimeline({
+      status: "thinking",
+      localMessageCount: 160,
+      bootstrapMessageCount: 160,
+      hasOptimisticOrSending: true,
+    })).toBe(true)
+    expect(shouldPreserveActiveBootstrapTimeline({
+      status: "streaming",
+      localMessageCount: 162,
+      bootstrapMessageCount: 160,
+    })).toBe(true)
+    expect(shouldPreserveActiveBootstrapTimeline({
+      status: "done",
+      localMessageCount: 162,
+      bootstrapMessageCount: 160,
+    })).toBe(false)
+    expect(shouldPreserveActiveBootstrapTimeline({
+      status: "idle",
+      localMessageCount: 0,
+      bootstrapMessageCount: 160,
+    })).toBe(false)
+  })
+
+  test("Phase 2: merge active bootstrap never drops live-only rows for a shorter window", () => {
+    const local = [
+      user("imported-1"),
+      assistant("imported-2"),
+      optimisticUser("just sent"),
+    ]
+    const bootstrap = [user("imported-1"), assistant("imported-2")]
+    const merged = mergeActiveBootstrapTimeline(local, bootstrap)
+    expect(merged.some((m) => m.text === "just sent" && m.isOptimistic)).toBe(true)
+    expect(merged.length).toBeGreaterThanOrEqual(local.length)
+  })
+
+  test("Phase 2: bootstrap recovery reload is skipped during active run with user message", () => {
+    expect(shouldApplyBootstrapRecoveryReload({ status: "thinking", hasUserMessage: true })).toBe(false)
+    expect(shouldApplyBootstrapRecoveryReload({ status: "streaming", hasUserMessage: true })).toBe(false)
+    expect(shouldApplyBootstrapRecoveryReload({ status: "tool_running", hasUserMessage: true })).toBe(false)
+    expect(shouldApplyBootstrapRecoveryReload({ status: "thinking", hasUserMessage: false })).toBe(true)
+    expect(shouldApplyBootstrapRecoveryReload({ status: "done", hasUserMessage: true })).toBe(true)
+  })
+
   test("detects live tool/status changes even when assistant text is unchanged", () => {
     const base = {
       messageId: "a-tool",
@@ -122,9 +166,10 @@ describe("chat reconcile active-state guards", () => {
     expect(dataSourceAfterWarmCacheApplied()).toBe("warm-cache")
   })
 
-  test("bootstrap + older-page sizes align with the sliding window", () => {
-    // SLICE_SIZE = 200, EXTEND_PAGE_SIZE = 100 in messageSlice.ts.
-    expect(CHAT_BOOTSTRAP_MESSAGE_LIMIT).toBe(200)
+  test("bootstrap + older-page sizes align with the open/window contract (160 / 100)", () => {
+    // Phase 3: open paint = UI_INITIAL_WINDOW (160); older pages = 100.
+    // Store may buffer up to 200 — that is headroom, not the open contract.
+    expect(CHAT_BOOTSTRAP_MESSAGE_LIMIT).toBe(160)
     expect(CHAT_OLDER_PAGE_LIMIT).toBe(100)
   })
 

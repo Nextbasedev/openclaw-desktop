@@ -67,6 +67,7 @@ import {
   type ChatMessagesPageV2,
 } from "@/lib/chat-engine-v2/client"
 import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
+import { UI_INITIAL_WINDOW, UI_OLDER_PAGE } from "@/lib/chat-engine-v2/constants"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, trimSessionMessageWindow, updateGlobalChatSessionActivity, type SessionState } from "@/lib/chat-engine-v2/store"
 import { PAGE_SIZE as WINDOW_PAGE_SIZE, WINDOW_SIZE as WINDOW_TOTAL_SIZE, planDropFromTop, planDropFromBottom, sortMessagesByGatewayIndex } from "@/lib/chat-engine-v2/messageWindow"
@@ -254,6 +255,54 @@ export function shouldPreserveTimelineStoreRows(params: {
   return params.loadingOlderMessages || isActiveRunStatus(params.status)
 }
 
+/**
+ * Phase 2 live-path guard: while a run is active (thinking/streaming/tools),
+ * a late bootstrap or recovery must not wipe or shrink the live timeline.
+ * That was the main cause of blink + order jump after send on long imported
+ * chats (windowed bootstrap re-applied mid-stream).
+ */
+export function shouldPreserveActiveBootstrapTimeline(params: {
+  status: StreamStatus | null | undefined
+  localMessageCount: number
+  bootstrapMessageCount: number
+  hasOptimisticOrSending?: boolean
+}) {
+  if (!isActiveRunStatus(params.status)) return false
+  if (params.localMessageCount <= 0) return false
+  if (params.hasOptimisticOrSending) return true
+  // Never replace a longer live list with a shorter/equal windowed snapshot
+  // during an active run — patches own the tail until the run settles.
+  return params.bootstrapMessageCount <= params.localMessageCount
+}
+
+/**
+ * Merge bootstrap rows into the live timeline without dropping live-only rows
+ * (optimistic user, in-flight assistant, tools). Dedupe keeps one sorter.
+ */
+export function mergeActiveBootstrapTimeline(
+  localMessages: ChatMessage[],
+  bootstrapMessages: ChatMessage[],
+) {
+  if (!bootstrapMessages.length) return localMessages
+  if (!localMessages.length) return bootstrapMessages
+  if (bootstrapMessages.length < localMessages.length) {
+    // Additive only: keep local order authority, attach any brand-new ids.
+    return dedupeChatMessages([...localMessages, ...bootstrapMessages])
+  }
+  return dedupeChatMessages([...bootstrapMessages, ...localMessages])
+}
+
+/** Whether bootstrap-recovery should re-init the chat engine mid-session. */
+export function shouldApplyBootstrapRecoveryReload(params: {
+  status: StreamStatus | null | undefined
+  hasUserMessage: boolean
+}) {
+  // Mirror ChatView decideBootstrapRecovery active-run rule: never reload
+  // the engine while the user is watching a live turn.
+  if (isActiveRunStatus(params.status) && params.hasUserMessage) return false
+  return true
+}
+
 export function mergeOptimisticMessagesWithCanonical(
   canonicalMessages: ChatMessage[],
   optimisticSource: ChatMessage[] | null | undefined
@@ -377,12 +426,11 @@ function parseExecApproval(
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
-// Sliding-window sizes (per messageSlice.ts SLICE_SIZE = 200, EXTEND_PAGE_SIZE
-// = 100). Bootstrap loads one full window (200) so the user opens straight to
-// a fully populated tail; each older-page fetch loads one slide step (100) so
-// scroll-up auto-load lines up with the window stride.
-export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 200
-export const CHAT_OLDER_PAGE_LIMIT = 100
+// Open/bootstrap = UI_INITIAL_WINDOW (160). Older pages = UI_OLDER_PAGE (100).
+// Store may still buffer up to UI_STORE_WINDOW (200) after scroll — that is
+// headroom, not the open paint contract.
+export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = UI_INITIAL_WINDOW
+export const CHAT_OLDER_PAGE_LIMIT = UI_OLDER_PAGE
 export const CHAT_BOOTSTRAP_MIN_VISIBLE_ROWS = 24
 const CHAT_BOOTSTRAP_MAX_TOP_UP_PAGES = 4
 
@@ -1193,6 +1241,10 @@ export function useChatMessages(
         const mergedFreshRows = mergedMessages !== currentMessages
         if (mergedFreshRows) {
           setMessages(mergedMessages, { status: currentStatus })
+          // Keep prior coverage (often "windowed" for imported long chats).
+          // Forcing "full" here made loadOlder think there was no older history
+          // after a post-send reconcile race.
+          const priorCoverage = getGlobalChatSession(sessionKey)?.historyCoverage
           seedGlobalChatSession({
             sessionKey,
             messages: mergedMessages,
@@ -1202,7 +1254,7 @@ export function useChatMessages(
             pendingTools: Array.from(pendingToolMapRef.current.values()),
             spawnedSubagents: Array.from(spawnMapRef.current.values()),
             messageCount: Math.max(mergedMessages.length, freshMessages?.length ?? 0, currentMessages.length),
-            historyCoverage: "full",
+            historyCoverage: priorCoverage === "windowed" || priorCoverage === "metadata" ? priorCoverage : "full",
             queryClient,
           })
         }
@@ -2060,6 +2112,11 @@ export function useChatMessages(
       const detail = recoveryDetailFromEvent(event)
       const targetSessionKey = detail?.sessionKey ?? null
       const appliesToSession = !targetSessionKey || targetSessionKey === sessionKey
+      const hasUserMessage = messagesRef.current.some((message) => message.role === "user")
+      const allowReload = appliesToSession && shouldApplyBootstrapRecoveryReload({
+        status: statusRef.current,
+        hasUserMessage,
+      })
       logChatStreamRecoveryDecision({
         windowId: windowIdRef.current,
         instanceId: instanceIdRef.current,
@@ -2068,10 +2125,26 @@ export function useChatMessages(
         activeSessionKey: sessionKey,
         renderedSessionKey: sessionKey,
         cursor: detail?.cursor ?? null,
-        willApply: appliesToSession,
-        reason: appliesToSession ? (detail?.reason ?? "global-recovery") : "non-matching-session",
+        willApply: allowReload,
+        reason: !appliesToSession
+          ? "non-matching-session"
+          : !allowReload
+            ? "skipped-active-run"
+            : (detail?.reason ?? "global-recovery"),
       })
       if (!appliesToSession) return
+      // Phase 2.1: never tear down the global engine / re-bootstrap while a
+      // run is live. That remount is the blink + order jump after send.
+      if (!allowReload) {
+        frontendLog("stream", "chat.bootstrap-recovery.skipped-active-run", {
+          sessionKey,
+          status: statusRef.current,
+          messageCount: messagesRef.current.length,
+          windowId: windowIdRef.current,
+          viewGeneration,
+        }, "debug")
+        return
+      }
       frontendLog("stream", "chat.bootstrap-recovery.reload", { sessionKey, detail, windowId: windowIdRef.current, viewGeneration }, "warn")
       invalidateDedupe(`chat-bootstrap:${sessionKey}`)
       void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
@@ -2254,25 +2327,65 @@ export function useChatMessages(
           hasInitial &&
           canonicalMessages.length === 0 &&
           messagesRef.current.length > 0
+        // Preserve in-memory timeline when bootstrap returns empty. This covers
+        // metadata-only sessions, full history, AND windowed imported chats:
+        // an empty bootstrap after send (gateway lag / race) must not wipe the
+        // already-rendered 160-tail + optimistic rows.
         const shouldPreserveExistingPatchMessages =
           !hasInitial &&
           canonicalMessages.length === 0 &&
           (existingGlobalBeforeSeed?.messages.length ?? 0) > 0 &&
-          (existingGlobalBeforeSeed?.historyCoverage === "metadata" || existingGlobalBeforeSeed?.historyCoverage === "full")
+          (
+            existingGlobalBeforeSeed?.historyCoverage === "metadata" ||
+            existingGlobalBeforeSeed?.historyCoverage === "full" ||
+            existingGlobalBeforeSeed?.historyCoverage === "windowed"
+          )
         const preservedPatchMessages = existingGlobalBeforeSeed?.messages.length
           ? existingGlobalBeforeSeed.messages
           : messagesRef.current
-        const seedMessages = stripTransientChatMessagesState(shouldPreserveInitialOptimisticMessages
-          ? messagesRef.current
-          : shouldPreserveExistingPatchMessages
-            ? preservedPatchMessages
-            : canonicalMessages)
-        const seedStatus = shouldPreserveInitialOptimisticMessages || shouldPreserveExistingPatchMessages
-          ? statusRef.current
+        const localTimelineForPreserve = preservedPatchMessages.length
+          ? preservedPatchMessages
+          : messagesRef.current
+        const hasOptimisticOrSending = localTimelineForPreserve.some(
+          (message) => message.isOptimistic || message.sendStatus === "sending" || message.sendStatus === "failed",
+        )
+        // Phase 2.2: mid-run bootstrap must merge, never full-replace a live list.
+        const preserveActiveBootstrap = shouldPreserveActiveBootstrapTimeline({
+          status: statusRef.current,
+          localMessageCount: localTimelineForPreserve.length,
+          bootstrapMessageCount: canonicalMessages.length,
+          hasOptimisticOrSending,
+        })
+        const seedMessages = stripTransientChatMessagesState(
+          shouldPreserveInitialOptimisticMessages
+            ? messagesRef.current
+            : shouldPreserveExistingPatchMessages
+              ? preservedPatchMessages
+              : preserveActiveBootstrap
+                ? mergeActiveBootstrapTimeline(localTimelineForPreserve, canonicalMessages)
+                : canonicalMessages,
+        )
+        const seedStatus = shouldPreserveInitialOptimisticMessages || shouldPreserveExistingPatchMessages || preserveActiveBootstrap
+          ? (isActiveRunStatus(statusRef.current) ? statusRef.current : canonicalStatus)
           : canonicalStatus
-        const seedStatusLabel = shouldPreserveInitialOptimisticMessages || shouldPreserveExistingPatchMessages
+        const seedStatusLabel = shouldPreserveInitialOptimisticMessages || shouldPreserveExistingPatchMessages || preserveActiveBootstrap
           ? normalizeStatusLabelForStatus(statusRef.current, statusLabel)
           : canonicalLabel
+        if (preserveActiveBootstrap) {
+          frontendLog("chat", "chat.bootstrap.preserve-active-timeline", {
+            sessionKey,
+            localCount: localTimelineForPreserve.length,
+            bootstrapCount: canonicalMessages.length,
+            status: statusRef.current,
+            hasOptimisticOrSending,
+            windowId: windowIdRef.current,
+            viewGeneration,
+          }, "debug")
+        }
+        const resolvedHistoryCoverage =
+          bootstrapHistoryCoverage === "windowed" || existingGlobalBeforeSeed?.historyCoverage === "windowed"
+            ? "windowed" as const
+            : "full" as const
         seedGlobalChatSession({
           sessionKey,
           messages: seedMessages,
@@ -2282,7 +2395,7 @@ export function useChatMessages(
           pendingTools: inlineTools,
           spawnedSubagents: canonicalSpawns,
           messageCount: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : (typeof canonicalMessageCount === "number" ? canonicalMessageCount : seedMessages.length),
-          historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
+          historyCoverage: resolvedHistoryCoverage,
           queryClient,
         })
         const globalAfterSeed = getGlobalChatSession(sessionKey)
@@ -2301,8 +2414,8 @@ export function useChatMessages(
           } : null,
           pendingTools: inlineTools,
           messageCount: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : (typeof canonicalMessageCount === "number" ? canonicalMessageCount : displayMessages.length),
-          historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
-          fullMessagesIncluded: bootstrapHistoryCoverage !== "windowed",
+          historyCoverage: resolvedHistoryCoverage,
+          fullMessagesIncluded: resolvedHistoryCoverage !== "windowed",
         }).catch((error) => {
           frontendLog("chat", "warm-cache.bootstrap-persist.fail", {
             sessionKey,
@@ -2683,14 +2796,23 @@ export function useChatMessages(
           autonomyMode: payload.autonomyMode,
           execPolicy: payload.execPolicy,
         })
-        const ackMessages = dedupeChatMessages(
-          messagesRef.current.map((m) =>
+        // Phase 2.3: ACK only patches the optimistic row — avoid rewriting the
+        // entire list identity (blink) after send while the 160-window is live.
+        setMessages((prev) =>
+          prev.map((m) =>
             m.messageId === optimisticId
               ? { ...m, sendStatus: undefined, sendError: null }
               : m
           )
         )
-        setMessages(ackMessages)
+        const ackSnapshot = getGlobalChatSession(sessionKey)?.messages ?? messagesRef.current
+        const ackMessages = dedupeChatMessages(
+          ackSnapshot.map((m) =>
+            m.messageId === optimisticId
+              ? { ...m, sendStatus: undefined, sendError: null }
+              : m
+          )
+        )
         seedGlobalChatSession({
           sessionKey,
           messages: ackMessages,
@@ -2699,6 +2821,7 @@ export function useChatMessages(
           statusLabel: runsAlongsideGeneration ? normalizeStatusLabelForStatus(statusRef.current, statusLabel) : "Thinking",
           pendingTools: Array.from(pendingToolMapRef.current.values()),
           spawnedSubagents: Array.from(spawnMapRef.current.values()),
+          historyCoverage: getGlobalChatSession(sessionKey)?.historyCoverage === "windowed" ? "windowed" : undefined,
           queryClient,
         })
         // Send ACK is not lifecycle truth. Wait for canonical runStatus patches

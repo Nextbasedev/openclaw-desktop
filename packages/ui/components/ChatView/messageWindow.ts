@@ -19,7 +19,7 @@ export const MAX_LOADED = UI_INITIAL_WINDOW
 /** Page size for the initial fetch when opening a chat. */
 export const INITIAL_PAGE = UI_INITIAL_WINDOW
 /** Page size for subsequent older/newer page fetches. */
-export const OLDER_PAGE = 100
+export const OLDER_PAGE = 100 // keep in sync with UI_OLDER_PAGE
 /** Number of rows above/below the viewport at which a paging fetch fires. */
 export const TOP_TRIGGER = 60
 /**

@@ -6,7 +6,7 @@ import { clearBootstrapCacheForTests } from "../src/features/compat/routes.js";
 import { createApp } from "../src/app.js";
 import type { AppContext } from "../src/app.js";
 import type { MiddlewareConfig } from "../src/config/env.js";
-import { normalizeHistoryMessages } from "../src/features/chat/message-normalizer.js";
+import { normalizeHistoryMessages, textFromMessage } from "../src/features/chat/message-normalizer.js";
 
 function config(name: string): MiddlewareConfig {
   return {
@@ -916,14 +916,121 @@ describe("chat send routes", () => {
         payload: expect.objectContaining({ optimisticId: "client-ui-1" }),
       }),
     ]));
+    // Stale pre-send history must not be bulk-injected as the "response".
+    // Optimistic user upsert is expected; assistant/stale history upserts are not.
+    const assistantUpserts = patches.filter((p) => {
+      if (p.type !== "chat.message.upsert") return false;
+      const message = p.payload?.message as { role?: string } | undefined;
+      return message?.role === "assistant";
+    });
+    expect(assistantUpserts).toHaveLength(0);
 
-    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
-    expect(bootstrap.statusCode).toBe(200);
-    const messages = bootstrap.json().messages as Array<{ role: string; text?: string; __openclaw?: { id?: string } }>;
-    expect(messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ role: "user", text: "good night now", __openclaw: expect.objectContaining({ id: "client-ui-1" }) }),
+    // After send (before a later bootstrap re-projects gateway history), the
+    // optimistic current user must still be the live turn — not replaced by
+    // the stale "byy" history sample.
+    const messagesAfterSend = context.messages.listAllMessages("s1").map((row) => ({
+      role: row.role,
+      text: textFromMessage(row.data as never),
+      id: row.messageId,
+    }));
+    expect(messagesAfterSend).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", text: "good night now", id: "client-ui-1" }),
     ]));
-    expect(messages.filter((message) => message.role === "user" && message.text === "byy")).toHaveLength(1);
+    expect(messagesAfterSend.filter((message) => message.role === "user" && message.text === "byy")).toHaveLength(0);
+    expect(messagesAfterSend.filter((message) => message.text === "Bye Dixit 🤝 Sleep well.")).toHaveLength(0);
+    await app.close();
+  });
+
+  test("continue-send on long imported projection does not paste pre-user history as live response", async () => {
+    // Repro of continue-import UI paste:
+    // 1) Import seeds many local rows (high openclaw_seq)
+    // 2) User sends first continue message ("hello")
+    // 3) Gateway history returns a reindexed 200-row tail of OLD transcript
+    //    plus the new user + new assistant
+    // 4) Old code re-upserted the whole window → collision-append at maxSeq+1
+    //    → broadcast past assistant turns as if they were the new reply
+    const app = await createApp(config("send-import-continue-no-paste"));
+    const context = contextOf(app);
+    const sessionKey = "agent:main:desktop:migrated-telegram-continue-1";
+    const TOTAL = 500;
+    const seed = normalizeHistoryMessages(
+      sessionKey,
+      Array.from({ length: TOTAL }, (_, i) => {
+        const n = i + 1;
+        const role = n % 2 === 1 ? "user" : "assistant";
+        return {
+          role,
+          text: role === "user" ? `imported user ${n}` : `imported assistant ${n} — character-output panel fix details`,
+          __openclaw: { id: `import-${n}`, seq: n },
+        };
+      }),
+    );
+    context.messages.ensureActiveSegment({ sessionKey, sessionId: "imported-sid", sessionFile: null });
+    context.messages.upsertMessages(seed);
+    expect(context.messages.listAllMessages(sessionKey).length).toBe(TOTAL);
+
+    const patches: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => {
+      patches.push(patch as typeof patches[number]);
+    });
+
+    const historyTail = Array.from({ length: 198 }, (_, i) => {
+      const importN = TOTAL - 197 + i;
+      const role = importN % 2 === 1 ? "user" : "assistant";
+      return {
+        role,
+        text: role === "user" ? `imported user ${importN}` : `imported assistant ${importN} — character-output panel fix details`,
+        __openclaw: { id: `gw-reindex-${i + 1}`, seq: i + 1 },
+      };
+    });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "continue-run-1", status: "done" };
+      if (method === "chat.history") {
+        return {
+          sessionKey,
+          sessionId: "imported-sid",
+          messages: [
+            ...historyTail,
+            { role: "user", text: "hello", __openclaw: { id: "gw-continue-user", seq: 199 } },
+            { role: "assistant", text: "Hi! How can I help you continue?", __openclaw: { id: "gw-continue-assistant", seq: 200 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const send = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: {
+        sessionKey,
+        text: "hello",
+        idempotencyKey: "continue-key-1",
+        clientMessageId: "client-continue-1",
+      },
+    });
+    expect(send.statusCode).toBe(200);
+
+    const upsertPatches = patches.filter((p) => p.type === "chat.message.upsert");
+    const upsertTexts = upsertPatches.map((p) => {
+      const message = p.payload?.message as { text?: string; role?: string } | undefined;
+      return message?.text ?? "";
+    });
+
+    expect(upsertTexts.some((t) => t.includes("character-output panel"))).toBe(false);
+    expect(upsertTexts).toEqual(expect.arrayContaining(["Hi! How can I help you continue?"]));
+    expect(upsertTexts.filter((t) => t === "Hi! How can I help you continue?")).toHaveLength(1);
+    expect(context.messages.listAllMessages(sessionKey).length).toBeGreaterThanOrEqual(TOTAL);
+
+    const page = await app.inject({
+      method: "GET",
+      url: `/api/chat/messages?sessionKey=${encodeURIComponent(sessionKey)}&beforeSeq=${Number.MAX_SAFE_INTEGER}&limit=20`,
+    });
+    expect(page.statusCode).toBe(200);
+    const latest = (page.json().messages as Array<{ data?: { text?: string; role?: string } }>).map((m) => m.data?.text ?? "");
+    expect(latest.join("\n")).toContain("hello");
+    expect(latest.join("\n")).toContain("Hi! How can I help you continue?");
+
     await app.close();
   });
 

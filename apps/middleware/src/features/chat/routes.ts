@@ -1446,8 +1446,55 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               const normalized = normalizeHistoryMessages(input.sessionKey, history.messages);
               const projectSeq = (message: ProjectedMessage) => segment.baseSeq + (message.gatewaySeq ?? message.openclawSeq);
               const historyMaxSeq = normalized.reduce((max, message) => Math.max(max, projectSeq(message)), 0);
-              const gatewayUserEcho = [...normalized].reverse().find((message) => message.role === "user" && projectSeq(message) >= optimisticSeq && messageTextMatchesSent(textFromMessage(message.data), prepared.message));
-              const gatewayUserEchoMatch = gatewayUserEcho ? "text" : null;
+              // Trust Gateway array order (not our local openclaw_seq math).
+              //
+              // Continue-import bug: long imported sessions already have high local
+              // seqs (1..N). Post-send chat.history(limit=200) returns a reindexed
+              // window (often 1..200). Old code required projectSeq >= optimisticSeq
+              // to find the user echo, failed, still upserted the whole window, and
+              // collision-append rewrote those OLD rows to seq N+1.. — then broadcast
+              // them as "new" assistant bubbles after the first continue message.
+              //
+              // Rule: the current send is the LAST user turn in the gateway payload
+              // whose text matches what we sent. Only the SUFFIX after that turn may
+              // be projected/broadcast. Never re-inject pre-turn history into the UI.
+              let lastUserIndex = -1;
+              for (let i = normalized.length - 1; i >= 0; i -= 1) {
+                if (normalized[i]?.role === "user") {
+                  lastUserIndex = i;
+                  break;
+                }
+              }
+              const lastUser = lastUserIndex >= 0 ? normalized[lastUserIndex] : null;
+              const lastUserMatchesSend = Boolean(
+                lastUser && messageTextMatchesSent(textFromMessage(lastUser.data), prepared.message),
+              );
+              // Prefer identity-capable match when gateway tags the current turn;
+              // otherwise accept last user only when it matches send text.
+              const gatewayUserEchoByIdentity = [...normalized].reverse().find((message) => {
+                if (message.role !== "user") return false;
+                const data = message.data as Record<string, unknown>;
+                const oc = data.__openclaw && typeof data.__openclaw === "object" ? data.__openclaw as Record<string, unknown> : null;
+                const idem = typeof oc?.idempotencyKey === "string" ? oc.idempotencyKey : null;
+                const rid = typeof oc?.runId === "string" ? oc.runId : typeof data.runId === "string" ? data.runId : null;
+                return (idem !== null && idem === input.idempotencyKey) || (rid !== null && rid === runId);
+              }) ?? null;
+              const gatewayUserEcho = gatewayUserEchoByIdentity
+                ?? (lastUserMatchesSend ? lastUser : null);
+              let gatewayUserEchoIndex = -1;
+              if (gatewayUserEcho) {
+                for (let i = normalized.length - 1; i >= 0; i -= 1) {
+                  if (normalized[i] === gatewayUserEcho) {
+                    gatewayUserEchoIndex = i;
+                    break;
+                  }
+                }
+              }
+              const gatewayUserEchoMatch = gatewayUserEchoByIdentity
+                ? "identity"
+                : gatewayUserEcho
+                  ? "text-last-user"
+                  : null;
               const confirmedUser = gatewayUserEcho
                 ? context.messages.confirmOptimisticUser(input.sessionKey, clientMessageId, gatewayUserEcho)
                 : null;
@@ -1455,16 +1502,15 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               const liveConfirmedCurrentUserSeq = liveConfirmedUser?.role === "user" && liveConfirmedUser.data.__clientOptimistic === false
                 ? liveConfirmedUser.openclawSeq
                 : null;
-              const currentUserSeq = confirmedUser?.openclawSeq ?? (gatewayUserEcho ? projectSeq(gatewayUserEcho) : liveConfirmedCurrentUserSeq);
-              const currentGatewayUserSeq = gatewayUserEcho?.openclawSeq ?? null;
               userMessageConfirmed = Boolean(gatewayUserEcho) || liveConfirmedCurrentUserSeq !== null;
+              // Suffix after current user turn in gateway order — the only rows
+              // allowed to become live UI patches from this history pull.
+              const historySuffixAfterCurrentUser = gatewayUserEchoIndex >= 0
+                ? normalized.slice(gatewayUserEchoIndex + 1)
+                : [];
               currentHistory = {
                 currentUserRepresented: userMessageConfirmed,
-                assistantAfterCurrentUser: currentGatewayUserSeq !== null
-                  ? normalized.some((message) => message.openclawSeq > currentGatewayUserSeq && assistantHasVisibleAnswer(message))
-                  : liveConfirmedCurrentUserSeq !== null
-                    ? normalized.some((message) => projectSeq(message) > liveConfirmedCurrentUserSeq && assistantHasVisibleAnswer(message))
-                    : false,
+                assistantAfterCurrentUser: historySuffixAfterCurrentUser.some((message) => assistantHasVisibleAnswer(message)),
               };
               if (confirmedUser) {
                 log.info("optimistic.user.confirmed", {
@@ -1472,18 +1518,19 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                   optimisticId: clientMessageId,
                   gatewayMessageId: gatewayUserEcho?.messageId ?? null,
                   runId,
+                  match: gatewayUserEchoMatch,
                 });
               }
-              const isStalePreSendHistory = !currentHistory.currentUserRepresented && historyMaxSeq < optimisticSeq;
-              // Gateway re-sends every prior user turn on each send with a
-              // stripped messageId (no runId/idempotencyKey). Drop those replays
-              // using the same confirmed-user guard the live/backfill paths use,
-              // or each send re-persists the previous user turn as a duplicate
-              // row one seq down.
-              const dedupedNormalized = normalized.filter((message) => {
-                if (message === gatewayUserEcho) return true;
+              // No current-user turn in this history sample → do not bulk-upsert.
+              // Live gateway events remain the source of truth for the new run.
+              const isStalePreSendHistory = gatewayUserEchoIndex < 0
+                || (!currentHistory.currentUserRepresented && historyMaxSeq < optimisticSeq);
+              // Only the post-user suffix may be upserted/broadcast. Drop prior
+              // turns entirely on the send path (they already live in SQLite /
+              // transcript; re-upserting them causes seq collisions + UI paste).
+              const suffixDeduped = historySuffixAfterCurrentUser.filter((message) => {
                 if (message.role !== "user") return true;
-                const isSameCurrentSendText = Boolean(gatewayUserEcho) && messageTextMatchesSent(textFromMessage(message.data), prepared.message);
+                const isSameCurrentSendText = messageTextMatchesSent(textFromMessage(message.data), prepared.message);
                 if (isSameCurrentSendText) {
                   log.info("history.persist.duplicate-current-user.skip", { sessionKey: input.sessionKey, messageId: message.messageId, messageSeq: projectSeq(message), runId });
                   return false;
@@ -1498,15 +1545,24 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 }
                 return !isDuplicate;
               });
-              const normalizedToUpsert = isStalePreSendHistory
-                ? []
-                : confirmedUser && gatewayUserEcho
-                  ? dedupedNormalized.filter((message) => message !== gatewayUserEcho)
-                  : dedupedNormalized;
+              const normalizedToUpsert = isStalePreSendHistory ? [] : suffixDeduped;
               const projection = normalizedToUpsert.length > 0
                 ? context.messages.upsertMessages(normalizedToUpsert, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq })
-                : { upserted: 0, lastSeq: context.messages.nextMessageSeq(input.sessionKey) - 1, changedMessages: [] };
-              log.info("history.persist", { sessionKey: input.sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq, historyMaxSeq, optimisticSeq, confirmedOptimistic: Boolean(confirmedUser), currentUserRepresented: currentHistory.currentUserRepresented, assistantAfterCurrentUser: currentHistory.assistantAfterCurrentUser, gatewayUserEchoMatch, skippedStalePreSendHistory: isStalePreSendHistory });
+                : { upserted: 0, lastSeq: context.messages.nextMessageSeq(input.sessionKey) - 1, changedMessages: [] as ProjectedMessage[] };
+              log.info("history.persist", {
+                sessionKey: input.sessionKey,
+                normalized: normalized.length,
+                suffixAfterUser: historySuffixAfterCurrentUser.length,
+                upserted: projection.upserted,
+                lastSeq: projection.lastSeq,
+                historyMaxSeq,
+                optimisticSeq,
+                confirmedOptimistic: Boolean(confirmedUser),
+                currentUserRepresented: currentHistory.currentUserRepresented,
+                assistantAfterCurrentUser: currentHistory.assistantAfterCurrentUser,
+                gatewayUserEchoMatch,
+                skippedStalePreSendHistory: isStalePreSendHistory,
+              });
               if (confirmedUser) {
                 const confirmedEvent = context.messages.appendProjectionEvent({
                   sessionKey: input.sessionKey,
@@ -1535,11 +1591,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 });
                 log.info("patch.broadcast", { sessionKey: input.sessionKey, type: confirmedEvent.eventType, cursor: confirmedEvent.cursor, messageSeq: confirmedUser.openclawSeq, role: confirmedUser.role, runId });
               }
+              // Broadcast only suffix rows that actually changed. No openclaw_seq
+              // comparison against optimisticSeq — gateway order already scoped us.
               for (const projected of projection.changedMessages) {
-                if (!currentHistory.currentUserRepresented || currentUserSeq === null || projected.openclawSeq <= currentUserSeq) {
-                  log.info("history.patch.skip_stale_for_current_run", { sessionKey: input.sessionKey, messageSeq: projected.openclawSeq, role: projected.role, runId, optimisticSeq, currentUserRepresented: currentHistory.currentUserRepresented });
-                  continue;
-                }
                 const gatewayProjection = projectGatewayMessage(projected.data as Record<string, unknown>);
                 context.chatLive.projectToolsFromMessage(input.sessionKey, projected.data as OpenClawMessage, context.runs.getRun(runId), gatewayProjection);
                 if (!gatewayProjection.emitMessagePatch) {
@@ -1825,9 +1879,44 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     if (normalized.length === 0 && archived.upserted === 0) {
       await context.compat?.hydrateImportedChatHistory?.(sessionKey);
     }
-    const bootstrapPruned = normalized.length === 0 || context.runs.findLatestPendingRun(sessionKey)
+    // Prune only when gateway history is a COMPLETE canonical sample.
+    //
+    // Bootstrap always requests a limited window (default 160). If we treat
+    // that window as "the whole truth" and prune, we delete older local rows
+    // that only exist in the SQLite projection — the exact failure mode for
+    // imported Telegram/Discord sessions after the first continue-send:
+    //   open → local has full import (seq 1..N)
+    //   send → gateway.history(limit=160) returns the tail only
+    //   bootstrap prune → wipes seq 1..(N-160)
+    //   UI fetch/loadOlder → empty / broken render
+    //
+    // Rules (simple, session-agnostic where possible):
+    // 1. No gateway messages → nothing to prune against (imports hydrate here).
+    // 2. Gateway returned a full-looking sample (count < requested limit) → safe.
+    // 3. Gateway returned a windowed sample (count >= limit) → NEVER prune.
+    // 4. Imported platform sessions → never prune (local projection is authority
+    //    for the pre-desktop transcript; gateway only adds the continue tail).
+    // 5. Active run → skip (existing guard; live rows may not be in history yet).
+    const importedLink = context.compat?.importedPlatformSessionLink?.(sessionKey) ?? null;
+    const gatewayHistoryLooksComplete = normalized.length > 0 && normalized.length < requestedLimit;
+    const skipBootstrapPrune =
+      normalized.length === 0 ||
+      !gatewayHistoryLooksComplete ||
+      Boolean(importedLink) ||
+      Boolean(context.runs.findLatestPendingRun(sessionKey));
+    const bootstrapPruned = skipBootstrapPrune
       ? 0
       : context.messages.pruneSegmentToCanonicalMessages({ sessionKey, segmentId: segment.segmentId, baseSeq: segment.baseSeq, canonicalMessages: normalized });
+    if (skipBootstrapPrune && normalized.length > 0) {
+      log.info("bootstrap.prune.skipped", {
+        sessionKey,
+        normalized: normalized.length,
+        requestedLimit,
+        imported: Boolean(importedLink),
+        gatewayHistoryLooksComplete,
+        pendingRun: Boolean(context.runs.findLatestPendingRun(sessionKey)),
+      });
+    }
     const bootstrapLastSeq = context.messages.nextMessageSeq(sessionKey) - 1;
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, projectedTools, archivedImported: archived.importedFiles, archivedSkipped: archived.skippedFiles, pruned: bootstrapPruned, lastSeq: bootstrapLastSeq });
 

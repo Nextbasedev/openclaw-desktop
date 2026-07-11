@@ -241,3 +241,15 @@ describe("constants", () => {
     expect(WINDOW_SIZE).toBeGreaterThanOrEqual(UI_INITIAL_WINDOW)
   })
 })
+
+describe("Phase 3 window contract matrix", () => {
+  test("open = 160, older page = 100, store buffer >= open", async () => {
+    const { UI_OLDER_PAGE, UI_STORE_WINDOW } = await import("../constants")
+    expect(UI_INITIAL_WINDOW).toBe(160)
+    expect(UI_OLDER_PAGE).toBe(100)
+    expect(UI_STORE_WINDOW).toBe(200)
+    expect(UI_STORE_WINDOW).toBeGreaterThanOrEqual(UI_INITIAL_WINDOW)
+    expect(WINDOW_SIZE).toBe(UI_STORE_WINDOW)
+    expect(PAGE_SIZE).toBe(UI_OLDER_PAGE)
+  })
+})
