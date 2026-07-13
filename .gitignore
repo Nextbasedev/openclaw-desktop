@@ -42,3 +42,4 @@ coverage/
 docs/power-user-stress-test-raw.json
 
 .codegraph/
+.worktrees
