@@ -349,6 +349,117 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("re-import revives a tombstoned Telegram desktop identity without Gateway-sync duplicates", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-reimport-tombstone-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const sourceSessionKey = "agent:main:telegram:group:-1001:topic:42";
+    const sourceFile = path.join(sessionsDir, "topic-42.jsonl");
+    const targetFile = path.join(sessionsDir, "imported-topic-42.jsonl");
+    const meta = JSON.stringify({ chat_id: "telegram:-1001", topic_id: "42", group_subject: "Group", topic_name: "Topic 42", is_group_chat: true });
+    fs.writeFileSync(sourceFile, `${JSON.stringify({ type: "message", id: "m1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\nrestore this import` } })}\n`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({ [sourceSessionKey]: { sessionId: "topic", sessionFile: sourceFile, chatType: "group", subject: "Group" } }));
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { status: ReturnType<typeof vi.fn>; request: ReturnType<typeof vi.fn> } } }).v2Context;
+    let desktopSessionKey = "";
+    context.gateway.status = vi.fn(() => ({ connected: true, lastError: null }));
+    context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "sessions.create") {
+        desktopSessionKey = String(params?.key);
+        return { payload: { entry: { sessionFile: targetFile } }, label: params?.label };
+      }
+      if (method === "sessions.list") return { sessions: desktopSessionKey ? [{ key: desktopSessionKey, label: "Topic 42", agentId: "main" }] : [] };
+      return {};
+    });
+
+    const first = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [sourceSessionKey] } });
+    const chatId = first.json().imported[0].chatId as string;
+    const firstDesktopSessionKey = first.json().imported[0].desktopSessionKey as string;
+    expect(firstDesktopSessionKey).toBe(desktopSessionKey);
+
+    const deleted = await app.inject({ method: "DELETE", url: `/api/chats/${chatId}` });
+    expect(deleted.json()).toMatchObject({ localOnly: true, sessionKey: firstDesktopSessionKey });
+
+    context.gateway.request.mockClear();
+    clearSyncGatewaySessionsCache();
+    clearBootstrapCacheForTests();
+    const afterDeleteSync = await app.inject({ method: "GET", url: "/api/chats?all=true" });
+    expect(context.gateway.request).toHaveBeenCalledWith("sessions.list", expect.objectContaining({ limit: 500 }), 10_000);
+    expect(afterDeleteSync.json().chats).not.toEqual(expect.arrayContaining([expect.objectContaining({ sessionKey: firstDesktopSessionKey })]));
+
+    const reimported = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [sourceSessionKey] } });
+    expect(reimported.json().summary).toMatchObject({ imported: 1, skipped: 0, failed: 0 });
+    expect(reimported.json().imported[0]).toMatchObject({ desktopSessionKey: firstDesktopSessionKey });
+    expect(context.gateway.request.mock.calls.filter(([method]) => method === "sessions.create")).toHaveLength(0);
+
+    context.gateway.request.mockClear();
+    clearSyncGatewaySessionsCache();
+    clearBootstrapCacheForTests();
+    const afterReimportSync = await app.inject({ method: "GET", url: "/api/chats?all=true" });
+    expect(context.gateway.request).toHaveBeenCalledWith("sessions.list", expect.objectContaining({ limit: 500 }), 10_000);
+    const sessionsAfterReimportSync = await app.inject({ method: "GET", url: "/api/sessions?all=true" });
+    const importedChats = afterReimportSync.json().chats.filter((chat: { sessionKey?: string }) => chat.sessionKey === firstDesktopSessionKey);
+    const importedSessions = sessionsAfterReimportSync.json().sessions.filter((session: { sessionKey?: string }) => session.sessionKey === firstDesktopSessionKey);
+    expect(importedChats).toHaveLength(1);
+    expect(importedSessions).toHaveLength(1);
+    expect(importedChats[0]).toMatchObject({ importedFrom: { kind: "telegram", sourceSessionKey } });
+    await app.close();
+  });
+
+  test("bulk chat delete tombstones every imported identity before Gateway sync", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-bulk-tombstone-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const sourceKeys = ["agent:main:telegram:group:-1001:topic:42", "agent:main:telegram:group:-1001:topic:43"];
+    const meta = (topicId: string) => JSON.stringify({ chat_id: "telegram:-1001", topic_id: topicId, group_subject: "Group", topic_name: `Topic ${topicId}`, is_group_chat: true });
+    const sourceIndex: Record<string, { sessionId: string; sessionFile: string; chatType: string; subject: string }> = {};
+    for (const [index, sourceKey] of sourceKeys.entries()) {
+      const topicId = String(42 + index);
+      const sourceFile = path.join(sessionsDir, `topic-${topicId}.jsonl`);
+      fs.writeFileSync(sourceFile, `${JSON.stringify({ type: "message", id: `m${topicId}`, timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta(topicId)}\n\`\`\`\n\nbulk tombstone ${topicId}` } })}\n`);
+      sourceIndex[sourceKey] = { sessionId: `topic-${topicId}`, sessionFile: sourceFile, chatType: "group", subject: "Group" };
+    }
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify(sourceIndex));
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { db: Database.Database; gateway: { status: ReturnType<typeof vi.fn>; request: ReturnType<typeof vi.fn> } } }).v2Context;
+    const desktopSessionKeys: string[] = [];
+    context.gateway.status = vi.fn(() => ({ connected: true, lastError: null }));
+    context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "sessions.create") {
+        const key = String(params?.key);
+        desktopSessionKeys.push(key);
+        return { payload: { entry: { sessionFile: path.join(sessionsDir, `${key.slice(-8)}.jsonl`) } }, label: params?.label };
+      }
+      if (method === "sessions.list") return { sessions: desktopSessionKeys.map((key, index) => ({ key, label: `Topic ${42 + index}`, agentId: "main" })) };
+      return {};
+    });
+
+    const imported = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: sourceKeys } });
+    expect(imported.json().summary).toMatchObject({ imported: 2 });
+    const deleted = await app.inject({ method: "DELETE", url: "/api/chats" });
+    expect(deleted.json()).toMatchObject({ ok: true, deleted: 2, sessionsCleaned: 2 });
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_sessions WHERE session_key IN (?, ?)").get(...desktopSessionKeys)).toMatchObject({ count: 0 });
+
+    const tombstones = context.db.prepare("SELECT data_json FROM v2_compat_state WHERE key IN ('chats', 'sessions')").all() as Array<{ data_json: string }>;
+    const tombstonedKeys = tombstones.flatMap((row) => JSON.parse(row.data_json) as Array<{ sessionKey?: string; key?: string; deleted?: boolean; archived?: boolean; importedFrom?: unknown }>)
+      .filter((record) => record.importedFrom && record.deleted && record.archived)
+      .map((record) => record.sessionKey ?? record.key);
+    expect(tombstonedKeys).toEqual(expect.arrayContaining(desktopSessionKeys));
+
+    context.gateway.request.mockClear();
+    clearSyncGatewaySessionsCache();
+    clearBootstrapCacheForTests();
+    const afterSync = await app.inject({ method: "GET", url: "/api/bootstrap" });
+    expect(context.gateway.request).toHaveBeenCalledWith("sessions.list", expect.objectContaining({ limit: 500 }), 10_000);
+    expect(afterSync.json().chats.filter((chat: { sessionKey?: string }) => desktopSessionKeys.includes(String(chat.sessionKey)))).toEqual([]);
+    expect(afterSync.json().sessions.filter((session: { sessionKey?: string }) => desktopSessionKeys.includes(String(session.sessionKey)))).toEqual([]);
+    await app.close();
+  });
+
   test("voice settings commands read/write config and provider access", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-voice-settings-"));
     vi.spyOn(os, "homedir").mockReturnValue(home);

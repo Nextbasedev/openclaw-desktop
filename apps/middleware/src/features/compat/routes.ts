@@ -1316,11 +1316,94 @@ function importedSessionSourceKey(record: CompatRecord) {
   return String(record.importedFrom?.sourceSessionKey || record.sessionKey || record.key || record.id || id("import"));
 }
 
+function importedIdentityId(record: CompatRecord) {
+  const kind = record.importedFrom?.kind;
+  const sourceSessionKey = record.importedFrom?.sourceSessionKey;
+  return (kind === "telegram" || kind === "discord") && typeof sourceSessionKey === "string" && sourceSessionKey
+    ? `${kind}\u0000${sourceSessionKey}`
+    : null;
+}
+
+function importedIdentityIdsForSessionKeys(sessionKeys: Iterable<string>) {
+  const keys = new Set(sessionKeys);
+  return new Set([...compatState.sessions, ...compatState.chats]
+    .filter((record) => keys.has(String(record.sessionKey || record.key || "")))
+    .map(importedIdentityId)
+    .filter((identity): identity is string => Boolean(identity)));
+}
+
+function tombstoneImportedIdentities(identityIds: Set<string>, timestamp = nowIso()) {
+  if (identityIds.size === 0) return false;
+  let changed = false;
+  for (const record of [...compatState.sessions, ...compatState.chats]) {
+    if (!identityIds.has(importedIdentityId(record) || "")) continue;
+    if (!record.deleted || !record.archived) changed = true;
+    record.deleted = true;
+    record.archived = true;
+    record.updatedAt = timestamp;
+  }
+  return changed;
+}
+
 function isImportedSourceSession(kind: ImportedPlatformKind, sourceSessionKey: unknown) {
   const sourceKey = String(sourceSessionKey || "");
   if (!sourceKey) return false;
-  return compatState.sessions.some((session) => session.importedFrom?.kind === kind && session.importedFrom?.sourceSessionKey === sourceKey)
-    || compatState.chats.some((chat) => chat.importedFrom?.kind === kind && chat.importedFrom?.sourceSessionKey === sourceKey);
+  return compatState.sessions.some((session) => notDeleted(session) && session.importedFrom?.kind === kind && session.importedFrom?.sourceSessionKey === sourceKey)
+    || compatState.chats.some((chat) => notDeleted(chat) && chat.importedFrom?.kind === kind && chat.importedFrom?.sourceSessionKey === sourceKey);
+}
+
+function tombstonedImportedDesktopSession(sessionKey: string) {
+  return [...compatState.sessions, ...compatState.chats].some((record) => {
+    const recordKey = String(record.sessionKey || record.key || "");
+    return recordKey === sessionKey && Boolean(record.deleted) && Boolean(importedIdentityId(record));
+  });
+}
+
+function reviveImportedPlatformIdentity(kind: ImportedPlatformKind, input: { sourceSessionKey: string; targetSpaceId: string; label: string; agentId?: unknown; timestamp?: string }) {
+  const timestamp = input.timestamp ?? nowIso();
+  const matchingSessions = compatState.sessions.filter((record) => record.importedFrom?.kind === kind && record.importedFrom?.sourceSessionKey === input.sourceSessionKey);
+  const matchingChats = compatState.chats.filter((record) => record.importedFrom?.kind === kind && record.importedFrom?.sourceSessionKey === input.sourceSessionKey);
+  const session = matchingSessions.find((record) => record.sessionKey || record.key);
+  const desktopSessionKey = String(session?.sessionKey || session?.key || matchingChats.find((record) => record.sessionKey)?.sessionKey || "");
+  if (!desktopSessionKey || (!session?.deleted && !matchingChats.some((record) => record.deleted))) return null;
+
+  for (const record of matchingSessions) {
+    const recordKey = String(record.sessionKey || record.key || "");
+    if (record !== session) {
+      record.deleted = true;
+      record.archived = true;
+      record.updatedAt = timestamp;
+      continue;
+    }
+    Object.assign(record, {
+      key: desktopSessionKey,
+      sessionKey: desktopSessionKey,
+      label: input.label || record.label,
+      agentId: input.agentId || record.agentId || "main",
+      spaceId: input.targetSpaceId,
+      projectId: null,
+      topicId: null,
+      deleted: false,
+      archived: false,
+      updatedAt: timestamp,
+    });
+  }
+  for (const record of matchingChats) {
+    if (record.sessionKey !== desktopSessionKey) {
+      record.deleted = true;
+      record.archived = true;
+      record.updatedAt = timestamp;
+    }
+  }
+  const chat = ensureImportedFlatChat(kind, {
+    sourceSessionKey: input.sourceSessionKey,
+    targetSpaceId: input.targetSpaceId,
+    label: input.label,
+    sessionKey: desktopSessionKey,
+    agentId: input.agentId,
+    timestamp,
+  });
+  return { desktopSessionKey, chat };
 }
 
 function importedSourceSessionKeyForDesktopSession(sessionKey: string) {
@@ -1903,8 +1986,8 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
   const limit = Math.max(0, Number(input.limit || 0));
   const usedNames = new Set<string>();
   const importedKeys = new Set([
-    ...compatState.chats.map((chat) => chat.importedFrom?.sourceSessionKey).filter(Boolean),
-    ...compatState.sessions.map((session) => session.importedFrom?.sourceSessionKey).filter(Boolean),
+    ...compatState.chats.filter(notDeleted).map((chat) => chat.importedFrom?.sourceSessionKey).filter(Boolean),
+    ...compatState.sessions.filter(notDeleted).map((session) => session.importedFrom?.sourceSessionKey).filter(Boolean),
   ].map(String));
   const sessions = Object.entries(index).map(([sourceSessionKey, entryRaw]) => {
     const entry = (entryRaw && typeof entryRaw === "object") ? entryRaw as CompatRecord : {};
@@ -1973,8 +2056,8 @@ function scanDiscordSessions(context: AppContext, input: CompatRecord = {}) {
   const limit = Math.max(0, Number(input.limit || 0));
   const usedNames = new Set<string>();
   const importedKeys = new Set([
-    ...compatState.chats.map((chat) => chat.importedFrom?.sourceSessionKey).filter(Boolean),
-    ...compatState.sessions.map((session) => session.importedFrom?.sourceSessionKey).filter(Boolean),
+    ...compatState.chats.filter(notDeleted).map((chat) => chat.importedFrom?.sourceSessionKey).filter(Boolean),
+    ...compatState.sessions.filter(notDeleted).map((session) => session.importedFrom?.sourceSessionKey).filter(Boolean),
   ].map(String));
   const sessions = Object.entries(index).map(([sourceSessionKey, entryRaw]) => {
     const parsed = parseDiscordSessionKey(sourceSessionKey);
@@ -2497,7 +2580,7 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
   const outcomes = await mapWithConcurrency(sessionsToImport, migrationImportConcurrency(input), async (session) => {
     const parsed = telegramSessionSourceFromScan(session);
     if (!parsed) return { type: "skipped" as const, value: { sourceSessionKey: session.sourceSessionKey, reason: "invalid_session_key" } };
-    const alreadyImported = Boolean(session.alreadyImported) || isImportedSourceSession("telegram", session.sourceSessionKey);
+    const alreadyImported = isImportedSourceSession("telegram", session.sourceSessionKey);
     const repaired = alreadyImported ? repairImportedSessionSpace("telegram", session.sourceSessionKey, targetSpaceId) : false;
     if (alreadyImported) {
       return { type: "skipped" as const, value: { sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired } };
@@ -2507,6 +2590,22 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
       ? String(session.proposedName || session.topicName || "Telegram import")
       : String(session.proposedName || "Telegram import");
     if (dryRun) return { type: "imported" as const, value: { sourceSessionKey: session.sourceSessionKey, name: label, copiedMessages: sourceMessages.length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], dryRun: true } };
+    const revived = reviveImportedPlatformIdentity("telegram", {
+      sourceSessionKey: session.sourceSessionKey,
+      targetSpaceId,
+      label,
+      agentId: parsed.agentId,
+    });
+    if (revived) {
+      persistImportedChatMessages(context, {
+        sessionKey: revived.desktopSessionKey,
+        sessionId: String(session.sourceSessionId || revived.desktopSessionKey),
+        transcriptPath: String(session.sourceSessionFile || ""),
+        label,
+        messages: sourceMessages,
+      });
+      return { type: "imported" as const, value: { sourceSessionKey: session.sourceSessionKey, desktopSessionKey: revived.desktopSessionKey, chatId: revived.chat.id, projectId: null, topicId: null, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], reusedTombstone: true } };
+    }
     try {
       const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-telegram-${crypto.randomUUID()}`;
       // Transcript-discovered Telegram topics often do not exist in the
@@ -2591,17 +2690,34 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
     if (selectedKeys && !selectedKeys.has(session.sourceSessionKey)) continue;
     const parsed = parseDiscordSessionKey(session.sourceSessionKey);
     if (!parsed) continue;
-    const alreadyImported = Boolean(session.alreadyImported) || isImportedSourceSession("discord", session.sourceSessionKey);
+    const alreadyImported = isImportedSourceSession("discord", session.sourceSessionKey);
     const repaired = alreadyImported ? repairImportedSessionSpace("discord", session.sourceSessionKey, targetSpaceId) : false;
     if (alreadyImported) {
       skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired });
       continue;
     }
     const sourceMessages = transcriptMessagesFromJsonl(session.sourceSessionFile);
-    if (dryRun) { imported.push({ sourceSessionKey: session.sourceSessionKey, name: session.proposedName, copiedMessages: sourceMessages.length, dryRun: true }); continue; }
+    const label = session.proposedName || "Discord import";
+    if (dryRun) { imported.push({ sourceSessionKey: session.sourceSessionKey, name: label, copiedMessages: sourceMessages.length, dryRun: true }); continue; }
+    const revived = reviveImportedPlatformIdentity("discord", {
+      sourceSessionKey: session.sourceSessionKey,
+      targetSpaceId,
+      label,
+      agentId: parsed.agentId,
+    });
+    if (revived) {
+      persistImportedChatMessages(context, {
+        sessionKey: revived.desktopSessionKey,
+        sessionId: String(session.sourceSessionId || revived.desktopSessionKey),
+        transcriptPath: String(session.sourceSessionFile || ""),
+        label,
+        messages: sourceMessages,
+      });
+      imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey: revived.desktopSessionKey, chatId: revived.chat.id, projectId: null, topicId: null, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, reusedTombstone: true });
+      continue;
+    }
     try {
       const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-discord-${crypto.randomUUID()}`;
-      const label = session.proposedName || "Discord import";
       const created = await context.gateway.request<CompatRecord>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label: gatewaySessionLabel(label, desktopSessionKey), parentSessionKey: session.sourceSessionKey }, 30_000);
       const transcriptPath = sessionFileFromCreateResult(created);
       if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
@@ -2921,6 +3037,9 @@ async function syncGatewaySessionsUncached(context: AppContext) {
         continue;
       }
       if (!isDesktopSession) continue;
+      // Imported desktop sessions are local projections. A local delete keeps a
+      // tombstone so Gateway's still-live session cannot recreate that import.
+      if (tombstonedImportedDesktopSession(sessionKey)) continue;
       syncedSessionKeys.add(sessionKey);
       const name = labelFromGatewaySession(row, sessionKey);
       const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";
@@ -3135,20 +3254,32 @@ function restoreChatsForSpace(spaceId: string) {
 async function deleteCompatChat(context: AppContext, chatId: string) {
   const chat = compatState.chats.find((record) => record.id === chatId);
   const sessionKey = typeof chat?.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
-  const importedSession = sessionKey
-    ? compatState.sessions.find((session) => (session.sessionKey === sessionKey || session.key === sessionKey) && session.importedFrom?.kind)
-    : null;
-  const importedLocalOnly = Boolean(chat?.importedFrom?.kind || importedSession?.importedFrom?.kind);
+  const importedIdentityIds = sessionKey ? importedIdentityIdsForSessionKeys([sessionKey]) : new Set<string>();
+  const importedLocalOnly = importedIdentityIds.size > 0;
 
-  compatState.chats = compatState.chats.filter((record) => record.id !== chatId);
-  if (sessionKey) {
-    compatState.sessions = compatState.sessions.filter((session) => session.sessionKey !== sessionKey && session.key !== sessionKey);
-    if (!importedLocalOnly) {
+  if (importedLocalOnly) {
+    // Keep the provenance record as a tombstone. Gateway retains the backing
+    // desktop session, so dropping this mapping would let sync recreate it as
+    // an unrelated Gateway chat.
+    tombstoneImportedIdentities(importedIdentityIds);
+    compatState.chats = compatState.chats.filter((record) => record.id !== chatId || Boolean(importedIdentityId(record)));
+    if (sessionKey) {
+      compatState.sessions = compatState.sessions.filter((session) => {
+        const recordKey = String(session.sessionKey || session.key || "");
+        return recordKey !== sessionKey || Boolean(importedIdentityId(session));
+      });
+    }
+  } else {
+    compatState.chats = compatState.chats.filter((record) => record.id !== chatId);
+    if (sessionKey) {
+      compatState.sessions = compatState.sessions.filter((session) => session.sessionKey !== sessionKey && session.key !== sessionKey);
       await Promise.allSettled([
         context.gateway.request("sessions.abort", { sessionKey }, 2_000),
         context.gateway.request("sessions.delete", { key: sessionKey, deleteTranscript: true }, 2_000),
       ]);
     }
+  }
+  if (sessionKey) {
     context.db.prepare("DELETE FROM v2_messages WHERE session_key = ?").run(sessionKey);
     context.db.prepare("DELETE FROM v2_runs WHERE session_key = ?").run(sessionKey);
     context.db.prepare("DELETE FROM v2_tool_calls WHERE session_key = ?").run(sessionKey);
@@ -4875,22 +5006,39 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.delete("/api/chats", async () => {
     const allChats = compatState.chats.filter(notDeleted);
     const deletedIds: string[] = [];
-    const sessionKeys: string[] = [];
+    const sessionKeys = new Set<string>();
 
     for (const chat of allChats) {
       const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
       deletedIds.push(chat.id);
-      if (sessionKey) sessionKeys.push(sessionKey);
+      if (sessionKey) sessionKeys.add(sessionKey);
     }
 
-    // Clear compat state (local only — do NOT touch Gateway sessions)
-    compatState.chats = compatState.chats.filter((c) => !deletedIds.includes(c.id));
-    compatState.sessions = compatState.sessions.filter(
-      (s) => !sessionKeys.includes(s.sessionKey) && !sessionKeys.includes(s.key ?? "")
-    );
+    // Imported sessions remain in Gateway by design. Persist all live imported
+    // identities as tombstones before clearing local projections, including
+    // imports with a session shell but no current chat row.
+    const importedIdentityIds = new Set([...compatState.sessions, ...compatState.chats]
+      .filter(notDeleted)
+      .map(importedIdentityId)
+      .filter((identity): identity is string => Boolean(identity)));
+    for (const record of [...compatState.sessions, ...compatState.chats]) {
+      if (!importedIdentityIds.has(importedIdentityId(record) || "")) continue;
+      const sessionKey = String(record.sessionKey || record.key || "").trim();
+      if (sessionKey) sessionKeys.add(sessionKey);
+    }
+    tombstoneImportedIdentities(importedIdentityIds);
+
+    // Clear local compat projections, retaining only imported provenance
+    // tombstones so Gateway sync cannot resurrect deleted imports.
+    compatState.chats = compatState.chats.filter((record) => Boolean(importedIdentityId(record)) || !deletedIds.includes(record.id));
+    compatState.sessions = compatState.sessions.filter((record) => {
+      if (importedIdentityId(record)) return true;
+      const sessionKey = String(record.sessionKey || record.key || "");
+      return !sessionKeys.has(sessionKey);
+    });
     saveCompatState(context);
 
-    // Clean up local SQLite projections only
+    // Clean up local SQLite projections only.
     for (const sk of sessionKeys) {
       try {
         context.db.prepare("DELETE FROM v2_messages WHERE session_key = ?").run(sk);
@@ -4904,7 +5052,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       } catch {}
     }
 
-    return { ok: true, deleted: deletedIds.length, sessionsCleaned: sessionKeys.length };
+    return { ok: true, deleted: deletedIds.length, sessionsCleaned: sessionKeys.size };
   });
 
   app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request) => {
