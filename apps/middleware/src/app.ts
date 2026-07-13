@@ -16,6 +16,7 @@ import { registerGatewayRoutes } from "./features/gateway/routes.js";
 import { registerDiagnosticsRoutes } from "./features/diagnostics/routes.js";
 import { registerChatRoutes } from "./features/chat/routes.js";
 import { registerCompatRoutes } from "./features/compat/routes.js";
+import { ImportProvenanceRepository } from "./features/migration/provenance-repository.js";
 import { registerSkillRoutes } from "./features/skills/routes.js";
 import { createLogger, errorMeta, safePathFromUrl } from "./lib/logger.js";
 
@@ -28,6 +29,7 @@ export type AppContext = {
   chatLive: ChatLiveIngest;
   sendQueue: SessionSendQueue;
   patchBus: PatchBus;
+  importProvenance: ImportProvenanceRepository;
   compat?: {
     touchChatActivity: (input: { sessionKey: string; at?: string; lastMessageText?: string | null }) => void;
     hydrateImportedChatHistory?: (sessionKey: string) => Promise<{ hydrated: boolean; reason?: string; upserted?: number; copiedMessages?: number }>;
@@ -57,6 +59,8 @@ export async function createApp(config: MiddlewareConfig) {
     createLogger("chat-cleanup").warn("startup.stale-activity-finalized", startupStaleCleanup);
   }
   const patchBus = new PatchBus();
+  const importProvenance = new ImportProvenanceRepository(db);
+  importProvenance.backfillLegacyCompatState();
   const context: AppContext = {
     config,
     gateway,
@@ -66,6 +70,7 @@ export async function createApp(config: MiddlewareConfig) {
     chatLive: undefined as unknown as ChatLiveIngest,
     sendQueue: new SessionSendQueue(),
     patchBus,
+    importProvenance,
     startedAtMs: Date.now(),
   };
   context.chatLive = new ChatLiveIngest(context);
