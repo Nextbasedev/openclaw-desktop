@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 5;
 
 const schema = `
 CREATE TABLE IF NOT EXISTS v2_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -76,6 +76,20 @@ CREATE INDEX IF NOT EXISTS idx_v2_projection_events_session_cursor_non_bootstrap
 CREATE TABLE IF NOT EXISTS v2_gateway_offsets (session_key TEXT PRIMARY KEY, last_openclaw_seq INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS v2_compat_state (key TEXT PRIMARY KEY, data_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS v2_secret_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS v2_import_provenance (
+  desktop_session_key TEXT PRIMARY KEY,
+  platform_kind TEXT NOT NULL,
+  source_session_key TEXT NOT NULL,
+  source_session_id TEXT,
+  platform_space_id TEXT,
+  lifecycle TEXT NOT NULL DEFAULT 'active' CHECK(lifecycle IN ('active', 'local_delete_tombstone')),
+  metadata_version INTEGER NOT NULL DEFAULT 1,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_v2_import_provenance_lifecycle ON v2_import_provenance(lifecycle);
+CREATE INDEX IF NOT EXISTS idx_v2_import_provenance_source ON v2_import_provenance(platform_kind, source_session_key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_v2_import_provenance_active_source ON v2_import_provenance(platform_kind, source_session_key) WHERE lifecycle = 'active';
 `;
 
 function addColumnIfMissing(db: Database.Database, table: string, column: string, definition: string) {
@@ -132,7 +146,45 @@ function backfillLegacyMessageSegments(db: Database.Database) {
   tx();
 }
 
+function rebuildImportProvenanceIfLegacy(db: Database.Database) {
+  // Legacy v4 CREATE TABLE included `UNIQUE(platform_kind, source_session_key)`
+  // which prevents keeping tombstones for previously imported desktop session
+  // keys. Detect it and rebuild the table without the compound uniqueness so
+  // Gateway sync can never resurrect a re-imported source session.
+  const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='v2_import_provenance'").get() as { name?: string } | undefined;
+  if (!tableExists) return;
+  const indexes = db.prepare("PRAGMA index_list('v2_import_provenance')").all() as Array<{ name?: string; unique?: number; origin?: string }>;
+  const hasLegacyCompoundUnique = indexes.some((entry) => entry.unique === 1 && entry.origin === "u" && typeof entry.name === "string" && entry.name.startsWith("sqlite_autoindex_v2_import_provenance"));
+  if (!hasLegacyCompoundUnique) return;
+  const tx = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE v2_import_provenance_new (
+        desktop_session_key TEXT PRIMARY KEY,
+        platform_kind TEXT NOT NULL,
+        source_session_key TEXT NOT NULL,
+        source_session_id TEXT,
+        platform_space_id TEXT,
+        lifecycle TEXT NOT NULL DEFAULT 'active' CHECK(lifecycle IN ('active', 'local_delete_tombstone')),
+        metadata_version INTEGER NOT NULL DEFAULT 1,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL
+      );
+      INSERT INTO v2_import_provenance_new(
+        desktop_session_key, platform_kind, source_session_key, source_session_id,
+        platform_space_id, lifecycle, metadata_version, created_at_ms, updated_at_ms
+      )
+      SELECT desktop_session_key, platform_kind, source_session_key, source_session_id,
+             platform_space_id, lifecycle, metadata_version, created_at_ms, updated_at_ms
+      FROM v2_import_provenance;
+      DROP TABLE v2_import_provenance;
+      ALTER TABLE v2_import_provenance_new RENAME TO v2_import_provenance;
+    `);
+  });
+  tx();
+}
+
 export function migrateDatabase(db: Database.Database) {
+  rebuildImportProvenanceIfLegacy(db);
   db.exec(schema);
   addColumnIfMissing(db, "v2_messages", "segment_id", "segment_id TEXT");
   addColumnIfMissing(db, "v2_messages", "session_id", "session_id TEXT");
