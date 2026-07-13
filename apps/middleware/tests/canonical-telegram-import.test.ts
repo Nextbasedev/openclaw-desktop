@@ -83,6 +83,7 @@ describe("canonical Telegram import", () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
     const historyCalls: Array<{ sessionKey: unknown; limit: unknown }> = [];
+    vi.spyOn(context.gateway, "status").mockReturnValue(FAKE_STATUS);
     vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, params?: Record<string, unknown>) => {
       if (method === "sessions.create") throw new Error("canonical import must not call sessions.create");
       if (method === "chat.history") {
@@ -93,7 +94,8 @@ describe("canonical Telegram import", () => {
       return {};
     });
 
-    const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [sourceKey] } });
+    const scan = await app.inject({ method: "GET", url: "/api/migration/telegram/scan" });
+    const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [sourceKey], scanToken: scan.json().scanToken } });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.summary).toMatchObject({ imported: 1, skipped: 0, failed: 0 });
@@ -104,6 +106,7 @@ describe("canonical Telegram import", () => {
       sourceOrigin: "gateway",
     });
     expect(body.imported[0].archiveOnly).not.toBe(true);
+    expect((context.gateway.request as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter((call) => call[0] === "sessions.list")).toHaveLength(1);
 
     // Provenance table entry mirrors the canonical key mapping.
     const durable = context.importProvenance.findByDesktopSessionKey(sourceKey);

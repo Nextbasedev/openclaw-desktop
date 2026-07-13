@@ -934,6 +934,29 @@ function transcriptFilesMessageCount(files: string[]) {
 }
 
 let telegramDiscoveryCache: { cacheKey: string; expiresAt: number; result: { index: CompatRecord; source: TelegramDiscoverySource; failures: TelegramDiscoveryFailure[] } } | null = null;
+const telegramImportScanCache = new Map<string, { expiresAt: number; sessions: CompatRecord[] }>();
+
+function cacheTelegramImportScan(sessions: CompatRecord[]) {
+  const now = Date.now();
+  for (const [token, entry] of telegramImportScanCache) {
+    if (entry.expiresAt <= now) telegramImportScanCache.delete(token);
+  }
+  const token = crypto.randomUUID();
+  telegramImportScanCache.set(token, { expiresAt: now + 5 * 60_000, sessions });
+  return token;
+}
+
+function telegramImportScanFromToken(token: unknown) {
+  const key = typeof token === "string" ? token.trim() : "";
+  if (!key) return null;
+  const entry = telegramImportScanCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    telegramImportScanCache.delete(key);
+    return null;
+  }
+  return entry.sessions;
+}
 
 function discoveredTelegramTranscriptEntries(agentId: string, knownIndex: CompatRecord = {}) {
   const now = Date.now();
@@ -2737,9 +2760,13 @@ async function createEditPreview(context: AppContext, input: CompatRecord) {
   };
 }
 
-async function importTelegramSessions(context: AppContext, input: CompatRecord = {}) {
+async function importTelegramSessions(context: AppContext, input: CompatRecord = {}, scannedSessions?: CompatRecord[] | null) {
   loadCompatState(context);
-  const scan = await scanTelegramSessions(context, input);
+  // The Desktop first scans, then imports that exact server-cached snapshot.
+  // This prevents an Import click from making a second Gateway sessions.list
+  // request and avoids importing conversations that appeared after review.
+  // The scan fallback remains for API clients that do not have a scan token.
+  const scan = scannedSessions ? { sessions: scannedSessions } : await scanTelegramSessions(context, input);
   const selectedKeys = Array.isArray(input.sourceSessionKeys) && input.sourceSessionKeys.length > 0 ? new Set(input.sourceSessionKeys.map(String)) : null;
   const dryRun = Boolean(input.dryRun);
   const targetSpaceId = dryRun ? activeSpaceId() : String(ensureImportedPlatformSpace("telegram").id);
@@ -6561,8 +6588,14 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   // --- migrations ---
-  app.get("/api/migration/telegram/scan", async (request) => scanTelegramSessions(context, (request.query ?? {}) as CompatRecord));
-  app.post("/api/migration/telegram/import", async (request) => importTelegramSessions(context, ((request.body ?? {}) as CompatRecord).input ?? (request.body ?? {}) as CompatRecord));
+  app.get("/api/migration/telegram/scan", async (request) => {
+    const scan = await scanTelegramSessions(context, (request.query ?? {}) as CompatRecord);
+    return { ...scan, scanToken: cacheTelegramImportScan(scan.sessions) };
+  });
+  app.post("/api/migration/telegram/import", async (request) => {
+    const input = ((request.body ?? {}) as CompatRecord).input ?? (request.body ?? {}) as CompatRecord;
+    return importTelegramSessions(context, input, telegramImportScanFromToken(input.scanToken));
+  });
   app.get("/api/migration/discord/scan", async (request) => scanDiscordSessions(context, (request.query ?? {}) as CompatRecord));
   app.post("/api/migration/discord/import", async (request) => importDiscordSessions(context, ((request.body ?? {}) as CompatRecord).input ?? (request.body ?? {}) as CompatRecord));
   app.post("/api/migration/v1-sqlite/import", async (request) => {

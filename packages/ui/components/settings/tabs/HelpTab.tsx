@@ -88,6 +88,7 @@ type MiddlewareUpdateBranchesResponse = {
 }
 
 type SessionMigrationScan = {
+  scanToken?: string
   sessions?: Array<Record<string, unknown>>
   summary?: {
     total?: number
@@ -781,11 +782,13 @@ function SessionMigrationCard({ platform }: { platform: SessionMigrationPlatform
     setBusy("import")
     setError(null)
     try {
-      const imported = await invoke<SessionMigrationImport>(`middleware_migration_${platform}_import`)
+      const imported = await invoke<SessionMigrationImport>(`middleware_migration_${platform}_import`, {
+        ...(platform === "telegram" && scan?.scanToken ? { scanToken: scan.scanToken } : {}),
+      })
       setResult(imported)
       invalidateMiddlewareStartupBootstrap()
       emit("sidebar:refresh")
-      setScan(await invoke<SessionMigrationScan>(`middleware_migration_${platform}_scan`))
+      setScan(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
