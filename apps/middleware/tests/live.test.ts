@@ -117,6 +117,47 @@ describe("patch replay", () => {
 });
 
 describe("chat live ingest", () => {
+  test("session.message preserves the canonical imported source key in middleware patches", async () => {
+    const app = await createApp(config("canonical-imported-source-key-live-patch"));
+    const context = contextOf(app);
+    const sourceSessionKey = "agent:main:telegram:group:-1001:topic:42";
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    await context.chatLive.ensureSessionSubscribed(sourceSessionKey);
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: sourceSessionKey,
+        messageSeq: 1,
+        message: {
+          role: "assistant",
+          text: "Canonical source-key patch",
+          __openclaw: { id: "canonical-source-message", seq: 1 },
+        },
+      },
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.upsert",
+        sessionKey: sourceSessionKey,
+        payload: expect.objectContaining({
+          sessionKey: sourceSessionKey,
+          messageId: "canonical-source-message",
+        }),
+      }),
+    ]));
+    await app.close();
+  });
+
   test("assistant message without run id binds to oldest unanswered pending run", async () => {
     const app = await createApp(config("assistant-oldest-pending-run"));
     const context = contextOf(app);

@@ -2060,11 +2060,11 @@ describe("imported session 160-message window contract", () => {
     await app.close();
   });
 
-  test("imported session gateway-refill is skipped (no wasted chat.history on older-page)", async () => {
+  test("canonical imported session refills an older-page miss with one direct-source Gateway history call", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
-    const sessionKey = "agent:main:desktop:migrated-telegram-refill";
-    const sourceSessionKey = "agent:main:telegram:group:-1001:topic:42";
+    const sessionKey = "agent:main:telegram:group:-1001:topic:42";
+    const sourceSessionKey = sessionKey;
     mockGatewayHistory(context, sessionKey, TOTAL, true);
     markImported(context, sessionKey, sourceSessionKey);
     // Intentionally leave local projection EMPTY so the refill path would fire
@@ -2078,8 +2078,11 @@ describe("imported session 160-message window contract", () => {
     const historyCalls = (context.gateway.request as ReturnType<typeof vi.fn>).mock.calls.filter(
       ([method]) => method === "chat.history",
     );
-    // Phase B semantic: at most one chat.history is issued via source-key backfill.
-    expect(historyCalls.length).toBeLessThanOrEqual(1);
+    // Canonical imports keep the original source key as their desktop key. A
+    // local older-page miss must therefore call Gateway once with that same
+    // key, rather than skipping the refill or issuing a redundant duplicate.
+    expect(historyCalls).toHaveLength(1);
+    expect(historyCalls[0]?.[1]).toEqual(expect.objectContaining({ sessionKey }));
     await app.close();
   });
 
