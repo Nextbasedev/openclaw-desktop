@@ -32,6 +32,31 @@ function telegramLine(groupId: string, topicId: string, topicName: string, text 
   });
 }
 
+function telegramDirectLine(userId: string, text = "message") {
+  const meta = JSON.stringify({
+    chat_id: `telegram:${userId}`,
+    is_group_chat: false,
+  });
+  return JSON.stringify({
+    type: "message",
+    id: `direct-${userId}`,
+    timestamp: "2026-07-13T00:00:00.000Z",
+    message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\n${text}` },
+  });
+}
+
+function nonTelegramSenderLine(senderId: string, text = "hi") {
+  // Metadata carries a `sender_id` but no Telegram-scoped chat_id or
+  // platform marker. Discovery must NOT infer Telegram from this alone.
+  const meta = JSON.stringify({ sender_id: senderId, chat_type: "dm" });
+  return JSON.stringify({
+    type: "message",
+    id: `bare-${senderId}`,
+    timestamp: "2026-07-13T00:00:00.000Z",
+    message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\n${text}` },
+  });
+}
+
 function setupSessionsHome(prefix = "openclaw-telegram-discovery-") {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   vi.spyOn(os, "homedir").mockReturnValue(home);
@@ -76,20 +101,29 @@ describe("Telegram migration discovery", () => {
       "agent:main:telegram:group:-1001:topic:30",
     ]);
     expect(response.json().diagnostics.sources.gateway).toMatchObject({ status: "complete", pages: 2, accepted: 3 });
+    // Non-leakage: even on a successful Gateway path, diagnostics never
+    // expose raw exception text or continuation tokens.
+    const serialized = JSON.stringify(response.json().diagnostics);
+    expect(serialized).not.toMatch(/page-2/);
+    expect(serialized).not.toMatch(/Error/);
     await app.close();
   });
 
-  test("discovers nested and non-topic transcripts by metadata or exact index association, and reports rejected files", async () => {
+  test("discovers nested transcripts via verified Telegram identity or exact index association, and reports rejected files without leaking paths", async () => {
     const { sessionsDir } = setupSessionsHome();
     const nested = path.join(sessionsDir, "archive", "nested");
     fs.mkdirSync(nested, { recursive: true });
     const metadataWins = path.join(nested, "topic-999.jsonl");
     const nonTopic = path.join(nested, "conversation-export.jsonl");
+    const directTelegram = path.join(nested, "dm-export.jsonl");
     const indexed = path.join(nested, "not-a-topic.jsonl");
+    const nonTelegramSender = path.join(nested, "other-service-export.jsonl");
     const rejected = path.join(nested, "unrelated.jsonl");
     fs.writeFileSync(metadataWins, `${telegramLine("-1001", "42", "Metadata wins")}\n`);
     fs.writeFileSync(nonTopic, `${telegramLine("-1001", "43", "Nested export")}\n`);
+    fs.writeFileSync(directTelegram, `${telegramDirectLine("777001")}\n`);
     fs.writeFileSync(indexed, `${JSON.stringify({ type: "message", id: "plain", message: { role: "user", content: "No Telegram metadata" } })}\n`);
+    fs.writeFileSync(nonTelegramSender, `${nonTelegramSenderLine("777001")}\n`);
     fs.writeFileSync(rejected, `${JSON.stringify({ type: "message", id: "unrelated", message: { role: "user", content: "No useful metadata" } })}\n`);
     fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({
       "agent:main:telegram:group:-1001:topic:44": { sessionFile: indexed },
@@ -100,14 +134,44 @@ describe("Telegram migration discovery", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().sessions.map((session: { sourceSessionKey: string }) => session.sourceSessionKey).sort()).toEqual([
+      "agent:main:telegram:direct:777001",
       "agent:main:telegram:group:-1001:topic:42",
       "agent:main:telegram:group:-1001:topic:43",
       "agent:main:telegram:group:-1001:topic:44",
     ]);
-    expect(response.json().diagnostics.sources.transcripts).toMatchObject({ candidates: 4, accepted: 3, rejected: 1 });
-    expect(response.json().diagnostics.partialFailures).toEqual(expect.arrayContaining([
-      expect.objectContaining({ source: "transcripts", code: "unidentified_transcript", path: rejected }),
-    ]));
+    // Two rejects: the non-Telegram sender-only export and the unrelated file.
+    expect(response.json().diagnostics.sources.transcripts).toMatchObject({ candidates: 6, accepted: 4, rejected: 2 });
+    expect(response.json().diagnostics.partialFailures).toEqual([
+      { source: "transcripts", code: "unidentified_transcript", count: 2 },
+    ]);
+    // Non-leakage: response body must never surface absolute paths or raw
+    // exception messages from discovery diagnostics.
+    const serialized = JSON.stringify(response.json().diagnostics);
+    expect(serialized).not.toContain(sessionsDir);
+    expect(serialized).not.toContain(rejected);
+    expect(serialized).not.toContain(nonTelegramSender);
+    expect(serialized).not.toMatch(/\.jsonl/);
+    expect(serialized).not.toMatch(/ENOENT|EACCES|SyntaxError|Error:/);
+    await app.close();
+  });
+
+  test("rejects transcripts whose only Telegram-shaped signal is an arbitrary sender_id", async () => {
+    const { sessionsDir } = setupSessionsHome();
+    const bare = path.join(sessionsDir, "sender-only.jsonl");
+    fs.writeFileSync(bare, `${nonTelegramSenderLine("1234567")}\n`);
+
+    const app = await createApp(testConfig());
+    const response = await app.inject({ method: "GET", url: "/api/migration/telegram/scan?includeGateway=false" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().sessions).toEqual([]);
+    expect(response.json().diagnostics.sources.transcripts).toMatchObject({ candidates: 1, accepted: 0, rejected: 1 });
+    expect(response.json().diagnostics.partialFailures).toEqual([
+      { source: "transcripts", code: "unidentified_transcript", count: 1 },
+    ]);
+    const serialized = JSON.stringify(response.json());
+    expect(serialized).not.toContain(bare);
+    expect(serialized).not.toContain(sessionsDir);
     await app.close();
   });
 
@@ -153,8 +217,16 @@ describe("Telegram migration discovery", () => {
     ]);
     expect(response.json().diagnostics.sources.gateway).toMatchObject({ status: "partial", pages: 1 });
     expect(response.json().diagnostics.partialFailures).toEqual(expect.arrayContaining([
-      expect.objectContaining({ source: "gateway", code: "gateway_page_failed", cursor: "page-2" }),
+      { source: "gateway", code: "gateway_page_failed", count: 1 },
     ]));
+    // Non-leakage: partial failure summaries must never expose the raw
+    // continuation cursor or the underlying exception message.
+    const failuresSerialized = JSON.stringify(response.json().diagnostics.partialFailures);
+    expect(failuresSerialized).not.toContain("page-2");
+    expect(failuresSerialized).not.toMatch(/Gateway temporarily unavailable|Error:/);
+    for (const entry of response.json().diagnostics.partialFailures as Array<Record<string, unknown>>) {
+      expect(Object.keys(entry).sort()).toEqual(["code", "count", "source"]);
+    }
     await app.close();
   });
 });

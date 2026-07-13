@@ -830,15 +830,34 @@ function gatewaySessionsDir(agentId = "main") {
   return path.dirname(gatewaySessionsIndexPath(agentId));
 }
 
+// Failure records are intentionally narrow: any UI-visible field must be
+// stable and non-sensitive. Absolute paths, raw exception messages, and
+// opaque Gateway cursors are deliberately excluded so scan diagnostics can
+// be surfaced to the desktop UI without leaking filesystem or transport
+// details.
 type TelegramDiscoveryFailure = {
   source: "disk" | "gateway" | "transcripts";
   code: string;
-  message?: string;
-  path?: string;
-  cursor?: string;
+};
+
+type TelegramDiscoveryFailureSummary = {
+  source: TelegramDiscoveryFailure["source"];
+  code: string;
+  count: number;
 };
 
 type TelegramDiscoverySource = CompatRecord;
+
+function summarizeTelegramDiscoveryFailures(failures: TelegramDiscoveryFailure[]): TelegramDiscoveryFailureSummary[] {
+  const counts = new Map<string, TelegramDiscoveryFailureSummary>();
+  for (const failure of failures) {
+    const key = `${failure.source}:${failure.code}`;
+    const existing = counts.get(key);
+    if (existing) existing.count += 1;
+    else counts.set(key, { source: failure.source, code: failure.code, count: 1 });
+  }
+  return [...counts.values()].sort((a, b) => a.source.localeCompare(b.source) || a.code.localeCompare(b.code));
+}
 
 function telegramTranscriptFiles(agentId: string) {
   const sessionsDir = gatewaySessionsDir(agentId);
@@ -858,8 +877,8 @@ function telegramTranscriptFiles(agentId: string) {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch (error) {
-      failures.push({ source: "transcripts", code: "transcript_directory_read_failed", path: dir, message: error instanceof Error ? error.message : String(error) });
+    } catch {
+      failures.push({ source: "transcripts", code: "transcript_directory_read_failed" });
       continue;
     }
     for (const entry of entries) {
@@ -940,7 +959,7 @@ function discoveredTelegramTranscriptEntries(agentId: string, knownIndex: Compat
         : (knownKeys.has(`agent:${agentId}:telegram:slash:${identity.userId}`) ? `agent:${agentId}:telegram:slash:${identity.userId}` : `agent:${agentId}:telegram:direct:${identity.userId}`)
       : null);
     if (!sourceSessionKey) {
-      failures.push({ source: "transcripts", code: "unidentified_transcript", path: file, message: "No Telegram metadata or exact session-index association" });
+      failures.push({ source: "transcripts", code: "unidentified_transcript" });
       continue;
     }
     const meta = telegramMetaFromMessages(messages);
@@ -1045,16 +1064,14 @@ async function gatewayTelegramSessionEntries(context: AppContext, agentId: strin
     }
       continuation = gatewayContinuation(payload);
       if (continuation && seenTokens.has(`${continuation.field}:${continuation.token}`)) {
-        failures.push({ source: "gateway", code: "gateway_cursor_repeated", cursor: continuation.token, message: "Gateway returned a repeated continuation token" });
+        failures.push({ source: "gateway", code: "gateway_cursor_repeated" });
         break;
       }
       if (continuation) seenTokens.add(`${continuation.field}:${continuation.token}`);
-    } catch (error) {
+    } catch {
       failures.push({
         source: "gateway",
         code: pages > 0 ? "gateway_page_failed" : "gateway_list_failed",
-        cursor: continuation?.token,
-        message: error instanceof Error ? error.message : String(error),
       });
       break;
     }
@@ -1161,16 +1178,25 @@ function telegramMetaFromMessages(messages: CompatRecord[]) {
 
 
 function telegramIdentityFromMessages(messages: CompatRecord[]) {
+  // Recursive transcript discovery must only accept transcripts whose
+  // conversation-info metadata explicitly identifies Telegram. A bare
+  // `sender_id` (which many non-Telegram transcript formats also emit) is
+  // NOT sufficient: we require a Telegram-scoped `chat_id` ("telegram:<id>")
+  // or an explicit platform marker. Transcripts without a verified Telegram
+  // identity must instead rely on exact session-index association upstream.
   for (const message of messages) {
     const meta = parseConversationInfo(firstTextContent(message.content));
     if (!meta) continue;
-    const chatId = String(meta.chat_id || "").replace(/^telegram:/, "").trim();
+    const rawChatId = String(meta.chat_id || "");
+    const platform = String(meta.platform || "").toLowerCase();
+    const isTelegramScope = /^telegram:/i.test(rawChatId) || platform === "telegram";
+    if (!isTelegramScope) continue;
+    const chatId = rawChatId.replace(/^telegram:/i, "").trim();
+    if (!chatId) continue;
     const topicId = meta.topic_id === undefined || meta.topic_id === null ? null : String(meta.topic_id);
     const isGroup = Boolean(meta.is_group_chat) || meta.chat_type === "group" || Boolean(meta.group_subject);
-    if (isGroup && chatId) return { kind: "group" as const, groupId: chatId, topicId };
-    const senderId = String(meta.sender_id || "").trim();
-    const userId = senderId || chatId;
-    if (userId) return { kind: "direct" as const, userId };
+    if (isGroup) return { kind: "group" as const, groupId: chatId, topicId };
+    return { kind: "direct" as const, userId: chatId };
   }
   return null;
 }
@@ -1982,7 +2008,8 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
       diskSource = { status: "complete", candidates: Object.keys(diskIndex).length, accepted: Object.keys(diskIndex).length };
     } catch (error) {
       diskSource = { status: "failed", candidates: 0, accepted: 0 };
-      failures.push({ source: "disk", code: "session_index_read_failed", path: diskIndexPath, message: error instanceof Error ? error.message : String(error) });
+      void error;
+      failures.push({ source: "disk", code: "session_index_read_failed" });
     }
   }
   const gateway = input.includeGateway === false || input.includeGateway === "false"
@@ -2070,7 +2097,7 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
         gateway: gateway.source,
         transcripts: discovered.source,
       },
-      partialFailures: failures,
+      partialFailures: summarizeTelegramDiscoveryFailures(failures),
     },
   };
 }
