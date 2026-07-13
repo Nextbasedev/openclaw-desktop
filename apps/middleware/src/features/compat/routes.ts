@@ -2097,6 +2097,14 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
   const discovered = discoveredTelegramTranscriptEntries(agentId, { ...gateway.index, ...diskIndex });
   failures.push(...gateway.failures, ...discovered.failures);
   const index = mergeTelegramSessionIndexes(discovered.index, gateway.index, diskIndex);
+  // Canonical (2026-07-13): a source is Gateway-backed iff it appears in the
+  // Gateway sessions index or on-disk sessions.json. Discovery-only transcript
+  // entries synthesize a filename-derived sessionId, so we must NOT infer
+  // Gateway backing from a non-empty sessionId alone.
+  const gatewayBackedKeys = new Set<string>([
+    ...Object.keys(gateway.index || {}),
+    ...Object.keys(diskIndex || {}),
+  ]);
   const limit = Math.max(0, Number(input.limit || 0));
   const usedNames = new Set<string>();
   // Scans consider only *active* provenance:
@@ -2154,6 +2162,7 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
       topicId: parsed.kind === "group" ? parsed.topicId : undefined,
       topicName: parsed.kind === "group" ? topicName : undefined,
       alreadyImported: importedKeys.has(sourceSessionKey),
+      gatewayBacked: gatewayBackedKeys.has(sourceSessionKey),
     };
   }).filter(Boolean) as CompatRecord[];
   sessions.sort((left, right) => {
@@ -2778,38 +2787,109 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
       return { type: "imported" as const, value: { sourceSessionKey: session.sourceSessionKey, desktopSessionKey: revived.desktopSessionKey, chatId: revived.chat.id, projectId: null, topicId: null, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], reusedTombstone: true } };
     }
     try {
-      const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-telegram-${crypto.randomUUID()}`;
-      // Transcript-discovered Telegram topics often do not exist in the
-      // Gateway sessions index, so linking them as parentSessionKey makes
-      // sessions.create fail. Preserve source linkage in compat importedFrom
-      // metadata instead; the copied transcript is the durable history.
-      const created = await context.gateway.request<CompatRecord>("sessions.create", {
-        key: desktopSessionKey,
-        agentId: parsed.agentId,
-        label: gatewaySessionLabel(label, desktopSessionKey),
-        metadata: gatewayMigrationMetadata({ platformKind: "telegram", sourceSessionKey: String(session.sourceSessionKey), sourceSessionId: typeof session.sourceSessionId === "string" ? session.sourceSessionId : null }),
-      }, 30_000);
-      const transcriptPath = sessionFileFromCreateResult(created);
-      if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
-      copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
-      const sessionId = sessionIdFromCreateResult(created, desktopSessionKey);
-      persistImportedChatMessages(context, { sessionKey: desktopSessionKey, sessionId, transcriptPath, label, messages: sourceMessages });
+      // Canonical Gateway import (2026-07-13): the imported session keeps its
+      // original Gateway sourceSessionKey as its desktop session key. There is
+      // no sessions.create, no clone, no fabricated Gateway transcript. Gateway
+      // history, live subscription, projection cache, and UI events all key on
+      // the exact same sourceSessionKey. See
+      // docs/plans/2026-07-13-platform-import-reliability-system-design.md
+      // and openclaw-power-dashboard for the direct-session-key reference flow.
+      //
+      // Gateway-backed vs transcript-only is decided from scan output: any
+      // session with a non-empty sourceSessionId came from the Gateway sessions
+      // index and can serve live history; sessions discovered only through
+      // JSONL archives are archive-only (no live subscription possible).
+      const desktopSessionKey = String(session.sourceSessionKey);
+      const rawSourceSessionId = typeof session.sourceSessionId === "string" ? session.sourceSessionId.trim() : "";
+      // Gateway-backed iff scan confirmed presence in gateway index or on-disk
+      // sessions.json. Transcript-discovery synthesizes a sessionId from the
+      // filename so a non-empty sessionId is not sufficient evidence.
+      const isGatewayBacked = session.gatewayBacked === true;
+      const sourceOrigin: "gateway" | "transcript" = isGatewayBacked ? "gateway" : "transcript";
       const timestamp = nowIso();
       context.importProvenance.upsert({
         desktopSessionKey,
         platformKind: "telegram",
-        sourceSessionKey: String(session.sourceSessionKey),
-        sourceSessionId: typeof session.sourceSessionId === "string" ? session.sourceSessionId : null,
+        sourceSessionKey: desktopSessionKey,
+        sourceSessionId: isGatewayBacked ? rawSourceSessionId : null,
         platformSpaceId: targetSpaceId,
         lifecycle: "active",
       });
-      compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId: null, topicId: null, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
-      const chat = ensureImportedFlatChat("telegram", { sourceSessionKey: session.sourceSessionKey, targetSpaceId, label, sessionKey: desktopSessionKey, agentId: parsed.agentId, timestamp });
-      // Fire-and-forget pre-warm: don't block the import loop since each
-      // prewarm can take seconds. The first chat open will still be fast
-      // if prewarm finishes in the background before the user clicks.
-      void prewarmArchivedHistory(context, desktopSessionKey).catch(() => { /* non-fatal */ });
-      return { type: "imported" as const, value: { sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId: chat.id, projectId: null, topicId: null, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], transcriptPath } };
+      compatState.sessions.push({
+        id: stableCompatId("session", desktopSessionKey),
+        key: desktopSessionKey,
+        sessionKey: desktopSessionKey,
+        label,
+        agentId: parsed.agentId,
+        status: "idle",
+        hidden: false,
+        spaceId: targetSpaceId,
+        projectId: null,
+        topicId: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        importedFrom: {
+          kind: "telegram",
+          sourceSessionKey: desktopSessionKey,
+          ...(isGatewayBacked ? { sourceSessionId: rawSourceSessionId } : {}),
+          sourceOrigin,
+          ...(isGatewayBacked ? {} : { archiveOnly: true }),
+        },
+      });
+      const chat = ensureImportedFlatChat("telegram", {
+        sourceSessionKey: desktopSessionKey,
+        targetSpaceId,
+        label,
+        sessionKey: desktopSessionKey,
+        agentId: parsed.agentId,
+        timestamp,
+      });
+      let copiedMessages = 0;
+      let transcriptPath: string | null = null;
+      if (!isGatewayBacked) {
+        // Transcript-only source: persist the local JSONL history into the
+        // projection so the chat can render offline history. There is still
+        // no sessions.create call; Gateway simply has no session for this key
+        // and live subscription will remain empty (archive-only).
+        transcriptPath = String(session.sourceSessionFile || "");
+        const localSessionId = desktopSessionKey; // no Gateway sessionId available
+        persistImportedChatMessages(context, {
+          sessionKey: desktopSessionKey,
+          sessionId: localSessionId,
+          transcriptPath,
+          label,
+          messages: sourceMessages,
+        });
+        copiedMessages = sourceMessages.filter((message) => message.role !== "system").length;
+      } else {
+        // Gateway-backed source: NEVER copy transcript locally; live Gateway
+        // history projection under the same key is the durable source of truth
+        // (bootstrap + older-page fallback in chat/routes.ts handle projection).
+        // Fire-and-forget prewarm using the canonical key for both sessionKey
+        // and sourceSessionKey so the first chat open is warm.
+        void ensureGatewayHistoryProjected(context, desktopSessionKey, {
+          sourceSessionKey: desktopSessionKey,
+          limit: 1000,
+        }).catch(() => { /* non-fatal */ });
+      }
+      return {
+        type: "imported" as const,
+        value: {
+          sourceSessionKey: desktopSessionKey,
+          desktopSessionKey,
+          chatId: chat.id,
+          projectId: null,
+          topicId: null,
+          spaceId: targetSpaceId,
+          name: label,
+          copiedMessages,
+          archivedTranscriptFiles: session.archivedTranscriptFiles ?? [],
+          sourceOrigin,
+          canonicalDesktopSessionKey: true,
+          archiveOnly: !isGatewayBacked,
+          ...(transcriptPath ? { transcriptPath } : {}),
+        },
+      };
     } catch (error) {
       return { type: "failed" as const, value: { sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) } };
     }

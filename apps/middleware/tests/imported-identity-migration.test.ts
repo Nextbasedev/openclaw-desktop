@@ -92,13 +92,23 @@ describe("durable imported identity", () => {
     db.close();
 
     const app = await createApp(testConfig);
-    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
-    context.gateway.request = vi.fn(async (method: string) => method === "sessions.create" ? { payload: { entry: { sessionFile: targetFile } } } : {});
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> }; importProvenance: ImportProvenanceRepository } }).v2Context;
+    // Canonical new import: keep the original Gateway sourceSessionKey as the
+    // desktop session key. sessions.create must never be called; if it is, we
+    // return an error to make regressions obvious.
+    context.gateway.request = vi.fn(async (method: string) => {
+      if (method === "sessions.create") throw new Error("canonical telegram import must not call sessions.create");
+      if (method === "chat.history") return { sessionId: "42", sessionFile: targetFile, status: "done", messages: [] };
+      return {};
+    });
     const imported = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [key], skipAlreadyImported: false } });
     expect(imported.json().summary).toMatchObject({ imported: 1 });
-    expect(context.gateway.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({
-      metadata: gatewayMigrationMetadata({ platformKind: "telegram", sourceSessionKey: key, sourceSessionId: "42" }),
-    }), 30_000);
+    expect(context.gateway.request.mock.calls.filter(([method]) => method === "sessions.create")).toHaveLength(0);
+    // Provenance stores the original source session key as desktopSessionKey.
+    expect(context.importProvenance.findByDesktopSessionKey(key)).toMatchObject({ platformKind: "telegram", sourceSessionKey: key, sourceSessionId: "42", lifecycle: "active" });
+    // The versioned metadata payload is still derivable for Gateway sync/
+    // reconstruction, even though we did not call sessions.create here.
+    expect(gatewayMigrationMetadata({ platformKind: "telegram", sourceSessionKey: key, sourceSessionId: "42" })).toEqual({ openclawDesktop: { migration: { version: 1, platform: "telegram", sourceSessionKey: key, sourceSessionId: "42" } } });
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
     const spaces = bootstrap.json().spaces;
     expect(spaces).toEqual(expect.arrayContaining([expect.objectContaining({ id: "space_user_telegram", name: "Telegram" })]));
@@ -321,20 +331,20 @@ describe("durable imported identity", () => {
 
     const app = await createApp(config());
     const context = (app as typeof app & { v2Context: { db: Database.Database; importProvenance: ImportProvenanceRepository; gateway: { status: ReturnType<typeof vi.fn>; request: ReturnType<typeof vi.fn> } } }).v2Context;
-    let desktopSessionKey = "";
+    let gatewayCanonicalKey = "";
     context.gateway.status = vi.fn(() => ({ connected: true, lastError: null }));
-    context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
-      if (method === "sessions.create") {
-        desktopSessionKey = String(params?.key);
-        return { payload: { entry: { sessionFile: targetFile } }, label: params?.label };
-      }
-      if (method === "sessions.list") return { sessions: desktopSessionKey ? [{ key: desktopSessionKey, label: "Topic 9", agentId: "main" }] : [] };
+    context.gateway.request = vi.fn(async (method: string) => {
+      if (method === "sessions.create") throw new Error("canonical telegram import must not call sessions.create");
+      if (method === "sessions.list") return { sessions: gatewayCanonicalKey ? [{ key: gatewayCanonicalKey, label: "Topic 9", agentId: "main" }] : [] };
+      if (method === "chat.history") return { sessionId: "topic-9", sessionFile: sourceFile, status: "done", messages: [] };
       return {};
     });
 
     const first = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [sourceSessionKey] } });
     const firstDesktopSessionKey = first.json().imported[0].desktopSessionKey as string;
-    expect(firstDesktopSessionKey).toBe(desktopSessionKey);
+    // Canonical: desktopSessionKey == sourceSessionKey (no cloning, no fabrication).
+    expect(firstDesktopSessionKey).toBe(sourceSessionKey);
+    gatewayCanonicalKey = firstDesktopSessionKey;
     // C invariant: durable provenance active row exists
     expect(context.importProvenance.findByDesktopSessionKey(firstDesktopSessionKey)?.lifecycle).toBe("active");
     // Scan should mark this source as alreadyImported (active durable)
