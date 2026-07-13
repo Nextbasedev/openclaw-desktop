@@ -8,7 +8,7 @@ import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
 import { createLogger } from "../../lib/logger.js";
-import { prewarmArchivedHistory } from "../chat/routes.js";
+import { ensureGatewayHistoryProjected, prewarmArchivedHistory } from "../chat/routes.js";
 import {
   getActiveSkills,
   getSkillEnabledMap,
@@ -888,6 +888,14 @@ function mergeTelegramSessionIndexes(...indexes: CompatRecord[]) {
   return merged;
 }
 
+function transcriptMessageCount(sessionFile: string) {
+  return transcriptMessagesFromJsonl(sessionFile).length;
+}
+
+function transcriptFilesMessageCount(files: string[]) {
+  return files.reduce((sum, file) => sum + transcriptMessageCount(file), 0);
+}
+
 let telegramDiscoveryCache: { cacheKey: string; expiresAt: number; index: CompatRecord } | null = null;
 
 function discoveredTelegramTranscriptEntries(agentId: string, knownIndex: CompatRecord = {}) {
@@ -922,6 +930,7 @@ function discoveredTelegramTranscriptEntries(agentId: string, knownIndex: Compat
   const entries: CompatRecord = {};
   for (const [sourceSessionKey, bucket] of buckets) {
     const sourceSessionFile = bestTelegramTranscriptFile(bucket.files);
+    const relatedTranscriptFiles = bucket.files.filter((file) => file !== sourceSessionFile);
     const meta = bucket.meta ?? telegramMetaFromMessages(transcriptMessagesFromJsonl(sourceSessionFile, 80));
     entries[sourceSessionKey] = {
       agentId,
@@ -931,7 +940,9 @@ function discoveredTelegramTranscriptEntries(agentId: string, knownIndex: Compat
       groupSubject: meta?.groupSubject,
       topicName: meta?.topicName,
       displayName: meta?.groupSubject || meta?.sender,
-      relatedTranscriptFiles: bucket.files.filter((file) => file !== sourceSessionFile),
+      relatedTranscriptFiles,
+      messageCount: transcriptFilesMessageCount(bucket.files),
+      archivedMessageCount: transcriptFilesMessageCount(relatedTranscriptFiles),
       updatedAt: fs.statSync(sourceSessionFile, { throwIfNoEntry: false })?.mtimeMs ?? null,
     };
   }
@@ -1310,6 +1321,13 @@ function isImportedSourceSession(kind: ImportedPlatformKind, sourceSessionKey: u
   if (!sourceKey) return false;
   return compatState.sessions.some((session) => session.importedFrom?.kind === kind && session.importedFrom?.sourceSessionKey === sourceKey)
     || compatState.chats.some((chat) => chat.importedFrom?.kind === kind && chat.importedFrom?.sourceSessionKey === sourceKey);
+}
+
+function importedSourceSessionKeyForDesktopSession(sessionKey: string) {
+  const session = compatState.sessions.find((record) => (record.sessionKey === sessionKey || record.key === sessionKey) && record.importedFrom?.sourceSessionKey);
+  const chat = compatState.chats.find((record) => record.sessionKey === sessionKey && record.importedFrom?.sourceSessionKey);
+  const sourceKey = String(session?.importedFrom?.sourceSessionKey || chat?.importedFrom?.sourceSessionKey || "");
+  return sourceKey && sourceKey !== sessionKey ? sourceKey : null;
 }
 
 function dedupeImportedPlatformRecords(kind: ImportedPlatformKind, timestamp = nowIso()) {
@@ -1877,9 +1895,9 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
   loadCompatState(context);
   const agentId = String(input.agentId || "main");
   const diskIndex = readJsonFile(gatewaySessionsIndexPath(agentId));
-  const gatewayIndex = input.includeGateway === true || input.includeGateway === "true"
-    ? await gatewayTelegramSessionEntries(context, agentId, input)
-    : {};
+  const gatewayIndex = input.includeGateway === false || input.includeGateway === "false"
+    ? {}
+    : await gatewayTelegramSessionEntries(context, agentId, input);
   const discoveredIndex = discoveredTelegramTranscriptEntries(agentId, { ...gatewayIndex, ...diskIndex });
   const index = mergeTelegramSessionIndexes(discoveredIndex, gatewayIndex, diskIndex);
   const limit = Math.max(0, Number(input.limit || 0));
@@ -1907,6 +1925,7 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
     const preview = lastUserMessagePreview(sampleMessages);
     const proposedName = uniqueName(parsed.kind === "group" ? fallback : (preview ? preview.slice(0, 45).trim() : fallback), usedNames);
     const messageCount = entryMessageCount(entry);
+    const archivedMessageCount = entryMessageCount({ messageCount: entry.archivedMessageCount });
     return {
       sourceSessionKey,
       sourceSessionId: String(entry.sessionId || ""),
@@ -1915,7 +1934,7 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
       archivedTranscriptFiles,
       proposedName,
       messageCount,
-      archivedMessageCount: 0,
+      archivedMessageCount,
       lastUserMessagePreview: preview,
       updatedAt: typeof entry.updatedAt === "number" ? entry.updatedAt : (timeMs(entry.updatedAt) || null),
       chatType: parsed.kind,
@@ -2481,11 +2500,7 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
     const alreadyImported = Boolean(session.alreadyImported) || isImportedSourceSession("telegram", session.sourceSessionKey);
     const repaired = alreadyImported ? repairImportedSessionSpace("telegram", session.sourceSessionKey, targetSpaceId) : false;
     if (alreadyImported) {
-      const label = parsed.kind === "group"
-        ? String(session.proposedName || session.topicName || "Telegram import")
-        : String(session.proposedName || "Telegram import");
-      const hydrated = dryRun ? null : await hydrateImportedPlatformSessionMessages(context, "telegram", session.sourceSessionKey, label, session);
-      return { type: "skipped" as const, value: { sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired, hydrated } };
+      return { type: "skipped" as const, value: { sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired } };
     }
     const sourceMessages = telegramSourceMessagesForSession(session);
     const label = parsed.kind === "group"
@@ -2579,8 +2594,7 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
     const alreadyImported = Boolean(session.alreadyImported) || isImportedSourceSession("discord", session.sourceSessionKey);
     const repaired = alreadyImported ? repairImportedSessionSpace("discord", session.sourceSessionKey, targetSpaceId) : false;
     if (alreadyImported) {
-      const hydrated = dryRun ? null : await hydrateImportedPlatformSessionMessages(context, "discord", session.sourceSessionKey, session.proposedName || "Discord import", session);
-      skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired, hydrated });
+      skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired });
       continue;
     }
     const sourceMessages = transcriptMessagesFromJsonl(session.sourceSessionFile);
@@ -3121,14 +3135,20 @@ function restoreChatsForSpace(spaceId: string) {
 async function deleteCompatChat(context: AppContext, chatId: string) {
   const chat = compatState.chats.find((record) => record.id === chatId);
   const sessionKey = typeof chat?.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
+  const importedSession = sessionKey
+    ? compatState.sessions.find((session) => (session.sessionKey === sessionKey || session.key === sessionKey) && session.importedFrom?.kind)
+    : null;
+  const importedLocalOnly = Boolean(chat?.importedFrom?.kind || importedSession?.importedFrom?.kind);
 
   compatState.chats = compatState.chats.filter((record) => record.id !== chatId);
   if (sessionKey) {
     compatState.sessions = compatState.sessions.filter((session) => session.sessionKey !== sessionKey && session.key !== sessionKey);
-    await Promise.allSettled([
-      context.gateway.request("sessions.abort", { sessionKey }, 2_000),
-      context.gateway.request("sessions.delete", { key: sessionKey, deleteTranscript: true }, 2_000),
-    ]);
+    if (!importedLocalOnly) {
+      await Promise.allSettled([
+        context.gateway.request("sessions.abort", { sessionKey }, 2_000),
+        context.gateway.request("sessions.delete", { key: sessionKey, deleteTranscript: true }, 2_000),
+      ]);
+    }
     context.db.prepare("DELETE FROM v2_messages WHERE session_key = ?").run(sessionKey);
     context.db.prepare("DELETE FROM v2_runs WHERE session_key = ?").run(sessionKey);
     context.db.prepare("DELETE FROM v2_tool_calls WHERE session_key = ?").run(sessionKey);
@@ -3137,7 +3157,7 @@ async function deleteCompatChat(context: AppContext, chatId: string) {
     context.db.prepare("DELETE FROM v2_projection_events WHERE session_key = ?").run(sessionKey);
   }
   saveCompatState(context);
-  return { ok: true, chatId, sessionKey };
+  return { ok: true, chatId, sessionKey, localOnly: importedLocalOnly };
 }
 
 async function deleteCompatSpace(context: AppContext, spaceId: string) {
@@ -4625,6 +4645,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       loadCompatState(context);
       return importedPlatformSessionLink(sessionKey);
     },
+    resolveImportedSourceSessionKey: (sessionKey) => importedSourceSessionKeyForDesktopSession(sessionKey),
   };
   if (compatState.spaces.length === 0) {
     ensureDefaultSpace();
@@ -5492,12 +5513,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         try {
           let rows = context.messages.listMessages(sessionKey, { limit: 1000 });
           if (rows.length === 0) {
-            loadCompatState(context);
-            const link = importedPlatformSessionLink(sessionKey);
-            if (link) {
-              await hydrateImportedPlatformSessionMessages(context, link.kind, link.sourceSessionKey, link.label);
-              rows = context.messages.listMessages(sessionKey, { limit: 1000 });
-            }
+            const projected = await ensureGatewayHistoryProjected(context, sessionKey, { limit: 1000 });
+            rows = context.messages.listMessages(projected.sessionKey, { limit: 1000 });
           }
           return { messages: rows.map((r) => r.data) };
         } catch { return { messages: [] }; }

@@ -931,6 +931,36 @@ export async function prewarmArchivedHistory(context: AppContext, sessionKey: st
   }
 }
 
+export async function ensureGatewayHistoryProjected(context: AppContext, sessionKey: string, options: { limit?: number; timeoutMs?: number; projectTools?: boolean; sourceSessionKey?: string | null } = {}) {
+  const sourceSessionKey = options.sourceSessionKey || context.compat?.resolveImportedSourceSessionKey?.(sessionKey) || sessionKey;
+  const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey: sourceSessionKey, limit: options.limit ?? 1000 }, options.timeoutMs ?? 30_000);
+  const resolvedSessionKey = sourceSessionKey === sessionKey ? (history.sessionKey ?? sessionKey) : sessionKey;
+  const existingSession = context.messages.getSession(resolvedSessionKey);
+  const segment = context.messages.ensureActiveSegment({
+    sessionKey: resolvedSessionKey,
+    sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+    sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
+  });
+  context.messages.upsertSession({
+    sessionKey: resolvedSessionKey,
+    sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+    data: {
+      ...objectData(existingSession?.data),
+      sessionKey: resolvedSessionKey,
+      sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+      sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
+      ...(sourceSessionKey !== resolvedSessionKey ? { sourceSessionKey } : {}),
+      ...(history.status ? { status: history.status } : {}),
+    },
+  });
+  const normalized = normalizeHistoryMessages(resolvedSessionKey, history.messages ?? []);
+  const projection = normalized.length > 0
+    ? context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq })
+    : { upserted: 0, lastSeq: 0, changedMessages: [] };
+  if (options.projectTools !== false && normalized.length > 0) await projectArchivedSegmentToolCalls(context, resolvedSessionKey, normalized);
+  return { sessionKey: resolvedSessionKey, history, normalized, projection };
+}
+
 export async function registerChatRoutes(app: FastifyInstance, context: AppContext) {
   const log = createLogger("chat-route");
 
@@ -1980,6 +2010,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
           limit: parsed.data.limit,
         })
       : context.messages.listAllMessages(parsed.data.sessionKey);
+    const importedLinkForRead = context.compat?.importedPlatformSessionLink?.(parsed.data.sessionKey) ?? null;
     if (messages.length === 0) {
       const hydrated = await context.compat?.hydrateImportedChatHistory?.(parsed.data.sessionKey);
       if (hydrated?.hydrated) {
@@ -1993,32 +2024,35 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         log.info("messages.read.imported-hydrated", { sessionKey: parsed.data.sessionKey, upserted: hydrated.upserted ?? null, messageCount: messages.length });
       }
     }
+    if (messages.length === 0 && (!importedLinkForRead || !hasWindowQuery)) {
+      try {
+        const refillLimit = Math.min(10_000, parsed.data.limit ?? 1000);
+        const projected = await ensureGatewayHistoryProjected(context, parsed.data.sessionKey, { limit: refillLimit });
+        messages = hasWindowQuery
+          ? context.messages.listMessages(projected.sessionKey, {
+              afterSeq: parsed.data.afterSeq,
+              beforeSeq: parsed.data.beforeSeq,
+              limit: parsed.data.limit,
+            })
+          : context.messages.listAllMessages(projected.sessionKey);
+        log.info("messages.read.gateway-backfill", { sessionKey: parsed.data.sessionKey, resolvedSessionKey: projected.sessionKey, normalized: projected.normalized.length, upserted: projected.projection.upserted, messageCount: messages.length });
+      } catch (error) {
+        log.warn("messages.read.gateway-backfill.fail_ignored", { sessionKey: parsed.data.sessionKey, ...errorMeta(error) });
+      }
+    }
     if (parsed.data.beforeSeq !== undefined && messages.length === 0) {
       // Imported Telegram/Discord sessions have no gateway history to refill
       // from — the source of truth is the local v2 projection (the full
       // transcript was copied on import). Skip the wasted chat.history call.
-      const importedLink = context.compat?.importedPlatformSessionLink?.(parsed.data.sessionKey);
-      if (!importedLink) {
+      if (!importedLinkForRead) {
         try {
           const refillLimit = Math.min(10_000, parsed.data.beforeSeq + (parsed.data.limit ?? 200));
-          const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey: parsed.data.sessionKey, limit: refillLimit });
-          const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
-          const existingSession = context.messages.getSession(sessionKey);
-          const segment = context.messages.ensureActiveSegment({
-            sessionKey,
-            sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
-            sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
+          const projected = await ensureGatewayHistoryProjected(context, parsed.data.sessionKey, { limit: refillLimit });
+          messages = context.messages.listMessages(projected.sessionKey, {
+            afterSeq: parsed.data.afterSeq,
+            beforeSeq: parsed.data.beforeSeq,
+            limit: parsed.data.limit,
           });
-          const normalized = normalizeHistoryMessages(sessionKey, history.messages ?? []);
-          if (normalized.length > 0) {
-            context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-            await projectArchivedSegmentToolCalls(context, sessionKey, normalized);
-            messages = context.messages.listMessages(parsed.data.sessionKey, {
-              afterSeq: parsed.data.afterSeq,
-              beforeSeq: parsed.data.beforeSeq,
-              limit: parsed.data.limit,
-            });
-          }
         } catch (error) {
           log.warn("messages.read.gateway-backfill.fail_ignored", { sessionKey: parsed.data.sessionKey, ...errorMeta(error) });
         }

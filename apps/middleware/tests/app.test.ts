@@ -316,26 +316,36 @@ describe("middleware app", () => {
     await app.close();
   });
 
-  test("deleting an imported Telegram desktop chat does not delete the source Telegram session", async () => {
+  test("deleting an imported Telegram desktop chat only removes local import records", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-import-delete-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const sourceSessionKey = "agent:main:telegram:group:-1001:topic:42";
+    const sourceFile = path.join(sessionsDir, "topic-42.jsonl");
+    const targetFile = path.join(sessionsDir, "imported-topic-42.jsonl");
+    const meta = JSON.stringify({ chat_id: "telegram:-1001", topic_id: "42", group_subject: "Group", topic_name: "Topic 42", is_group_chat: true });
+    fs.writeFileSync(sourceFile, `${JSON.stringify({ type: "message", id: "m1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\ndelete imported safely` } })}\n`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({ [sourceSessionKey]: { sessionId: "topic", sessionFile: sourceFile, chatType: "group", subject: "Group" } }));
+
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
-    context.gateway.request = vi.fn(async () => ({ ok: true }));
-    const sourceSessionKey = "agent:main:telegram:group:-1001:topic:42";
-    const desktopSessionKey = "agent:main:desktop:migrated-telegram-safe-delete";
-
-    const createRes = await app.inject({
-      method: "POST",
-      url: "/api/chats",
-      payload: { name: "Imported Telegram", agentId: "main", sessionKey: desktopSessionKey },
+    context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "sessions.create") return { payload: { entry: { sessionFile: targetFile } }, label: params?.label };
+      return { ok: true };
     });
-    const chatId = createRes.json().chat.id as string;
+
+    const imported = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [sourceSessionKey] } });
+    const chatId = imported.json().imported[0].chatId as string;
+    const desktopSessionKey = imported.json().imported[0].desktopSessionKey as string;
 
     const deleteRes = await app.inject({ method: "DELETE", url: `/api/chats/${chatId}` });
 
     expect(deleteRes.statusCode).toBe(200);
-    expect(context.gateway.request).toHaveBeenCalledWith("sessions.delete", { key: desktopSessionKey, deleteTranscript: true }, 2_000);
-    expect(context.gateway.request).not.toHaveBeenCalledWith("sessions.delete", { key: sourceSessionKey, deleteTranscript: true }, 2_000);
-    expect(context.gateway.request.mock.calls.some(([method, payload]) => method === "sessions.delete" && payload?.key === sourceSessionKey)).toBe(false);
+    expect(deleteRes.json()).toMatchObject({ ok: true, chatId, sessionKey: desktopSessionKey, localOnly: true });
+    expect(context.gateway.request.mock.calls.some(([method]) => method === "sessions.delete" || method === "sessions.abort")).toBe(false);
+    const chats = await app.inject({ method: "GET", url: "/api/chats" });
+    expect(chats.json().chats).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: chatId })]));
     await app.close();
   });
 
@@ -1180,22 +1190,23 @@ describe("middleware app", () => {
     const app = await createApp(config);
     const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
     context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "chat.history") return { sessionKey: params?.sessionKey, sessionId: "topic", sessionFile: sourceFile, messages: [{ role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\nrepair old import`, __openclaw: { id: "r1", seq: 1 } }] };
       if (method === "sessions.create") return { payload: { entry: { sessionFile: targetFile } }, label: params?.label };
       return {};
     });
 
-    const lazyHistory = await app.inject({ method: "POST", url: "/api/commands/middleware_chat_history", payload: { input: { sessionKey: "agent:main:desktop:migrated-telegram-old" } } });
-    expect(lazyHistory.statusCode).toBe(200);
-    expect(lazyHistory.json().messages.map((message: { content?: string }) => message.content).join("\n")).toContain("repair old import");
     const pageMessages = await app.inject({ method: "GET", url: `/api/chat/messages?sessionKey=${encodeURIComponent("agent:main:desktop:migrated-telegram-old")}&beforeSeq=9007199254740991&limit=160` });
     expect(pageMessages.statusCode).toBe(200);
     expect(pageMessages.json().messages.map((message: { data?: { content?: string } }) => message.data?.content).join("\n")).toContain("repair old import");
+    expect(context.gateway.request.mock.calls.some(([method]) => method === "chat.history")).toBe(false);
+    const lazyHistory = await app.inject({ method: "POST", url: "/api/commands/middleware_chat_history", payload: { input: { sessionKey: "agent:main:desktop:migrated-telegram-old" } } });
+    expect(lazyHistory.statusCode).toBe(200);
+    expect(lazyHistory.json().messages.map((message: { content?: string }) => message.content).join("\n")).toContain("repair old import");
 
     const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [sourceKey], skipAlreadyImported: false } });
 
     expect(res.statusCode).toBe(200);
     expect(res.json().summary).toMatchObject({ imported: 0, skipped: 1, failed: 0 });
-    expect(res.json().skipped[0].hydrated).toMatchObject({ hydrated: true });
     expect(context.gateway.request).not.toHaveBeenCalledWith("sessions.create", expect.anything(), expect.anything());
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
     const telegramSpace = bootstrap.json().spaces.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Telegram" && item.importedFrom?.kind === "telegram" && item.importedFrom?.scope === "session-migration");
