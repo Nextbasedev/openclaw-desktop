@@ -3163,6 +3163,12 @@ function applyProjectedChatActivity(context: AppContext) {
 
 function isGatewayOnlySyncedChat(chat: CompatRecord) {
   const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
+  // Canonical (2026-07-13): imported platform chats reuse the source key as
+  // the desktop key, so their id shape matches the gateway-only heuristic.
+  // The presence of importedFrom denotes owned local state; sync must NEVER
+  // treat these as gateway-only ephemeral rows or the cleanup pass would
+  // wipe canonical imports after every syncGatewaySessions run.
+  if (chat.importedFrom?.kind) return false;
   return Boolean(sessionKey && chat.id === stableCompatId("chat", sessionKey));
 }
 
@@ -3170,6 +3176,9 @@ function isGatewayOnlySyncedSession(session: CompatRecord) {
   const sessionKey = typeof session.sessionKey === "string" && session.sessionKey.trim()
     ? session.sessionKey.trim()
     : (typeof session.key === "string" && session.key.trim() ? session.key.trim() : null);
+  // Canonical (2026-07-13): see isGatewayOnlySyncedChat. Imported sessions
+  // own local state; the sync cleanup must skip them.
+  if (session.importedFrom?.kind) return false;
   return Boolean(sessionKey && !isDesktopSessionKey(sessionKey) && session.id === stableCompatId("session", sessionKey));
 }
 
