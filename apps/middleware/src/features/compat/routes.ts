@@ -830,6 +830,16 @@ function gatewaySessionsDir(agentId = "main") {
   return path.dirname(gatewaySessionsIndexPath(agentId));
 }
 
+type TelegramDiscoveryFailure = {
+  source: "disk" | "gateway" | "transcripts";
+  code: string;
+  message?: string;
+  path?: string;
+  cursor?: string;
+};
+
+type TelegramDiscoverySource = CompatRecord;
+
 function telegramTranscriptFiles(agentId: string) {
   const sessionsDir = gatewaySessionsDir(agentId);
   const dirs = Array.from(new Set([
@@ -837,13 +847,33 @@ function telegramTranscriptFiles(agentId: string) {
     path.join(sessionsDir, "archive"),
     path.join(sessionsDir, "archives"),
   ].map((dir) => path.resolve(dir))));
-  return dirs.flatMap((dir) => {
+  const files: string[] = [];
+  const failures: TelegramDiscoveryFailure[] = [];
+  const pending = [...dirs];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const dir = pending.pop()!;
+    if (visited.has(dir) || !fs.existsSync(dir)) continue;
+    visited.add(dir);
+    let entries: fs.Dirent[];
     try {
-      return fs.readdirSync(dir, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && entry.name.includes(".jsonl"))
-        .map((entry) => path.join(dir, entry.name));
-    } catch { return [] as string[]; }
-  });
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (error) {
+      failures.push({ source: "transcripts", code: "transcript_directory_read_failed", path: dir, message: error instanceof Error ? error.message : String(error) });
+      continue;
+    }
+    for (const entry of entries) {
+      const candidate = path.join(dir, entry.name);
+      if (entry.isDirectory()) pending.push(candidate);
+      else if (entry.isFile() && /\.jsonl(?:\.|$)/.test(entry.name)) files.push(candidate);
+    }
+  }
+  const sorted = Array.from(new Set(files)).sort();
+  const snapshot = sorted.map((file) => {
+    const stat = fs.statSync(file, { throwIfNoEntry: false });
+    return `${file}:${stat?.mtimeMs ?? 0}:${stat?.size ?? 0}`;
+  }).join("|");
+  return { files: sorted, snapshot, failures };
 }
 
 function bestTelegramTranscriptFile(files: string[]) {
@@ -857,19 +887,6 @@ function bestTelegramTranscriptFile(files: string[]) {
     const bMs = fs.statSync(b, { throwIfNoEntry: false })?.mtimeMs ?? 0;
     return bMs - aMs || a.localeCompare(b);
   })[0] ?? "";
-}
-
-function topicIdFromTranscriptFilename(file: string) {
-  const match = path.basename(file).match(/(?:^|-)topic-(\d+)\.jsonl(?:\.|$)/);
-  return match?.[1] ?? null;
-}
-
-function knownTelegramGroupId(index: CompatRecord) {
-  for (const key of Object.keys(index)) {
-    const parsed = parseTelegramSessionKey(key);
-    if (parsed?.kind === "group" && parsed.groupId) return parsed.groupId;
-  }
-  return null;
 }
 
 function mergeTelegramSessionIndexes(...indexes: CompatRecord[]) {
@@ -896,36 +913,42 @@ function transcriptFilesMessageCount(files: string[]) {
   return files.reduce((sum, file) => sum + transcriptMessageCount(file), 0);
 }
 
-let telegramDiscoveryCache: { cacheKey: string; expiresAt: number; index: CompatRecord } | null = null;
+let telegramDiscoveryCache: { cacheKey: string; expiresAt: number; result: { index: CompatRecord; source: TelegramDiscoverySource; failures: TelegramDiscoveryFailure[] } } | null = null;
 
 function discoveredTelegramTranscriptEntries(agentId: string, knownIndex: CompatRecord = {}) {
   const now = Date.now();
-  const cacheKey = `${agentId}:${gatewaySessionsDir(agentId)}`;
-  if (telegramDiscoveryCache?.cacheKey === cacheKey && telegramDiscoveryCache.expiresAt > now) return telegramDiscoveryCache.index;
+  const transcriptFiles = telegramTranscriptFiles(agentId);
+  const knownSessionFiles = new Map<string, string>();
+  for (const [sourceSessionKey, rawEntry] of Object.entries(knownIndex)) {
+    const entry = rawEntry && typeof rawEntry === "object" ? rawEntry as CompatRecord : {};
+    const sessionFile = String(entry.sessionFile || entry.transcriptPath || "");
+    const source = telegramSessionSource(sourceSessionKey, entry);
+    if (sessionFile && source?.agentId === agentId) knownSessionFiles.set(path.resolve(sessionFile), sourceSessionKey);
+  }
+  const cacheKey = `${agentId}:${transcriptFiles.snapshot}:${[...knownSessionFiles.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([file, key]) => `${file}:${key}`).join("|")}`;
+  if (telegramDiscoveryCache?.cacheKey === cacheKey && telegramDiscoveryCache.expiresAt > now) return telegramDiscoveryCache.result;
   const buckets = new Map<string, { files: string[]; meta: ReturnType<typeof telegramMetaFromMessages> }>();
   const knownKeys = new Set(Object.keys(knownIndex));
-  const fallbackGroupId = knownTelegramGroupId(knownIndex);
-  for (const file of telegramTranscriptFiles(agentId)) {
-    const filenameTopicId = topicIdFromTranscriptFilename(file);
-    if (!filenameTopicId) continue;
-    let sourceSessionKey: string | null = null;
-    let meta: ReturnType<typeof telegramMetaFromMessages> = null;
-    if (filenameTopicId && fallbackGroupId) {
-      sourceSessionKey = `agent:${agentId}:telegram:group:${fallbackGroupId}:topic:${filenameTopicId}`;
-    } else {
-      const messages = transcriptMessagesFromJsonl(file, 40);
-      const identity = telegramIdentityFromMessages(messages);
-      if (!identity) continue;
-      sourceSessionKey = identity.kind === "group"
+  const failures = [...transcriptFiles.failures];
+  let accepted = 0;
+  for (const file of transcriptFiles.files) {
+    const messages = transcriptMessagesFromJsonl(file, 40);
+    const identity = telegramIdentityFromMessages(messages);
+    const sourceSessionKey = knownSessionFiles.get(path.resolve(file)) ?? (identity
+      ? identity.kind === "group"
         ? `agent:${agentId}:telegram:group:${identity.groupId}${identity.topicId ? `:topic:${identity.topicId}` : ""}`
-        : (knownKeys.has(`agent:${agentId}:telegram:slash:${identity.userId}`) ? `agent:${agentId}:telegram:slash:${identity.userId}` : `agent:${agentId}:telegram:direct:${identity.userId}`);
-      meta = telegramMetaFromMessages(messages);
+        : (knownKeys.has(`agent:${agentId}:telegram:slash:${identity.userId}`) ? `agent:${agentId}:telegram:slash:${identity.userId}` : `agent:${agentId}:telegram:direct:${identity.userId}`)
+      : null);
+    if (!sourceSessionKey) {
+      failures.push({ source: "transcripts", code: "unidentified_transcript", path: file, message: "No Telegram metadata or exact session-index association" });
+      continue;
     }
-    if (!sourceSessionKey) continue;
+    const meta = telegramMetaFromMessages(messages);
     const bucket = buckets.get(sourceSessionKey) ?? { files: [], meta: null };
     bucket.files.push(file);
     bucket.meta = bucket.meta ?? meta;
     buckets.set(sourceSessionKey, bucket);
+    accepted += 1;
   }
   const entries: CompatRecord = {};
   for (const [sourceSessionKey, bucket] of buckets) {
@@ -946,8 +969,18 @@ function discoveredTelegramTranscriptEntries(agentId: string, knownIndex: Compat
       updatedAt: fs.statSync(sourceSessionFile, { throwIfNoEntry: false })?.mtimeMs ?? null,
     };
   }
-  telegramDiscoveryCache = { cacheKey, expiresAt: now + 60_000, index: entries };
-  return entries;
+  const result = {
+    index: entries,
+    source: {
+      status: failures.some((failure) => failure.code === "transcript_directory_read_failed") ? "partial" : "complete",
+      candidates: transcriptFiles.files.length,
+      accepted,
+      rejected: transcriptFiles.files.length - accepted,
+    },
+    failures,
+  };
+  telegramDiscoveryCache = { cacheKey, expiresAt: now + 60_000, result };
+  return result;
 }
 
 function gatewaySessionsListLimit(input: CompatRecord) {
@@ -955,16 +988,42 @@ function gatewaySessionsListLimit(input: CompatRecord) {
   return Number.isFinite(value) && value > 0 ? Math.max(100, Math.floor(value)) : 1000;
 }
 
+function gatewayContinuation(payload: CompatRecord) {
+  const pagination = payload.pagination && typeof payload.pagination === "object" ? payload.pagination as CompatRecord : {};
+  const candidates: Array<[string, unknown]> = [
+    ["cursor", payload.nextCursor ?? pagination.nextCursor],
+    ["pageToken", payload.nextPageToken ?? pagination.nextPageToken],
+    ["continuation", payload.continuation ?? pagination.continuation],
+    ["continuationToken", payload.continuationToken ?? pagination.continuationToken],
+  ];
+  for (const [field, value] of candidates) {
+    if (typeof value === "string" && value.trim()) return { field, token: value };
+  }
+  return null;
+}
+
 async function gatewayTelegramSessionEntries(context: AppContext, agentId: string, input: CompatRecord = {}) {
-  try {
-    if (!context.gateway.status().connected) return {} as CompatRecord;
-    const payload = await context.gateway.request<CompatRecord>("sessions.list", {
-      limit: gatewaySessionsListLimit(input),
-      includeDerivedTitles: true,
-      includeLastMessage: true,
-    }, 10_000);
-    const entries: CompatRecord = {};
-    for (const row of gatewaySessionRows(payload)) {
+  const entries: CompatRecord = {};
+  const failures: TelegramDiscoveryFailure[] = [];
+  if (!context.gateway.status().connected) {
+    return { index: entries, source: { status: "unavailable", pages: 0, accepted: 0 }, failures };
+  }
+  const baseInput = {
+    limit: gatewaySessionsListLimit(input),
+    includeDerivedTitles: true,
+    includeLastMessage: true,
+  };
+  let continuation: ReturnType<typeof gatewayContinuation> = null;
+  let pages = 0;
+  const seenTokens = new Set<string>();
+  do {
+    try {
+      const payload = await context.gateway.request<CompatRecord>("sessions.list", {
+        ...baseInput,
+        ...(continuation ? { [continuation.field]: continuation.token } : {}),
+      }, 10_000);
+      pages += 1;
+      for (const row of gatewaySessionRows(payload)) {
       const sourceSessionKey = stringField(row, ["key", "sessionKey"]);
       if (!sourceSessionKey) continue;
       const parsed = telegramSessionSource(sourceSessionKey, row);
@@ -984,10 +1043,27 @@ async function gatewayTelegramSessionEntries(context: AppContext, agentId: strin
         updatedAt: row.updatedAt ?? row.updated_at ?? row.lastActiveAt ?? row.lastMessageAt ?? null,
       };
     }
-    return entries;
-  } catch {
-    return {} as CompatRecord;
-  }
+      continuation = gatewayContinuation(payload);
+      if (continuation && seenTokens.has(`${continuation.field}:${continuation.token}`)) {
+        failures.push({ source: "gateway", code: "gateway_cursor_repeated", cursor: continuation.token, message: "Gateway returned a repeated continuation token" });
+        break;
+      }
+      if (continuation) seenTokens.add(`${continuation.field}:${continuation.token}`);
+    } catch (error) {
+      failures.push({
+        source: "gateway",
+        code: pages > 0 ? "gateway_page_failed" : "gateway_list_failed",
+        cursor: continuation?.token,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      break;
+    }
+  } while (continuation);
+  return {
+    index: entries,
+    source: { status: failures.length > 0 ? (pages > 0 ? "partial" : "failed") : "complete", pages, accepted: Object.keys(entries).length },
+    failures,
+  };
 }
 
 function parseTelegramSessionKey(key: string) {
@@ -1894,12 +1970,27 @@ fi
 async function scanTelegramSessions(context: AppContext, input: CompatRecord = {}) {
   loadCompatState(context);
   const agentId = String(input.agentId || "main");
-  const diskIndex = readJsonFile(gatewaySessionsIndexPath(agentId));
-  const gatewayIndex = input.includeGateway === false || input.includeGateway === "false"
-    ? {}
+  const diskIndexPath = gatewaySessionsIndexPath(agentId);
+  let diskIndex: CompatRecord = {};
+  const failures: TelegramDiscoveryFailure[] = [];
+  let diskSource: TelegramDiscoverySource = { status: "unavailable", candidates: 0, accepted: 0 };
+  if (fs.existsSync(diskIndexPath)) {
+    try {
+      const value = JSON.parse(fs.readFileSync(diskIndexPath, "utf8"));
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Session index is not an object");
+      diskIndex = value as CompatRecord;
+      diskSource = { status: "complete", candidates: Object.keys(diskIndex).length, accepted: Object.keys(diskIndex).length };
+    } catch (error) {
+      diskSource = { status: "failed", candidates: 0, accepted: 0 };
+      failures.push({ source: "disk", code: "session_index_read_failed", path: diskIndexPath, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  const gateway = input.includeGateway === false || input.includeGateway === "false"
+    ? { index: {} as CompatRecord, source: { status: "skipped", pages: 0, accepted: 0 }, failures: [] as TelegramDiscoveryFailure[] }
     : await gatewayTelegramSessionEntries(context, agentId, input);
-  const discoveredIndex = discoveredTelegramTranscriptEntries(agentId, { ...gatewayIndex, ...diskIndex });
-  const index = mergeTelegramSessionIndexes(discoveredIndex, gatewayIndex, diskIndex);
+  const discovered = discoveredTelegramTranscriptEntries(agentId, { ...gateway.index, ...diskIndex });
+  failures.push(...gateway.failures, ...discovered.failures);
+  const index = mergeTelegramSessionIndexes(discovered.index, gateway.index, diskIndex);
   const limit = Math.max(0, Number(input.limit || 0));
   const usedNames = new Set<string>();
   const importedKeys = new Set([
@@ -1945,6 +2036,16 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
       alreadyImported: importedKeys.has(sourceSessionKey),
     };
   }).filter(Boolean) as CompatRecord[];
+  sessions.sort((left, right) => {
+    const timestamp = (value: unknown) => {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) return numeric;
+      const parsed = Date.parse(String(value || ""));
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const byUpdatedAt = timestamp(right.updatedAt) - timestamp(left.updatedAt);
+    return byUpdatedAt || String(left.sourceSessionKey).localeCompare(String(right.sourceSessionKey));
+  });
   const selected = limit > 0 ? sessions.slice(0, limit) : sessions;
   const groups = new Map<string, CompatRecord>();
   for (const session of selected) {
@@ -1963,6 +2064,14 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
       alreadyImported: selected.filter((session) => session.alreadyImported).length,
     },
     groups: [...groups.values()],
+    diagnostics: {
+      sources: {
+        disk: diskSource,
+        gateway: gateway.source,
+        transcripts: discovered.source,
+      },
+      partialFailures: failures,
+    },
   };
 }
 
