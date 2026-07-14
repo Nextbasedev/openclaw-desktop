@@ -155,8 +155,8 @@ describe("cold bootstrap in-flight dedupe", () => {
     const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s-windowed&limit=160" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.messageCount).toBe(160);
-    expect(body.oldestLoadedSeq).toBe(139);
+    expect(body.messageCount).toBe(100);
+    expect(body.oldestLoadedSeq).toBe(199);
     expect(body.historyCoverage).toBe("windowed");
     expect(body.fullMessagesIncluded).toBe(false);
     expect(body.hasOlder).toBe(true);
@@ -191,8 +191,8 @@ describe("cold bootstrap in-flight dedupe", () => {
     const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${sessionKey}&limit=160` });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.messageCount).toBe(160);
-    expect(body.oldestLoadedSeq).toBe(139);
+    expect(body.messageCount).toBe(100);
+    expect(body.oldestLoadedSeq).toBe(199);
     expect(body.historyCoverage).toBe("windowed");
     expect(body.hasOlder).toBe(true);
     await app.close();
@@ -223,13 +223,13 @@ describe("cold bootstrap in-flight dedupe", () => {
 
     const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s-windowed&limit=179" });
     expect(bootstrap.statusCode).toBe(200);
-    expect(bootstrap.json().oldestLoadedSeq).toBe(120);
+    expect(bootstrap.json().oldestLoadedSeq).toBe(199);
 
-    const older = await app.inject({ method: "GET", url: "/api/chat/messages?sessionKey=s-windowed&beforeSeq=120&limit=80" });
+    const older = await app.inject({ method: "GET", url: "/api/chat/messages?sessionKey=s-windowed&beforeSeq=199&limit=80" });
     expect(older.statusCode).toBe(200);
     const body = older.json();
     expect(body.messages.length).toBeGreaterThan(0);
-    expect(body.messages.at(-1).openclawSeq).toBeLessThan(120);
+    expect(body.messages.at(-1).openclawSeq).toBeLessThan(199);
     await app.close();
   });
 });

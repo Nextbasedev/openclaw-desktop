@@ -32,6 +32,7 @@ const localMediaQuery = z.object({
 
 const DEFAULT_CHAT_SEND_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = DEFAULT_CHAT_SEND_TIMEOUT_MS + 10_000;
+const CHAT_BOOTSTRAP_PAGE_SIZE = 100;
 
 type SessionContextUsage = {
   input: number;
@@ -1900,10 +1901,19 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
     log.info("bootstrap.session.persist", { sessionKey, sessionId: history.sessionId ?? existingSession?.sessionId ?? null, status: typeof sessionData.status === "string" ? sessionData.status : null });
     const canonicalStatus = typeof history.status === "string" ? history.status.trim().toLowerCase() : "";
+    const localVisibleBeforePrune = context.messages.listAllMessages(sessionKey)
+      .filter((message) => !isNonUserAttachedFileEcho(message))
+      .length;
     const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
     const projectedTools = await projectCanonicalBootstrapToolCalls(context, sessionKey, normalized, canonicalStatus);
-    const archived = await persistArchivedHistorySegments(context, sessionKey, history);
     const importedLink = context.compat?.importedPlatformSessionLink?.(sessionKey) ?? null;
+    const skipImportedArchiveRefresh = Boolean(importedLink) && localVisibleBeforePrune > 0;
+    const archived = skipImportedArchiveRefresh
+      ? { upserted: 0, projectedTools: 0, importedFiles: 0, skippedFiles: 0, changedFiles: 0, changed: false }
+      : await persistArchivedHistorySegments(context, sessionKey, history);
+    if (skipImportedArchiveRefresh) {
+      log.info("bootstrap.archive-refresh.skipped", { sessionKey, localVisibleMessages: localVisibleBeforePrune, imported: true });
+    }
     // Imported history fallback diagnostic reasons — additive only, never
     // change existing success/error semantics. Documented codes:
     //   desktop_empty            — desktop-key gateway history returned 0 msgs
@@ -1971,7 +1981,11 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     // now asks Gateway for the session history directly, without adding a local
     // window/limit param. Imported platform sessions remain local-authority for
     // pre-desktop transcript rows.
-    const gatewayHistoryLooksComplete = normalized.length > 0;
+    const gatewayHistoryLooksComplete = normalized.length > 0 && (
+      localVisibleBeforePrune < CHAT_BOOTSTRAP_PAGE_SIZE ||
+      normalized.length >= CHAT_BOOTSTRAP_PAGE_SIZE ||
+      localVisibleBeforePrune <= normalized.length
+    );
     const skipBootstrapPrune =
       normalized.length === 0 ||
       !gatewayHistoryLooksComplete ||
@@ -1993,15 +2007,15 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, projectedTools, archivedImported: archived.importedFiles, archivedSkipped: archived.skippedFiles, pruned: bootstrapPruned, lastSeq: bootstrapLastSeq });
 
     const rawProjected = context.messages.listAllMessages(sessionKey);
-    const projectedMessages = rawProjected
-      .filter((message) => !isNonUserAttachedFileEcho(message))
-      .map(serializeProjectedMessage);
-    log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length });
+    const visibleProjectedRows = rawProjected.filter((message) => !isNonUserAttachedFileEcho(message));
+    const bootstrapRows = visibleProjectedRows.slice(-CHAT_BOOTSTRAP_PAGE_SIZE);
+    const projectedMessages = bootstrapRows.map(serializeProjectedMessage);
+    log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length, totalVisibleMessages: visibleProjectedRows.length, pageLimit: CHAT_BOOTSTRAP_PAGE_SIZE });
     void context.chatLive.ensureSessionSubscribed(sessionKey).catch((error) => {
       log.warn("bootstrap.live-subscribe.background.fail", { sessionKey, error: errorMeta(error) });
     });
-    const firstVisibleSeq = rawProjected.find((message) => !isNonUserAttachedFileEcho(message))?.openclawSeq ?? null;
-    const hasOlder = false;
+    const firstVisibleSeq = bootstrapRows[0]?.openclawSeq ?? null;
+    const hasOlder = visibleProjectedRows.length > bootstrapRows.length;
     const sessionCursor = context.messages.latestSessionCursor(sessionKey);
     const historyFallback = importedLink && historyFallbackReasons.length > 0
       ? { reasons: Array.from(new Set(historyFallbackReasons)) }
@@ -2009,7 +2023,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.bootstrap",
-      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "full", fullMessagesIncluded: true, hasOlder, oldestLoadedSeq: firstVisibleSeq, pruned: bootstrapPruned, ...(historyFallback ? { historyFallback } : {}) },
+      payload: { sessionKey, messageCount: projectedMessages.length, knownTotalMessages: visibleProjectedRows.length, lastSeq: bootstrapLastSeq, historyCoverage: hasOlder ? "windowed" : "full", fullMessagesIncluded: !hasOlder, hasOlder, oldestLoadedSeq: firstVisibleSeq, pruned: bootstrapPruned, ...(historyFallback ? { historyFallback } : {}) },
     });
     if (archived.changed) {
       context.messages.appendProjectionEvent({
@@ -2018,7 +2032,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         payload: { sessionKey, backgroundArchiveImport: 1, importedFiles: archived.importedFiles, changedFiles: archived.changedFiles, messageCount: projectedMessages.length },
       });
     }
-    log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: sessionCursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: "background" } });
+    log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, totalVisibleMessages: visibleProjectedRows.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: sessionCursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: "background" } });
 
     const snapshot = buildChatBootstrapSnapshot(context, {
       sessionKey,
@@ -2028,7 +2042,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       messageCount: projectedMessages.length,
       cursor: sessionCursor,
       projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: false },
-      historyWindow: { historyCoverage: "full", fullMessagesIncluded: true, hasOlder, knownTotalMessages: bootstrapLastSeq, oldestLoadedSeq: firstVisibleSeq },
+      historyWindow: { historyCoverage: hasOlder ? "windowed" : "full", fullMessagesIncluded: !hasOlder, hasOlder, knownTotalMessages: visibleProjectedRows.length, oldestLoadedSeq: firstVisibleSeq },
       historyMeta: { thinkingLevel: history.thinkingLevel, fastMode: history.fastMode, verboseLevel: history.verboseLevel },
     });
     return historyFallback ? { ...snapshot, historyFallback } : snapshot;

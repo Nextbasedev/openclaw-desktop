@@ -1854,7 +1854,7 @@ describe("middleware app", () => {
  */
 describe("imported session simple paging contract", () => {
   const TOTAL = 500;
-  const INITIAL_WINDOW = 160;
+  const INITIAL_WINDOW = 100;
 
   type BootstrapMsg = { __openclaw?: { seq?: number }; openclawSeq?: number };
   type PageMsg = { openclawSeq: number };
@@ -1930,7 +1930,7 @@ describe("imported session simple paging contract", () => {
     }) as unknown as AppContext["gateway"]["request"];
   }
 
-  test("imported session bootstrap loads full local projection (empty gateway + local projection)", async () => {
+  test("imported session bootstrap loads latest 100 from local projection (empty gateway + local projection)", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
     const sessionKey = "agent:main:desktop:migrated-telegram-contract";
@@ -1948,13 +1948,14 @@ describe("imported session simple paging contract", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.messages.length).toBe(TOTAL);
-    expect(body.hasOlder).toBe(false);
-    expect(body.historyCoverage).toBe("full");
-    expect(body.oldestLoadedSeq).toBe(1);
+    expect(body.messages.length).toBe(INITIAL_WINDOW);
+    expect(body.knownTotalMessages).toBe(TOTAL);
+    expect(body.hasOlder).toBe(true);
+    expect(body.historyCoverage).toBe("windowed");
+    expect(body.oldestLoadedSeq).toBe(TOTAL - INITIAL_WINDOW + 1);
 
     const seqs = (body.messages as BootstrapMsg[]).map(bootstrapSeq);
-    expect(Math.min(...seqs)).toBe(1);
+    expect(Math.min(...seqs)).toBe(TOTAL - INITIAL_WINDOW + 1);
     expect(Math.max(...seqs)).toBe(TOTAL);
 
     // Bootstrap prune must not wipe imported projection when gateway history is empty.
@@ -1962,7 +1963,7 @@ describe("imported session simple paging contract", () => {
     await app.close();
   });
 
-  test("normal session bootstrap returns full Gateway history", async () => {
+  test("normal session bootstrap returns latest 100 from Gateway history", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
     const sessionKey = "agent:main:desktop:normal-contract";
@@ -1974,11 +1975,12 @@ describe("imported session simple paging contract", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.messages.length).toBe(TOTAL);
-    expect(body.hasOlder).toBe(false);
-    expect(body.oldestLoadedSeq).toBe(1);
+    expect(body.messages.length).toBe(INITIAL_WINDOW);
+    expect(body.knownTotalMessages).toBe(TOTAL);
+    expect(body.hasOlder).toBe(true);
+    expect(body.oldestLoadedSeq).toBe(TOTAL - INITIAL_WINDOW + 1);
     const seqs = (body.messages as BootstrapMsg[]).map(bootstrapSeq);
-    expect(Math.min(...seqs)).toBe(1);
+    expect(Math.min(...seqs)).toBe(TOTAL - INITIAL_WINDOW + 1);
     expect(Math.max(...seqs)).toBe(TOTAL);
     await app.close();
   });
@@ -1998,7 +2000,7 @@ describe("imported session simple paging contract", () => {
     });
     expect(bootstrap.statusCode).toBe(200);
     let oldest = bootstrap.json().oldestLoadedSeq as number;
-    expect(oldest).toBe(1);
+    expect(oldest).toBe(TOTAL - INITIAL_WINDOW + 1);
 
     let pages = 0;
     let reachedStart = oldest === 1;
@@ -2100,7 +2102,7 @@ describe("imported session simple paging contract", () => {
       url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}&limit=${INITIAL_WINDOW}`,
     });
     expect(bootstrap.statusCode).toBe(200);
-    expect((bootstrap.json().messages as unknown[]).length).toBe(TOTAL);
+    expect((bootstrap.json().messages as unknown[]).length).toBe(INITIAL_WINDOW);
 
     await app.inject({
       method: "POST",
@@ -2157,8 +2159,9 @@ describe("imported session simple paging contract", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.messages.length).toBe(TOTAL);
-    expect(body.hasOlder).toBe(false);
+    expect(body.messages.length).toBe(INITIAL_WINDOW);
+    expect(body.knownTotalMessages).toBe(TOTAL);
+    expect(body.hasOlder).toBe(true);
 
     // Critical: full imported projection must still be in SQLite.
     expect(context.messages.listAllMessages(sessionKey).length).toBe(TOTAL);
@@ -2190,10 +2193,10 @@ describe("imported session simple paging contract", () => {
     });
     expect(bootstrap.statusCode).toBe(200);
     const body = bootstrap.json();
-    expect(body.messages.length).toBe(TOTAL);
-    expect(body.hasOlder).toBe(false);
-    expect(body.historyCoverage).toBe("full");
-    expect(body.oldestLoadedSeq).toBe(1);
+    expect(body.messages.length).toBe(INITIAL_WINDOW);
+    expect(body.hasOlder).toBe(true);
+    expect(body.historyCoverage).toBe("windowed");
+    expect(body.oldestLoadedSeq).toBe(TOTAL - INITIAL_WINDOW + 1);
 
     const page = await app.inject({
       method: "GET",
@@ -2294,7 +2297,7 @@ describe("imported session simple paging contract", () => {
       url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}&limit=${INITIAL_WINDOW}`,
     });
     expect(open.statusCode).toBe(200);
-    expect(open.json().messages.length).toBe(TOTAL);
+    expect(open.json().messages.length).toBe(INITIAL_WINDOW);
     expect(context.messages.listAllMessages(sessionKey).length).toBe(TOTAL);
 
     // After continue: gateway returns windowed tail only
@@ -2328,7 +2331,7 @@ describe("imported session simple paging contract", () => {
       url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}&limit=${INITIAL_WINDOW}`,
     });
     expect(after.statusCode).toBe(200);
-    expect(after.json().messages.length).toBeGreaterThanOrEqual(TOTAL); // full import plus optimistic/live rows
+    expect(after.json().messages.length).toBeGreaterThanOrEqual(INITIAL_WINDOW); // latest window plus optimistic/live rows
     // Projection must still hold the full import (the actual wipe bug).
     expect(context.messages.listAllMessages(sessionKey).length).toBeGreaterThanOrEqual(TOTAL);
 
@@ -2373,7 +2376,7 @@ describe("imported session simple paging contract", () => {
     const i = importedBoot.json();
     const n = normalBoot.json();
     expect(i.messages.length).toBe(n.messages.length);
-    expect(i.messages.length).toBe(TOTAL);
+    expect(i.messages.length).toBe(INITIAL_WINDOW);
     expect(i.hasOlder).toBe(n.hasOlder);
     expect(i.historyCoverage).toBe(n.historyCoverage);
     expect(i.oldestLoadedSeq).toBe(n.oldestLoadedSeq);
