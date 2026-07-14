@@ -3017,31 +3017,45 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
       continue;
     }
     try {
-      const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-discord-${crypto.randomUUID()}`;
-      const created = await context.gateway.request<CompatRecord>("sessions.create", {
-        key: desktopSessionKey,
-        agentId: parsed.agentId,
-        label: gatewaySessionLabel(label, desktopSessionKey),
-        parentSessionKey: session.sourceSessionKey,
-        metadata: gatewayMigrationMetadata({ platformKind: "discord", sourceSessionKey: String(session.sourceSessionKey), sourceSessionId: typeof session.sourceSessionId === "string" ? session.sourceSessionId : null }),
-      }, 30_000);
-      const transcriptPath = sessionFileFromCreateResult(created);
-      if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
-      copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
-      const sessionId = sessionIdFromCreateResult(created, desktopSessionKey);
-      persistImportedChatMessages(context, { sessionKey: desktopSessionKey, sessionId, transcriptPath, label, messages: sourceMessages });
+      // Canonical import: Discord sessions use the original sourceSessionKey as
+      // the desktop/Gateway key, matching Telegram. Do not clone into a
+      // desktop:migrated-discord-* session; continuing the imported channel must
+      // send to the same source session so Gateway memory/context is preserved.
+      const desktopSessionKey = String(session.sourceSessionKey);
+      const rawSourceSessionId = typeof session.sourceSessionId === "string" ? session.sourceSessionId.trim() : "";
       const timestamp = nowIso();
       context.importProvenance.upsert({
         desktopSessionKey,
         platformKind: "discord",
-        sourceSessionKey: String(session.sourceSessionKey),
-        sourceSessionId: typeof session.sourceSessionId === "string" ? session.sourceSessionId : null,
+        sourceSessionKey: desktopSessionKey,
+        sourceSessionId: rawSourceSessionId || null,
         platformSpaceId: targetSpaceId,
         lifecycle: "active",
       });
-      compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId: null, topicId: null, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey } });
-      const chat = ensureImportedFlatChat("discord", { sourceSessionKey: session.sourceSessionKey, targetSpaceId, label, sessionKey: desktopSessionKey, agentId: parsed.agentId, timestamp });
-      imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId: chat.id, projectId: null, topicId: null, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, transcriptPath });
+      persistImportedChatMessages(context, {
+        sessionKey: desktopSessionKey,
+        sessionId: rawSourceSessionId || desktopSessionKey,
+        transcriptPath: String(session.sourceSessionFile || ""),
+        label,
+        messages: sourceMessages,
+      });
+      compatState.sessions.push({
+        id: stableCompatId("session", desktopSessionKey),
+        key: desktopSessionKey,
+        sessionKey: desktopSessionKey,
+        label,
+        agentId: parsed.agentId,
+        status: "idle",
+        hidden: false,
+        spaceId: targetSpaceId,
+        projectId: null,
+        topicId: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        importedFrom: { kind: "discord", sourceSessionKey: desktopSessionKey, ...(rawSourceSessionId ? { sourceSessionId: rawSourceSessionId } : {}) },
+      });
+      const chat = ensureImportedFlatChat("discord", { sourceSessionKey: desktopSessionKey, targetSpaceId, label, sessionKey: desktopSessionKey, agentId: parsed.agentId, timestamp });
+      imported.push({ sourceSessionKey: desktopSessionKey, desktopSessionKey, chatId: chat.id, projectId: null, topicId: null, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, transcriptPath: String(session.sourceSessionFile || ""), canonicalDesktopSessionKey: true });
     } catch (error) {
       failed.push({ sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) });
     }

@@ -1147,9 +1147,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
 
     const existingLocalSession = context.messages.getSession(input.sessionKey);
-    const shouldEnsureGatewaySession = !existingLocalSession?.sessionId;
+    const importedSendLink = context.compat?.importedPlatformSessionLink?.(input.sessionKey) ?? null;
+    const shouldEnsureGatewaySession = !existingLocalSession?.sessionId && !importedSendLink;
 
-    log.info("send.accept.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), gatewaySetupDeferred: true });
+    log.info("send.accept.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), gatewaySetupDeferred: true, importedPlatform: importedSendLink?.kind ?? null });
 
     const replyTo = normalizeReplyTo(input.replyTo);
     const gatewayMessage = buildReplyAugmentedMessage(rawMessage, replyTo);
@@ -1400,7 +1401,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 return null;
               });
             } else {
-              log.info("session.create.skip-existing", { sessionKey: input.sessionKey, sessionId: existingLocalSession?.sessionId });
+              log.info("session.create.skip-existing", { sessionKey: input.sessionKey, sessionId: existingLocalSession?.sessionId ?? null, importedPlatform: importedSendLink?.kind ?? null });
             }
 
             if (input.execPolicy !== undefined) {
@@ -1453,10 +1454,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             });
 
             const historyLoadStartedAtMs = nowMs();
-            log.info("gateway.history.load.start", { sessionKey: input.sessionKey, limit: 200, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
+            log.info("gateway.history.load.start", { sessionKey: input.sessionKey, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
             const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
               sessionKey: input.sessionKey,
-              limit: 200,
             }).then((loaded) => {
               log.info("gateway.history.load.end", { sessionKey: input.sessionKey, durationMs: elapsedMs(historyLoadStartedAtMs), elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), messageFactors: messageFactorSummary(loaded.messages ?? []), status: loaded.status ?? null, sessionId: loaded.sessionId ?? null });
               return loaded;

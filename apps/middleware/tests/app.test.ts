@@ -1323,7 +1323,7 @@ describe("middleware app", () => {
     const pageMessages = await app.inject({ method: "GET", url: `/api/chat/messages?sessionKey=${encodeURIComponent("agent:main:desktop:migrated-telegram-old")}&beforeSeq=9007199254740991&limit=160` });
     expect(pageMessages.statusCode).toBe(200);
     expect(pageMessages.json().messages.map((message: { data?: { content?: string } }) => message.data?.content).join("\n")).toContain("repair old import");
-    expect(context.gateway.request.mock.calls.some(([method]) => method === "chat.history")).toBe(false);
+    expect(context.gateway.request.mock.calls.some(([method]) => method === "sessions.create")).toBe(false);
     const lazyHistory = await app.inject({ method: "POST", url: "/api/commands/middleware_chat_history", payload: { input: { sessionKey: "agent:main:desktop:migrated-telegram-old" } } });
     expect(lazyHistory.statusCode).toBe(200);
     expect(lazyHistory.json().messages.map((message: { content?: string }) => message.content).join("\n")).toContain("repair old import");
@@ -1434,7 +1434,7 @@ describe("middleware app", () => {
     const secondRes = await app.inject({ method: "POST", url: "/api/migration/discord/import", payload: { sourceSessionKeys: [key], skipAlreadyImported: false } });
     expect(secondRes.statusCode).toBe(200);
     expect(secondRes.json().summary).toMatchObject({ imported: 0, skipped: 1, failed: 0 });
-    expect(context.gateway.request.mock.calls.filter(([method]) => method === "sessions.create")).toHaveLength(1);
+    expect(context.gateway.request.mock.calls.filter(([method]) => method === "sessions.create")).toHaveLength(0);
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
     const discordSpace = bootstrap.json().spaces.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Discord" && item.importedFrom?.kind === "discord" && item.importedFrom?.scope === "session-migration");
     expect(discordSpace).toBeTruthy();
@@ -1808,7 +1808,7 @@ describe("middleware app", () => {
     await app.close();
   });
 
-  test("chat messages supports beforeSeq pagination for older messages", async () => {
+  test("chat messages ignores stale beforeSeq pagination and returns full history", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
     context.messages.upsertMessages(normalizeHistoryMessages("s1", Array.from({ length: 12 }, (_, index) => ({
@@ -1820,7 +1820,7 @@ describe("middleware app", () => {
     const res = await app.inject({ method: "GET", url: "/api/chat/messages?sessionKey=s1&beforeSeq=10&limit=4" });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json().messages.map((message: { openclawSeq: number }) => message.openclawSeq)).toEqual([6, 7, 8, 9]);
+    expect(res.json().messages.map((message: { openclawSeq: number }) => message.openclawSeq)).toEqual(Array.from({ length: 12 }, (_, index) => index + 1));
     await app.close();
   });
 
@@ -1852,7 +1852,7 @@ describe("middleware app", () => {
  * - /api/chat/messages rows: top-level `openclawSeq`
  * - Bootstrap meta: `oldestLoadedSeq`, `hasOlder`, `historyCoverage`
  */
-describe("imported session 160-message window contract", () => {
+describe("imported session full-history contract", () => {
   const TOTAL = 500;
   const INITIAL_WINDOW = 160;
 
@@ -1930,7 +1930,7 @@ describe("imported session 160-message window contract", () => {
     }) as unknown as AppContext["gateway"]["request"];
   }
 
-  test("imported session bootstrap loads only the last 160 and sets hasOlder (empty gateway + local projection)", async () => {
+  test("imported session bootstrap loads full local projection (empty gateway + local projection)", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
     const sessionKey = "agent:main:desktop:migrated-telegram-contract";
@@ -1948,13 +1948,13 @@ describe("imported session 160-message window contract", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.messages.length).toBe(INITIAL_WINDOW);
-    expect(body.hasOlder).toBe(true);
-    expect(body.historyCoverage).toBe("windowed");
-    expect(body.oldestLoadedSeq).toBe(TOTAL - INITIAL_WINDOW + 1);
+    expect(body.messages.length).toBe(TOTAL);
+    expect(body.hasOlder).toBe(false);
+    expect(body.historyCoverage).toBe("full");
+    expect(body.oldestLoadedSeq).toBe(1);
 
     const seqs = (body.messages as BootstrapMsg[]).map(bootstrapSeq);
-    expect(Math.min(...seqs)).toBe(TOTAL - INITIAL_WINDOW + 1);
+    expect(Math.min(...seqs)).toBe(1);
     expect(Math.max(...seqs)).toBe(TOTAL);
 
     // Bootstrap prune must not wipe imported projection when gateway history is empty.
@@ -1962,7 +1962,7 @@ describe("imported session 160-message window contract", () => {
     await app.close();
   });
 
-  test("normal session bootstrap behaves identically (parity, zero behavioral change)", async () => {
+  test("normal session bootstrap returns full Gateway history", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
     const sessionKey = "agent:main:desktop:normal-contract";
@@ -1974,16 +1974,16 @@ describe("imported session 160-message window contract", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.messages.length).toBe(INITIAL_WINDOW);
-    expect(body.hasOlder).toBe(true);
-    expect(body.oldestLoadedSeq).toBe(TOTAL - INITIAL_WINDOW + 1);
+    expect(body.messages.length).toBe(TOTAL);
+    expect(body.hasOlder).toBe(false);
+    expect(body.oldestLoadedSeq).toBe(1);
     const seqs = (body.messages as BootstrapMsg[]).map(bootstrapSeq);
-    expect(Math.min(...seqs)).toBe(TOTAL - INITIAL_WINDOW + 1);
+    expect(Math.min(...seqs)).toBe(1);
     expect(Math.max(...seqs)).toBe(TOTAL);
     await app.close();
   });
 
-  test("imported session scroll-up pages older messages to seq=1 with no gap at the 160 boundary", async () => {
+  test("imported session stale older-page request still returns full history", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
     const sessionKey = "agent:main:desktop:migrated-telegram-scroll";
@@ -1998,10 +1998,10 @@ describe("imported session 160-message window contract", () => {
     });
     expect(bootstrap.statusCode).toBe(200);
     let oldest = bootstrap.json().oldestLoadedSeq as number;
-    expect(oldest).toBe(TOTAL - INITIAL_WINDOW + 1);
+    expect(oldest).toBe(1);
 
     let pages = 0;
-    let reachedStart = false;
+    let reachedStart = oldest === 1;
     while (oldest > 1 && pages < 100) {
       const page = await app.inject({
         method: "GET",
@@ -2026,7 +2026,7 @@ describe("imported session 160-message window contract", () => {
     await app.close();
   });
 
-  test("normal session scroll-up pages identically (parity)", async () => {
+  test("normal session stale older-page request still returns full history", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
     const sessionKey = "agent:main:desktop:normal-scroll";
@@ -2041,7 +2041,7 @@ describe("imported session 160-message window contract", () => {
     let oldest = bootstrap.json().oldestLoadedSeq as number;
 
     let pages = 0;
-    let reachedStart = false;
+    let reachedStart = oldest === 1;
     while (oldest > 1 && pages < 100) {
       const page = await app.inject({
         method: "GET",
@@ -2100,7 +2100,7 @@ describe("imported session 160-message window contract", () => {
       url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}&limit=${INITIAL_WINDOW}`,
     });
     expect(bootstrap.statusCode).toBe(200);
-    expect((bootstrap.json().messages as unknown[]).length).toBe(INITIAL_WINDOW);
+    expect((bootstrap.json().messages as unknown[]).length).toBe(TOTAL);
 
     await app.inject({
       method: "POST",
@@ -2120,7 +2120,7 @@ describe("imported session 160-message window contract", () => {
     await app.close();
   });
 
-  test("after continue-send, windowed gateway history must NOT prune the imported projection (root race)", async () => {
+  test("after continue-send, partial gateway history must NOT prune the imported projection (root race)", async () => {
     // ROOT CAUSE regression:
     // 1) Import seeds full local projection (seq 1..TOTAL)
     // 2) User continues chat → gateway now has transcript
@@ -2157,28 +2157,28 @@ describe("imported session 160-message window contract", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.messages.length).toBe(INITIAL_WINDOW);
-    expect(body.hasOlder).toBe(true);
+    expect(body.messages.length).toBe(TOTAL);
+    expect(body.hasOlder).toBe(false);
 
     // Critical: full imported projection must still be in SQLite.
     expect(context.messages.listAllMessages(sessionKey).length).toBe(TOTAL);
 
     // Older pages must still resolve contiguously from the preserved projection.
     const oldest = body.oldestLoadedSeq as number;
-    expect(oldest).toBe(TOTAL - INITIAL_WINDOW + 1);
+    expect(oldest).toBe(1);
     const page = await app.inject({
       method: "GET",
       url: `/api/chat/messages?sessionKey=${encodeURIComponent(sessionKey)}&beforeSeq=${oldest}&limit=100`,
     });
     expect(page.statusCode).toBe(200);
     const pageSeqs = (page.json().messages as PageMsg[]).map((m) => m.openclawSeq);
-    expect(pageSeqs.length).toBe(100);
-    expect(Math.max(...pageSeqs)).toBe(oldest - 1);
-    expect(Math.min(...pageSeqs)).toBe(oldest - 100);
+    expect(pageSeqs.length).toBe(TOTAL);
+    expect(Math.min(...pageSeqs)).toBe(1);
+    expect(Math.max(...pageSeqs)).toBe(TOTAL);
     await app.close();
   });
 
-  test("Phase 3: exact 160 → 100 → 100 → 100 → remainder sequence with no holes (imported)", async () => {
+  test("Phase 3: imported full-history read returns one contiguous full set", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
     const sessionKey = "agent:main:desktop:migrated-telegram-phase3-seq";
@@ -2192,40 +2192,24 @@ describe("imported session 160-message window contract", () => {
     });
     expect(bootstrap.statusCode).toBe(200);
     const body = bootstrap.json();
-    expect(body.messages.length).toBe(INITIAL_WINDOW);
-    expect(body.hasOlder).toBe(true);
-    expect(body.historyCoverage).toBe("windowed");
+    expect(body.messages.length).toBe(TOTAL);
+    expect(body.hasOlder).toBe(false);
+    expect(body.historyCoverage).toBe("full");
+    expect(body.oldestLoadedSeq).toBe(1);
 
-    // Expected page plan for TOTAL=500: open 341..500 (160), then 241..340,
-    // 141..240, 41..140, 1..40 (remainder < 100).
-    const expectedPages = [
-      { before: TOTAL - INITIAL_WINDOW + 1, count: 100, min: 241, max: 340 },
-      { before: 241, count: 100, min: 141, max: 240 },
-      { before: 141, count: 100, min: 41, max: 140 },
-      { before: 41, count: 40, min: 1, max: 40 },
-    ];
-    let cursor = body.oldestLoadedSeq as number;
-    expect(cursor).toBe(TOTAL - INITIAL_WINDOW + 1);
-
-    for (const expected of expectedPages) {
-      expect(cursor).toBe(expected.before);
-      const page = await app.inject({
-        method: "GET",
-        url: `/api/chat/messages?sessionKey=${encodeURIComponent(sessionKey)}&beforeSeq=${cursor}&limit=100`,
-      });
-      expect(page.statusCode).toBe(200);
-      const seqs = (page.json().messages as PageMsg[]).map((m) => m.openclawSeq);
-      expect(seqs.length).toBe(expected.count);
-      expect(Math.min(...seqs)).toBe(expected.min);
-      expect(Math.max(...seqs)).toBe(expected.max);
-      // Contiguous block, no holes.
-      const sorted = [...seqs].sort((a, b) => a - b);
-      for (let i = 1; i < sorted.length; i += 1) {
-        expect(sorted[i]).toBe(sorted[i - 1]! + 1);
-      }
-      cursor = Math.min(...seqs);
+    const page = await app.inject({
+      method: "GET",
+      url: `/api/chat/messages?sessionKey=${encodeURIComponent(sessionKey)}&beforeSeq=341&limit=100`,
+    });
+    expect(page.statusCode).toBe(200);
+    const seqs = (page.json().messages as PageMsg[]).map((m) => m.openclawSeq);
+    expect(seqs.length).toBe(TOTAL);
+    expect(Math.min(...seqs)).toBe(1);
+    expect(Math.max(...seqs)).toBe(TOTAL);
+    const sorted = [...seqs].sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i += 1) {
+      expect(sorted[i]).toBe(sorted[i - 1]! + 1);
     }
-    expect(cursor).toBe(1);
     await app.close();
   });
 
@@ -2294,7 +2278,7 @@ describe("imported session 160-message window contract", () => {
     await app.close();
   });
 
-  test("Phase 4: imported continue path — bootstrap windowed + page older still full projection", async () => {
+  test("Phase 4: imported continue path — bootstrap full + stale page request still full projection", async () => {
     // End-to-end data path for the user bug: open → "send" (gateway has tail) →
     // bootstrap again → older page still works (projection not wiped).
     const app = await createApp(testConfig());
@@ -2311,7 +2295,7 @@ describe("imported session 160-message window contract", () => {
       url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}&limit=${INITIAL_WINDOW}`,
     });
     expect(open.statusCode).toBe(200);
-    expect(open.json().messages.length).toBe(INITIAL_WINDOW);
+    expect(open.json().messages.length).toBe(TOTAL);
     expect(context.messages.listAllMessages(sessionKey).length).toBe(TOTAL);
 
     // After continue: gateway returns windowed tail only
@@ -2345,7 +2329,7 @@ describe("imported session 160-message window contract", () => {
       url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}&limit=${INITIAL_WINDOW}`,
     });
     expect(after.statusCode).toBe(200);
-    expect(after.json().messages.length).toBeLessThanOrEqual(INITIAL_WINDOW + 5); // +optimistic/live room
+    expect(after.json().messages.length).toBeGreaterThanOrEqual(TOTAL); // full import plus optimistic/live rows
     // Projection must still hold the full import (the actual wipe bug).
     expect(context.messages.listAllMessages(sessionKey).length).toBeGreaterThanOrEqual(TOTAL);
 
@@ -2363,7 +2347,7 @@ describe("imported session 160-message window contract", () => {
     await app.close();
   });
 
-  test("Phase 3: imported vs normal open window shapes are identical for same projection size", async () => {
+  test("Phase 3: imported vs normal open full-history shapes are identical for same projection size", async () => {
     const appImported = await createApp(testConfig());
     const ctxImported = (appImported as typeof appImported & { v2Context: AppContext }).v2Context;
     const importedKey = "agent:main:desktop:parity-imported";
@@ -2390,7 +2374,7 @@ describe("imported session 160-message window contract", () => {
     const i = importedBoot.json();
     const n = normalBoot.json();
     expect(i.messages.length).toBe(n.messages.length);
-    expect(i.messages.length).toBe(INITIAL_WINDOW);
+    expect(i.messages.length).toBe(TOTAL);
     expect(i.hasOlder).toBe(n.hasOlder);
     expect(i.historyCoverage).toBe(n.historyCoverage);
     expect(i.oldestLoadedSeq).toBe(n.oldestLoadedSeq);

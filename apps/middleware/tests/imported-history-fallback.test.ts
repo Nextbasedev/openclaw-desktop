@@ -135,7 +135,7 @@ describe("imported history source-key Gateway fallback — bootstrap", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.messageCount).toBe(0);
-    expect(body.historyFallback?.reasons).toEqual(expect.arrayContaining(["desktop_empty", "source_gateway_empty"]));
+    expect(body.historyFallback?.reasons).toEqual(expect.arrayContaining(["source_gateway_empty"]));
     await app.close();
   });
 
@@ -216,8 +216,8 @@ describe("imported history source-key Gateway fallback — bootstrap", () => {
   });
 });
 
-describe("imported history source-key Gateway fallback — older-page pagination", () => {
-  test("older-page miss (beforeSeq) refills via source-key Gateway for imported sessions and returns the older window", async () => {
+describe("imported history source-key Gateway fallback — full messages read", () => {
+  test("full read refills via source-key Gateway for imported sessions and returns all projected rows", async () => {
     const app = await createApp(config("older-page-source"));
     const context = contextOf(app);
     stubImportedCompat(context, { desktopKey: DESKTOP_KEY, sourceKey: SOURCE_KEY });
@@ -252,16 +252,15 @@ describe("imported history source-key Gateway fallback — older-page pagination
       return {} as Record<string, unknown>;
     });
 
-    // Ask for older window: everything strictly BEFORE seq 20 (limit 10).
+    // Stale window query params are ignored; full history is returned.
     const res = await app.inject({ method: "GET", url: `/api/chat/messages?sessionKey=${DESKTOP_KEY}&beforeSeq=20&limit=10` });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(sourceCalls.length).toBeGreaterThan(0);
-    expect(body.messageCount).toBeGreaterThan(0);
-    expect(body.messageCount).toBeLessThanOrEqual(10);
+    expect(body.messageCount).toBe(30);
+    expect(body.messages.map((message: { openclawSeq: number }) => message.openclawSeq)).toEqual(Array.from({ length: 30 }, (_, index) => index + 1));
     for (const message of body.messages) {
       expect(message.sessionKey).toBe(DESKTOP_KEY);
-      expect(message.openclawSeq).toBeLessThan(20);
     }
     expect(body.historyFallback?.reasons).toContain("source_gateway_projected");
     await app.close();
@@ -284,7 +283,7 @@ describe("imported history source-key Gateway fallback — older-page pagination
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.messageCount).toBe(0);
-    expect(body.historyFallback?.reasons).toEqual(expect.arrayContaining(["desktop_empty", "source_gateway_empty"]));
+    expect(body.historyFallback?.reasons).toEqual(expect.arrayContaining(["source_gateway_empty"]));
     await app.close();
   });
 
