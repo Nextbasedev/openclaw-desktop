@@ -3,7 +3,7 @@
  *
  * The rebuilt ChatView does NOT use the chat-engine-v2 global store. The
  * legacy implementation pulled `spawnedSubagents` from a session slice; this
- * module re-derives the equivalent state directly from the windowed message
+ * module re-derives the equivalent state directly from the loaded message
  * array so subagent rendering works without store integration.
  *
  * Live updates flow naturally: as `chat.tool.*` patches mutate the

@@ -721,13 +721,13 @@ export function ChatView({
   // Last wall-clock time we ran resetToLiveTail in response to a
   // bootstrap-recovery event. Used to debounce rapid SSE recovery storms
   // that can otherwise create a skeleton/messages blink loop on old sessions
-  // whose cursor is far ahead of the gateway's replay window.
+  // whose cursor is far ahead of the gateway's SSE replay buffer.
   const lastBootstrapRecoveryAtRef = useRef<number>(0)
   // Last wall-clock time a cold bootstrap (initial fetchChatMessagesV2) or
-  // resetToLiveTail RESOLVED with rendered messages. Used to suppress
+  // reloadFullSession RESOLVED with rendered messages. Used to suppress
   // bootstrap-recovery events that arrive shortly after we already fetched the
-  // live tail — the view is already fresh; running resetToLiveTail would just
-  // blank the messages and refetch the same window, producing the single
+  // full history — the view is already fresh; running reloadFullSession would just
+  // blank the messages and refetch the same history, producing the single
   // "skeleton → messages → skeleton → messages" blink on first session click.
   // See bootstrapRecoveryGuard.ts for the full decision logic.
   const lastBootstrapCompletedAtRef = useRef<number>(0)
@@ -1883,7 +1883,7 @@ export function ChatView({
       lastBootstrapCompletedAtRef.current = Date.now()
       frontendLog(
         "chat",
-        "chat-rebuild.window.reset-to-live-tail",
+        "chat-rebuild.history.reload-full",
         { sessionKey, messageCount: messages.length },
         "debug"
       )
@@ -1906,7 +1906,7 @@ export function ChatView({
       }
       frontendLog(
         "chat",
-        "chat-rebuild.window.reset-to-live-tail-failed",
+        "chat-rebuild.history.reload-full-failed",
         {
           sessionKey,
           errorKind: err instanceof Error ? err.name : typeof err,
@@ -1945,7 +1945,7 @@ export function ChatView({
         now,
       })
       if (!decision.apply) {
-        const logTag = `chat-rebuild.window.bootstrap-recovery-${decision.reason}`
+        const logTag = `chat-rebuild.history.bootstrap-recovery-${decision.reason}`
         frontendLog(
           "chat",
           logTag,
@@ -1962,7 +1962,7 @@ export function ChatView({
       lastBootstrapRecoveryAtRef.current = now
       frontendLog(
         "chat",
-        "chat-rebuild.window.bootstrap-recovery",
+        "chat-rebuild.history.bootstrap-recovery",
         { sessionKey, hasDetail: Boolean(detail) },
         "warn"
       )

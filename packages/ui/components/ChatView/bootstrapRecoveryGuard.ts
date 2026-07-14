@@ -4,14 +4,14 @@ import { isActiveRunStatus } from "@/lib/chat-engine-v2/activeRunRegistry"
 /**
  * Minimum gap between two consecutive resetToLiveTail() calls triggered by
  * bootstrap-recovery events. Old sessions whose persisted cursor is far ahead
- * of the gateway's replay window can emit replay-window-exceeded `hello` frames
+ * of the gateway's SSE replay buffer can emit replay-buffer-exceeded `hello` frames
  * on every SSE (re)connect; without this guard the UI runs resetToLiveTail in a
  * loop, producing a constant skeleton ↔ messages blink.
  */
 export const RECOVERY_DEBOUNCE_MS = 4000
 
 /**
- * Grace window after a successful cold-bootstrap (or successful resetToLiveTail)
+ * Grace period after a successful cold-bootstrap (or successful full-history reload)
  * during which incoming bootstrap-recovery events are treated as redundant and
  * skipped. The motivation: when the user clicks into an existing session,
  *
@@ -19,7 +19,7 @@ export const RECOVERY_DEBOUNCE_MS = 4000
  *   2. fetchChatMessagesV2 resolves → setState(loading:false, messages) →
  *      messages render
  *   3. The SSE patch stream connects → hello frame arrives → if the persisted
- *      cursor is past the gateway's replay window the server emits
+ *      cursor is past the gateway's SSE replay buffer the server emits
  *      replayWindowExceeded=true → client.ts dispatches
  *      `openclaw:chat-bootstrap-recovery`
  *   4. ChatView's recovery handler runs resetToLiveTail → setState(loading:true,
@@ -27,8 +27,8 @@ export const RECOVERY_DEBOUNCE_MS = 4000
  *   5. Fetch resolves → messages render again
  *
  * The view at step (3) is already up-to-date with the gateway because step (2)
- * just fetched the live tail. The recovery would only re-fetch the same window.
- * This grace window suppresses that wasted reset so the second skeleton blink
+ * just fetched the full history. The recovery would only re-fetch the same history.
+ * This grace period suppresses that wasted reset so the second skeleton blink
  * does not occur. The debounce alone (RECOVERY_DEBOUNCE_MS) cannot fix this:
  * it only protects against the SECOND and later events in a burst — the first
  * one still slips through, which is what produces Krish's "single blink" case.
@@ -36,7 +36,7 @@ export const RECOVERY_DEBOUNCE_MS = 4000
  * 2500ms is long enough to cover the worst-case SSE hello/connect race after a
  * cold bootstrap on slow machines but short enough that genuine recoveries
  * (e.g., a long-lived tab whose server epoch reset) still recover within a
- * normal UX window.
+ * normal UX debounce period.
  */
 export const RECOVERY_GRACE_AFTER_BOOTSTRAP_MS = 2500
 
@@ -62,7 +62,7 @@ export interface BootstrapRecoveryDecisionInput {
   lastRecoveryAt: number
   /** Wall-clock now used for both grace and debounce comparisons. */
   now: number
-  /** Override windows in tests. */
+  /** Override debounce periods in tests. */
   graceAfterBootstrapMs?: number
   debounceMs?: number
 }
@@ -102,11 +102,11 @@ export function decideBootstrapRecovery(
   }
 
   // 3. Recent-bootstrap guard: the cold-bootstrap (or last resetToLiveTail)
-  //    completed within the grace window. The visible view is already fresh —
+  //    completed within the grace period. The visible view is already fresh —
   //    the recovery would simply re-fetch the same page and cause a skeleton
   //    blink. This is the primary fix for the single "skeleton → messages →
   //    skeleton → messages" blink on the first click into an existing session
-  //    whose persisted cursor is past the SSE replay window.
+  //    whose persisted cursor is past the SSE replay buffer.
   if (input.lastBootstrapCompletedAt > 0) {
     const elapsedSinceBootstrap = input.now - input.lastBootstrapCompletedAt
     if (elapsedSinceBootstrap >= 0 && elapsedSinceBootstrap < grace) {
