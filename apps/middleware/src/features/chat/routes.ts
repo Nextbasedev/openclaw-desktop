@@ -2037,23 +2037,30 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
   app.get("/api/chat/messages", async (request) => {
     const parsed = z.object({
       sessionKey: z.string().min(1),
+      beforeSeq: z.coerce.number().int().positive().optional(),
+      afterSeq: z.coerce.number().int().nonnegative().optional(),
+      limit: z.coerce.number().int().positive().max(500).optional(),
     }).passthrough().safeParse(request.query);
     if (!parsed.success) {
       throw new HttpError(400, "Invalid chat messages query", "INVALID_QUERY", parsed.error.flatten());
     }
     const sessionKey = parsed.data.sessionKey;
-    log.info("messages.read.start", { sessionKey, mode: "full" });
+    const requestedLimit = Math.max(1, Math.min(500, parsed.data.limit ?? 100));
+    const beforeSeq = parsed.data.beforeSeq;
+    const afterSeq = parsed.data.afterSeq;
+    const mode = beforeSeq !== undefined ? "older" : afterSeq !== undefined ? "newer" : "latest";
+    log.info("messages.read.start", { sessionKey, mode, requestedLimit, beforeSeq: beforeSeq ?? null, afterSeq: afterSeq ?? null });
 
-    let messages = context.messages.listAllMessages(sessionKey);
+    let allMessages = context.messages.listAllMessages(sessionKey);
     const importedLinkForRead = context.compat?.importedPlatformSessionLink?.(sessionKey) ?? null;
     const historyFallbackReasons: string[] = [];
 
-    if (messages.length === 0) {
+    if (allMessages.length === 0) {
       const hydrated = await context.compat?.hydrateImportedChatHistory?.(sessionKey);
       if (hydrated?.hydrated) {
-        messages = context.messages.listAllMessages(sessionKey);
+        allMessages = context.messages.listAllMessages(sessionKey);
         if (importedLinkForRead) historyFallbackReasons.push("local_hydrated");
-        log.info("messages.read.imported-hydrated", { sessionKey, upserted: hydrated.upserted ?? null, messageCount: messages.length });
+        log.info("messages.read.imported-hydrated", { sessionKey, upserted: hydrated.upserted ?? null, messageCount: allMessages.length });
       }
     }
 
@@ -2061,19 +2068,34 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       const projected = await ensureGatewayHistoryProjected(context, sessionKey, {
         ...(importedLinkForRead ? { sourceSessionKey: importedLinkForRead.sourceSessionKey } : {}),
       });
-      messages = context.messages.listAllMessages(projected.sessionKey);
+      allMessages = context.messages.listAllMessages(projected.sessionKey);
       if (importedLinkForRead) {
         historyFallbackReasons.push(projected.normalized.length > 0 ? "source_gateway_projected" : "source_gateway_empty");
       }
-      log.info("messages.read.gateway-refresh", { sessionKey, resolvedSessionKey: projected.sessionKey, normalized: projected.normalized.length, upserted: projected.projection.upserted, messageCount: messages.length });
+      log.info("messages.read.gateway-refresh", { sessionKey, resolvedSessionKey: projected.sessionKey, normalized: projected.normalized.length, upserted: projected.projection.upserted, messageCount: allMessages.length });
     } catch (error) {
-      if (messages.length === 0 && importedLinkForRead) historyFallbackReasons.push("source_gateway_failed");
-      log.warn("messages.read.gateway-refresh.fail_ignored", { sessionKey, localMessageCount: messages.length, ...errorMeta(error) });
+      if (allMessages.length === 0 && importedLinkForRead) historyFallbackReasons.push("source_gateway_failed");
+      log.warn("messages.read.gateway-refresh.fail_ignored", { sessionKey, localMessageCount: allMessages.length, ...errorMeta(error) });
     }
 
     const sessionCursor = context.messages.latestSessionCursor(sessionKey);
-    const visibleMessages = messages.filter((message) => !isNonUserAttachedFileEcho(message));
-    log.info("messages.read.end", { sessionKey, mode: "full", messageCount: visibleMessages.length, cursor: sessionCursor });
+    const allVisibleMessages = allMessages.filter((message) => !isNonUserAttachedFileEcho(message));
+    const totalVisibleMessages = allVisibleMessages.length;
+    let visibleMessages = allVisibleMessages;
+    if (beforeSeq !== undefined) {
+      visibleMessages = allVisibleMessages.filter((message) => message.openclawSeq < beforeSeq).slice(-requestedLimit);
+    } else if (afterSeq !== undefined) {
+      visibleMessages = allVisibleMessages.filter((message) => message.openclawSeq > afterSeq).slice(0, requestedLimit);
+    } else {
+      visibleMessages = allVisibleMessages.slice(-requestedLimit);
+    }
+    const firstSeq = visibleMessages[0]?.openclawSeq ?? null;
+    const lastSeq = visibleMessages[visibleMessages.length - 1]?.openclawSeq ?? null;
+    const absoluteFirstSeq = allVisibleMessages[0]?.openclawSeq ?? null;
+    const absoluteLastSeq = allVisibleMessages[allVisibleMessages.length - 1]?.openclawSeq ?? null;
+    const hasOlder = firstSeq !== null && absoluteFirstSeq !== null && firstSeq > absoluteFirstSeq;
+    const hasNewer = lastSeq !== null && absoluteLastSeq !== null && lastSeq < absoluteLastSeq;
+    log.info("messages.read.end", { sessionKey, mode, messageCount: visibleMessages.length, totalVisibleMessages, hasOlder, hasNewer, cursor: sessionCursor });
     const historyFallback = importedLinkForRead && historyFallbackReasons.length > 0
       ? { reasons: Array.from(new Set(historyFallbackReasons)) }
       : null;
@@ -2092,6 +2114,12 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         updatedAtMs: message.updatedAtMs,
       })),
       messageCount: visibleMessages.length,
+      knownTotalMessages: totalVisibleMessages,
+      oldestLoadedSeq: firstSeq,
+      newestLoadedSeq: lastSeq,
+      hasOlder,
+      hasNewer,
+      pageLimit: requestedLimit,
       cursor: sessionCursor,
       ...(historyFallback ? { historyFallback } : {}),
     };

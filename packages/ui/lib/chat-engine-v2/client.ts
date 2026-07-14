@@ -174,14 +174,26 @@ export type ChatMessagesPageV2 = {
     updatedAtMs: number
   }>
   messageCount: number
+  knownTotalMessages?: number
+  oldestLoadedSeq?: number | null
+  newestLoadedSeq?: number | null
+  hasOlder?: boolean
+  hasNewer?: boolean
+  pageLimit?: number
   cursor?: number
 }
 
 export async function fetchChatMessagesV2(input: {
   sessionKey: string
+  beforeSeq?: number | null
+  afterSeq?: number | null
+  limit?: number
 }): Promise<ChatMessagesPageV2> {
   const params = new URLSearchParams({ sessionKey: input.sessionKey })
-  const key = `messages:${input.sessionKey}`
+  if (typeof input.beforeSeq === "number") params.set("beforeSeq", String(input.beforeSeq))
+  if (typeof input.afterSeq === "number") params.set("afterSeq", String(input.afterSeq))
+  if (typeof input.limit === "number") params.set("limit", String(input.limit))
+  const key = `messages:${input.sessionKey}:${input.beforeSeq ?? ""}:${input.afterSeq ?? ""}:${input.limit ?? ""}`
   const existing = chatMessagesRequests.get(key)
   if (existing) return existing
   const request = fetchJson<ChatMessagesPageV2>(`/api/chat/messages?${params.toString()}`, {

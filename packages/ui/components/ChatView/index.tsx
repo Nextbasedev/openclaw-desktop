@@ -137,6 +137,33 @@ const ACTIVE_STREAM_STATUSES = new Set<StreamStatus>([
 ])
 
 const FOLLOW_SCROLL_THRESHOLD_PX = 96
+const INITIAL_HISTORY_PAGE_SIZE = 100
+const OLDER_HISTORY_PAGE_SIZE = 80
+const HISTORY_EDGE_LOAD_THRESHOLD_PX = 96
+
+type HistoryPageState = {
+  oldestLoadedSeq: number | null
+  newestLoadedSeq: number | null
+  hasOlder: boolean
+  hasNewer: boolean
+  knownTotalMessages: number | null
+}
+
+function pageStateFromHistory(history: {
+  oldestLoadedSeq?: number | null
+  newestLoadedSeq?: number | null
+  hasOlder?: boolean
+  hasNewer?: boolean
+  knownTotalMessages?: number
+}): HistoryPageState {
+  return {
+    oldestLoadedSeq: typeof history.oldestLoadedSeq === "number" ? history.oldestLoadedSeq : null,
+    newestLoadedSeq: typeof history.newestLoadedSeq === "number" ? history.newestLoadedSeq : null,
+    hasOlder: Boolean(history.hasOlder),
+    hasNewer: Boolean(history.hasNewer),
+    knownTotalMessages: typeof history.knownTotalMessages === "number" ? history.knownTotalMessages : null,
+  }
+}
 
 type StatusIconMeta = {
   icon: IconType
@@ -688,6 +715,14 @@ export function ChatView({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const scrollContentRef = useRef<HTMLDivElement | null>(null)
   const cursorRef = useRef(0)
+  const historyPageRef = useRef<HistoryPageState>({
+    oldestLoadedSeq: null,
+    newestLoadedSeq: null,
+    hasOlder: false,
+    hasNewer: false,
+    knownTotalMessages: null,
+  })
+  const olderPageLoadInFlightRef = useRef(false)
   const shouldFollowScrollRef = useRef(true)
   const contextFetchSeqRef = useRef(0)
   const wasGeneratingRef = useRef(false)
@@ -824,13 +859,14 @@ export function ChatView({
       // The reconcile happens via the same setState pattern history fetch
       // uses elsewhere; if the result is identical to current messages, the
       // setState is a no-op render.
-      fetchChatMessagesV2({ sessionKey })
+      fetchChatMessagesV2({ sessionKey, limit: INITIAL_HISTORY_PAGE_SIZE })
         .then((history) => {
           if (cancelled) return
           if (history.sessionKey && history.sessionKey !== sessionKey) return
           const freshMessages = normalizeHistory(
             history.messages.map((message) => message.data),
           )
+          const freshPageState = pageStateFromHistory(history)
           const freshCursor =
             typeof history.cursor === "number" ? history.cursor : 0
           frontendLog(
@@ -853,6 +889,7 @@ export function ChatView({
             freshMessages.length > seededMessages.length
           ) {
             cursorRef.current = Math.max(cursorRef.current, freshCursor)
+            historyPageRef.current = freshPageState
             setStreamCursor((current) =>
               current !== null && current >= freshCursor ? current : freshCursor,
             )
@@ -896,6 +933,13 @@ export function ChatView({
     }
 
     setStreamCursor(null)
+    historyPageRef.current = {
+      oldestLoadedSeq: null,
+      newestLoadedSeq: null,
+      hasOlder: false,
+      hasNewer: false,
+      knownTotalMessages: null,
+    }
     setState({
       loading: true,
       error: null,
@@ -905,7 +949,7 @@ export function ChatView({
       statusLabel: null,
     })
 
-    fetchChatMessagesV2({ sessionKey })
+    fetchChatMessagesV2({ sessionKey, limit: INITIAL_HISTORY_PAGE_SIZE })
       .then((history) => {
         if (cancelled) return
         if (history.sessionKey && history.sessionKey !== sessionKey) return
@@ -913,6 +957,7 @@ export function ChatView({
           history.messages.map((message) => message.data)
         )
         const cursor = typeof history.cursor === "number" ? history.cursor : 0
+        historyPageRef.current = pageStateFromHistory(history)
         cursorRef.current = cursor
         setStreamCursor(cursor)
         setState({
@@ -1849,6 +1894,13 @@ export function ChatView({
     setReplyTo(null)
     setActivePopoverId(null)
     setComposerSeed(null)
+    historyPageRef.current = {
+      oldestLoadedSeq: null,
+      newestLoadedSeq: null,
+      hasOlder: false,
+      hasNewer: false,
+      knownTotalMessages: null,
+    }
     if (!silent) {
       setState({
         loading: true,
@@ -1861,11 +1913,12 @@ export function ChatView({
     }
 
     try {
-      const history = await fetchChatMessagesV2({ sessionKey })
+      const history = await fetchChatMessagesV2({ sessionKey, limit: INITIAL_HISTORY_PAGE_SIZE })
       if (history.sessionKey && history.sessionKey !== sessionKey) return
 
       const messages = normalizeHistory(history.messages.map((m) => m.data))
       const cursor = typeof history.cursor === "number" ? history.cursor : 0
+      historyPageRef.current = pageStateFromHistory(history)
       cursorRef.current = cursor
       setStreamCursor(cursor)
 
@@ -1984,10 +2037,74 @@ export function ChatView({
     setShowJumpToLatest((current) => current === shouldShow ? current : shouldShow)
   }, [])
 
+  const loadOlderHistoryPage = useCallback(() => {
+    const pageState = historyPageRef.current
+    const beforeSeq = pageState.oldestLoadedSeq
+    const container = scrollContainerRef.current
+    if (!container || !pageState.hasOlder || typeof beforeSeq !== "number") return
+    if (olderPageLoadInFlightRef.current) return
+
+    olderPageLoadInFlightRef.current = true
+    const previousScrollHeight = container.scrollHeight
+    const previousScrollTop = container.scrollTop
+    fetchChatMessagesV2({
+      sessionKey,
+      beforeSeq,
+      limit: OLDER_HISTORY_PAGE_SIZE,
+    })
+      .then((history) => {
+        if (history.sessionKey && history.sessionKey !== sessionKey) return
+        const olderMessages = normalizeHistory(history.messages.map((message) => message.data))
+        historyPageRef.current = {
+          ...historyPageRef.current,
+          ...pageStateFromHistory(history),
+          newestLoadedSeq: historyPageRef.current.newestLoadedSeq,
+          hasNewer: historyPageRef.current.hasNewer,
+        }
+        if (olderMessages.length === 0) return
+        setState((current) => ({
+          ...current,
+          messages: orderChatMessages(dedupeChatMessages([...olderMessages, ...current.messages])),
+        }))
+        requestAnimationFrame(() => {
+          const latestContainer = scrollContainerRef.current
+          if (!latestContainer) return
+          latestContainer.scrollTop = latestContainer.scrollHeight - previousScrollHeight + previousScrollTop
+        })
+        frontendLog(
+          "chat",
+          "chat-rebuild.history.load-older-page",
+          {
+            sessionKey,
+            beforeSeq,
+            pageSize: olderMessages.length,
+            hasOlder: historyPageRef.current.hasOlder,
+          },
+          "debug"
+        )
+      })
+      .catch((error) => {
+        frontendLog(
+          "chat",
+          "chat-rebuild.history.load-older-page-failed",
+          {
+            sessionKey,
+            beforeSeq,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "warn"
+        )
+      })
+      .finally(() => {
+        olderPageLoadInFlightRef.current = false
+      })
+  }, [sessionKey])
+
   function handleScroll() {
     const element = scrollContainerRef.current
     if (!element) return
     shouldFollowScrollRef.current = isNearScrollBottom(element)
+    if (element.scrollTop <= HISTORY_EDGE_LOAD_THRESHOLD_PX) loadOlderHistoryPage()
     updateJumpToLatestVisibility(element)
   }
 

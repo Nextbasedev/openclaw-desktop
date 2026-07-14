@@ -1808,7 +1808,7 @@ describe("middleware app", () => {
     await app.close();
   });
 
-  test("chat messages ignores stale beforeSeq pagination and returns full history", async () => {
+  test("chat messages supports beforeSeq pagination for older messages", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
     context.messages.upsertMessages(normalizeHistoryMessages("s1", Array.from({ length: 12 }, (_, index) => ({
@@ -1820,7 +1820,7 @@ describe("middleware app", () => {
     const res = await app.inject({ method: "GET", url: "/api/chat/messages?sessionKey=s1&beforeSeq=10&limit=4" });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json().messages.map((message: { openclawSeq: number }) => message.openclawSeq)).toEqual(Array.from({ length: 12 }, (_, index) => index + 1));
+    expect(res.json().messages.map((message: { openclawSeq: number }) => message.openclawSeq)).toEqual([6, 7, 8, 9]);
     await app.close();
   });
 
@@ -1852,7 +1852,7 @@ describe("middleware app", () => {
  * - /api/chat/messages rows: top-level `openclawSeq`
  * - Bootstrap meta: `oldestLoadedSeq`, `hasOlder`, `historyCoverage`
  */
-describe("imported session full-history contract", () => {
+describe("imported session simple paging contract", () => {
   const TOTAL = 500;
   const INITIAL_WINDOW = 160;
 
@@ -2120,7 +2120,7 @@ describe("imported session full-history contract", () => {
     await app.close();
   });
 
-  test("after continue-send, partial gateway history must NOT prune the imported projection (root race)", async () => {
+  test("after continue-send, partial gateway history must NOT prune the imported projection before paging (root race)", async () => {
     // ROOT CAUSE regression:
     // 1) Import seeds full local projection (seq 1..TOTAL)
     // 2) User continues chat → gateway now has transcript
@@ -2163,22 +2163,20 @@ describe("imported session full-history contract", () => {
     // Critical: full imported projection must still be in SQLite.
     expect(context.messages.listAllMessages(sessionKey).length).toBe(TOTAL);
 
-    // Older pages must still resolve contiguously from the preserved projection.
-    const oldest = body.oldestLoadedSeq as number;
-    expect(oldest).toBe(1);
     const page = await app.inject({
       method: "GET",
-      url: `/api/chat/messages?sessionKey=${encodeURIComponent(sessionKey)}&beforeSeq=${oldest}&limit=100`,
+      url: `/api/chat/messages?sessionKey=${encodeURIComponent(sessionKey)}&beforeSeq=401&limit=80`,
     });
     expect(page.statusCode).toBe(200);
     const pageSeqs = (page.json().messages as PageMsg[]).map((m) => m.openclawSeq);
-    expect(pageSeqs.length).toBe(TOTAL);
-    expect(Math.min(...pageSeqs)).toBe(1);
-    expect(Math.max(...pageSeqs)).toBe(TOTAL);
+    expect(pageSeqs.length).toBe(80);
+    expect(Math.min(...pageSeqs)).toBe(321);
+    expect(Math.max(...pageSeqs)).toBe(400);
+    expect(page.json().knownTotalMessages).toBe(TOTAL);
     await app.close();
   });
 
-  test("Phase 3: imported full-history read returns one contiguous full set", async () => {
+  test("Phase 3: imported older page returns one contiguous 100-message slice", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
     const sessionKey = "agent:main:desktop:migrated-telegram-phase3-seq";
@@ -2203,9 +2201,10 @@ describe("imported session full-history contract", () => {
     });
     expect(page.statusCode).toBe(200);
     const seqs = (page.json().messages as PageMsg[]).map((m) => m.openclawSeq);
-    expect(seqs.length).toBe(TOTAL);
-    expect(Math.min(...seqs)).toBe(1);
-    expect(Math.max(...seqs)).toBe(TOTAL);
+    expect(seqs.length).toBe(100);
+    expect(Math.min(...seqs)).toBe(241);
+    expect(Math.max(...seqs)).toBe(340);
+    expect(page.json().knownTotalMessages).toBe(TOTAL);
     const sorted = [...seqs].sort((a, b) => a - b);
     for (let i = 1; i < sorted.length; i += 1) {
       expect(sorted[i]).toBe(sorted[i - 1]! + 1);

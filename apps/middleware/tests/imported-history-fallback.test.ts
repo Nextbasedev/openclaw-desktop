@@ -217,7 +217,7 @@ describe("imported history source-key Gateway fallback — bootstrap", () => {
 });
 
 describe("imported history source-key Gateway fallback — full messages read", () => {
-  test("full read refills via source-key Gateway for imported sessions and returns all projected rows", async () => {
+  test("older page refills via source-key Gateway for imported sessions and returns the requested slice", async () => {
     const app = await createApp(config("older-page-source"));
     const context = contextOf(app);
     stubImportedCompat(context, { desktopKey: DESKTOP_KEY, sourceKey: SOURCE_KEY });
@@ -257,8 +257,11 @@ describe("imported history source-key Gateway fallback — full messages read", 
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(sourceCalls.length).toBeGreaterThan(0);
-    expect(body.messageCount).toBe(30);
-    expect(body.messages.map((message: { openclawSeq: number }) => message.openclawSeq)).toEqual(Array.from({ length: 30 }, (_, index) => index + 1));
+    expect(body.messageCount).toBe(10);
+    expect(body.knownTotalMessages).toBe(30);
+    expect(body.hasOlder).toBe(true);
+    expect(body.hasNewer).toBe(true);
+    expect(body.messages.map((message: { openclawSeq: number }) => message.openclawSeq)).toEqual(Array.from({ length: 10 }, (_, index) => index + 10));
     for (const message of body.messages) {
       expect(message.sessionKey).toBe(DESKTOP_KEY);
     }
