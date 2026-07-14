@@ -25,7 +25,7 @@ describe("active run completion notifications", () => {
     ])).toBe("second")
   })
 
-  it("notifies when a background run completes after switching sessions", () => {
+  it("suppresses completion when another session completes while the app is focused", () => {
     const notify = vi.fn(async () => undefined)
     const observer = createRunCompletionObserver({
       notify,
@@ -39,7 +39,7 @@ describe("active run completion notifications", () => {
       messages: [{ messageId: "a1", role: "assistant", text: "done" }],
     })]]))
 
-    expect(notify).toHaveBeenCalledWith("Response Ready", "s1", "done")
+    expect(notify).not.toHaveBeenCalled()
   })
 
   it("suppresses completion when that exact session is visible and focused", () => {
@@ -55,7 +55,7 @@ describe("active run completion notifications", () => {
     expect(notify).not.toHaveBeenCalled()
   })
 
-  it("notifies visible sessions when the app is backgrounded", () => {
+  it("notifies completed sessions when the app is backgrounded", () => {
     const notify = vi.fn(async () => undefined)
     const observer = createRunCompletionObserver({
       notify,
@@ -66,5 +66,42 @@ describe("active run completion notifications", () => {
     observer(new Map([["s1", snapshot({ streamStatus: "idle", isGenerating: false })]]))
 
     expect(notify).toHaveBeenCalledWith("Current", "s1", undefined)
+  })
+
+  it("notifies switched-away sessions when the app is backgrounded", () => {
+    const notify = vi.fn(async () => undefined)
+    const observer = createRunCompletionObserver({
+      notify,
+      getContext: () => ({ isVisible: false, isBackgrounded: true, title: null }),
+    })
+
+    observer(new Map([["s1", snapshot({ streamStatus: "streaming", isGenerating: true })]]))
+    observer(new Map([["s1", snapshot({
+      streamStatus: "idle",
+      isGenerating: false,
+      messages: [{ messageId: "a1", role: "assistant", text: "done" }],
+    })]]))
+
+    expect(notify).toHaveBeenCalledWith("Response Ready", "s1", "done")
+  })
+
+  it("dedupes replayed completion transitions for the same response", () => {
+    const notify = vi.fn(async () => undefined)
+    const observer = createRunCompletionObserver({
+      notify,
+      getContext: () => ({ isVisible: false, isBackgrounded: true, title: null }),
+    })
+    const done = snapshot({
+      streamStatus: "idle",
+      isGenerating: false,
+      messages: [{ messageId: "a1", role: "assistant", text: "done" }],
+    })
+
+    observer(new Map([["s1", snapshot({ streamStatus: "streaming", isGenerating: true })]]))
+    observer(new Map([["s1", done]]))
+    observer(new Map([["s1", snapshot({ streamStatus: "streaming", isGenerating: true })]]))
+    observer(new Map([["s1", done]]))
+
+    expect(notify).toHaveBeenCalledTimes(1)
   })
 })

@@ -34,6 +34,7 @@ export function createRunCompletionObserver({
 }: ObserverOptions): RunCompletionObserver {
   const wasGenerating = new Map<string, boolean>()
   const notified = new Set<string>()
+  const notifiedPayloads = new Map<string, number>()
 
   return (runs) => {
     for (const snapshot of runs.values()) {
@@ -48,12 +49,21 @@ export function createRunCompletionObserver({
 
       notified.add(sessionKey)
       const context = getContext(sessionKey)
-      if (context.isVisible && !context.isBackgrounded) continue
+      const title = context.title?.trim() || "Response Ready"
+      const body = snapshot.streamStatus === "error" ? "Something went wrong" : lastAssistantText(snapshot.messages)
+      const payloadKey = `${sessionKey}\u0000${snapshot.streamStatus}\u0000${title}\u0000${body ?? ""}`
+      const now = Date.now()
+      const duplicateCutoff = now - 30_000
+      for (const [key, timestamp] of notifiedPayloads) {
+        if (timestamp < duplicateCutoff) notifiedPayloads.delete(key)
+      }
+      if (!context.isBackgrounded || (notifiedPayloads.get(payloadKey) ?? 0) >= duplicateCutoff) continue
 
+      notifiedPayloads.set(payloadKey, now)
       notify(
-        context.title?.trim() || "Response Ready",
+        title,
         sessionKey,
-        snapshot.streamStatus === "error" ? "Something went wrong" : lastAssistantText(snapshot.messages),
+        body,
       ).catch((err) => {
         console.error("[Notify] failed:", err)
       })

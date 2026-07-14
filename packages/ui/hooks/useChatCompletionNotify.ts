@@ -11,9 +11,9 @@ interface Props {
   lastAssistantText?: string
   enabled?: boolean
   /**
-   * When true and the app is focused, the notification is suppressed.
-   * Set this to true only when the user is actively looking at this
-   * specific session's main chat (not a subagent, not another page).
+   * Kept for callers that track whether this session is visible. Completion
+   * notifications are suppressed whenever the app is focused, even if the
+   * completing session is not the visible one.
    */
   isVisible?: boolean
 }
@@ -50,11 +50,7 @@ export function useChatCompletionNotify({
     }
 
     if ((isComplete || isError) && wasGeneratingRef.current) {
-      // Skip notification only when:
-      // 1. The app is focused (not backgrounded), AND
-      // 2. This exact session's main chat is currently visible.
-      // Otherwise (different session, subagent, settings page, etc.) → notify.
-      const shouldSuppress = isVisible && !isBackgrounded
+      const shouldSuppress = !isBackgrounded
 
       if (!notifiedRef.current && !shouldSuppress) {
         notifiedRef.current = true

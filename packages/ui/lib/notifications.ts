@@ -5,6 +5,26 @@ import { invoke } from "@/lib/ipc"
 
 let permissionCache: boolean | null = null
 
+const RECENT_CHAT_NOTIFICATION_TTL_MS = 30_000
+const recentChatNotifications = new Map<string, number>()
+
+function chatNotificationKey(title: string, sessionKey: string, body: string): string {
+  return `${sessionKey}\u0000${title}\u0000${body}`
+}
+
+function shouldSkipDuplicateChatNotification(title: string, sessionKey: string, body: string, now = Date.now()): boolean {
+  const cutoff = now - RECENT_CHAT_NOTIFICATION_TTL_MS
+  for (const [key, timestamp] of recentChatNotifications) {
+    if (timestamp < cutoff) recentChatNotifications.delete(key)
+  }
+
+  const key = chatNotificationKey(title, sessionKey, body)
+  const previous = recentChatNotifications.get(key)
+  if (previous !== undefined && previous >= cutoff) return true
+  recentChatNotifications.set(key, now)
+  return false
+}
+
 function isTauriRuntime(): boolean {
   if (typeof window === "undefined") return false
   return Boolean((window as unknown as Record<string, unknown>).__TAURI_INTERNALS__)
@@ -80,6 +100,9 @@ export async function notifyChatComplete(
       : preview
     : "Your response is ready"
 
+  const title = sessionTitle || "OpenClaw"
+  if (shouldSkipDuplicateChatNotification(title, sessionKey, body)) return
+
   console.log("[notifyChatComplete] checking permission...")
   const hasPermission = await ensureNotificationPermission()
   console.log("[notifyChatComplete] permission:", hasPermission)
@@ -92,7 +115,7 @@ export async function notifyChatComplete(
     console.log("[notifyChatComplete] Windows path — invoking show_reply_notification")
     try {
       await invoke("show_reply_notification", {
-        title: sessionTitle || "OpenClaw",
+        title,
         body,
         sessionKey,
       })
@@ -105,7 +128,7 @@ export async function notifyChatComplete(
 
   console.log("[notifyChatComplete] sending standard notification")
   await notify({
-    title: sessionTitle || "OpenClaw",
+    title,
     body,
   })
   console.log("[notifyChatComplete] standard notification sent")
