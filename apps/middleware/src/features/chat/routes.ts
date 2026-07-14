@@ -1924,7 +1924,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const historyFallbackReasons: string[] = [];
     if (normalized.length === 0) historyFallbackReasons.push("desktop_empty");
     let importedHydrated = false;
-    if (normalized.length === 0 && archived.upserted === 0) {
+    if (normalized.length === 0 && archived.upserted === 0 && localVisibleBeforePrune === 0) {
       const hydrateResult = await context.compat?.hydrateImportedChatHistory?.(sessionKey);
       importedHydrated = Boolean(hydrateResult?.hydrated);
       if (importedHydrated) historyFallbackReasons.push("local_hydrated");
