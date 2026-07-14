@@ -1,20 +1,16 @@
 /**
- * Data-window virtualization helpers for ChatView.
+ * Chat tail pagination helpers for ChatView.
  *
  * This module is intentionally pure: no React, no DOM, no async, no I/O.
- * It encapsulates the math and state transitions for the "data window" — the
- * bounded sliding window of messages we keep in memory while the user scrolls
- * through a potentially-huge chat history. Everything here is deterministic
- * given its inputs so it can be unit-tested in isolation and reused from the
- * ChatView component, scroll-trigger effects, and live-patch reducers.
- *
- * See `docs/CHAT_VIRTUALIZATION_PLAN.md` §2 (math), §4 (state machine),
- * §5 Step 1, and §10 (constants) for the design context.
+ * We still open chats at the live tail and page older history on demand, but
+ * the UI no longer evicts rows from either end of the rendered message list.
+ * This intentionally removes the added sliding-window virtualization layer
+ * while keeping the small initial tail fetch contract.
  */
 
 import { UI_INITIAL_WINDOW } from "@/lib/chat-engine-v2/constants"
 
-/** Maximum number of messages we hold in the active data window. */
+/** Initial tail size. Kept for contract compatibility; no longer an eviction cap. */
 export const MAX_LOADED = UI_INITIAL_WINDOW
 /** Page size for the initial fetch when opening a chat. */
 export const INITIAL_PAGE = UI_INITIAL_WINDOW
@@ -69,31 +65,31 @@ export const INITIAL_WINDOW_STATE: WindowState = {
 }
 
 /**
- * Returns how many messages must be dropped from the end of the buffer after
- * prepending `prependedCount` rows so the buffer stays at most `maxLoaded`.
- * Never returns a negative number.
+ * Virtualization is disabled: prepending older rows never evicts tail rows.
  */
 export function computeEvictedAfterPrepend(
   currentLength: number,
   prependedCount: number,
   maxLoaded: number = MAX_LOADED,
 ): number {
-  const overflow = currentLength + prependedCount - maxLoaded
-  return overflow > 0 ? overflow : 0
+  void currentLength
+  void prependedCount
+  void maxLoaded
+  return 0
 }
 
 /**
- * Returns how many messages must be dropped from the start of the buffer after
- * appending `appendedCount` rows so the buffer stays at most `maxLoaded`.
- * Never returns a negative number.
+ * Virtualization is disabled: appending newer/live rows never evicts head rows.
  */
 export function computeEvictedAfterAppend(
   currentLength: number,
   appendedCount: number,
   maxLoaded: number = MAX_LOADED,
 ): number {
-  const overflow = currentLength + appendedCount - maxLoaded
-  return overflow > 0 ? overflow : 0
+  void currentLength
+  void appendedCount
+  void maxLoaded
+  return 0
 }
 
 /**
@@ -114,8 +110,9 @@ export function shouldFetchOlder(input: {
 }
 
 /**
- * Returns true when a newer-page fetch should be triggered: there's newer
- * data, we're not already loading, and the viewport is near the bottom.
+ * Newer-page fetches were only needed by the sliding data-window. With row
+ * eviction removed, the view stays attached to the live tail and older paging
+ * never creates a synthetic "newer" gap to refill.
  */
 export function shouldFetchNewer(input: {
   rowsBelowViewport: number
@@ -123,11 +120,8 @@ export function shouldFetchNewer(input: {
   isLoadingNewer: boolean
   threshold?: number
 }): boolean {
-  const { rowsBelowViewport, hasNewer, isLoadingNewer } = input
-  const threshold = input.threshold ?? BOTTOM_TRIGGER
-  if (!hasNewer) return false
-  if (isLoadingNewer) return false
-  return rowsBelowViewport <= threshold
+  void input
+  return false
 }
 
 /**
@@ -152,8 +146,8 @@ export function applyInitialPage(input: {
 }
 
 /**
- * Returns the new `WindowState` after an older-page fetch resolves and any
- * tail eviction has been applied to the buffer.
+ * Returns the new `WindowState` after an older-page fetch resolves. Older
+ * paging no longer evicts the tail, so it never creates `hasNewer`.
  */
 export function applyOlderPage(input: {
   prevState: WindowState
@@ -165,21 +159,21 @@ export function applyOlderPage(input: {
   requestedLimit?: number
 }): WindowState {
   const requestedLimit = input.requestedLimit ?? OLDER_PAGE
-  const { prevState, evictedFromEnd } = input
+  const { prevState } = input
   return {
     oldestLoadedSeq: input.newOldestSeq ?? prevState.oldestLoadedSeq,
-    newestLoadedSeq:
-      evictedFromEnd > 0 ? input.evictedNewestSeq : prevState.newestLoadedSeq,
+    newestLoadedSeq: prevState.newestLoadedSeq,
     hasOlder: input.returnedCount >= requestedLimit,
-    hasNewer: prevState.hasNewer || evictedFromEnd > 0,
+    hasNewer: false,
     isLoadingOlder: false,
     isLoadingNewer: prevState.isLoadingNewer,
   }
 }
 
 /**
- * Returns the new `WindowState` after a newer-page fetch resolves and any
- * head eviction has been applied to the buffer.
+ * Returns the new `WindowState` after a newer-page fetch resolves. This path is
+ * kept as a defensive no-op for stale callers; normal scrolling never requests
+ * newer pages now that the sliding window is gone.
  */
 export function applyNewerPage(input: {
   prevState: WindowState
@@ -189,14 +183,12 @@ export function applyNewerPage(input: {
   evictedOldestSeq: number | null
   requestedLimit?: number
 }): WindowState {
-  const requestedLimit = input.requestedLimit ?? OLDER_PAGE
-  const { prevState, evictedFromStart } = input
+  const { prevState } = input
   return {
-    oldestLoadedSeq:
-      evictedFromStart > 0 ? input.evictedOldestSeq : prevState.oldestLoadedSeq,
+    oldestLoadedSeq: prevState.oldestLoadedSeq,
     newestLoadedSeq: input.newNewestSeq ?? prevState.newestLoadedSeq,
-    hasOlder: prevState.hasOlder || evictedFromStart > 0,
-    hasNewer: input.returnedCount >= requestedLimit,
+    hasOlder: prevState.hasOlder,
+    hasNewer: false,
     isLoadingOlder: prevState.isLoadingOlder,
     isLoadingNewer: false,
   }
@@ -204,8 +196,7 @@ export function applyNewerPage(input: {
 
 /**
  * Returns the new `WindowState` after a live patch appended one or more
- * messages at the tail. Caller must only invoke this when `hasNewer` is
- * false (i.e. we are at the live tail).
+ * messages at the tail. Live appends no longer evict old rows.
  */
 export function applyLiveAppend(input: {
   prevState: WindowState
@@ -214,25 +205,23 @@ export function applyLiveAppend(input: {
   evictedFromStart: number
   evictedOldestSeq: number | null
 }): WindowState {
-  const { prevState, evictedFromStart } = input
+  const { prevState } = input
   return {
-    oldestLoadedSeq:
-      evictedFromStart > 0 ? input.evictedOldestSeq : prevState.oldestLoadedSeq,
+    oldestLoadedSeq: prevState.oldestLoadedSeq,
     newestLoadedSeq: input.appendedNewestSeq ?? prevState.newestLoadedSeq,
-    hasOlder: prevState.hasOlder || evictedFromStart > 0,
-    hasNewer: prevState.hasNewer,
+    hasOlder: prevState.hasOlder,
+    hasNewer: false,
     isLoadingOlder: prevState.isLoadingOlder,
     isLoadingNewer: prevState.isLoadingNewer,
   }
 }
 
 /**
- * Returns whether the caller is allowed to evict from the start of the buffer
- * during a live append (i.e. we already know more older history exists and is
- * re-fetchable).
+ * Virtualization is disabled, so live appends must never evict from the start.
  */
 export function canEvictFromStartOnLiveAppend(prevState: WindowState): boolean {
-  return prevState.hasOlder === true
+  void prevState
+  return false
 }
 
 /**
