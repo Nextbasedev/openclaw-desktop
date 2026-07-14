@@ -2176,79 +2176,13 @@ export function subscribeGlobalChatSession(sessionKey: string, listener: Listene
   }
 }
 
-/**
- * Phase 1 fixed-window virtualization: trim the session's messages array
- * by dropping `dropFromTop` rows from the head and/or `dropFromBottom`
- * rows from the tail. The caller is responsible for computing safe drop
- * counts (see `lib/chat-engine-v2/messageWindow.ts`).
- *
- * The function never touches optimistic / pending-send messages: even
- * if the caller asks for a larger drop, we stop at the first protected
- * row encountered from the relevant edge. This guarantees that a user's
- * just-sent message can't disappear due to a window slide.
- *
- * Returns the number of messages actually removed (top + bottom).
- */
 export function trimSessionMessageWindow(
-  sessionKey: string,
-  spec: { dropFromTop?: number; dropFromBottom?: number },
+  _sessionKey: string,
+  _spec: { dropFromTop?: number; dropFromBottom?: number },
 ): number {
-  const state = states.get(sessionKey)
-  if (!state) return 0
-  const requestedTop = Math.max(0, spec.dropFromTop ?? 0)
-  const requestedBottom = Math.max(0, spec.dropFromBottom ?? 0)
-  if (requestedTop === 0 && requestedBottom === 0) return 0
-
-  const messages = state.messages
-  if (messages.length === 0) return 0
-
-  // Compute the actual top drop count, stopping at the first protected
-  // message we encounter from the head.
-  let actualTop = 0
-  for (let i = 0; i < Math.min(requestedTop, messages.length); i += 1) {
-    if (isMessageProtectedForTrim(messages[i])) break
-    actualTop += 1
-  }
-
-  // Compute the actual bottom drop count, stopping at the first
-  // protected message we encounter from the tail.
-  let actualBottom = 0
-  const tailLimit = messages.length - actualTop // can't drop into already-trimmed top
-  for (let i = 0; i < Math.min(requestedBottom, tailLimit); i += 1) {
-    const idx = messages.length - 1 - i
-    if (isMessageProtectedForTrim(messages[idx])) break
-    actualBottom += 1
-  }
-
-  if (actualTop === 0 && actualBottom === 0) return 0
-
-  const next = messages.slice(actualTop, messages.length - actualBottom)
-  state.messages = next
-  state.messageCount = Math.max(state.messageCount ?? 0, next.length)
-  notifySync(sessionKey)
-  frontendLog(
-    "session",
-    "global-chat-session.trim-window",
-    {
-      sessionKey,
-      dropFromTop: actualTop,
-      dropFromBottom: actualBottom,
-      remaining: next.length,
-    },
-    "debug",
-  )
-  return actualTop + actualBottom
-}
-
-function isMessageProtectedForTrim(message: ChatMessage): boolean {
-  if (!message) return false
-  if (message.isOptimistic) return true
-  if (message.sendStatus) return true
-  // Active streaming row: applyChatPatch marks the row currently being
-  // patched with animateText=true. Trimming a streaming row would make
-  // the live tail vanish mid-stream and cause visible flicker. Phase 2.
-  if (message.animateText) return true
-  return false
+  void _sessionKey
+  void _spec
+  return 0
 }
 
 export function ingestGlobalChatPatchForTests(frame: PatchFrame) {

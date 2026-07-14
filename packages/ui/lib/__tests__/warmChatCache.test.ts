@@ -7,9 +7,8 @@ afterEach(async () => {
 })
 
 describe("warmChatCache", () => {
-  it("stores only the latest WARM_CHAT_MAX_MESSAGES messages for fast chat loading", async () => {
-    const extra = 5
-    const total = WARM_CHAT_MAX_MESSAGES + extra
+  it("keeps full warm-cache histories without a fixed message-count window", async () => {
+    const total = 25
     const messages = Array.from({ length: total }, (_, index) => ({
       messageId: `m${index}`,
       role: index % 2 === 0 ? "user" as const : "assistant" as const,
@@ -19,11 +18,9 @@ describe("warmChatCache", () => {
     await setWarmChatCache("s1", { messages })
     const cached = await getWarmChatCache("s1")
 
-    // Aligned to UI_INITIAL_WINDOW (160) so reload first paint matches
-    // bootstrap — no "count shrinks then grows".
-    expect(WARM_CHAT_MAX_MESSAGES).toBe(160)
-    expect(cached?.entry.messages).toHaveLength(WARM_CHAT_MAX_MESSAGES)
-    expect(cached?.entry.messages[0]?.messageId).toBe(`m${extra}`)
+    expect(WARM_CHAT_MAX_MESSAGES).toBe(Number.MAX_SAFE_INTEGER)
+    expect(cached?.entry.messages).toHaveLength(total)
+    expect(cached?.entry.messages[0]?.messageId).toBe("m0")
     expect(cached?.entry.messages.at(-1)?.messageId).toBe(`m${total - 1}`)
   })
 

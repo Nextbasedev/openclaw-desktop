@@ -45,7 +45,7 @@ function generateMessages(): ChatMessage[] {
 }
 
 export default function AuditLongChatPage() {
-  const messages = useMemo(generateMessages, [])
+  const messages = useMemo(() => generateMessages(), [])
 
   return (
     <main className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground" data-audit-real-webui="true">
@@ -53,7 +53,6 @@ export default function AuditLongChatPage() {
         sessionKey="audit-real-webui-long-chat"
         messages={messages}
         isGenerating={false}
-        hasOlderMessages={false}
       />
     </main>
   )

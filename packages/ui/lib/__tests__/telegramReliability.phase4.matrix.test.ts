@@ -59,15 +59,14 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe("Phase 4 matrix — window contract (no count shrink flash)", () => {
-  test("open/bootstrap/warm/ChatView all agree on 160; older page is 100", () => {
-    expect(UI_INITIAL_WINDOW).toBe(160)
-    expect(CHAT_BOOTSTRAP_MESSAGE_LIMIT).toBe(160)
-    expect(WARM_CHAT_MAX_MESSAGES).toBe(160)
-    expect(UI_OLDER_PAGE).toBe(100)
-    expect(CHAT_OLDER_PAGE_LIMIT).toBe(100)
-    expect(UI_STORE_WINDOW).toBe(200)
-    expect(UI_STORE_WINDOW).toBeGreaterThanOrEqual(UI_INITIAL_WINDOW)
+describe("full-history chat loading contract", () => {
+  test("open/bootstrap/warm/ChatView use unbounded full-history limits", () => {
+    expect(UI_INITIAL_WINDOW).toBe(Number.MAX_SAFE_INTEGER)
+    expect(CHAT_BOOTSTRAP_MESSAGE_LIMIT).toBe(Number.MAX_SAFE_INTEGER)
+    expect(WARM_CHAT_MAX_MESSAGES).toBe(Number.MAX_SAFE_INTEGER)
+    expect(UI_OLDER_PAGE).toBe(Number.MAX_SAFE_INTEGER)
+    expect(CHAT_OLDER_PAGE_LIMIT).toBe(Number.MAX_SAFE_INTEGER)
+    expect(UI_STORE_WINDOW).toBe(Number.MAX_SAFE_INTEGER)
   })
 })
 

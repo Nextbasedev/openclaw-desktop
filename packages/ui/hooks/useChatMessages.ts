@@ -29,7 +29,6 @@ import {
   logChatStreamRecoveryDecision,
   recoveryDetailFromEvent,
 } from "@/lib/chatTimelineDiagnostics"
-import { subscribeChatStream } from "@/lib/chatStream"
 import {
   cacheAttachments,
   mergeAttachmentsWithCache,
@@ -50,29 +49,21 @@ import { parseHistoryToolCalls } from "@/components/inspector/activity-types"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
-  cleanUserMessageText,
-  deduplicateRawMessages,
-  extractReplyBlock,
   isTransientSlashCommandHistory,
   parseChatHistory,
 } from "@/lib/chatHistoryParser"
 import {
   abortChatV2,
   fetchChatBootstrapV2,
-  fetchChatMessagesV2,
   sendChatV2,
   type ActiveRunV2,
   type RunStatusV2,
   type ToolCallProjectionV2,
-  type ChatMessagesPageV2,
 } from "@/lib/chat-engine-v2/client"
 import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
-import { UI_INITIAL_WINDOW, UI_OLDER_PAGE } from "@/lib/chat-engine-v2/constants"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
-import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, trimSessionMessageWindow, updateGlobalChatSessionActivity, type SessionState } from "@/lib/chat-engine-v2/store"
-import { PAGE_SIZE as WINDOW_PAGE_SIZE, WINDOW_SIZE as WINDOW_TOTAL_SIZE, planDropFromTop, planDropFromBottom, sortMessagesByGatewayIndex } from "@/lib/chat-engine-v2/messageWindow"
-import { createPageCache, getCachedPage, putCachedPage, clearSessionPageCache, type PageCacheState } from "@/lib/chat-engine-v2/pageCache"
-import { getTimelineStore, deleteTimelineStore } from "@/lib/chat-engine-v2/timelineStore"
+import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity, type SessionState } from "@/lib/chat-engine-v2/store"
+import { getTimelineStore } from "@/lib/chat-engine-v2/timelineStore"
 import { stripTransientChatMessagesState } from "@/lib/chatTransientState"
 import { isStopSlashCommand } from "@/lib/controlSlashCommands"
 import { setSchedulerActiveSession, abortSessionRequests } from "@/lib/requestScheduler"
@@ -426,13 +417,11 @@ function parseExecApproval(
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
-// Open/bootstrap = UI_INITIAL_WINDOW (160). Older pages = UI_OLDER_PAGE (100).
-// Store may still buffer up to UI_STORE_WINDOW (200) after scroll — that is
-// headroom, not the open paint contract.
-export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = UI_INITIAL_WINDOW
-export const CHAT_OLDER_PAGE_LIMIT = UI_OLDER_PAGE
-export const CHAT_BOOTSTRAP_MIN_VISIBLE_ROWS = 24
-const CHAT_BOOTSTRAP_MAX_TOP_UP_PAGES = 4
+// Chat history now loads fully in one request. Compatibility exports are
+// intentionally unbounded; pagination/window top-up is disabled.
+export const CHAT_BOOTSTRAP_MESSAGE_LIMIT = Number.MAX_SAFE_INTEGER
+export const CHAT_OLDER_PAGE_LIMIT = Number.MAX_SAFE_INTEGER
+export const CHAT_BOOTSTRAP_MIN_VISIBLE_ROWS = 0
 
 type ChatDataSource = "fresh" | "warm-cache" | "syncing" | "loading"
 
@@ -771,79 +760,14 @@ export async function topUpBootstrapVisibleHistory(params: {
   rawMessages: RawMessage[]
   hasOlder: boolean
   oldestLoadedSeq: number | null | undefined
-  minVisibleRows?: number
-  maxTopUpPages?: number
-  fetchPage?: typeof fetchChatMessagesV2
 }) {
-  const minVisibleRows = params.minVisibleRows ?? CHAT_BOOTSTRAP_MIN_VISIBLE_ROWS
-  const maxTopUpPages = params.maxTopUpPages ?? CHAT_BOOTSTRAP_MAX_TOP_UP_PAGES
-  const fetchPage = params.fetchPage ?? fetchChatMessagesV2
-  let rawMessages = params.rawMessages
-  let canonicalMessages = canonicalMessagesFromRawHistory(params.sessionKey, rawMessages)
-  let oldestLoadedSeq = typeof params.oldestLoadedSeq === "number"
-    ? params.oldestLoadedSeq
-    : rawMessages
-        .map((message) => message.__openclaw?.seq)
-        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
-        .reduce<number | null>((min, value) => min === null ? value : Math.min(min, value), null)
-
-  if (!params.hasOlder) {
-    return { rawMessages, canonicalMessages, oldestLoadedSeq, topUpPagesLoaded: 0 }
+  const canonicalMessages = canonicalMessagesFromRawHistory(params.sessionKey, params.rawMessages)
+  return {
+    rawMessages: params.rawMessages,
+    canonicalMessages,
+    oldestLoadedSeq: params.oldestLoadedSeq ?? null,
+    topUpPagesLoaded: 0,
   }
-
-  let topUpPagesLoaded = 0
-  while (
-    canonicalMessages.length < minVisibleRows &&
-    typeof oldestLoadedSeq === "number" &&
-    oldestLoadedSeq > 1 &&
-    topUpPagesLoaded < maxTopUpPages
-  ) {
-    const page = await fetchPage({
-      sessionKey: params.sessionKey,
-      beforeSeq: oldestLoadedSeq,
-      limit: CHAT_OLDER_PAGE_LIMIT,
-    })
-    if (!page.messages.length) break
-    const olderRawMessages = projectedPageRowsToRawMessages(page.messages)
-    if (!olderRawMessages.length) break
-    rawMessages = [...olderRawMessages, ...rawMessages]
-    canonicalMessages = canonicalMessagesFromRawHistory(params.sessionKey, rawMessages)
-    const pageOldestSeq = olderRawMessages
-      .map((message) => message.__openclaw?.seq)
-      .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
-      .reduce<number | null>((min, value) => min === null ? value : Math.min(min, value), null)
-    oldestLoadedSeq = pageOldestSeq ?? oldestLoadedSeq
-    topUpPagesLoaded += 1
-    if (page.messages.length < CHAT_OLDER_PAGE_LIMIT) break
-  }
-
-  return { rawMessages, canonicalMessages, oldestLoadedSeq, topUpPagesLoaded }
-}
-
-function firstLoadedGatewayIndex(messages: ChatMessage[]) {
-  for (const message of messages) {
-    if (typeof message.gatewayIndex === "number" && Number.isFinite(message.gatewayIndex)) {
-      return Math.floor(message.gatewayIndex)
-    }
-  }
-  return null
-}
-
-function lastLoadedGatewayIndex(messages: ChatMessage[]) {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i]
-    if (typeof message.gatewayIndex === "number" && Number.isFinite(message.gatewayIndex)) {
-      return Math.floor(message.gatewayIndex)
-    }
-  }
-  return null
-}
-
-
-
-function canLoadOlderThanFirstMessage(messages: ChatMessage[]) {
-  const firstSeq = firstLoadedGatewayIndex(messages)
-  return firstSeq !== null && firstSeq > 1
 }
 
 function attachmentLogMeta(attachments: ChatComposerSubmit["attachments"] | undefined) {
@@ -939,29 +863,7 @@ export function useChatMessages(
   const markHistoryLoaded = useCallback(() => {
     setHistoryLoadVersion((value) => value + 1)
   }, [])
-  const [hasOlderMessages, setHasOlderMessages] = useState(false)
-  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false)
-  // Track the actual oldest raw openclawSeq loaded from the middleware,
-  // independent of parseChatHistory's merged gatewayIndex which can drift
-  // forward during assistant message merging and break pagination.
-  const oldestLoadedSeqRef = useRef<number | null>(null)
-  // Phase 1 fixed-window virtualization: track the newest server seq we
-  // currently have in memory, and whether there are more on the server
-  // past it. Only set when we've actually trimmed the bottom of the
-  // window (otherwise the WS stream owns the tail).
-  const newestLoadedSeqRef = useRef<number | null>(null)
-  const [hasNewerMessages, setHasNewerMessages] = useState(false)
-  const [loadingNewerMessages, setLoadingNewerMessages] = useState(false)
-  const loadNewerInFlightRef = useRef(false)
-  const loadedRawHistoryRef = useRef<RawMessage[]>([])
   const loadOlderInFlightRef = useRef(false)
-  // Phase 5 — bounded page cache for rapid-reversal scrolling.
-  // Eliminates duplicate older/newer page fetches when the user
-  // scrolls back and forth across the same boundary within TTL.
-  // Stores the raw API page-message shape (parsed downstream into
-  // RawMessage via the existing merge path).
-  type CachedApiMessage = ChatMessagesPageV2["messages"][number]
-  const pageCacheRef = useRef<PageCacheState<CachedApiMessage>>(createPageCache<CachedApiMessage>())
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
@@ -1824,8 +1726,6 @@ export function useChatMessages(
 
     setLoadError(null)
     setErrorMessage(null)
-    setHasOlderMessages(false)
-    setLoadingOlderMessages(false)
     seenIds.current.clear()
 
     let engineEnsured = false
@@ -1845,12 +1745,6 @@ export function useChatMessages(
         seenIds.current.add(message.messageId)
       }
       setLoading(false)
-      setHasOlderMessages(
-        !hasInitial && (
-          canLoadOlderThanFirstMessage(warmMessages) ||
-          Boolean(cachedBootstrap?.messageCount && cachedBootstrap.messageCount > warmMessages.length)
-        )
-      )
       setMessages(warmMessages)
       markHistoryLoaded()
       const warmStatus: StreamStatus = seededMessages
@@ -1908,7 +1802,6 @@ export function useChatMessages(
       else if (typeof cachedBootstrap?.v2Cursor === "number") v2CursorRef.current = cachedBootstrap.v2Cursor
     } else if (knownEmptyState) {
       setLoading(false)
-      setHasOlderMessages(false)
       setMessages([])
       markHistoryLoaded()
       const emptyStatus = useCachedGlobal && cachedGlobal?.status
@@ -1945,7 +1838,6 @@ export function useChatMessages(
       }
     } else {
       setLoading(true)
-      setHasOlderMessages(false)
       setMessages([])
       setStatus("idle")
     }
@@ -1980,12 +1872,6 @@ export function useChatMessages(
     }
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
-    oldestLoadedSeqRef.current = null
-    newestLoadedSeqRef.current = null
-    loadedRawHistoryRef.current = []
-    // Phase 5 — reset page cache on session switch / engine reset so
-    // stale page data from a previous session is never served.
-    clearSessionPageCache(pageCacheRef.current, sessionKey)
     let unsubscribeStream: (() => void) | null = null
     let unsubscribeV2Stream: (() => void) | null = null
     let bootstrapSettled = false
@@ -2053,10 +1939,6 @@ export function useChatMessages(
           })
         }
         setLoading(false)
-        setHasOlderMessages(
-          canLoadOlderThanFirstMessage(cachedMessages) ||
-          Boolean(cached.entry.messageCount && cached.entry.messageCount > cachedMessages.length)
-        )
         suppressNextWarmPersistRef.current = true
         setMessages(cachedMessages)
         markHistoryLoaded()
@@ -2199,7 +2081,7 @@ export function useChatMessages(
         return
       }
       try {
-        const { messages: bootstrapMessages, messageCount: canonicalMessageCount, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools, hasOlder: bootstrapHasOlder, knownTotalMessages: bootstrapKnownTotal, oldestLoadedSeq: bootstrapOldestSeq, historyCoverage: bootstrapHistoryCoverage } = await queryClient.fetchQuery({
+        const { messages: bootstrapMessages, messageCount: canonicalMessageCount, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools, knownTotalMessages: bootstrapKnownTotal, historyCoverage: bootstrapHistoryCoverage } = await queryClient.fetchQuery({
           queryKey: queryKeys.chatBootstrap(sessionKey),
           queryFn: () => loadFreshChatBootstrap(sessionKey),
           staleTime: 0,
@@ -2305,11 +2187,6 @@ export function useChatMessages(
             runStatus,
           },
         })
-        const rawBootstrapSeqs = rawBootstrapMessages
-          .map((m) => m.__openclaw?.seq)
-          .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
-        if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
-        loadedRawHistoryRef.current = rawBootstrapMessages
         const canonicalMessages = canonicalMessagesFromRawHistory(sessionKey, rawBootstrapMessages)
         const existingGlobalBeforeSeed = getGlobalChatSession(sessionKey)
         const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
@@ -2422,14 +2299,6 @@ export function useChatMessages(
             error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
           }, "warn")
         })
-        // Use server-side hasOlder when available (accurate), fall back to heuristics
-        if (typeof bootstrapOldestSeq === "number" && oldestLoadedSeqRef.current === null) oldestLoadedSeqRef.current = bootstrapOldestSeq
-        setHasOlderMessages(
-          (typeof oldestLoadedSeqRef.current === "number" && oldestLoadedSeqRef.current > 1) ||
-          canLoadOlderThanFirstMessage(displayMessages) ||
-          Boolean(typeof bootstrapKnownTotal === "number" && bootstrapKnownTotal > displayMessages.length) ||
-          Boolean(typeof canonicalMessageCount === "number" && canonicalMessageCount > displayMessages.length)
-        )
         const dedupedDisplayMessages = deduplicateUserMessages(displayMessages)
         setMessages(dedupedDisplayMessages)
         setLocalPendingTools(inlineTools)
@@ -3344,296 +3213,6 @@ export function useChatMessages(
     )
   }, [])
 
-  const loadOlderMessages = useCallback(async () => {
-    if (loadOlderInFlightRef.current || loadingOlderMessages || !hasOlderMessages) return
-    // Use the tracked raw seq instead of the parsed/merged gatewayIndex.
-    // parseChatHistory merges consecutive assistant messages and updates
-    // gatewayIndex to the latest seq, which causes beforeSeq to point to
-    // data already loaded → pagination gets stuck.
-    const requestGeneration = viewGenerationRef.current
-    const beforeSeq = oldestLoadedSeqRef.current ?? firstLoadedGatewayIndex(messagesRef.current)
-    if (beforeSeq === null || beforeSeq <= 1) {
-      setHasOlderMessages(false)
-      return
-    }
-
-    loadOlderInFlightRef.current = true
-    setLoadError(null)
-    setLoadingOlderMessages(true)
-    try {
-      // Phase 5 — page cache lookup. If we already fetched this exact
-      // (sessionKey, direction, beforeSeq) within TTL, serve from cache.
-      const cached = getCachedPage(pageCacheRef.current, sessionKey, "older", beforeSeq)
-      const page = cached
-        ? { ok: true, sessionKey, messages: cached.messages, messageCount: cached.messages.length } as ChatMessagesPageV2
-        : await fetchChatMessagesV2({
-          sessionKey,
-          beforeSeq,
-          limit: CHAT_OLDER_PAGE_LIMIT,
-        })
-      if (!cached) {
-        putCachedPage(pageCacheRef.current, sessionKey, "older", beforeSeq, {
-          messages: page.messages,
-          fetchedAtMs: Date.now(),
-          hasMore: page.messages.length >= CHAT_OLDER_PAGE_LIMIT,
-        })
-      }
-      if (viewGenerationRef.current !== requestGeneration) {
-        logChatRequestStaleSkip({
-          windowId: windowIdRef.current,
-          instanceId: instanceIdRef.current,
-          viewGeneration: requestGeneration,
-          source: "messages",
-          targetSessionKey: sessionKey,
-          activeSessionKey: sessionKey,
-          renderedSessionKey: sessionKey,
-          cursor: v2CursorRef.current,
-          requestGeneration,
-          reason: "view-generation-changed",
-          extra: { beforeSeq, returnedMessageCount: page.messages.length },
-        })
-        return
-      }
-      logChatApplyDecision({
-        windowId: windowIdRef.current,
-        instanceId: instanceIdRef.current,
-        viewGeneration: requestGeneration,
-        source: "messages",
-        targetSessionKey: sessionKey,
-        activeSessionKey: sessionKey,
-        renderedSessionKey: sessionKey,
-        cursor: v2CursorRef.current,
-        requestGeneration,
-        willApply: true,
-        reason: "older-page-current-generation",
-        extra: { beforeSeq, returnedMessageCount: page.messages.length },
-      })
-      // Track the actual oldest raw seq from the API response
-      const rawSeqs = page.messages.map((m) => m.openclawSeq).filter((v): v is number => typeof v === "number" && Number.isFinite(v))
-      if (rawSeqs.length > 0) {
-        const pageOldest = Math.min(...rawSeqs)
-        oldestLoadedSeqRef.current = oldestLoadedSeqRef.current !== null
-          ? Math.min(oldestLoadedSeqRef.current, pageOldest)
-          : pageOldest
-      }
-      const currentMessages = messagesRef.current
-      const mergedHistory = mergePaginatedRawHistory({
-        sessionKey,
-        existingRawMessages: loadedRawHistoryRef.current,
-        olderPageRows: page.messages,
-        currentMessages,
-      })
-      if (mergedHistory.olderRawMessages.length === 0) {
-        setHasOlderMessages(false)
-        return
-      }
-      loadedRawHistoryRef.current = mergedHistory.rawMessages
-      const merged = mergedHistory.messages
-      setMessages(merged)
-      // Keep the global patch-stream session in sync with paginated history.
-      // Otherwise the next non-message patch (for example chat.tool.update)
-      // notifies subscribers with the shorter bootstrap/global snapshot and
-      // wipes the locally prepended older messages back out of the UI.
-      const existingGlobal = getGlobalChatSession(sessionKey)
-      seedGlobalChatSession({
-        sessionKey,
-        messages: merged,
-        cursor: v2CursorRef.current,
-        status: statusRef.current,
-        statusLabel,
-        pendingTools: Array.from(pendingToolMapRef.current.values()),
-        spawnedSubagents: Array.from(spawnMapRef.current.values()),
-        messageCount: existingGlobal?.messageCount ?? Math.max(merged.length, page.messageCount),
-        historyCoverage: oldestLoadedSeqRef.current !== null && oldestLoadedSeqRef.current <= 1
-          ? "full"
-          : existingGlobal?.historyCoverage === "full"
-            ? "full"
-            : "metadata",
-        queryClient,
-      })
-      setHasOlderMessages(
-        page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
-        (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
-      )
-
-    } catch (error) {
-      frontendLog("chat", "chat.load-older.fail", {
-        sessionKey,
-        beforeSeq,
-        error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
-      }, "warn")
-    } finally {
-      loadOlderInFlightRef.current = false
-      setLoadingOlderMessages(false)
-    }
-  }, [hasOlderMessages, loadingOlderMessages, queryClient, sessionKey, setMessages, statusLabel])
-
-  // -------------------------------------------------------------------------
-  // Phase 1 fixed-window virtualization — newer-side pagination + unload.
-  //
-  // loadNewerMessages: fetch one PAGE_SIZE-sized page of messages whose
-  //   openclawSeq > newestLoadedSeqRef. Only meaningful when we've trimmed
-  //   the bottom of the window (otherwise the WS stream owns the tail).
-  //
-  // unloadOldestPage / unloadNewestPage: drop one PAGE_SIZE chunk from the
-  //   top / bottom of the messages array via the store-level trim API.
-  // -------------------------------------------------------------------------
-  const loadNewerMessages = useCallback(async () => {
-    if (loadNewerInFlightRef.current || loadingNewerMessages || !hasNewerMessages) return
-    const newestKnown = newestLoadedSeqRef.current ?? lastLoadedGatewayIndex(messagesRef.current)
-    if (newestKnown === null) {
-      setHasNewerMessages(false)
-      return
-    }
-    const requestGeneration = viewGenerationRef.current
-    loadNewerInFlightRef.current = true
-    setLoadingNewerMessages(true)
-    try {
-      // Phase 5 — page cache lookup for newer-side reversals.
-      const cachedNewer = getCachedPage(pageCacheRef.current, sessionKey, "newer", newestKnown)
-      const page = cachedNewer
-        ? { ok: true, sessionKey, messages: cachedNewer.messages, messageCount: cachedNewer.messages.length } as ChatMessagesPageV2
-        : await fetchChatMessagesV2({
-          sessionKey,
-          afterSeq: newestKnown,
-          limit: WINDOW_PAGE_SIZE,
-        })
-      if (!cachedNewer) {
-        putCachedPage(pageCacheRef.current, sessionKey, "newer", newestKnown, {
-          messages: page.messages,
-          fetchedAtMs: Date.now(),
-          hasMore: page.messages.length >= WINDOW_PAGE_SIZE,
-        })
-      }
-      if (viewGenerationRef.current !== requestGeneration) return
-      if (page.messages.length === 0) {
-        setHasNewerMessages(false)
-        return
-      }
-      const rawSeqs = page.messages
-        .map((m) => m.openclawSeq)
-        .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
-      const pageNewest = rawSeqs.length > 0 ? Math.max(...rawSeqs) : null
-      const currentMessages = messagesRef.current
-      // Merge: append page messages and sort by gatewayIndex so the array
-      // stays monotonic even if a WS patch already inserted a future-seq
-      // row past the current trimmed tail (can happen after a user sends
-      // a message while viewing history).
-      const seenIds = new Set<string>()
-      const merged: ChatMessage[] = []
-      for (const m of currentMessages) {
-        if (m.messageId) seenIds.add(m.messageId)
-        merged.push(m)
-      }
-      for (const raw of page.messages) {
-        const payload = (raw.data ?? {}) as ChatMessage
-        const id = payload.messageId ?? raw.messageId ?? undefined
-        if (id && seenIds.has(id)) continue
-        const incoming: ChatMessage = {
-          ...payload,
-          messageId: id,
-          gatewayIndex: typeof raw.openclawSeq === "number" ? raw.openclawSeq : payload.gatewayIndex,
-        }
-        if (id) seenIds.add(id)
-        merged.push(incoming)
-      }
-      // Stable sort by gatewayIndex when present. Rows without a gateway
-      // index (optimistic, pending) keep their relative order at the tail.
-      const sorted = sortMessagesByGatewayIndex(merged)
-      setMessages(sorted)
-      if (pageNewest !== null) newestLoadedSeqRef.current = pageNewest
-      // Keep global session in sync so subsequent WS patches don't drop
-      // the freshly-appended rows.
-      const existingGlobal = getGlobalChatSession(sessionKey)
-      seedGlobalChatSession({
-        sessionKey,
-        messages: sorted,
-        cursor: v2CursorRef.current,
-        status: statusRef.current,
-        statusLabel,
-        pendingTools: Array.from(pendingToolMapRef.current.values()),
-        spawnedSubagents: Array.from(spawnMapRef.current.values()),
-        messageCount: existingGlobal?.messageCount ?? Math.max(sorted.length, page.messageCount),
-        historyCoverage: existingGlobal?.historyCoverage ?? "metadata",
-        queryClient,
-      })
-      // Decide whether more newer pages remain. If the page filled to PAGE_SIZE
-      // there is probably more; if it came up short, we're caught up.
-      setHasNewerMessages(page.messages.length >= WINDOW_PAGE_SIZE)
-    } catch (error) {
-      frontendLog("chat", "chat.load-newer.fail", {
-        sessionKey,
-        afterSeq: newestKnown,
-        error: error instanceof Error
-          ? { kind: error.name, message: redactText(error.message) }
-          : { kind: "Error", message: redactText(String(error)) },
-      }, "warn")
-    } finally {
-      loadNewerInFlightRef.current = false
-      setLoadingNewerMessages(false)
-    }
-  }, [hasNewerMessages, loadingNewerMessages, queryClient, sessionKey, setMessages, statusLabel])
-
-  // Read the freshest known message list for window planning. Prefers the
-  // global store (updated synchronously by loadOlder/loadNewer via
-  // seedGlobalChatSession) and falls back to the React ref. The ref lags
-  // by one effect tick after setMessages so reading it inside the same
-  // async tick that just called setMessages reports stale length.
-  const readFreshestMessages = useCallback((): ChatMessage[] => {
-    const fromStore = getGlobalChatSession(sessionKey)?.messages
-    if (fromStore && fromStore.length > 0) return fromStore as ChatMessage[]
-    return messagesRef.current
-  }, [sessionKey])
-
-  // Drop one page-sized chunk from the top of the loaded window. Returns the
-  // number of messages actually dropped (0 if nothing to drop).
-  const unloadOldestPage = useCallback((): number => {
-    const current = readFreshestMessages()
-    const plan = planDropFromTop(current, { pageSize: WINDOW_PAGE_SIZE, windowSize: WINDOW_TOTAL_SIZE })
-    frontendLog("chat", "chat.window.unload-oldest.plan", {
-      sessionKey,
-      loaded: current.length,
-      planDropCount: plan.dropCount,
-      windowSize: WINDOW_TOTAL_SIZE,
-    }, "debug")
-    if (plan.dropCount === 0) return 0
-    const removed = trimSessionMessageWindow(sessionKey, { dropFromTop: plan.dropCount })
-    if (removed > 0) {
-      // After dropping rows from the top, the new oldest seq becomes our
-      // anchor for future loadOlderMessages calls. Recompute from the
-      // freshly-trimmed store.
-      const post = readFreshestMessages()
-      const nextOldest = firstLoadedGatewayIndex(post)
-      if (nextOldest !== null) oldestLoadedSeqRef.current = nextOldest
-      // History above the new top is by definition still on the server.
-      setHasOlderMessages(true)
-    }
-    return removed
-  }, [readFreshestMessages, sessionKey])
-
-  // Drop one page-sized chunk from the bottom of the loaded window. After
-  // this, the WS stream tail will no longer be in memory; future loadNewer
-  // calls walk back forward.
-  const unloadNewestPage = useCallback((): number => {
-    const current = readFreshestMessages()
-    const plan = planDropFromBottom(current, { pageSize: WINDOW_PAGE_SIZE, windowSize: WINDOW_TOTAL_SIZE })
-    frontendLog("chat", "chat.window.unload-newest.plan", {
-      sessionKey,
-      loaded: current.length,
-      planDropCount: plan.dropCount,
-      windowSize: WINDOW_TOTAL_SIZE,
-    }, "debug")
-    if (plan.dropCount === 0) return 0
-    const removed = trimSessionMessageWindow(sessionKey, { dropFromBottom: plan.dropCount })
-    if (removed > 0) {
-      const post = readFreshestMessages()
-      const nextNewest = lastLoadedGatewayIndex(post)
-      if (nextNewest !== null) newestLoadedSeqRef.current = nextNewest
-      setHasNewerMessages(true)
-    }
-    return removed
-  }, [readFreshestMessages, sessionKey])
-
   const messagesBelongToActiveSession = messageSessionKey === sessionKey
 
   return {
@@ -3643,14 +3222,6 @@ export function useChatMessages(
     wasAborted,
     loading: loading || !messagesBelongToActiveSession,
     historyLoadVersion,
-    hasOlderMessages,
-    loadingOlderMessages,
-    loadOlderMessages,
-    hasNewerMessages,
-    loadingNewerMessages,
-    loadNewerMessages,
-    unloadOldestPage,
-    unloadNewestPage,
     loadError,
     errorMessage,
     isSending,

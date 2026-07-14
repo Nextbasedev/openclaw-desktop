@@ -1,10 +1,8 @@
 import { frontendLog, redactText, sanitizeForLog, sanitizeUrlForLog } from "../clientLogs"
 import { logChatStreamRecoveryDecision } from "../chatTimelineDiagnostics"
-import { getMiddlewareConnection } from "../middleware-client"
 import { registerScheduledRequest, type RequestPriority } from "../requestScheduler"
 import type { SessionTokenUsage } from "../sessionContextUsage"
-import { UI_INITIAL_WINDOW } from "./constants"
-import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
+import type { ChatBootstrapV2, PatchFrame, StreamFrame } from "./types"
 export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
 const DEFAULT_MIDDLEWARE_URL = "http://127.0.0.1:8787"
@@ -107,9 +105,12 @@ async function fetchJson<T>(path: string, init?: RequestInit & { schedulerPriori
     label: path,
   })
   try {
-    const { schedulerPriority: _sp, schedulerSessionKey: _ss, schedulerLabel: _sl, ...fetchInit } = init ?? {} as Record<string, unknown>
+    const fetchInit = { ...(init ?? {}) } as RequestInit & { schedulerPriority?: RequestPriority; schedulerSessionKey?: string | null; schedulerLabel?: string }
+    delete fetchInit.schedulerPriority
+    delete fetchInit.schedulerSessionKey
+    delete fetchInit.schedulerLabel
     const response = await fetch(middlewareTargetUrl(baseUrl, path), {
-      ...fetchInit as RequestInit,
+      ...fetchInit,
       signal: scheduled.signal,
       headers: {
         "Content-Type": "application/json",
@@ -142,13 +143,11 @@ async function fetchJson<T>(path: string, init?: RequestInit & { schedulerPriori
   }
 }
 
-const CHAT_BOOTSTRAP_INITIAL_LIMIT = UI_INITIAL_WINDOW
-
 export async function fetchChatBootstrapV2(sessionKey: string): Promise<ChatBootstrapV2> {
   const key = `bootstrap:${sessionKey}`
   const existing = chatBootstrapRequests.get(key)
   if (existing) return existing
-  const params = new URLSearchParams({ sessionKey, limit: String(CHAT_BOOTSTRAP_INITIAL_LIMIT) })
+  const params = new URLSearchParams({ sessionKey })
   const request = fetchJson<ChatBootstrapV2>(`/api/chat/bootstrap?${params.toString()}`, {
     schedulerPriority: "active-chat",
     schedulerSessionKey: sessionKey,
@@ -180,15 +179,9 @@ export type ChatMessagesPageV2 = {
 
 export async function fetchChatMessagesV2(input: {
   sessionKey: string
-  beforeSeq?: number
-  afterSeq?: number
-  limit?: number
 }): Promise<ChatMessagesPageV2> {
   const params = new URLSearchParams({ sessionKey: input.sessionKey })
-  if (typeof input.limit === "number") params.set("limit", String(input.limit))
-  if (typeof input.beforeSeq === "number") params.set("beforeSeq", String(input.beforeSeq))
-  if (typeof input.afterSeq === "number") params.set("afterSeq", String(input.afterSeq))
-  const key = `messages:${params.toString()}`
+  const key = `messages:${input.sessionKey}`
   const existing = chatMessagesRequests.get(key)
   if (existing) return existing
   const request = fetchJson<ChatMessagesPageV2>(`/api/chat/messages?${params.toString()}`, {

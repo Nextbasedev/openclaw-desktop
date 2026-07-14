@@ -1869,7 +1869,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }
     const bootstrapStartedAtMs = nowMs();
     log.info("bootstrap.start", { sessionKey: parsed.data.sessionKey });
-    const requestedLimit = parsed.data.limit ?? DEFAULT_BOOTSTRAP_LIMIT;
+    const requestedLimit = 10_000;
     const gatewayHistoryStartedAtMs = nowMs();
     const history = await dedupedChatHistory(context, {
       sessionKey: parsed.data.sessionKey,
@@ -1971,24 +1971,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         });
       }
     }
-    // Prune only when gateway history is a COMPLETE canonical sample.
-    //
-    // Bootstrap always requests a limited window (default 160). If we treat
-    // that window as "the whole truth" and prune, we delete older local rows
-    // that only exist in the SQLite projection — the exact failure mode for
-    // imported Telegram/Discord sessions after the first continue-send:
-    //   open → local has full import (seq 1..N)
-    //   send → gateway.history(limit=160) returns the tail only
-    //   bootstrap prune → wipes seq 1..(N-160)
-    //   UI fetch/loadOlder → empty / broken render
-    //
-    // Rules (simple, session-agnostic where possible):
-    // 1. No gateway messages → nothing to prune against (imports hydrate here).
-    // 2. Gateway returned a full-looking sample (count < requested limit) → safe.
-    // 3. Gateway returned a windowed sample (count >= limit) → NEVER prune.
-    // 4. Imported platform sessions → never prune (local projection is authority
-    //    for the pre-desktop transcript; gateway only adds the continue tail).
-    // 5. Active run → skip (existing guard; live rows may not be in history yet).
+    // Prune only when gateway history is a complete canonical sample. Bootstrap
+    // now requests a high full-history ceiling and always returns all locally
+    // projected rows to the UI; imported platform sessions remain local-authority
+    // for pre-desktop transcript rows.
     const gatewayHistoryLooksComplete = normalized.length > 0 && normalized.length < requestedLimit;
     const skipBootstrapPrune =
       normalized.length === 0 ||
@@ -2011,7 +1997,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const bootstrapLastSeq = context.messages.nextMessageSeq(sessionKey) - 1;
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, projectedTools, archivedImported: archived.importedFiles, archivedSkipped: archived.skippedFiles, pruned: bootstrapPruned, lastSeq: bootstrapLastSeq });
 
-    const rawProjected = context.messages.listMessages(sessionKey, { limit: requestedLimit, latest: true });
+    const rawProjected = context.messages.listAllMessages(sessionKey);
     const projectedMessages = rawProjected
       .filter((message) => !isNonUserAttachedFileEcho(message))
       .map(serializeProjectedMessage);
@@ -2020,7 +2006,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       log.warn("bootstrap.live-subscribe.background.fail", { sessionKey, error: errorMeta(error) });
     });
     const firstVisibleSeq = rawProjected.find((message) => !isNonUserAttachedFileEcho(message))?.openclawSeq ?? null;
-    const hasOlder = firstVisibleSeq !== null && firstVisibleSeq > 1;
+    const hasOlder = false;
     const sessionCursor = context.messages.latestSessionCursor(sessionKey);
     const historyFallback = importedLink && historyFallbackReasons.length > 0
       ? { reasons: Array.from(new Set(historyFallbackReasons)) }
@@ -2028,7 +2014,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.bootstrap",
-      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: hasOlder ? "windowed" : "full", fullMessagesIncluded: !hasOlder, hasOlder, oldestLoadedSeq: firstVisibleSeq, pruned: bootstrapPruned, ...(historyFallback ? { historyFallback } : {}) },
+      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "full", fullMessagesIncluded: true, hasOlder, oldestLoadedSeq: firstVisibleSeq, pruned: bootstrapPruned, ...(historyFallback ? { historyFallback } : {}) },
     });
     if (archived.changed) {
       context.messages.appendProjectionEvent({
@@ -2047,7 +2033,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       messageCount: projectedMessages.length,
       cursor: sessionCursor,
       projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: false },
-      historyWindow: { historyCoverage: hasOlder ? "windowed" : "full", fullMessagesIncluded: !hasOlder, hasOlder, knownTotalMessages: bootstrapLastSeq, oldestLoadedSeq: firstVisibleSeq },
+      historyWindow: { historyCoverage: "full", fullMessagesIncluded: true, hasOlder, knownTotalMessages: bootstrapLastSeq, oldestLoadedSeq: firstVisibleSeq },
       historyMeta: { thinkingLevel: history.thinkingLevel, fastMode: history.fastMode, verboseLevel: history.verboseLevel },
     });
     return historyFallback ? { ...snapshot, historyFallback } : snapshot;
@@ -2056,104 +2042,54 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
   app.get("/api/chat/messages", async (request) => {
     const parsed = z.object({
       sessionKey: z.string().min(1),
-      afterSeq: z.coerce.number().int().min(0).optional(),
-      beforeSeq: z.coerce.number().int().positive().optional(),
-      limit: z.coerce.number().int().positive().max(1000).optional(),
-    }).safeParse(request.query);
+    }).passthrough().safeParse(request.query);
     if (!parsed.success) {
       throw new HttpError(400, "Invalid chat messages query", "INVALID_QUERY", parsed.error.flatten());
     }
-    log.info("messages.read.start", { sessionKey: parsed.data.sessionKey, afterSeq: parsed.data.afterSeq ?? null, beforeSeq: parsed.data.beforeSeq ?? null, limit: parsed.data.limit });
-    const hasWindowQuery =
-      parsed.data.afterSeq !== undefined ||
-      parsed.data.beforeSeq !== undefined ||
-      parsed.data.limit !== undefined;
-    let messages = hasWindowQuery
-      ? context.messages.listMessages(parsed.data.sessionKey, {
-          afterSeq: parsed.data.afterSeq,
-          beforeSeq: parsed.data.beforeSeq,
-          limit: parsed.data.limit,
-        })
-      : context.messages.listAllMessages(parsed.data.sessionKey);
-    const importedLinkForRead = context.compat?.importedPlatformSessionLink?.(parsed.data.sessionKey) ?? null;
-    // Same diagnostic reason vocabulary as bootstrap. Additive only.
+    const sessionKey = parsed.data.sessionKey;
+    log.info("messages.read.start", { sessionKey, mode: "full" });
+
+    let messages = context.messages.listAllMessages(sessionKey);
+    const importedLinkForRead = context.compat?.importedPlatformSessionLink?.(sessionKey) ?? null;
     const historyFallbackReasons: string[] = [];
+
     if (messages.length === 0) {
-      const hydrated = await context.compat?.hydrateImportedChatHistory?.(parsed.data.sessionKey);
+      const hydrated = await context.compat?.hydrateImportedChatHistory?.(sessionKey);
       if (hydrated?.hydrated) {
-        messages = hasWindowQuery
-          ? context.messages.listMessages(parsed.data.sessionKey, {
-              afterSeq: parsed.data.afterSeq,
-              beforeSeq: parsed.data.beforeSeq,
-              limit: parsed.data.limit,
-            })
-          : context.messages.listAllMessages(parsed.data.sessionKey);
+        messages = context.messages.listAllMessages(sessionKey);
         if (importedLinkForRead) historyFallbackReasons.push("local_hydrated");
-        log.info("messages.read.imported-hydrated", { sessionKey: parsed.data.sessionKey, upserted: hydrated.upserted ?? null, messageCount: messages.length });
+        log.info("messages.read.imported-hydrated", { sessionKey, upserted: hydrated.upserted ?? null, messageCount: messages.length });
       }
     }
-    if (messages.length === 0 && (!importedLinkForRead || !hasWindowQuery)) {
+
+    if (messages.length === 0) {
       if (importedLinkForRead) historyFallbackReasons.push("desktop_empty");
       try {
-        const refillLimit = Math.min(10_000, parsed.data.limit ?? 1000);
-        const projected = await ensureGatewayHistoryProjected(context, parsed.data.sessionKey, { limit: refillLimit });
-        messages = hasWindowQuery
-          ? context.messages.listMessages(projected.sessionKey, {
-              afterSeq: parsed.data.afterSeq,
-              beforeSeq: parsed.data.beforeSeq,
-              limit: parsed.data.limit,
-            })
-          : context.messages.listAllMessages(projected.sessionKey);
-        if (importedLinkForRead) {
-          historyFallbackReasons.push(projected.normalized.length > 0 ? "source_gateway_projected" : "source_gateway_empty");
-        }
-        log.info("messages.read.gateway-backfill", { sessionKey: parsed.data.sessionKey, resolvedSessionKey: projected.sessionKey, normalized: projected.normalized.length, upserted: projected.projection.upserted, messageCount: messages.length });
-      } catch (error) {
-        if (importedLinkForRead) historyFallbackReasons.push("source_gateway_failed");
-        log.warn("messages.read.gateway-backfill.fail_ignored", { sessionKey: parsed.data.sessionKey, ...errorMeta(error) });
-      }
-    }
-    if (parsed.data.beforeSeq !== undefined && messages.length === 0) {
-      // Older-page miss: local projection has nothing older than `beforeSeq`.
-      // For imported Telegram/Discord sessions this used to be skipped on the
-      // assumption the local projection was the exclusive source of truth,
-      // but that broke reset/rebuild scenarios where the imported desktop-key
-      // session lands with no local history. ensureGatewayHistoryProjected
-      // resolves the imported source key internally via
-      // resolveImportedSourceSessionKey and projects the source Gateway
-      // history under the desktop sessionKey, preserving anti-prune protections.
-      // Non-fatal: any failure only records a diagnostic reason.
-      if (importedLinkForRead) historyFallbackReasons.push("desktop_empty");
-      try {
-        const refillLimit = Math.min(10_000, parsed.data.beforeSeq + (parsed.data.limit ?? 200));
-        const projected = await ensureGatewayHistoryProjected(context, parsed.data.sessionKey, {
-          limit: refillLimit,
+        const projected = await ensureGatewayHistoryProjected(context, sessionKey, {
+          limit: 10_000,
           ...(importedLinkForRead ? { sourceSessionKey: importedLinkForRead.sourceSessionKey } : {}),
         });
-        messages = context.messages.listMessages(projected.sessionKey, {
-          afterSeq: parsed.data.afterSeq,
-          beforeSeq: parsed.data.beforeSeq,
-          limit: parsed.data.limit,
-        });
+        messages = context.messages.listAllMessages(projected.sessionKey);
         if (importedLinkForRead) {
           historyFallbackReasons.push(projected.normalized.length > 0 ? "source_gateway_projected" : "source_gateway_empty");
-          log.info("messages.read.source-gateway.older-page", { sessionKey: parsed.data.sessionKey, sourceSessionKey: importedLinkForRead.sourceSessionKey, beforeSeq: parsed.data.beforeSeq, normalized: projected.normalized.length, messageCount: messages.length });
         }
+        log.info("messages.read.gateway-backfill", { sessionKey, resolvedSessionKey: projected.sessionKey, normalized: projected.normalized.length, upserted: projected.projection.upserted, messageCount: messages.length });
       } catch (error) {
         if (importedLinkForRead) historyFallbackReasons.push("source_gateway_failed");
-        log.warn("messages.read.gateway-backfill.fail_ignored", { sessionKey: parsed.data.sessionKey, ...errorMeta(error) });
+        log.warn("messages.read.gateway-backfill.fail_ignored", { sessionKey, ...errorMeta(error) });
       }
     }
-    const sessionCursor = context.messages.latestSessionCursor(parsed.data.sessionKey);
+
+    const sessionCursor = context.messages.latestSessionCursor(sessionKey);
     const visibleMessages = messages.filter((message) => !isNonUserAttachedFileEcho(message));
-    log.info("messages.read.end", { sessionKey: parsed.data.sessionKey, messageCount: visibleMessages.length, cursor: sessionCursor });
+    log.info("messages.read.end", { sessionKey, mode: "full", messageCount: visibleMessages.length, cursor: sessionCursor });
     const historyFallback = importedLinkForRead && historyFallbackReasons.length > 0
       ? { reasons: Array.from(new Set(historyFallbackReasons)) }
       : null;
     return {
       ok: true,
       source: "middleware-projection",
-      sessionKey: parsed.data.sessionKey,
+      sessionKey,
       messages: visibleMessages.map((message) => ({
         sessionKey: message.sessionKey,
         openclawSeq: message.openclawSeq,

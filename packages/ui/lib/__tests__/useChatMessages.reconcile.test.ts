@@ -166,11 +166,9 @@ describe("chat reconcile active-state guards", () => {
     expect(dataSourceAfterWarmCacheApplied()).toBe("warm-cache")
   })
 
-  test("bootstrap + older-page sizes align with the open/window contract (160 / 100)", () => {
-    // Phase 3: open paint = UI_INITIAL_WINDOW (160); older pages = 100.
-    // Store may buffer up to 200 — that is headroom, not the open contract.
-    expect(CHAT_BOOTSTRAP_MESSAGE_LIMIT).toBe(160)
-    expect(CHAT_OLDER_PAGE_LIMIT).toBe(100)
+  test("bootstrap history limits are unbounded for full-session loading", () => {
+    expect(CHAT_BOOTSTRAP_MESSAGE_LIMIT).toBe(Number.MAX_SAFE_INTEGER)
+    expect(CHAT_OLDER_PAGE_LIMIT).toBe(Number.MAX_SAFE_INTEGER)
   })
 
   test("keeps current-session timeline rows visible while older history loads", () => {

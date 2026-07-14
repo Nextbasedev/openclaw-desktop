@@ -10,14 +10,12 @@ import {
   persistentCacheSet,
 } from "@/lib/persistentCache"
 
-import { UI_INITIAL_WINDOW } from "@/lib/chat-engine-v2/constants"
 
 export const WARM_CHAT_FRESH_MS = 2 * 60 * 1000
 export const WARM_CHAT_DISPLAYABLE_MS = 24 * 60 * 60 * 1000
 export const WARM_CHAT_MAX_CHATS = 30
-// Aligned to UI_INITIAL_WINDOW so app-reload first paint matches bootstrap
-// (160) — no "count shrinks then grows" flash when warm cache → fresh bootstrap.
-export const WARM_CHAT_MAX_MESSAGES = UI_INITIAL_WINDOW
+// Full-history warm cache: no fixed message-count cap. Size pruning below still protects storage.
+export const WARM_CHAT_MAX_MESSAGES = Number.MAX_SAFE_INTEGER
 export const WARM_CHAT_MAX_APPROX_BYTES_PER_CHAT = 500 * 1024
 export const WARM_CHAT_WRITE_DEBOUNCE_MS = 1000
 
