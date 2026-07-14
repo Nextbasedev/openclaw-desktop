@@ -1723,6 +1723,47 @@ function discordTopicFallback(entry: CompatRecord, channelId: string, threadId: 
   return String(meta?.threadLabel || meta?.groupChannel || entry.threadName || entry.channelName || entry.topicName || (threadId ? `Thread ${threadId}` : `Channel ${channelId}`)).trim();
 }
 
+function discoverDiscordTrajectoryEntries(agentId: string, indexed: CompatRecord = {}) {
+  const sessionsDir = gatewaySessionsDir(agentId);
+  const discovered: CompatRecord = {};
+  let candidates = 0;
+  let accepted = 0;
+  let failed = 0;
+  let entries: fs.Dirent[] = [];
+  try {
+    entries = fs.readdirSync(sessionsDir, { withFileTypes: true });
+  } catch {
+    return { index: discovered, source: { status: "unavailable", candidates, accepted, failed } };
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".trajectory.jsonl")) continue;
+    candidates += 1;
+    const trajectoryPath = path.join(sessionsDir, entry.name);
+    try {
+      const firstLine = fs.readFileSync(trajectoryPath, "utf8").split(/\r?\n/, 1)[0];
+      if (!firstLine?.trim()) continue;
+      const started = JSON.parse(firstLine) as CompatRecord;
+      const sourceSessionKey = String(started.sessionKey || started.data?.sessionKey || "").trim();
+      if (!sourceSessionKey || !sourceSessionKey.includes(":discord:")) continue;
+      if (!parseDiscordSessionKey(sourceSessionKey)) continue;
+      if (indexed[sourceSessionKey] || discovered[sourceSessionKey]) continue;
+      const sessionId = String(started.sessionId || started.data?.sessionId || "").trim() || path.basename(entry.name, ".trajectory.jsonl");
+      const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
+      if (!fs.existsSync(sessionFile)) continue;
+      discovered[sourceSessionKey] = {
+        sessionId,
+        sessionFile,
+        updatedAt: fs.statSync(sessionFile).mtimeMs,
+        discoverySource: "trajectory",
+      };
+      accepted += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { index: discovered, source: { status: "complete", candidates, accepted, failed } };
+}
+
 
 type MiddlewareGitStatus = {
   repoRoot: string;
@@ -2230,7 +2271,9 @@ async function scanTelegramSessions(context: AppContext, input: CompatRecord = {
 function scanDiscordSessions(context: AppContext, input: CompatRecord = {}) {
   loadCompatState(context);
   const agentId = String(input.agentId || "main");
-  const index = readJsonFile(gatewaySessionsIndexPath(agentId));
+  const diskIndex = readJsonFile(gatewaySessionsIndexPath(agentId));
+  const discovered = discoverDiscordTrajectoryEntries(agentId, diskIndex);
+  const index = { ...discovered.index, ...diskIndex };
   const limit = Math.max(0, Number(input.limit || 0));
   const usedNames = new Set<string>();
   const durableActiveDiscord = new Set(context.importProvenance.enumerateActive()
@@ -2292,6 +2335,7 @@ function scanDiscordSessions(context: AppContext, input: CompatRecord = {}) {
       groups: groups.size,
       topics: selected.filter((session) => session.chatType === "channel").length,
       alreadyImported: selected.filter((session) => session.alreadyImported).length,
+      discovered: discovered.source,
     },
     groups: [...groups.values()],
   };
@@ -3018,18 +3062,14 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
       continue;
     }
     try {
-      const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-discord-${crypto.randomUUID()}`;
-      const created = await context.gateway.request<CompatRecord>("sessions.create", {
-        key: desktopSessionKey,
-        agentId: parsed.agentId,
-        label: gatewaySessionLabel(label, desktopSessionKey),
-        parentSessionKey: session.sourceSessionKey,
-        metadata: gatewayMigrationMetadata({ platformKind: "discord", sourceSessionKey: String(session.sourceSessionKey), sourceSessionId: typeof session.sourceSessionId === "string" ? session.sourceSessionId : null }),
-      }, 30_000);
-      const transcriptPath = sessionFileFromCreateResult(created);
-      if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
-      copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
-      const sessionId = sessionIdFromCreateResult(created, desktopSessionKey);
+      // Canonical import: keep the original Discord Gateway session key as the
+      // desktop session key. Do not call sessions.create here. Gateway rejects
+      // the old migrated clone payload (`metadata` is not accepted), and cloning
+      // also breaks continuity because subsequent sends no longer target the
+      // original Discord session.
+      const desktopSessionKey = String(session.sourceSessionKey);
+      const transcriptPath = String(session.sourceSessionFile || "");
+      const sessionId = String(session.sourceSessionId || desktopSessionKey);
       persistImportedChatMessages(context, { sessionKey: desktopSessionKey, sessionId, transcriptPath, label, messages: sourceMessages });
       const timestamp = nowIso();
       context.importProvenance.upsert({
@@ -3042,7 +3082,7 @@ async function importDiscordSessions(context: AppContext, input: CompatRecord = 
       });
       compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId: null, topicId: null, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey } });
       const chat = ensureImportedFlatChat("discord", { sourceSessionKey: session.sourceSessionKey, targetSpaceId, label, sessionKey: desktopSessionKey, agentId: parsed.agentId, timestamp });
-      imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId: chat.id, projectId: null, topicId: null, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, transcriptPath });
+      imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId: chat.id, projectId: null, topicId: null, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, transcriptPath, canonicalDesktopSessionKey: true });
     } catch (error) {
       failed.push({ sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) });
     }

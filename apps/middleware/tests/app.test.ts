@@ -1410,14 +1410,13 @@ describe("middleware app", () => {
     fs.mkdirSync(sessionsDir, { recursive: true });
     const key = "agent:main:discord:channel:777:thread:888";
     const currentFile = path.join(sessionsDir, "discord-thread.jsonl");
-    const targetFile = path.join(sessionsDir, "imported-discord-thread.jsonl");
     fs.writeFileSync(currentFile, `${JSON.stringify({ type: "message", id: "c1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: "discord thread import request" } })}\n`);
     fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({ [key]: { sessionId: "thread", sessionFile: currentFile, channelName: "fresh desktop", displayName: "Discord channel" } }));
 
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
-    context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
-      if (method === "sessions.create") return { payload: { entry: { sessionFile: targetFile } }, label: params?.label };
+    context.gateway.request = vi.fn(async (method: string) => {
+      if (method === "sessions.create") throw new Error("canonical discord import must not call sessions.create");
       return {};
     });
 
@@ -1426,6 +1425,7 @@ describe("middleware app", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().summary).toMatchObject({ imported: 1, skipped: 0, failed: 0 });
     const importedSessionKey = res.json().imported[0].desktopSessionKey;
+    expect(importedSessionKey).toBe(key);
     const messages = await app.inject({ method: "GET", url: `/api/chat/messages?sessionKey=${encodeURIComponent(importedSessionKey)}` });
     expect(messages.statusCode).toBe(200);
     expect(messages.json().messages).toEqual(expect.arrayContaining([
@@ -1434,7 +1434,7 @@ describe("middleware app", () => {
     const secondRes = await app.inject({ method: "POST", url: "/api/migration/discord/import", payload: { sourceSessionKeys: [key], skipAlreadyImported: false } });
     expect(secondRes.statusCode).toBe(200);
     expect(secondRes.json().summary).toMatchObject({ imported: 0, skipped: 1, failed: 0 });
-    expect(context.gateway.request.mock.calls.filter(([method]) => method === "sessions.create")).toHaveLength(1);
+    expect(context.gateway.request.mock.calls.filter(([method]) => method === "sessions.create")).toHaveLength(0);
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
     const discordSpace = bootstrap.json().spaces.find((item: { id?: string; name?: string; importedFrom?: { kind?: string; scope?: string } }) => item.name === "Discord" && item.importedFrom?.kind === "discord" && item.importedFrom?.scope === "session-migration");
     expect(discordSpace).toBeTruthy();
@@ -1446,6 +1446,35 @@ describe("middleware app", () => {
     const sessions = await app.inject({ method: "GET", url: `/api/sessions?spaceId=${discordSpace.id}` });
     expect(sessions.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ spaceId: discordSpace.id, projectId: null, topicId: null })]));
     expect(sessions.json().sessions).toHaveLength(1);
+    await app.close();
+  });
+
+  test("discord scan discovers direct sessions from trajectories when sessions index is missing them", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-discord-direct-scan-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const key = "agent:main:discord:direct:1335815206898503690";
+    const sessionId = "99c65f33-79ae-4d9d-b049-22ec7868de04";
+    const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
+    const trajectoryFile = path.join(sessionsDir, `${sessionId}.trajectory.jsonl`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({}));
+    fs.writeFileSync(sessionFile, `${JSON.stringify({ type: "message", id: "d1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: "discord direct import request" } })}\n`);
+    fs.writeFileSync(trajectoryFile, `${JSON.stringify({ type: "session.started", sessionKey: key, sessionId })}\n`);
+
+    const app = await createApp(testConfig());
+    const scan = await app.inject({ method: "GET", url: "/api/migration/discord/scan" });
+
+    expect(scan.statusCode).toBe(200);
+    expect(scan.json().summary).toMatchObject({ total: 1, direct: 1, topics: 0 });
+    expect(scan.json().sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceSessionKey: key, chatType: "direct", sourceSessionFile: sessionFile }),
+    ]));
+
+    const imported = await app.inject({ method: "POST", url: "/api/migration/discord/import", payload: { sourceSessionKeys: [key], skipAlreadyImported: false } });
+    expect(imported.statusCode).toBe(200);
+    expect(imported.json().summary).toMatchObject({ imported: 1, skipped: 0, failed: 0 });
+    expect(imported.json().imported[0].desktopSessionKey).toBe(key);
     await app.close();
   });
 
