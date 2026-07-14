@@ -2739,7 +2739,7 @@ async function createEditPreview(context: AppContext, input: CompatRecord) {
   void (async () => {
     try {
       await context.gateway.request("chat.send", { sessionKey: branchSessionKey, message: text, timeoutMs: 120_000, idempotencyKey: `edit:${branchSessionKey}:${sourceUserMessageId}` }, 130_000);
-      const branchHistory = await context.gateway.request<CompatRecord>("chat.history", { sessionKey: branchSessionKey, limit: 200 }, 30_000);
+      const branchHistory = await context.gateway.request<CompatRecord>("chat.history", { sessionKey: branchSessionKey }, 30_000);
       const branchMessages = normalizeHistoryForFork(branchHistory);
       context.messages.upsertMessages(normalizeHistoryMessages(branchSessionKey, branchMessages));
       const assistant = [...branchMessages].reverse().find((message) => message.role === "assistant");
@@ -2891,12 +2891,11 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
       } else {
         // Gateway-backed source: NEVER copy transcript locally; live Gateway
         // history projection under the same key is the durable source of truth
-        // (bootstrap + older-page fallback in chat/routes.ts handle projection).
+        // (bootstrap + message-load refresh in chat/routes.ts handle projection).
         // Fire-and-forget prewarm using the canonical key for both sessionKey
         // and sourceSessionKey so the first chat open is warm.
         void ensureGatewayHistoryProjected(context, desktopSessionKey, {
           sourceSessionKey: desktopSessionKey,
-          limit: 1000,
         }).catch(() => { /* non-fatal */ });
       }
       return {
@@ -6145,7 +6144,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         try {
           let rows = context.messages.listMessages(sessionKey, { limit: 1000 });
           if (rows.length === 0) {
-            const projected = await ensureGatewayHistoryProjected(context, sessionKey, { limit: 1000 });
+            const projected = await ensureGatewayHistoryProjected(context, sessionKey);
             rows = context.messages.listMessages(projected.sessionKey, { limit: 1000 });
           }
           return { messages: rows.map((r) => r.data) };

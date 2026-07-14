@@ -861,7 +861,7 @@ export class ChatLiveIngest {
   private async backfillHistory(sessionKey: string, runId: string | null, reason: string) {
     const startedAt = Date.now();
     try {
-      const history = await this.context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 200 });
+      const history = await this.context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey });
       const messages = history.messages ?? [];
       if (!messages.length) return;
       const normalized = normalizeHistoryMessages(sessionKey, messages).filter((message) => {

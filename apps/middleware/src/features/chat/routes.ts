@@ -203,12 +203,10 @@ export function clearLocalFirstBootstrapCache() {
 }
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
 
-const DEFAULT_BOOTSTRAP_LIMIT = 160;
-const FULL_GATEWAY_HISTORY_LIMIT = 1000;
 const inFlightBootstraps = new Map<string, Promise<ChatHistoryResponse>>();
 
-async function dedupedChatHistory(context: AppContext, payload: { sessionKey: string; limit?: number }) {
-  const key = `${payload.sessionKey}\u0000${payload.limit ?? ""}`;
+async function dedupedChatHistory(context: AppContext, payload: { sessionKey: string }) {
+  const key = payload.sessionKey;
   const existing = inFlightBootstraps.get(key);
   if (existing) return existing;
   const job = context.gateway.request<ChatHistoryResponse>("chat.history", payload).finally(() => {
@@ -923,7 +921,7 @@ async function assertResolvedMediaPathAllowed(realFile: string) {
  */
 export async function prewarmArchivedHistory(context: AppContext, sessionKey: string) {
   try {
-    const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 200 }, 10_000);
+    const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey }, 10_000);
     if (!history) return { ok: false, reason: "no-history" };
     const result = await persistArchivedHistorySegments(context, sessionKey, history);
     return { ok: true, ...result };
@@ -932,9 +930,9 @@ export async function prewarmArchivedHistory(context: AppContext, sessionKey: st
   }
 }
 
-export async function ensureGatewayHistoryProjected(context: AppContext, sessionKey: string, options: { limit?: number; timeoutMs?: number; projectTools?: boolean; sourceSessionKey?: string | null } = {}) {
+export async function ensureGatewayHistoryProjected(context: AppContext, sessionKey: string, options: { timeoutMs?: number; projectTools?: boolean; sourceSessionKey?: string | null } = {}) {
   const sourceSessionKey = options.sourceSessionKey || context.compat?.resolveImportedSourceSessionKey?.(sessionKey) || sessionKey;
-  const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey: sourceSessionKey, limit: options.limit ?? 1000 }, options.timeoutMs ?? 30_000);
+  const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey: sourceSessionKey }, options.timeoutMs ?? 30_000);
   const resolvedSessionKey = sourceSessionKey === sessionKey ? (history.sessionKey ?? sessionKey) : sessionKey;
   const existingSession = context.messages.getSession(resolvedSessionKey);
   const segment = context.messages.ensureActiveSegment({
@@ -1480,7 +1478,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               // Trust Gateway array order (not our local openclaw_seq math).
               //
               // Continue-import bug: long imported sessions already have high local
-              // seqs (1..N). Post-send chat.history(limit=200) returns a reindexed
+              // seqs (1..N). Post-send chat.history returns a reindexed
               // window (often 1..200). Old code required projectSeq >= optimisticSeq
               // to find the user echo, failed, still upserted the whole window, and
               // collision-append rewrote those OLD rows to seq N+1.. — then broadcast
@@ -1870,11 +1868,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }
     const bootstrapStartedAtMs = nowMs();
     log.info("bootstrap.start", { sessionKey: parsed.data.sessionKey });
-    const requestedLimit = FULL_GATEWAY_HISTORY_LIMIT;
     const gatewayHistoryStartedAtMs = nowMs();
     const history = await dedupedChatHistory(context, {
       sessionKey: parsed.data.sessionKey,
-      limit: requestedLimit,
     });
     const historyMessageCount = history.messages?.length ?? 0;
     log.info("bootstrap.gateway.history", { sessionKey: history.sessionKey ?? parsed.data.sessionKey, sessionId: history.sessionId ?? null, durationMs: elapsedMs(gatewayHistoryStartedAtMs), messageCount: historyMessageCount, status: history.status ?? null });
@@ -1943,7 +1939,6 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       try {
         const sourceStartedAtMs = nowMs();
         const sourceProjected = await ensureGatewayHistoryProjected(context, sessionKey, {
-          limit: requestedLimit,
           sourceSessionKey: importedLink.sourceSessionKey,
         });
         if (sourceProjected.normalized.length > 0) {
@@ -1972,11 +1967,11 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         });
       }
     }
-    // Prune only when gateway history is a complete canonical sample. Bootstrap
-    // now requests a high full-history ceiling and always returns all locally
-    // projected rows to the UI; imported platform sessions remain local-authority
-    // for pre-desktop transcript rows.
-    const gatewayHistoryLooksComplete = normalized.length > 0 && normalized.length < requestedLimit;
+    // Prune only when Gateway history is a complete canonical sample. Bootstrap
+    // now asks Gateway for the session history directly, without adding a local
+    // window/limit param. Imported platform sessions remain local-authority for
+    // pre-desktop transcript rows.
+    const gatewayHistoryLooksComplete = normalized.length > 0;
     const skipBootstrapPrune =
       normalized.length === 0 ||
       !gatewayHistoryLooksComplete ||
@@ -1989,7 +1984,6 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       log.info("bootstrap.prune.skipped", {
         sessionKey,
         normalized: normalized.length,
-        requestedLimit,
         imported: Boolean(importedLink),
         gatewayHistoryLooksComplete,
         pendingRun: Boolean(context.runs.findLatestPendingRun(sessionKey)),
@@ -2065,7 +2059,6 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
     try {
       const projected = await ensureGatewayHistoryProjected(context, sessionKey, {
-        limit: FULL_GATEWAY_HISTORY_LIMIT,
         ...(importedLinkForRead ? { sourceSessionKey: importedLinkForRead.sourceSessionKey } : {}),
       });
       messages = context.messages.listAllMessages(projected.sessionKey);
@@ -2133,7 +2126,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
     // Fall back to Gateway history (full, untruncated)
     try {
-      const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 500 });
+      const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey });
       const messages = history.messages ?? [];
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i] as Record<string, unknown>;
