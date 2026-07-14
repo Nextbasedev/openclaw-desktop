@@ -204,6 +204,7 @@ export function clearLocalFirstBootstrapCache() {
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
 
 const DEFAULT_BOOTSTRAP_LIMIT = 160;
+const FULL_GATEWAY_HISTORY_LIMIT = 1000;
 const inFlightBootstraps = new Map<string, Promise<ChatHistoryResponse>>();
 
 async function dedupedChatHistory(context: AppContext, payload: { sessionKey: string; limit?: number }) {
@@ -1869,7 +1870,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }
     const bootstrapStartedAtMs = nowMs();
     log.info("bootstrap.start", { sessionKey: parsed.data.sessionKey });
-    const requestedLimit = 10_000;
+    const requestedLimit = FULL_GATEWAY_HISTORY_LIMIT;
     const gatewayHistoryStartedAtMs = nowMs();
     const history = await dedupedChatHistory(context, {
       sessionKey: parsed.data.sessionKey,
@@ -2062,22 +2063,19 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       }
     }
 
-    if (messages.length === 0) {
-      if (importedLinkForRead) historyFallbackReasons.push("desktop_empty");
-      try {
-        const projected = await ensureGatewayHistoryProjected(context, sessionKey, {
-          limit: 10_000,
-          ...(importedLinkForRead ? { sourceSessionKey: importedLinkForRead.sourceSessionKey } : {}),
-        });
-        messages = context.messages.listAllMessages(projected.sessionKey);
-        if (importedLinkForRead) {
-          historyFallbackReasons.push(projected.normalized.length > 0 ? "source_gateway_projected" : "source_gateway_empty");
-        }
-        log.info("messages.read.gateway-backfill", { sessionKey, resolvedSessionKey: projected.sessionKey, normalized: projected.normalized.length, upserted: projected.projection.upserted, messageCount: messages.length });
-      } catch (error) {
-        if (importedLinkForRead) historyFallbackReasons.push("source_gateway_failed");
-        log.warn("messages.read.gateway-backfill.fail_ignored", { sessionKey, ...errorMeta(error) });
+    try {
+      const projected = await ensureGatewayHistoryProjected(context, sessionKey, {
+        limit: FULL_GATEWAY_HISTORY_LIMIT,
+        ...(importedLinkForRead ? { sourceSessionKey: importedLinkForRead.sourceSessionKey } : {}),
+      });
+      messages = context.messages.listAllMessages(projected.sessionKey);
+      if (importedLinkForRead) {
+        historyFallbackReasons.push(projected.normalized.length > 0 ? "source_gateway_projected" : "source_gateway_empty");
       }
+      log.info("messages.read.gateway-refresh", { sessionKey, resolvedSessionKey: projected.sessionKey, normalized: projected.normalized.length, upserted: projected.projection.upserted, messageCount: messages.length });
+    } catch (error) {
+      if (messages.length === 0 && importedLinkForRead) historyFallbackReasons.push("source_gateway_failed");
+      log.warn("messages.read.gateway-refresh.fail_ignored", { sessionKey, localMessageCount: messages.length, ...errorMeta(error) });
     }
 
     const sessionCursor = context.messages.latestSessionCursor(sessionKey);
