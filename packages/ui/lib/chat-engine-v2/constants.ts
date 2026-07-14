@@ -5,11 +5,10 @@
  * See docs/plans/2026-07-10-telegram-chat-reliability-loop.md Phase 3.
  *
  * Open / first paint (strict):
- *   UI_INITIAL_WINDOW = 160  → bootstrap request + ChatView MAX_LOADED/INITIAL_PAGE
- *                             + warm-cache first paint cap
+ *   UI_INITIAL_WINDOW = 160  → bootstrap request + warm-cache first paint cap
  *
  * Scroll paging:
- *   UI_OLDER_PAGE = 100      → older/newer page fetches
+ *   UI_OLDER_PAGE = 100      → legacy hook older/newer page fetches
  *
  * In-memory scroll buffer (headroom, not open contract):
  *   Store WINDOW_SIZE / SLICE_SIZE may be 200 so paging can hold one extra page

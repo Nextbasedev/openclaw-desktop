@@ -30,7 +30,6 @@ import {
 } from "../chat-engine-v2/store"
 import { UI_INITIAL_WINDOW, UI_OLDER_PAGE, UI_STORE_WINDOW } from "../chat-engine-v2/constants"
 import { WARM_CHAT_MAX_MESSAGES } from "../warmChatCache"
-import { MAX_LOADED, INITIAL_PAGE, OLDER_PAGE } from "../../components/ChatView/messageWindow"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 const user = (id: string, text: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({
@@ -65,11 +64,8 @@ describe("Phase 4 matrix — window contract (no count shrink flash)", () => {
     expect(UI_INITIAL_WINDOW).toBe(160)
     expect(CHAT_BOOTSTRAP_MESSAGE_LIMIT).toBe(160)
     expect(WARM_CHAT_MAX_MESSAGES).toBe(160)
-    expect(MAX_LOADED).toBe(160)
-    expect(INITIAL_PAGE).toBe(160)
     expect(UI_OLDER_PAGE).toBe(100)
     expect(CHAT_OLDER_PAGE_LIMIT).toBe(100)
-    expect(OLDER_PAGE).toBe(100)
     expect(UI_STORE_WINDOW).toBe(200)
     expect(UI_STORE_WINDOW).toBeGreaterThanOrEqual(UI_INITIAL_WINDOW)
   })

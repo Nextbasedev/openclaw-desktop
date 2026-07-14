@@ -67,25 +67,6 @@ import {
 import { VscArrowLeft, VscHubot } from "react-icons/vsc"
 import type { IconType } from "react-icons"
 import { MessageBubble } from "./MessageBubble"
-import {
-  INITIAL_WINDOW_STATE,
-  MAX_LOADED,
-  OLDER_PAGE,
-  BOTTOM_TRIGGER,
-  REFRACTORY_MS,
-  applyInitialPage,
-  applyLiveAppend,
-  applyNewerPage,
-  applyOlderPage,
-  canEvictFromStartOnLiveAppend,
-  computeEvictedAfterAppend,
-  computeEvictedAfterPrepend,
-  liveTailQuery,
-  shouldDropPatchAsEvicted,
-  shouldFetchNewer,
-  shouldFetchOlder,
-  type WindowState,
-} from "./messageWindow"
 import { ThinkingBlock } from "./ThinkingBlock"
 import { ToolCallSteps } from "./ToolCallSteps"
 import { SubagentBar } from "./SubagentBar"
@@ -684,7 +665,6 @@ export function ChatView({
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
   const [composerSeed, setComposerSeed] = useState<string | null>(null)
   const [sessionUsage, setSessionUsage] = useState<SessionTokenUsage | null>(null)
-  const [windowState, setWindowState] = useState<WindowState>(INITIAL_WINDOW_STATE)
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   const composerHistoryMessages = useMemo(() => {
     const prompts: string[] = []
@@ -715,10 +695,6 @@ export function ChatView({
   const queueDrainInFlightRef = useRef(false)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pinButtonRef = useRef<HTMLButtonElement>(null)
-  const pendingScrollAnchorRef = useRef<{
-    anchorMessageId: string
-    anchorOffsetFromContainerTop: number
-  } | null>(null)
 
   useEffect(() => {
     queuedMessagesRef.current = queuedMessages
@@ -742,21 +718,6 @@ export function ChatView({
     },
     [sessionKey]
   )
-  const olderFetchSeqRef = useRef(0)
-  const newerFetchSeqRef = useRef(0)
-  // Time-based refractory: wall-clock timestamp (ms since epoch) of the last
-  // resolved fetch in this direction. Replaces an earlier scrollTop-based
-  // refractory which became stale across major buffer mutations (the scrollTop
-  // coordinate isn't comparable across prepend+evict cycles). Same purpose:
-  // prevent the older/newer alternation loop. Different mechanism: time alone.
-  const lastOlderResolvedAtRef = useRef<number>(0)
-  const lastNewerResolvedAtRef = useRef<number>(0)
-  // Set to true while we are programmatically adjusting scrollTop (anchor
-  // restoration). Without this, the synthetic scroll event from setting
-  // container.scrollTop would call handleScroll and trigger evaluators in an
-  // infinite loop.
-  const isProgrammaticScrollRef = useRef(false)
-  const windowStateRef = useRef<WindowState>(windowState)
   // Last wall-clock time we ran resetToLiveTail in response to a
   // bootstrap-recovery event. Used to debounce rapid SSE recovery storms
   // that can otherwise create a skeleton/messages blink loop on old sessions
@@ -790,12 +751,7 @@ export function ChatView({
     if (isBackgroundSession) return
     let cancelled = false
     cursorRef.current = 0
-    olderFetchSeqRef.current = 0
-    newerFetchSeqRef.current = 0
     shouldFollowScrollRef.current = true
-    pendingScrollAnchorRef.current = null
-    lastOlderResolvedAtRef.current = 0
-    lastNewerResolvedAtRef.current = 0
     lastBootstrapRecoveryAtRef.current = 0
     lastBootstrapCompletedAtRef.current = 0
     firstPatchLoggedRef.current = false
@@ -819,21 +775,6 @@ export function ChatView({
     // flash the ChatLoadingSkeleton over the optimistic bubble.
     if (hasOptimisticBootstrap) {
       const seededMessages = initialMessagesSnapshotRef.current ?? []
-      const lastSeeded = seededMessages[seededMessages.length - 1]
-      const seededNewestSeq =
-        lastSeeded && typeof lastSeeded.gatewayIndex === "number"
-          ? lastSeeded.gatewayIndex
-          : null
-      // No messages have been confirmed by the gateway yet — use an empty
-      // initial page so older/newer evaluators don't try to fetch.
-      setWindowState(
-        applyInitialPage({
-          returnedCount: 0,
-          oldestSeq: null,
-          newestSeq: seededNewestSeq,
-          requestedLimit: liveTailQuery().limit,
-        })
-      )
       cursorRef.current = 0
       setStreamCursor(0)
       // Optimistic bootstrap already paints the user bubble + thinking state;
@@ -865,25 +806,6 @@ export function ChatView({
     // thinking/tool-running state with no skeleton, no greeting, no refetch.
     if (hydrateFromRegistry) {
       const seededMessages = hydrateFromRegistry.messages
-      const firstMessage = seededMessages[0]
-      const lastMessage = seededMessages[seededMessages.length - 1]
-      const oldestSeq =
-        firstMessage && typeof firstMessage.gatewayIndex === "number"
-          ? firstMessage.gatewayIndex
-          : null
-      const newestSeq =
-        lastMessage && typeof lastMessage.gatewayIndex === "number"
-          ? lastMessage.gatewayIndex
-          : null
-      const initialQuery = liveTailQuery()
-      setWindowState(
-        applyInitialPage({
-          returnedCount: seededMessages.length,
-          oldestSeq,
-          newestSeq,
-          requestedLimit: initialQuery.limit,
-        })
-      )
       const reattachCursor = hydrateFromRegistry.streamCursor ?? 0
       cursorRef.current = reattachCursor
       setStreamCursor(reattachCursor)
@@ -902,12 +824,7 @@ export function ChatView({
       // The reconcile happens via the same setState pattern history fetch
       // uses elsewhere; if the result is identical to current messages, the
       // setState is a no-op render.
-      const reconcileQuery = liveTailQuery()
-      fetchChatMessagesV2({
-        sessionKey,
-        beforeSeq: reconcileQuery.beforeSeq,
-        limit: reconcileQuery.limit,
-      })
+      fetchChatMessagesV2({ sessionKey })
         .then((history) => {
           if (cancelled) return
           if (history.sessionKey && history.sessionKey !== sessionKey) return
@@ -959,22 +876,6 @@ export function ChatView({
               streamStatus: runLooksComplete ? "idle" : current.streamStatus,
               statusLabel: runLooksComplete ? null : current.statusLabel,
             }))
-            const freshFirst = freshMessages[0]
-            const freshLast = freshMessages[freshMessages.length - 1]
-            setWindowState(
-              applyInitialPage({
-                returnedCount: freshMessages.length,
-                oldestSeq:
-                  freshFirst && typeof freshFirst.gatewayIndex === "number"
-                    ? freshFirst.gatewayIndex
-                    : null,
-                newestSeq:
-                  freshLast && typeof freshLast.gatewayIndex === "number"
-                    ? freshLast.gatewayIndex
-                    : null,
-                requestedLimit: reconcileQuery.limit,
-              }),
-            )
           }
         })
         .catch((error) => {
@@ -995,7 +896,6 @@ export function ChatView({
     }
 
     setStreamCursor(null)
-    setWindowState(INITIAL_WINDOW_STATE)
     setState({
       loading: true,
       error: null,
@@ -1005,12 +905,7 @@ export function ChatView({
       statusLabel: null,
     })
 
-    const initialQuery = liveTailQuery()
-    fetchChatMessagesV2({
-      sessionKey,
-      beforeSeq: initialQuery.beforeSeq,
-      limit: initialQuery.limit,
-    })
+    fetchChatMessagesV2({ sessionKey })
       .then((history) => {
         if (cancelled) return
         if (history.sessionKey && history.sessionKey !== sessionKey) return
@@ -1020,24 +915,6 @@ export function ChatView({
         const cursor = typeof history.cursor === "number" ? history.cursor : 0
         cursorRef.current = cursor
         setStreamCursor(cursor)
-        const firstMessage = messages[0]
-        const lastMessage = messages[messages.length - 1]
-        const oldestSeq =
-          firstMessage && typeof firstMessage.gatewayIndex === "number"
-            ? firstMessage.gatewayIndex
-            : null
-        const newestSeq =
-          lastMessage && typeof lastMessage.gatewayIndex === "number"
-            ? lastMessage.gatewayIndex
-            : null
-        setWindowState(
-          applyInitialPage({
-            returnedCount: history.messageCount ?? history.messages.length,
-            oldestSeq,
-            newestSeq,
-            requestedLimit: initialQuery.limit,
-          })
-        )
         setState({
           loading: false,
           error: null,
@@ -1056,7 +933,6 @@ export function ChatView({
       })
       .catch((error) => {
         if (cancelled) return
-        setWindowState(INITIAL_WINDOW_STATE)
         setState({
           loading: false,
           error: error instanceof Error ? error.message : String(error),
@@ -1117,10 +993,6 @@ export function ChatView({
     streamCursor,
   ])
 
-  useEffect(() => {
-    windowStateRef.current = windowState
-  }, [windowState])
-
   const stateLoadingRef = useRef<boolean>(true)
   const stateMessagesRef = useRef<ChatMessage[]>([])
   const stateStreamStatusRef = useRef<StreamStatus>("idle")
@@ -1151,26 +1023,6 @@ export function ChatView({
           },
           "debug"
         )
-      }
-      if (
-        shouldDropPatchAsEvicted({
-          patchSessionCursor: frame.patch.cursor,
-          newestLoadedSeq: windowStateRef.current.newestLoadedSeq,
-          hasNewer: windowStateRef.current.hasNewer,
-        })
-      ) {
-        // Cursor advance still happens above; we just don't apply the patch visually.
-        frontendLog(
-          "chat",
-          "chat-rebuild.window.patch-dropped-evicted",
-          {
-            sessionKey,
-            patchCursor: frame.patch.cursor,
-            newestLoadedSeq: windowStateRef.current.newestLoadedSeq,
-          },
-          "debug"
-        )
-        return
       }
       const patchStatus = statusFromPatch(frame)
       const semanticType = patchSemanticType(frame)
@@ -1270,99 +1122,6 @@ export function ChatView({
             : isActiveStreamStatus(nextStatus)
               ? patchStatus?.label ?? current.statusLabel
               : null
-
-        // Detect if a NEW message was appended (length grew at the tail).
-        const previousLength = current.messages.length
-        const appendedAtTail = orderedMessages.length > previousLength
-
-        if (appendedAtTail && orderedMessages.length > MAX_LOADED) {
-          if (canEvictFromStartOnLiveAppend(windowStateRef.current)) {
-            const evict = orderedMessages.length - MAX_LOADED
-            const finalMessages = orderedMessages.slice(evict)
-            const newOldest = finalMessages[0]
-            const newNewest = finalMessages[finalMessages.length - 1]
-            const appendedNewestSeq =
-              newNewest && typeof newNewest.gatewayIndex === "number"
-                ? newNewest.gatewayIndex
-                : null
-            const evictedOldestSeq =
-              newOldest && typeof newOldest.gatewayIndex === "number"
-                ? newOldest.gatewayIndex
-                : null
-            setWindowState((s) =>
-              applyLiveAppend({
-                prevState: s,
-                prevLoadedLength: previousLength,
-                appendedNewestSeq,
-                evictedFromStart: evict,
-                evictedOldestSeq,
-              })
-            )
-            frontendLog(
-              "chat",
-              "chat-rebuild.window.live-append-evicted",
-              { sessionKey, evicted: evict, finalLength: finalMessages.length },
-              "debug"
-            )
-            return {
-              ...current,
-              loading: false,
-              error: null,
-              messages: finalMessages,
-              streamStatus: nextStatus,
-              statusLabel: nextStatusLabel,
-            }
-          }
-          // Cannot safely evict: hasOlder is false, so evicting from start would
-          // destroy unrecoverable history. Allow the array to temporarily exceed
-          // MAX_LOADED. Still update newestLoadedSeq.
-          const newNewest = orderedMessages[orderedMessages.length - 1]
-          const appendedNewestSeq =
-            newNewest && typeof newNewest.gatewayIndex === "number"
-              ? newNewest.gatewayIndex
-              : null
-          setWindowState((s) =>
-            applyLiveAppend({
-              prevState: s,
-              prevLoadedLength: previousLength,
-              appendedNewestSeq,
-              evictedFromStart: 0,
-              evictedOldestSeq: null,
-            })
-          )
-          frontendLog(
-            "chat",
-            "chat-rebuild.window.live-append-no-evict",
-            { sessionKey, length: orderedMessages.length, reason: "hasOlder=false" },
-            "warn"
-          )
-          return {
-            ...current,
-            loading: false,
-            error: null,
-            messages: orderedMessages,
-            streamStatus: nextStatus,
-            statusLabel: nextStatusLabel,
-          }
-        }
-
-        if (appendedAtTail) {
-          // Length still ≤ MAX_LOADED, just update newestLoadedSeq.
-          const newNewest = orderedMessages[orderedMessages.length - 1]
-          const appendedNewestSeq =
-            newNewest && typeof newNewest.gatewayIndex === "number"
-              ? newNewest.gatewayIndex
-              : null
-          setWindowState((s) =>
-            applyLiveAppend({
-              prevState: s,
-              prevLoadedLength: previousLength,
-              appendedNewestSeq,
-              evictedFromStart: 0,
-              evictedOldestSeq: null,
-            })
-          )
-        }
 
         return {
           ...current,
@@ -1466,14 +1225,6 @@ export function ChatView({
         optimisticId,
       })
 
-      if (windowStateRef.current.hasNewer) {
-        await resetToLiveTail({
-          preserveMessages: [optimisticMessage],
-          silent: true,
-          streamStatus: "thinking",
-          statusLabel: "Thinking",
-        })
-      }
 
       onFirstMessageSent?.(text)
       setReplyTo(null)
@@ -2081,368 +1832,6 @@ export function ChatView({
     [renderedMessages]
   )
 
-  const measureRowsAboveViewport = useCallback((): number => {
-    const container = scrollContainerRef.current
-    if (!container) return Number.POSITIVE_INFINITY
-    const containerTop = container.getBoundingClientRect().top
-    const rows = container.querySelectorAll<HTMLElement>('[data-chat-message-row="true"]')
-    let count = 0
-    for (let i = 0; i < rows.length; i += 1) {
-      const rect = rows[i].getBoundingClientRect()
-      // If the row's bottom is above the container's visible top edge, it's "above viewport".
-      if (rect.bottom <= containerTop) {
-        count += 1
-      } else {
-        break // rows are in DOM order; first non-above means we're done
-      }
-    }
-    return count
-  }, [])
-
-  const measureRowsBelowViewport = useCallback((): number => {
-    const container = scrollContainerRef.current
-    if (!container) return Number.POSITIVE_INFINITY
-    const containerBottom = container.getBoundingClientRect().bottom
-    const rows = container.querySelectorAll<HTMLElement>('[data-chat-message-row="true"]')
-    let count = 0
-    // Walk from the end backward; first row whose top is at/above containerBottom marks the break.
-    for (let i = rows.length - 1; i >= 0; i -= 1) {
-      const rect = rows[i].getBoundingClientRect()
-      if (rect.top >= containerBottom) {
-        count += 1
-      } else {
-        break
-      }
-    }
-    return count
-  }, [])
-
-  const captureFirstVisibleRowAnchor = useCallback(() => {
-    const container = scrollContainerRef.current
-    if (!container) {
-      pendingScrollAnchorRef.current = null
-      return
-    }
-    const containerTop = container.getBoundingClientRect().top
-    const rows = container.querySelectorAll<HTMLElement>('[data-chat-message-row="true"]')
-    let anchorRow: HTMLElement | null = null
-    for (let i = 0; i < rows.length; i += 1) {
-      const rect = rows[i].getBoundingClientRect()
-      if (rect.bottom > containerTop) {
-        anchorRow = rows[i]
-        break
-      }
-    }
-    const anchorMessageId = anchorRow?.getAttribute('data-message-id') ?? null
-    if (!anchorMessageId) {
-      pendingScrollAnchorRef.current = null
-      return
-    }
-    pendingScrollAnchorRef.current = {
-      anchorMessageId,
-      anchorOffsetFromContainerTop:
-        anchorRow!.getBoundingClientRect().top - containerTop,
-    }
-  }, [])
-
-  const fetchOlderPage = useCallback(async () => {
-    const oldestSeq = windowState.oldestLoadedSeq
-    if (oldestSeq === null) return
-    if (windowState.isLoadingOlder) return
-    if (!windowState.hasOlder) return
-
-    // Capture anchor BEFORE we mark loading or fetch.
-    captureFirstVisibleRowAnchor()
-
-    const seq = ++olderFetchSeqRef.current
-    frontendLog(
-      "chat",
-      "chat-rebuild.window.older-fetch-start",
-      { sessionKey, oldestSeq, limit: OLDER_PAGE, seq },
-      "debug"
-    )
-    setWindowState((s) => ({ ...s, isLoadingOlder: true }))
-
-    try {
-      const response = await fetchChatMessagesV2({
-        sessionKey,
-        beforeSeq: oldestSeq,
-        limit: OLDER_PAGE,
-      })
-      if (seq !== olderFetchSeqRef.current) return // stale
-      if (response.sessionKey && response.sessionKey !== sessionKey) return
-
-      const olderMessages = normalizeHistory(
-        response.messages.map((m) => m.data)
-      )
-      if (olderMessages.length === 0) {
-        setWindowState((s) =>
-          applyOlderPage({
-            prevState: s,
-            returnedCount: 0,
-            newOldestSeq: s.oldestLoadedSeq,
-            prevLoadedLength: 0,
-            evictedFromEnd: 0,
-            evictedNewestSeq: null,
-            requestedLimit: OLDER_PAGE,
-          })
-        )
-        pendingScrollAnchorRef.current = null
-        // Pin refractory anchor even on empty resolve.
-        lastOlderResolvedAtRef.current = Date.now()
-        frontendLog(
-          "chat",
-          "chat-rebuild.window.older-fetch-resolved",
-          { sessionKey, oldestSeq, returnedCount: 0, evictedFromEnd: 0 },
-          "debug"
-        )
-        return
-      }
-
-      setState((current) => {
-        const combined = [...olderMessages, ...current.messages]
-        const evictedFromEnd = computeEvictedAfterPrepend(
-          current.messages.length,
-          olderMessages.length,
-          MAX_LOADED
-        )
-        const finalMessages =
-          evictedFromEnd > 0
-            ? combined.slice(0, combined.length - evictedFromEnd)
-            : combined
-        const newOldest = finalMessages[0]
-        const newNewest = finalMessages[finalMessages.length - 1]
-        const newOldestSeq =
-          newOldest && typeof newOldest.gatewayIndex === "number"
-            ? newOldest.gatewayIndex
-            : null
-        const evictedNewestSeq =
-          evictedFromEnd > 0 && newNewest && typeof newNewest.gatewayIndex === "number"
-            ? newNewest.gatewayIndex
-            : null
-
-        setWindowState((s) =>
-          applyOlderPage({
-            prevState: s,
-            returnedCount: response.messageCount ?? response.messages.length,
-            newOldestSeq,
-            prevLoadedLength: current.messages.length,
-            evictedFromEnd,
-            evictedNewestSeq,
-            requestedLimit: OLDER_PAGE,
-          })
-        )
-
-        frontendLog(
-          "chat",
-          "chat-rebuild.window.older-fetch-resolved",
-          {
-            sessionKey,
-            oldestSeq,
-            returnedCount: response.messageCount ?? response.messages.length,
-            evictedFromEnd,
-            prevLoadedLength: current.messages.length,
-            finalLength: finalMessages.length,
-          },
-          "debug"
-        )
-
-        return { ...current, messages: finalMessages }
-      })
-      // Time-based refractory: no further older fetch may fire for
-      // REFRACTORY_MS milliseconds. Survives buffer mutations (scrollTop
-      // anchors don't).
-      lastOlderResolvedAtRef.current = Date.now()
-    } catch (err) {
-      if (seq !== olderFetchSeqRef.current) return
-      setWindowState((s) => ({ ...s, isLoadingOlder: false }))
-      pendingScrollAnchorRef.current = null
-      frontendLog(
-        "chat",
-        "chat-rebuild.window.older-fetch-failed",
-        {
-          sessionKey,
-          oldestSeq,
-          errorKind: err instanceof Error ? err.name : typeof err,
-          errorMessage: err instanceof Error ? err.message : String(err),
-        },
-        "warn"
-      )
-    }
-  }, [sessionKey, windowState.hasOlder, windowState.isLoadingOlder, windowState.oldestLoadedSeq, captureFirstVisibleRowAnchor])
-
-  const evaluateOlderTrigger = useCallback(() => {
-    if (state.loading) return
-    if (windowState.isLoadingOlder) return
-    if (!windowState.hasOlder) return
-    // Time-based refractory: REFRACTORY_MS must elapse since the previous
-    // older fetch resolved. Prevents alternation loop with newer (whose
-    // eviction-from-end can flip rowsAbove below threshold) and prevents
-    // rapid re-fire during fast scroll bursts.
-    const elapsedSinceOlder = Date.now() - lastOlderResolvedAtRef.current
-    if (elapsedSinceOlder < REFRACTORY_MS) {
-      frontendLog("chat", "chat-rebuild.window.older-trigger-skip", { sessionKey, reason: "refractory", elapsedMs: elapsedSinceOlder, refractoryMs: REFRACTORY_MS }, "debug")
-      return
-    }
-    const rowsAboveViewport = measureRowsAboveViewport()
-    if (
-      !shouldFetchOlder({
-        rowsAboveViewport,
-        hasOlder: windowState.hasOlder,
-        isLoadingOlder: windowState.isLoadingOlder,
-      })
-    ) {
-      return
-    }
-    frontendLog(
-      "chat",
-      "chat-rebuild.window.older-trigger-fired",
-      { sessionKey, rowsAboveViewport },
-      "debug"
-    )
-    void fetchOlderPage()
-  }, [
-    state.loading,
-    windowState.hasOlder,
-    windowState.isLoadingOlder,
-    measureRowsAboveViewport,
-    fetchOlderPage,
-    sessionKey,
-  ])
-
-  const fetchNewerPage = useCallback(async () => {
-    const newestSeq = windowState.newestLoadedSeq
-    if (newestSeq === null) return
-    if (windowState.isLoadingNewer) return
-    if (!windowState.hasNewer) return
-
-    // Capture anchor BEFORE we mark loading or fetch (mirrors older-page path).
-    captureFirstVisibleRowAnchor()
-
-    const seq = ++newerFetchSeqRef.current
-    frontendLog(
-      "chat",
-      "chat-rebuild.window.newer-fetch-start",
-      { sessionKey, newestSeq, limit: OLDER_PAGE, seq },
-      "debug"
-    )
-    setWindowState((s) => ({ ...s, isLoadingNewer: true }))
-
-    try {
-      const response = await fetchChatMessagesV2({
-        sessionKey,
-        afterSeq: newestSeq,
-        limit: OLDER_PAGE,
-      })
-      if (seq !== newerFetchSeqRef.current) return // stale
-      if (response.sessionKey && response.sessionKey !== sessionKey) return
-
-      const newerMessages = normalizeHistory(
-        response.messages.map((m) => m.data)
-      )
-      if (newerMessages.length === 0) {
-        setWindowState((s) =>
-          applyNewerPage({
-            prevState: s,
-            returnedCount: 0,
-            newNewestSeq: s.newestLoadedSeq,
-            evictedFromStart: 0,
-            evictedOldestSeq: null,
-            requestedLimit: OLDER_PAGE,
-          })
-        )
-        pendingScrollAnchorRef.current = null
-        lastNewerResolvedAtRef.current = Date.now()
-        frontendLog(
-          "chat",
-          "chat-rebuild.window.newer-fetch-resolved",
-          { sessionKey, newestSeq, returnedCount: 0, evictedFromStart: 0 },
-          "debug"
-        )
-        return
-      }
-
-      // Decide if this newer fetch reaches the live tail. If the backend
-      // returned fewer than the requested limit, we're at the tail and it's
-      // safe to evict from the start (user is or will soon be at the bottom
-      // of the document; the trim is invisible). Otherwise DO NOT evict —
-      // let the buffer grow temporarily past MAX_LOADED during active
-      // scroll-down. Evicting from the start mid-scroll shrinks the document
-      // above the user, forcing the scroll anchor to yank scrollTop backward
-      // by the evicted height — the user perceives this as 'breaking' or
-      // being thrown back. Quiescent eviction happens once we reach the tail.
-      const responseCount = response.messageCount ?? response.messages.length
-      const reachedLiveTail = responseCount < OLDER_PAGE
-
-      setState((current) => {
-        const combined = [...current.messages, ...newerMessages]
-        const evictedFromStart = reachedLiveTail
-          ? computeEvictedAfterAppend(
-              current.messages.length,
-              newerMessages.length,
-              MAX_LOADED
-            )
-          : 0
-        const finalMessages =
-          evictedFromStart > 0 ? combined.slice(evictedFromStart) : combined
-        const newOldest = finalMessages[0]
-        const newNewest = finalMessages[finalMessages.length - 1]
-        const evictedOldestSeq =
-          evictedFromStart > 0 && newOldest && typeof newOldest.gatewayIndex === "number"
-            ? newOldest.gatewayIndex
-            : null
-        const newNewestSeq =
-          newNewest && typeof newNewest.gatewayIndex === "number"
-            ? newNewest.gatewayIndex
-            : null
-
-        setWindowState((s) =>
-          applyNewerPage({
-            prevState: s,
-            returnedCount: responseCount,
-            newNewestSeq,
-            evictedFromStart,
-            evictedOldestSeq,
-            requestedLimit: OLDER_PAGE,
-          })
-        )
-
-        frontendLog(
-          "chat",
-          "chat-rebuild.window.newer-fetch-resolved",
-          {
-            sessionKey,
-            newestSeq,
-            returnedCount: response.messageCount ?? response.messages.length,
-            evictedFromStart,
-            prevLoadedLength: current.messages.length,
-            finalLength: finalMessages.length,
-          },
-          "debug"
-        )
-
-        return { ...current, messages: finalMessages }
-      })
-      // Time-based refractory.
-      lastNewerResolvedAtRef.current = Date.now()
-    } catch (err) {
-      if (seq !== newerFetchSeqRef.current) return
-      setWindowState((s) => ({ ...s, isLoadingNewer: false }))
-      pendingScrollAnchorRef.current = null
-      frontendLog(
-        "chat",
-        "chat-rebuild.window.newer-fetch-failed",
-        {
-          sessionKey,
-          newestSeq,
-          errorKind: err instanceof Error ? err.name : typeof err,
-          errorMessage: err instanceof Error ? err.message : String(err),
-        },
-        "warn"
-      )
-    }
-  }, [sessionKey, windowState.hasNewer, windowState.isLoadingNewer, windowState.newestLoadedSeq, captureFirstVisibleRowAnchor])
-
   const resetToLiveTail = useCallback(async (options?: {
     preserveMessages?: ChatMessage[]
     silent?: boolean
@@ -2455,17 +1844,11 @@ export function ChatView({
     const statusLabel = options?.statusLabel ?? null
     setShowJumpToLatest(false)
     cursorRef.current = 0
-    olderFetchSeqRef.current = 0
-    newerFetchSeqRef.current = 0
-    pendingScrollAnchorRef.current = null
-    lastOlderResolvedAtRef.current = 0
-    lastNewerResolvedAtRef.current = 0
     shouldFollowScrollRef.current = true
     setStreamCursor(null)
     setReplyTo(null)
     setActivePopoverId(null)
     setComposerSeed(null)
-    setWindowState(INITIAL_WINDOW_STATE)
     if (!silent) {
       setState({
         loading: true,
@@ -2477,13 +1860,8 @@ export function ChatView({
       })
     }
 
-    const q = liveTailQuery()
     try {
-      const history = await fetchChatMessagesV2({
-        sessionKey,
-        beforeSeq: q.beforeSeq,
-        limit: q.limit,
-      })
+      const history = await fetchChatMessagesV2({ sessionKey })
       if (history.sessionKey && history.sessionKey !== sessionKey) return
 
       const messages = normalizeHistory(history.messages.map((m) => m.data))
@@ -2491,25 +1869,6 @@ export function ChatView({
       cursorRef.current = cursor
       setStreamCursor(cursor)
 
-      const firstMessage = messages[0]
-      const lastMessage = messages[messages.length - 1]
-      const oldestSeq =
-        firstMessage && typeof firstMessage.gatewayIndex === "number"
-          ? firstMessage.gatewayIndex
-          : null
-      const newestSeq =
-        lastMessage && typeof lastMessage.gatewayIndex === "number"
-          ? lastMessage.gatewayIndex
-          : null
-
-      setWindowState(
-        applyInitialPage({
-          returnedCount: history.messageCount ?? history.messages.length,
-          oldestSeq,
-          newestSeq,
-          requestedLimit: q.limit,
-        })
-      )
       setState((current) => ({
         loading: false,
         error: null,
@@ -2529,7 +1888,6 @@ export function ChatView({
         "debug"
       )
     } catch (err) {
-      setWindowState(INITIAL_WINDOW_STATE)
       if (!silent) {
         setState({
           loading: false,
@@ -2558,99 +1916,6 @@ export function ChatView({
       )
     }
   }, [sessionKey])
-
-  const evaluateNewerTrigger = useCallback(() => {
-    if (state.loading) {
-      frontendLog("chat", "chat-rebuild.window.newer-trigger-skip", { sessionKey, reason: "state.loading" }, "debug")
-      return
-    }
-    if (windowState.isLoadingNewer) {
-      frontendLog("chat", "chat-rebuild.window.newer-trigger-skip", { sessionKey, reason: "isLoadingNewer" }, "debug")
-      return
-    }
-    if (!windowState.hasNewer) {
-      frontendLog("chat", "chat-rebuild.window.newer-trigger-skip", { sessionKey, reason: "hasNewer=false", newestLoadedSeq: windowState.newestLoadedSeq }, "debug")
-      return
-    }
-    // Time-based refractory: REFRACTORY_MS must elapse since the previous
-    // newer fetch resolved.
-    const elapsedSinceNewer = Date.now() - lastNewerResolvedAtRef.current
-    if (elapsedSinceNewer < REFRACTORY_MS) {
-      frontendLog(
-        "chat",
-        "chat-rebuild.window.newer-trigger-skip",
-        { sessionKey, reason: "refractory", elapsedMs: elapsedSinceNewer, refractoryMs: REFRACTORY_MS },
-        "debug"
-      )
-      return
-    }
-    const rowsBelowViewport = measureRowsBelowViewport()
-    if (
-      !shouldFetchNewer({
-        rowsBelowViewport,
-        hasNewer: windowState.hasNewer,
-        isLoadingNewer: windowState.isLoadingNewer,
-      })
-    ) {
-      frontendLog(
-        "chat",
-        "chat-rebuild.window.newer-trigger-skip",
-        { sessionKey, reason: "rowsBelow-over-threshold", rowsBelowViewport, threshold: BOTTOM_TRIGGER },
-        "debug"
-      )
-      return
-    }
-    frontendLog(
-      "chat",
-      "chat-rebuild.window.newer-trigger-fired",
-      { sessionKey, rowsBelowViewport },
-      "debug"
-    )
-    void fetchNewerPage()
-  }, [
-    state.loading,
-    windowState.hasNewer,
-    windowState.isLoadingNewer,
-    measureRowsBelowViewport,
-    fetchNewerPage,
-    sessionKey,
-  ])
-
-  // Post-resolution one-shot trigger re-evaluation.
-  //
-  // The autoload evaluators only run from handleScroll. If the user is
-  // already AT the bottom of the buffer (or top) and the boundary just
-  // changed because of a fetch resolution — e.g. an older fetch evicted
-  // from the end, flipping hasNewer to true while the user is sitting at
-  // what is now the new bottom — no scroll event fires and the opposite
-  // trigger never gets a chance to evaluate. The user appears stuck:
-  // hasNewer=true, rows below viewport=0, but no fetch.
-  //
-  // This effect keys ONLY on the windowState boundary fields
-  // (newest/oldestLoadedSeq, hasNewer, hasOlder). Those fields are mutated
-  // exactly once per fetch resolution (and once per live-append in the
-  // at-tail case). They do NOT change on every state.messages mutation
-  // (live patches mutate state.messages but not windowState seqs unless a
-  // live-append actually extends the loaded range). That's the key
-  // distinction from the rAF length-change re-evaluator that was removed
-  // in commit d89f7db7 — which fired on every live patch and looped.
-  //
-  // Direction-locked refractory still blocks back-to-back fires in the
-  // same direction, so calling both evaluators here can't reintroduce the
-  // alternation loop fixed in b012e46f.
-  useEffect(() => {
-    if (state.loading) return
-    evaluateOlderTrigger()
-    evaluateNewerTrigger()
-  }, [
-    windowState.newestLoadedSeq,
-    windowState.oldestLoadedSeq,
-    windowState.hasNewer,
-    windowState.hasOlder,
-    state.loading,
-    evaluateOlderTrigger,
-    evaluateNewerTrigger,
-  ])
 
   useEffect(() => {
     if (isBackgroundSession) return
@@ -2713,7 +1978,8 @@ export function ChatView({
     const shouldShow = Boolean(
       !stateLoadingRef.current &&
       stateMessagesRef.current.length > 0 &&
-      (windowStateRef.current.hasNewer || (element && !isNearScrollBottom(element, 160)))
+      element &&
+      !isNearScrollBottom(element, 160)
     )
     setShowJumpToLatest((current) => current === shouldShow ? current : shouldShow)
   }, [])
@@ -2721,62 +1987,16 @@ export function ChatView({
   function handleScroll() {
     const element = scrollContainerRef.current
     if (!element) return
-    // Ignore the synthetic scroll event that fires when we programmatically
-    // adjust container.scrollTop during anchor restoration. Otherwise our own
-    // adjustment would re-enter handleScroll and refire the evaluators.
-    if (isProgrammaticScrollRef.current) return
     shouldFollowScrollRef.current = isNearScrollBottom(element)
     updateJumpToLatestVisibility(element)
-    // Refractory is now direction-locked + scroll-distance-based inside the
-    // evaluators themselves — no per-event re-arming here.
-    evaluateOlderTrigger()
-    evaluateNewerTrigger()
   }
 
   const handleJumpToLatest = useCallback(() => {
     shouldFollowScrollRef.current = true
     setShowJumpToLatest(false)
-    if (windowStateRef.current.hasNewer) {
-      void resetToLiveTail()
-      return
-    }
     const element = scrollContainerRef.current
     if (element) scrollElementToBottom(element, "smooth")
-  }, [resetToLiveTail])
-
-  // Unified scroll-anchor restoration for both older-page (prepend+evict-from-end)
-  // and newer-page (append+evict-from-start) fetches. We pin the first row that was
-  // intersecting the viewport top BEFORE the fetch resolved, then after the new
-  // window renders we adjust scrollTop so that same row stays at the same visual
-  // offset. Robust to variable row heights and to either eviction direction.
-  useLayoutEffect(() => {
-    const anchor = pendingScrollAnchorRef.current
-    if (!anchor) return
-    pendingScrollAnchorRef.current = null
-    const container = scrollContainerRef.current
-    if (!container) return
-    const newRow = container.querySelector<HTMLElement>(
-      `[data-chat-message-row="true"][data-message-id="${CSS.escape(anchor.anchorMessageId)}"]`
-    )
-    if (!newRow) return // anchor row was evicted — leave scrollTop as-is
-    const containerTop = container.getBoundingClientRect().top
-    const currentOffset = newRow.getBoundingClientRect().top - containerTop
-    const adjust = currentOffset - anchor.anchorOffsetFromContainerTop
-    if (adjust !== 0) {
-      // Guard against the synthetic scroll event re-firing handleScroll →
-      // re-arming triggers → re-fetching in an infinite loop. Cleared on the
-      // next macrotask after the browser has dispatched the scroll event.
-      isProgrammaticScrollRef.current = true
-      container.scrollTop += adjust
-      setTimeout(() => {
-        isProgrammaticScrollRef.current = false
-      }, 0)
-    }
-    // We are anchored at a specific row; the user is not at the live tail by
-    // definition. Prevent the follow-bottom effect from snapping us to bottom on
-    // the same render pass (scrollFollowKey changes due to messages change).
-    shouldFollowScrollRef.current = false
-  }, [state.messages])
+  }, [])
 
   useLayoutEffect(() => {
     updateJumpToLatestVisibility()
@@ -2788,7 +2008,7 @@ export function ChatView({
     // was removed (it caused visible scroll issues during generation); the view
     // jumps straight to the latest content instead of animating.
     scrollElementToBottom(element)
-  }, [isGenerating, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText, updateJumpToLatestVisibility, windowState.hasNewer])
+  }, [isGenerating, scrollFollowKey, sessionKey, showThinkingState, state.loading, statusText, updateJumpToLatestVisibility])
 
   useEffect(() => {
     const container = scrollContainerRef.current
