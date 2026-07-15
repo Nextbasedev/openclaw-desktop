@@ -8,7 +8,7 @@ export const REMOTE_CONNECTIVITY_METHODS = [
 export type RemoteConnectivityMethod = (typeof REMOTE_CONNECTIVITY_METHODS)[number]
 
 export const MIDDLEWARE_CONNECTIVITY_GUIDE_URL =
-  "https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/prompt-fix/docs/installation/desktop-middleware-connectivity-guide.md"
+  "https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/prompt-fix/docs/setup/setup.md"
 
 const methodInstructions: Record<RemoteConnectivityMethod, string> = {
   auto: `Connection method: AUTO.
