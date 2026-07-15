@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label"
 import ConnectionErrorGuide from "@/components/connect/ConnectionErrorGuide"
 import {
   buildVpsOpenClawPrompt,
+  MIDDLEWARE_CONNECTIVITY_GUIDE_URL,
   type RemoteConnectivityMethod,
 } from "@/lib/middlewareSetupPrompt"
 
@@ -631,6 +632,14 @@ function VpsOpenClawPanel(props: {
           <p className="mt-1 max-w-[420px] text-[12px] leading-relaxed text-muted-foreground/64">
             Connect Desktop to middleware running on your server. Paste the verified URL and pairing code below.
           </p>
+          <a
+            href={MIDDLEWARE_CONNECTIVITY_GUIDE_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 inline-flex text-[12px] font-medium text-muted-foreground underline decoration-muted-foreground/35 underline-offset-4 hover:text-foreground"
+          >
+            Open the connectivity setup guide ↗
+          </a>
         </div>
       </div>
 
