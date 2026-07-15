@@ -18,11 +18,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import ConnectionErrorGuide from "@/components/connect/ConnectionErrorGuide"
-import {
-  buildVpsOpenClawPrompt,
-  MIDDLEWARE_CONNECTIVITY_GUIDE_URL,
-  type RemoteConnectivityMethod,
-} from "@/lib/middlewareSetupPrompt"
 
 type ConnectionStatus = {
   gatewayConfigured: boolean
@@ -124,12 +119,20 @@ Network note: local loopback
 Verified: desktop-smoke-test passed
 Blocker: <none | exact blocker>`
 
-const REMOTE_CONNECTIVITY_OPTIONS: { value: RemoteConnectivityMethod; label: string }[] = [
-  { value: "auto", label: "Auto" },
-  { value: "tailscale", label: "Tailscale" },
-  { value: "cloudflared", label: "Cloudflared tunnel" },
-  { value: "ngrok", label: "ngrok" },
-]
+const VPS_OPENCLAW_PROMPT = `Set up OpenClaw Desktop Middleware for REMOTE/VPS mode.
+
+Context:
+- OpenClaw Desktop will connect to Middleware running on this VPS/server.
+- Desktop needs full OpenClaw access through Middleware: chats, sessions, cron, projects, workspace files, git, terminal, streams, usage, settings, and approvals.
+
+Source:
+- Repo: https://github.com/Nextbasedev/openclaw-desktop.git
+- Branch: master
+
+Read and follow this setup guide before running setup or returning a URL/code:
+https://github.com/Nextbasedev/openclaw-desktop/blob/prompt-fix/docs/setup/setup.md
+
+Use the guide's Auto discovery, pairing, validation, error handling, and final-response rules. Return only the guide's final response format.`
 
 export function ConnectPageView({
   url,
@@ -622,8 +625,6 @@ function VpsOpenClawPanel(props: {
   onShowTokenChange: (show: boolean) => void
   onSave: () => void
 }) {
-  const [connectivityMethod, setConnectivityMethod] = useState<RemoteConnectivityMethod>("auto")
-
   return (
     <div className="relative overflow-hidden rounded-[28px] bg-black/[0.02] dark:bg-white/[0.032] p-5 shadow-[0_20px_56px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.70)] dark:shadow-[0_20px_56px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.055)]">
       <div className="relative flex items-start justify-between gap-4">
@@ -632,52 +633,10 @@ function VpsOpenClawPanel(props: {
           <p className="mt-1 max-w-[420px] text-[12px] leading-relaxed text-muted-foreground/64">
             Connect Desktop to middleware running on your server. Paste the verified URL and pairing code below.
           </p>
-          <a
-            href={MIDDLEWARE_CONNECTIVITY_GUIDE_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 inline-flex text-[12px] font-medium text-muted-foreground underline decoration-muted-foreground/35 underline-offset-4 hover:text-foreground"
-          >
-            Open the connectivity setup guide ↗
-          </a>
         </div>
       </div>
 
       <div className="relative mt-5 space-y-4">
-        <div className="space-y-2">
-          <Label className="block px-1 text-[11px] font-medium text-muted-foreground/76">
-            Connection method
-          </Label>
-          <div
-            aria-label="Connection method"
-            className="grid grid-cols-2 gap-1 rounded-[18px] bg-black/[0.05] p-1 dark:bg-black/30 sm:grid-cols-4"
-            role="group"
-          >
-            {REMOTE_CONNECTIVITY_OPTIONS.map((option) => {
-              const active = connectivityMethod === option.value
-
-              return (
-                <Button
-                  key={option.value}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  aria-pressed={active}
-                  disabled={props.busy}
-                  onClick={() => setConnectivityMethod(option.value)}
-                  className={cn(
-                    "h-10 rounded-[14px] border-0 px-3 text-[11px] font-semibold focus-visible:ring-2 focus-visible:ring-foreground/30",
-                    active
-                      ? "!bg-white !text-black hover:!bg-white"
-                      : "bg-transparent text-muted-foreground/80 hover:bg-black/[0.06] hover:text-foreground dark:text-zinc-400 dark:hover:bg-white/[0.09] dark:hover:text-zinc-100"
-                  )}
-                >
-                  {option.label}
-                </Button>
-              )
-            })}
-          </div>
-        </div>
         <RemoteCredentialFields
           url={props.url}
           token={props.token}
@@ -687,7 +646,7 @@ function VpsOpenClawPanel(props: {
           onTokenChange={props.onTokenChange}
           onShowTokenChange={props.onShowTokenChange}
         />
-        <SetupPromptPreview prompt={buildVpsOpenClawPrompt(connectivityMethod)} />
+        <SetupPromptPreview prompt={VPS_OPENCLAW_PROMPT} />
       </div>
 
       <Button
