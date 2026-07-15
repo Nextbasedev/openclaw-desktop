@@ -11,6 +11,7 @@ describe("buildVpsOpenClawPrompt", () => {
     const prompt = buildVpsOpenClawPrompt(method)
 
     expect(prompt).toContain(MIDDLEWARE_CONNECTIVITY_GUIDE_URL)
+    expect(prompt).toContain("do not invent a URL, reuse stale credentials")
     expect(prompt).toContain("<middleware-url>/health")
     expect(prompt).toContain("Do not return a URL that fails this check.")
     expect(prompt).toContain("Pairing code: not available")

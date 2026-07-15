@@ -155,3 +155,69 @@ Blocker: <exact blocker>
 - If the smoke test only fails because no model/API key is configured, report that Middleware/networking works and identify model/provider configuration as the blocker.
 - For every other smoke-test failure, report the exact failure and do not return URL/code as ready.
 - Do not expose the OpenClaw Gateway directly. Desktop connects only to Middleware.
+
+## 6. Desktop connection flow
+
+Desktop connects in this order:
+
+1. It requests `<middleware-url>/health` with a three-second probe timeout.
+2. It claims a pairing code at `POST <middleware-url>/pairing/claim`, unless the user supplied an existing token.
+3. It validates the returned token with `GET <middleware-url>/api/version`.
+4. It saves the returned URL/token only after the validation succeeds.
+
+Give users a complete URL with its scheme and no trailing path, for example `http://100.x.y.z:8787` or `https://middleware.example.com`. Do not return `ws://`, an OpenClaw Gateway URL, a URL ending in `/health`, or a bare hostname.
+
+Middleware permits Desktop browser/WebView origins through its CORS configuration. A failed Desktop connection is therefore usually a reachability, TLS, pairing, token, or proxy-routing problem—not a CORS workaround request. Do not ask users to disable browser security.
+
+## 7. URL and pairing failure matrix
+
+| User symptom | Required check | Correct handling |
+| --- | --- | --- |
+| URL has no `http://` or `https://` | Parse the final URL before testing | Return no credentials; provide the complete URL format. |
+| `/health` times out, refuses connection, or returns HTML | Check Middleware process, host binding, port `8787`, DNS, firewall, and proxy route | Mark the method unhealthy and continue Auto discovery. Never return the URL. |
+| `/health` returns JSON but `gateway.connected` is false | Run `openclaw gateway status` on the VPS | Report that Middleware is reachable but OpenClaw Gateway is unavailable; do not mark setup ready. |
+| `/health` redirects or has TLS/certificate failure | Confirm the exact HTTPS hostname and certificate validity | Return the exact certificate/proxy blocker; do not downgrade HTTPS or bypass certificate validation. |
+| Pairing claim is `401`, `403`, or says invalid/expired | Verify the current `MIDDLEWARE_PAIRING_CODE` and claim it only once | Return no saved connection. Generate/recover a current code only with user approval. |
+| `/api/version` is `401` or `403` after pairing | Confirm the pair response token is used against the same URL | Treat the pairing/token as invalid; do not tell the user to retry an old code indefinitely. |
+| Smoke test fails only for model/provider/API key | Read the smoke-test blocker text | Report networking and Middleware as working, with model/provider configuration as the remaining blocker. |
+| Smoke test fails for any other API, cron, workspace, terminal, or chat check | Preserve the exact failing step | Do not return setup as complete; fix or clearly report that blocker. |
+| Desktop cannot reach an otherwise verified server URL | Test from Desktop when available | Report the Desktop-side network/ACL/DNS issue separately. Do not label the VPS URL fake if server validation passed. |
+
+## 8. Method-specific edge cases
+
+### Tailscale
+
+- Logged in is not enough: require a running backend, online VPS, and an actual Tailscale IP or MagicDNS name.
+- The Desktop must use the same tailnet and be allowed by Tailscale ACLs. If a Desktop-side test fails, check its login state, `tailscale status`, and ACL policy before changing Middleware.
+- Use the exact Tailscale address returned by status. Do not reuse a stale `100.x.y.z` address from an earlier login.
+
+### Cloudflare Tunnel
+
+- Require a named tunnel and a configured public hostname; a running connector without hostname routing is not usable.
+- A `502`, `1033`, redirect-to-login page, or HTML response from `/health` is a failed route—not a healthy Middleware URL.
+- If Cloudflare Access protects the hostname, verify Desktop has a supported authentication path before returning it. Do not claim the generic Desktop pairing token satisfies Cloudflare Access.
+- Confirm the tunnel targets `http://127.0.0.1:8787` (or the actual local Middleware listener), not the OpenClaw Gateway port.
+
+### ngrok
+
+- Require an active HTTPS tunnel whose live forwarding target is Middleware port `8787`.
+- A free-tier browser warning/interstitial, expired tunnel, changed hostname, or HTML response from `/health` is a failed route.
+- ngrok URLs can change after restart. Re-read the live ngrok status/API every time; never reuse a cached URL.
+
+## 9. Auto decision rules and progress messages
+
+Auto must emit short progress updates so users know what is happening:
+
+```text
+Checking server and Middleware health…
+Checking Tailscale… <passed | logged out | offline | no usable address | unhealthy>
+Checking Cloudflare Tunnel… <passed | missing | stopped | no hostname | wrongly routed | unhealthy>
+Checking ngrok… <passed | missing | unauthenticated | stopped | wrongly routed | unhealthy>
+Validating <selected-url>/health…
+Running Desktop smoke test…
+```
+
+- Stop immediately after the first method passes the full health and smoke-test validation.
+- If a method is configured but fails, keep its exact failure in `Checks` and continue to the next method.
+- If nothing passes, return the blocked response format from this guide. Never return a plausible-looking URL, a stale pairing code, or a blank success message.
+- The final response must name the selected method, exact URL, Desktop check status, and one actionable blocker when incomplete.

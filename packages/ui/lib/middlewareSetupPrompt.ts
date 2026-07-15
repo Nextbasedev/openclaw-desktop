@@ -51,7 +51,7 @@ Source:
 
 Mandatory connectivity guide:
 - Read this guide before running setup or returning a URL: ${MIDDLEWARE_CONNECTIVITY_GUIDE_URL}
-- It contains the complete fast-path discovery, pairing, validation, error handling, and final-response rules for Auto, Tailscale, Cloudflare Tunnel, and ngrok.
+- It contains the complete fast-path discovery, pairing, validation, error handling, progress-message, and final-response rules for Auto, Tailscale, Cloudflare Tunnel, and ngrok. Follow its checks in order; do not invent a URL, reuse stale credentials, or report success before the exact URL health check and smoke test pass.
 
 Setup:
 1. Ensure Node.js 22+ and pnpm exist.
