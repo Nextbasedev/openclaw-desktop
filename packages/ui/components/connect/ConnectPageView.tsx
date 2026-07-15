@@ -657,13 +657,12 @@ function VpsOpenClawPanel(props: {
                   disabled={props.busy}
                   onClick={() => setConnectivityMethod(option.value)}
                   className={cn(
-                    "h-10 gap-1.5 rounded-[14px] border-0 px-3 text-[11px] font-semibold transition-all duration-150 focus-visible:ring-2 focus-visible:ring-emerald-400/70",
+                    "h-10 rounded-[14px] border-0 px-3 text-[11px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-foreground/30",
                     active
-                      ? "bg-emerald-500 text-white shadow-[0_6px_18px_rgba(16,185,129,0.30)] hover:bg-emerald-400"
+                      ? "bg-foreground text-background hover:bg-foreground/90"
                       : "bg-transparent text-muted-foreground/80 hover:bg-black/[0.06] hover:text-foreground dark:text-zinc-400 dark:hover:bg-white/[0.09] dark:hover:text-zinc-100"
                   )}
                 >
-                  {active && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} />}
                   {option.label}
                 </Button>
               )
