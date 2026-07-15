@@ -657,9 +657,9 @@ function VpsOpenClawPanel(props: {
                   disabled={props.busy}
                   onClick={() => setConnectivityMethod(option.value)}
                   className={cn(
-                    "h-10 rounded-[14px] border-0 px-3 text-[11px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-foreground/30",
+                    "h-10 rounded-[14px] border-0 px-3 text-[11px] font-semibold focus-visible:ring-2 focus-visible:ring-foreground/30",
                     active
-                      ? "bg-foreground text-background hover:bg-foreground/90"
+                      ? "bg-white text-black hover:bg-white"
                       : "bg-transparent text-muted-foreground/80 hover:bg-black/[0.06] hover:text-foreground dark:text-zinc-400 dark:hover:bg-white/[0.09] dark:hover:text-zinc-100"
                   )}
                 >
