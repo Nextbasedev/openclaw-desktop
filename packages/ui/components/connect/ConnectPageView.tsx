@@ -147,14 +147,15 @@ Setup:
    - MIDDLEWARE_TOKEN=<stable random secret>
    - MIDDLEWARE_PAIRING_CODE=<short readable code, 6-8 uppercase chars>
 5. Run it as an auto-restarting service that survives crashes and reboot.
-6. Choose a network path only after proving Desktop can reach it:
+6. Choose a network path only after verifying the final URL:
    - Prefer an HTTPS reverse proxy. Private IP/LAN or a public IP:8787 is acceptable only when its firewall/security-group permits Desktop access.
-   - Use a Tailscale MagicDNS name or 100.x.y.z address only when Tailscale is already configured on both machines. On the VPS, run \`tailscale status\` and get the actual hostname/IP; on the Desktop device, sign in to Tailscale with the same account/tailnet. Never invent, guess, or return a Tailscale URL.
+   - Use a Tailscale MagicDNS name or 100.x.y.z address only when Tailscale is configured on the VPS. Run \`tailscale status\`, obtain the actual hostname/IP, then request \`<middleware-url>/health\` from this runtime and require a successful response. Never invent or guess a Tailscale URL.
    - If Tailscale is not configured and there is no other verified network path, do not return a Middleware URL or pairing code. Report the blocker and these next steps: (1) install and log in to Tailscale on this VPS, (2) install and log in to Tailscale on the Desktop device using the same account/tailnet, (3) confirm both devices appear in \`tailscale status\`, then retry setup.
 
 Mandatory verification:
 1. Run the repo smoke-test script using the final URL. It checks health, pairing/token, auth APIs, admin commands, cron, stream, chat send, workspace, and terminal.
-2. Confirm that same final URL works from the Desktop device that will connect (not only from the VPS), for example by opening \`<middleware-url>/health\` or running the smoke test there. Do not give the final URL/code until this reachability check and the smoke test pass.
+2. Before the final response, independently request \`<middleware-url>/health\` from this runtime and confirm it returns a healthy Middleware response. Do not return a URL that fails this check.
+3. If you have access to the Desktop device, verify the same URL there too. If you do not, do not call the URL broken or withhold valid credentials solely for that reason: return the server-verified URL, state that the Desktop check is still required, and give the exact \`<middleware-url>/health\` check for the user to run.
 
 Command:
 MIDDLEWARE_TEST_URL=<middleware-url> MIDDLEWARE_PAIRING_CODE=<pairing-code> docs/installation/desktop-middleware-smoke-test.sh
@@ -165,11 +166,12 @@ MIDDLEWARE_TEST_URL=<middleware-url> MIDDLEWARE_TOKEN=<token> docs/installation/
 If the script fails because no model/API key is configured, say Middleware is working but chat model/provider is the blocker. For any other failure, fix it and rerun the script. Do not give the URL/code until the script prints DESKTOP_MIDDLEWARE_SMOKE_TEST_OK or you have one exact blocker.
 
 When finished, reply only:
-- If verified:
+- If verified from this runtime:
   Middleware URL: <reachable-url>
   Pairing code: <code>
   Network note: <public domain | tailscale | private ip | public ip | reverse proxy>
-  Verified: desktop reachability check and desktop-smoke-test passed
+  Verified: final URL health check and desktop-smoke-test passed
+  Desktop check: <passed | required — open <middleware-url>/health from the Desktop device>
   Blocker: none
 - If blocked:
   Middleware URL: not available
