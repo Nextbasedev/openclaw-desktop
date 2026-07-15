@@ -9,11 +9,20 @@ export type RemoteConnectivityMethod = (typeof REMOTE_CONNECTIVITY_METHODS)[numb
 
 const methodInstructions: Record<RemoteConnectivityMethod, string> = {
   auto: `Connection method: AUTO.
-Inspect these existing connectivity methods in order: Tailscale, Cloudflare Tunnel, then ngrok. For each method, inspect its actual local configuration/status, obtain its real reachable URL, and request <middleware-url>/health from this runtime. Select the first method whose health response is successful.
-- Tailscale: require a logged-in VPS and an actual MagicDNS name or 100.x.y.z address from tailscale status. Never invent a Tailscale URL.
-- Cloudflare Tunnel: require an existing named cloudflared tunnel with a configured public hostname that routes to this Middleware. Do not create a temporary trycloudflare.com tunnel or invent a hostname.
-- ngrok: require a running ngrok tunnel that forwards to this Middleware and use its actual public URL. Do not invent an ngrok URL.
-If no method is configured and healthy, do not return a Middleware URL or pairing code. Explain the result of each check and give the smallest next step for the user to configure one method.`,
+Run a fast, read-only, sequential check in this exact order: Tailscale, Cloudflare Tunnel, then ngrok. Use short command/request timeouts. Do not install, log in, restart services, create a tunnel, or alter configuration during Auto detection. Record each failed check and immediately continue to the next method. Stop at the first method that passes every validation below.
+
+For every candidate, the final URL is valid only when all of these pass:
+1. The method is configured and currently connected/running.
+2. The URL was discovered from the method's live status/configuration, never guessed.
+3. Request <middleware-url>/health from this runtime using the exact final URL. It must return healthy Middleware JSON with ok: true, service: openclaw-middleware, and gateway.connected: true.
+4. Run the desktop smoke test against that same exact final URL. Do not return the URL/code if either the health request or smoke test fails.
+
+Method checks:
+- Tailscale: confirm the CLI exists; inspect tailscale status or status --json; require a logged-in/running backend, an online VPS, and a real MagicDNS name or 100.x.y.z address. Test the exact Tailscale URL. Never invent a Tailscale URL.
+- Cloudflare Tunnel: confirm cloudflared exists; require a running named tunnel plus a configured public HTTPS hostname that routes to Middleware port 8787. Test that exact hostname. Do not create a temporary trycloudflare.com tunnel or invent a hostname.
+- ngrok: require a running local ngrok process/API with an active public HTTPS tunnel forwarding to Middleware port 8787. Test that exact public URL. Never invent an ngrok URL.
+
+If no method passes, do not return a Middleware URL or pairing code. Return a method-by-method Checks list that says whether each method is missing, logged out, stopped, wrongly routed, unhealthy, or failed smoke validation, then give the smallest next step for the first viable method.`,
   tailscale: `Connection method: TAILSCALE.
 Use a Tailscale MagicDNS name or 100.x.y.z address only when Tailscale is configured and logged in on this VPS. Run tailscale status, obtain the actual hostname/IP, then request <middleware-url>/health from this runtime and require a successful response. Never invent or guess a Tailscale URL.
 If Tailscale is not configured or the URL fails health verification, do not return a Middleware URL or pairing code. Tell the user to log in to Tailscale on this VPS and their Desktop device with the same account/tailnet, then retry.`,

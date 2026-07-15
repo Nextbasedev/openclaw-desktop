@@ -18,8 +18,11 @@ describe("buildVpsOpenClawPrompt", () => {
     const prompt = buildVpsOpenClawPrompt("auto")
 
     expect(prompt).toContain("Tailscale, Cloudflare Tunnel, then ngrok")
+    expect(prompt).toContain("fast, read-only, sequential check")
+    expect(prompt).toContain("Do not install, log in, restart services")
+    expect(prompt).toContain("ok: true, service: openclaw-middleware, and gateway.connected: true")
     expect(prompt).toContain("Do not create a temporary trycloudflare.com tunnel")
-    expect(prompt).toContain("Do not invent an ngrok URL")
+    expect(prompt).toContain("Never invent an ngrok URL")
     expect(prompt).toContain("Checks: <method-by-method results when Auto>")
   })
 
