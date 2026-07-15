@@ -641,7 +641,7 @@ function VpsOpenClawPanel(props: {
           </Label>
           <div
             aria-label="Connection method"
-            className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+            className="grid grid-cols-2 gap-1 rounded-[18px] bg-black/[0.05] p-1 dark:bg-black/30 sm:grid-cols-4"
             role="group"
           >
             {REMOTE_CONNECTIVITY_OPTIONS.map((option) => {
@@ -657,12 +657,13 @@ function VpsOpenClawPanel(props: {
                   disabled={props.busy}
                   onClick={() => setConnectivityMethod(option.value)}
                   className={cn(
-                    "h-10 rounded-[14px] border-0 px-3 text-[11px] font-medium",
+                    "h-10 gap-1.5 rounded-[14px] border-0 px-3 text-[11px] font-semibold transition-all duration-150 focus-visible:ring-2 focus-visible:ring-emerald-400/70",
                     active
-                      ? "bg-foreground text-background hover:bg-foreground/90"
-                      : "bg-black/[0.045] text-muted-foreground hover:bg-black/[0.065] hover:text-foreground dark:bg-white/[0.055] dark:text-zinc-300 dark:hover:bg-white/[0.085] dark:hover:text-white"
+                      ? "bg-emerald-500 text-white shadow-[0_6px_18px_rgba(16,185,129,0.30)] hover:bg-emerald-400"
+                      : "bg-transparent text-muted-foreground/80 hover:bg-black/[0.06] hover:text-foreground dark:text-zinc-400 dark:hover:bg-white/[0.09] dark:hover:text-zinc-100"
                   )}
                 >
+                  {active && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} />}
                   {option.label}
                 </Button>
               )
