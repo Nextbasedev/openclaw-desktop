@@ -18,6 +18,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import ConnectionErrorGuide from "@/components/connect/ConnectionErrorGuide"
+import {
+  buildVpsOpenClawPrompt,
+  type RemoteConnectivityMethod,
+} from "@/lib/middlewareSetupPrompt"
 
 type ConnectionStatus = {
   gatewayConfigured: boolean
@@ -119,67 +123,12 @@ Network note: local loopback
 Verified: desktop-smoke-test passed
 Blocker: <none | exact blocker>`
 
-const VPS_OPENCLAW_PROMPT = `Set up OpenClaw Desktop Middleware for REMOTE/VPS mode.
-
-Context:
-- OpenClaw Desktop will connect to Middleware running on this VPS/server.
-- Desktop needs full OpenClaw access through Middleware: chats, sessions, cron, projects, workspace files, git, terminal, streams, usage, settings, and approvals.
-- Do not stop after only starting the server. Run the smoke test below and fix failures.
-
-Source:
-- Repo: https://github.com/Nextbasedev/openclaw-desktop.git
-- Branch: master
-
-Setup:
-1. Ensure Node.js 22+ and pnpm exist.
-2. Start/verify OpenClaw Gateway on this VPS:
-   - openclaw gateway status
-   - expected Middleware gateway URL: ws://127.0.0.1:18789
-3. Clone/update the repo, checkout master, install, and build:
-   - pnpm install --frozen-lockfile
-   - pnpm --filter @openclaw/desktop-middleware build
-4. Run apps/middleware on port 8787:
-   - HOST=0.0.0.0
-   - PORT=8787
-   - NODE_ENV=production
-   - OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789
-   - WORKSPACE_ROOT=$HOME/.openclaw/workspace
-   - MIDDLEWARE_TOKEN=<stable random secret>
-   - MIDDLEWARE_PAIRING_CODE=<short readable code, 6-8 uppercase chars>
-5. Run it as an auto-restarting service that survives crashes and reboot.
-6. Choose a network path only after verifying the final URL:
-   - Prefer an HTTPS reverse proxy. Private IP/LAN or a public IP:8787 is acceptable only when its firewall/security-group permits Desktop access.
-   - Use a Tailscale MagicDNS name or 100.x.y.z address only when Tailscale is configured on the VPS. Run \`tailscale status\`, obtain the actual hostname/IP, then request \`<middleware-url>/health\` from this runtime and require a successful response. Never invent or guess a Tailscale URL.
-   - If Tailscale is not configured and there is no other verified network path, do not return a Middleware URL or pairing code. Report the blocker and these next steps: (1) install and log in to Tailscale on this VPS, (2) install and log in to Tailscale on the Desktop device using the same account/tailnet, (3) confirm both devices appear in \`tailscale status\`, then retry setup.
-
-Mandatory verification:
-1. Run the repo smoke-test script using the final URL. It checks health, pairing/token, auth APIs, admin commands, cron, stream, chat send, workspace, and terminal.
-2. Before the final response, independently request \`<middleware-url>/health\` from this runtime and confirm it returns a healthy Middleware response. Do not return a URL that fails this check.
-3. If you have access to the Desktop device, verify the same URL there too. If you do not, do not call the URL broken or withhold valid credentials solely for that reason: return the server-verified URL, state that the Desktop check is still required, and give the exact \`<middleware-url>/health\` check for the user to run.
-
-Command:
-MIDDLEWARE_TEST_URL=<middleware-url> MIDDLEWARE_PAIRING_CODE=<pairing-code> docs/installation/desktop-middleware-smoke-test.sh
-
-If you already know the token, use:
-MIDDLEWARE_TEST_URL=<middleware-url> MIDDLEWARE_TOKEN=<token> docs/installation/desktop-middleware-smoke-test.sh
-
-If the script fails because no model/API key is configured, say Middleware is working but chat model/provider is the blocker. For any other failure, fix it and rerun the script. Do not give the URL/code until the script prints DESKTOP_MIDDLEWARE_SMOKE_TEST_OK or you have one exact blocker.
-
-When finished, reply only:
-- If verified from this runtime:
-  Middleware URL: <reachable-url>
-  Pairing code: <code>
-  Network note: <public domain | tailscale | private ip | public ip | reverse proxy>
-  Verified: final URL health check and desktop-smoke-test passed
-  Desktop check: <passed | required — open <middleware-url>/health from the Desktop device>
-  Blocker: none
-- If blocked:
-  Middleware URL: not available
-  Pairing code: not available
-  Network note: <tailscale not configured | exact network blocker>
-  Next steps: <specific configuration steps>
-  Verified: not run
-  Blocker: <exact blocker>`
+const REMOTE_CONNECTIVITY_OPTIONS: { value: RemoteConnectivityMethod; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "tailscale", label: "Tailscale" },
+  { value: "cloudflared", label: "Cloudflared tunnel" },
+  { value: "ngrok", label: "ngrok" },
+]
 
 export function ConnectPageView({
   url,
@@ -672,6 +621,8 @@ function VpsOpenClawPanel(props: {
   onShowTokenChange: (show: boolean) => void
   onSave: () => void
 }) {
+  const [connectivityMethod, setConnectivityMethod] = useState<RemoteConnectivityMethod>("auto")
+
   return (
     <div className="relative overflow-hidden rounded-[28px] bg-black/[0.02] dark:bg-white/[0.032] p-5 shadow-[0_20px_56px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.70)] dark:shadow-[0_20px_56px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.055)]">
       <div className="relative flex items-start justify-between gap-4">
@@ -684,6 +635,40 @@ function VpsOpenClawPanel(props: {
       </div>
 
       <div className="relative mt-5 space-y-4">
+        <div className="space-y-2">
+          <Label className="block px-1 text-[11px] font-medium text-muted-foreground/76">
+            Connection method
+          </Label>
+          <div
+            aria-label="Connection method"
+            className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+            role="group"
+          >
+            {REMOTE_CONNECTIVITY_OPTIONS.map((option) => {
+              const active = connectivityMethod === option.value
+
+              return (
+                <Button
+                  key={option.value}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-pressed={active}
+                  disabled={props.busy}
+                  onClick={() => setConnectivityMethod(option.value)}
+                  className={cn(
+                    "h-10 rounded-[14px] border-0 px-3 text-[11px] font-medium",
+                    active
+                      ? "bg-foreground text-background hover:bg-foreground/90"
+                      : "bg-black/[0.045] text-muted-foreground hover:bg-black/[0.065] hover:text-foreground dark:bg-white/[0.055] dark:text-zinc-300 dark:hover:bg-white/[0.085] dark:hover:text-white"
+                  )}
+                >
+                  {option.label}
+                </Button>
+              )
+            })}
+          </div>
+        </div>
         <RemoteCredentialFields
           url={props.url}
           token={props.token}
@@ -693,7 +678,7 @@ function VpsOpenClawPanel(props: {
           onTokenChange={props.onTokenChange}
           onShowTokenChange={props.onShowTokenChange}
         />
-        <SetupPromptPreview prompt={VPS_OPENCLAW_PROMPT} />
+        <SetupPromptPreview prompt={buildVpsOpenClawPrompt(connectivityMethod)} />
       </div>
 
       <Button
