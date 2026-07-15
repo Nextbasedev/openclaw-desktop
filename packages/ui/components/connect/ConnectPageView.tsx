@@ -147,10 +147,14 @@ Setup:
    - MIDDLEWARE_TOKEN=<stable random secret>
    - MIDDLEWARE_PAIRING_CODE=<short readable code, 6-8 uppercase chars>
 5. Run it as an auto-restarting service that survives crashes and reboot.
-6. Middleware URL rule: use the URL Desktop can actually reach - HTTPS reverse proxy first, then Tailscale MagicDNS/100.x.y.z, then private IP/LAN, then public IP:8787 only if firewall/security-group allows it.
+6. Choose a network path only after proving Desktop can reach it:
+   - Prefer an HTTPS reverse proxy. Private IP/LAN or a public IP:8787 is acceptable only when its firewall/security-group permits Desktop access.
+   - Use a Tailscale MagicDNS name or 100.x.y.z address only when Tailscale is already configured on both machines. On the VPS, run \`tailscale status\` and get the actual hostname/IP; on the Desktop device, sign in to Tailscale with the same account/tailnet. Never invent, guess, or return a Tailscale URL.
+   - If Tailscale is not configured and there is no other verified network path, do not return a Middleware URL or pairing code. Report the blocker and these next steps: (1) install and log in to Tailscale on this VPS, (2) install and log in to Tailscale on the Desktop device using the same account/tailnet, (3) confirm both devices appear in \`tailscale status\`, then retry setup.
 
 Mandatory verification:
-Run the repo smoke-test script. It checks health, pairing/token, auth APIs, admin commands, cron, stream, chat send, workspace, and terminal.
+1. Run the repo smoke-test script using the final URL. It checks health, pairing/token, auth APIs, admin commands, cron, stream, chat send, workspace, and terminal.
+2. Confirm that same final URL works from the Desktop device that will connect (not only from the VPS), for example by opening \`<middleware-url>/health\` or running the smoke test there. Do not give the final URL/code until this reachability check and the smoke test pass.
 
 Command:
 MIDDLEWARE_TEST_URL=<middleware-url> MIDDLEWARE_PAIRING_CODE=<pairing-code> docs/installation/desktop-middleware-smoke-test.sh
@@ -161,11 +165,19 @@ MIDDLEWARE_TEST_URL=<middleware-url> MIDDLEWARE_TOKEN=<token> docs/installation/
 If the script fails because no model/API key is configured, say Middleware is working but chat model/provider is the blocker. For any other failure, fix it and rerun the script. Do not give the URL/code until the script prints DESKTOP_MIDDLEWARE_SMOKE_TEST_OK or you have one exact blocker.
 
 When finished, reply only:
-Middleware URL: <reachable-url>
-Pairing code: <code>
-Network note: <public domain | tailscale | private ip | public ip | reverse proxy>
-Verified: desktop-smoke-test passed
-Blocker: <none | exact blocker>`
+- If verified:
+  Middleware URL: <reachable-url>
+  Pairing code: <code>
+  Network note: <public domain | tailscale | private ip | public ip | reverse proxy>
+  Verified: desktop reachability check and desktop-smoke-test passed
+  Blocker: none
+- If blocked:
+  Middleware URL: not available
+  Pairing code: not available
+  Network note: <tailscale not configured | exact network blocker>
+  Next steps: <specific configuration steps>
+  Verified: not run
+  Blocker: <exact blocker>`
 
 export function ConnectPageView({
   url,
