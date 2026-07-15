@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
 import {
   buildVpsOpenClawPrompt,
+  MIDDLEWARE_CONNECTIVITY_GUIDE_URL,
   REMOTE_CONNECTIVITY_METHODS,
   type RemoteConnectivityMethod,
 } from "./middlewareSetupPrompt"
@@ -9,6 +10,7 @@ describe("buildVpsOpenClawPrompt", () => {
   test.each(REMOTE_CONNECTIVITY_METHODS)("requires health verification for %s", (method) => {
     const prompt = buildVpsOpenClawPrompt(method)
 
+    expect(prompt).toContain(MIDDLEWARE_CONNECTIVITY_GUIDE_URL)
     expect(prompt).toContain("<middleware-url>/health")
     expect(prompt).toContain("Do not return a URL that fails this check.")
     expect(prompt).toContain("Pairing code: not available")

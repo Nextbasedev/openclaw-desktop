@@ -7,6 +7,9 @@ export const REMOTE_CONNECTIVITY_METHODS = [
 
 export type RemoteConnectivityMethod = (typeof REMOTE_CONNECTIVITY_METHODS)[number]
 
+export const MIDDLEWARE_CONNECTIVITY_GUIDE_URL =
+  "https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/master/docs/installation/desktop-middleware-connectivity-guide.md"
+
 const methodInstructions: Record<RemoteConnectivityMethod, string> = {
   auto: `Connection method: AUTO.
 Run a fast, read-only, sequential check in this exact order: Tailscale, Cloudflare Tunnel, then ngrok. Use short command/request timeouts. Do not install, log in, restart services, create a tunnel, or alter configuration during Auto detection. Record each failed check and immediately continue to the next method. Stop at the first method that passes every validation below.
@@ -45,6 +48,10 @@ Context:
 Source:
 - Repo: https://github.com/Nextbasedev/openclaw-desktop.git
 - Branch: master
+
+Mandatory connectivity guide:
+- Read this guide before running setup or returning a URL: ${MIDDLEWARE_CONNECTIVITY_GUIDE_URL}
+- It contains the complete fast-path discovery, pairing, validation, error handling, and final-response rules for Auto, Tailscale, Cloudflare Tunnel, and ngrok.
 
 Setup:
 1. Ensure Node.js 22+ and pnpm exist.
