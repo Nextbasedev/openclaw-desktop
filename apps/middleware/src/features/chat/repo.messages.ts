@@ -956,6 +956,41 @@ export class MessageRepository {
     };
   }
 
+  findOnlyLiveAssistant(sessionKey: string): ProjectedMessage | null {
+    const rows = this.db.prepare(`
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND role = 'assistant'
+        AND message_id LIKE 'live:%:assistant'
+      ORDER BY openclaw_seq DESC
+      LIMIT 2
+    `).all({ sessionKey }) as Array<{
+      session_key: string;
+      segment_id: string | null;
+      session_id: string | null;
+      gateway_seq: number | null;
+      openclaw_seq: number;
+      message_id: string | null;
+      role: string | null;
+      data_json: string;
+      updated_at_ms: number;
+    }>;
+    if (rows.length !== 1) return null;
+    const row = rows[0];
+    return {
+      sessionKey: row.session_key,
+      segmentId: row.segment_id,
+      sessionId: row.session_id,
+      gatewaySeq: row.gateway_seq ?? undefined,
+      openclawSeq: row.openclaw_seq,
+      messageId: row.message_id,
+      role: row.role,
+      data: fromJson(row.data_json) as OpenClawMessage,
+      updatedAtMs: row.updated_at_ms,
+    };
+  }
+
   findMessageById(sessionKey: string, messageId: string): ProjectedMessage | null {
     const row = this.db.prepare(`
       SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms

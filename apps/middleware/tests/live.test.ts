@@ -249,6 +249,96 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("stripped canonical final replaces the preceding live row even when proxy formatting differs", async () => {
+    const app = await createApp(config("stripped-final-replaces-live"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "streaming", statusLabel: "Streaming", startedAtMs: 100, updatedAtMs: 100 });
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({ type: "event", event: "chat", payload: { sessionKey: "s1", status: "streaming", text: "Hello world" } });
+    context.runs.updateRunStatus("run-1", "done", { statusLabel: null });
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: { role: "assistant", text: "Hello, world.", __openclaw: { id: "gateway-final", seq: 2 } },
+      },
+    });
+
+    expect(context.messages.listMessages("s1").filter((message) => message.role === "assistant")).toHaveLength(1);
+    expect(context.messages.findMessageById("s1", "live:run-1:assistant")).toBeNull();
+    expect(context.messages.findMessageById("s1", "gateway-final")).toMatchObject({ role: "assistant" });
+    await app.close();
+  });
+
+  test("does not render proxy progress prose attached to a tool-use assistant turn as a final reply", async () => {
+    const app = await createApp(config("tool-use-progress-prose"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+    await context.chatLive.ensureSessionSubscribed("s1");
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          text: "I've updated the proxy configuration. Restarting it now.",
+          content: [
+            { type: "text", text: "I've updated the proxy configuration. Restarting it now." },
+            { type: "toolCall", id: "restart-proxy", name: "exec", arguments: { command: "restart proxy" } },
+          ],
+          stopReason: "toolUse",
+          __openclaw: { id: "assistant-tool-progress", seq: 2, runId: "run-1" },
+        },
+      },
+    });
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 4,
+        message: {
+          role: "assistant",
+          text: "Proxy setup is complete and validated.",
+          __openclaw: { id: "assistant-final", seq: 4, runId: "run-1" },
+        },
+      },
+    });
+
+    const visibleAssistantTexts = context.messages.listMessages("s1")
+      .filter((message) => message.role === "assistant")
+      .map((message) => {
+        const data = message.data as { text?: unknown };
+        return typeof data.text === "string" ? data.text.trim() : "";
+      })
+      .filter(Boolean);
+
+    expect(visibleAssistantTexts).toEqual(["Proxy setup is complete and validated."]);
+    expect(context.runs.getToolCall("s1", "restart-proxy")).toMatchObject({ name: "exec", status: "running" });
+    await app.close();
+  });
+
   test("assistant final without a run id completes the pending run and canonical bootstrap", async () => {
     const app = await createApp(config("assistant-final-pending-run"));
     const context = contextOf(app);
