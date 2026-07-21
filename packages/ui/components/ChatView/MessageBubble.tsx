@@ -1762,6 +1762,22 @@ export const MessageBubble = memo(function MessageBubble({
                   <LuReply className="size-3.5" />
                 </button>
               )}
+              {onPin && (
+                <button
+                  type="button"
+                  onClick={() => onPin(message.messageId)}
+                  className={cn(
+                    "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
+                    isPinned
+                      ? "text-foreground"
+                      : "text-foreground/40 hover:text-foreground dark:text-foreground/30 dark:hover:text-white"
+                  )}
+                  aria-label={isPinned ? "Unpin message" : "Pin message"}
+                  title={isPinned ? "Unpin" : "Pin"}
+                >
+                  <LuPin className={cn("size-3", isPinned && "fill-current")} />
+                </button>
+              )}
             </div>
             {hasBranches && !editing && onSwitchBranch && (
               <BranchNav

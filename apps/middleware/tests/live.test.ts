@@ -117,6 +117,30 @@ describe("patch replay", () => {
 });
 
 describe("chat live ingest", () => {
+  test("stale silent run recovery broadcasts a terminal patch without ending a live tool run", async () => {
+    const app = await createApp(config("stale-run-recovery"));
+    const context = contextOf(app);
+    const patches: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch as typeof patches[number]); });
+
+    context.runs.upsertRun({ runId: "stale-run", sessionKey: "stale-session", status: "streaming", startedAtMs: 1_000, updatedAtMs: 1_000 });
+    context.runs.upsertRun({ runId: "tool-run", sessionKey: "tool-session", status: "tool_running", startedAtMs: 1_000, updatedAtMs: 1_000 });
+    context.runs.upsertToolCall({ sessionKey: "tool-session", runId: "tool-run", toolCallId: "still-live", name: "exec", phase: "start", startedAtMs: 1_000, updatedAtMs: 1_000 });
+
+    expect(context.chatLive.reconcileStaleRuns({ nowMs: 10_000, activeRunMs: 1_000 })).toEqual({ runsFinalized: 1 });
+    expect(context.runs.getRun("stale-run")).toMatchObject({ status: "done", finishedAtMs: 10_000 });
+    expect(context.runs.getRun("tool-run")).toMatchObject({ status: "tool_running" });
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.status",
+        sessionKey: "stale-session",
+        payload: expect.objectContaining({ semanticType: "chat.run.stale_finalized", runStatus: "done" }),
+      }),
+    ]));
+
+    await app.close();
+  });
+
   test("session.message preserves the canonical imported source key in middleware patches", async () => {
     const app = await createApp(config("canonical-imported-source-key-live-patch"));
     const context = contextOf(app);

@@ -6,7 +6,7 @@ export type ToolPhase = "start" | "calling" | "update" | "result" | "error";
 export type ToolStatus = "running" | "success" | "error";
 
 const STALE_DETACHED_TOOL_MS = 5 * 60 * 1000;
-const DEFAULT_STALE_ACTIVE_RUN_MS = 3 * 60 * 1000;
+const DEFAULT_STALE_ACTIVE_RUN_MS = 10 * 60 * 1000;
 const DEFAULT_STALE_RUNNING_TOOL_MS = 30 * 60 * 1000;
 
 function isErrorToolResult(value: unknown): boolean {
@@ -357,6 +357,51 @@ export class RunRepository {
       LIMIT 1
     `).get({ sessionKey, runId }) as unknown;
     return Boolean(row);
+  }
+
+  /**
+   * Atomically finish an inactive run only when it is still stale and has no
+   * active tools. Keeping the stale predicate in the UPDATE prevents a live
+   * gateway event racing this recovery pass from being overwritten.
+   */
+  finalizeRunIfStale(runId: string, params: { nowMs?: number; activeRunMs?: number } = {}): ProjectedRun | null {
+    const now = params.nowMs ?? Date.now();
+    const activeRunCutoff = now - (params.activeRunMs ?? DEFAULT_STALE_ACTIVE_RUN_MS);
+    const result = this.db.prepare(`
+      UPDATE v2_runs
+      SET status = 'done',
+          status_label = NULL,
+          finished_at_ms = COALESCE(finished_at_ms, @now),
+          updated_at_ms = @now
+      WHERE run_id = @runId
+        AND status IN ('queued', 'thinking', 'streaming', 'tool_running')
+        AND updated_at_ms < @activeRunCutoff
+        AND NOT EXISTS (
+          SELECT 1 FROM v2_tool_calls
+          WHERE v2_tool_calls.run_id = v2_runs.run_id
+            AND v2_tool_calls.session_key = v2_runs.session_key
+            AND v2_tool_calls.status = 'running'
+        )
+    `).run({ runId, now, activeRunCutoff });
+    return Number(result.changes ?? 0) > 0 ? this.getRun(runId) : null;
+  }
+
+  listStaleFinalizableRuns(params: { nowMs?: number; activeRunMs?: number } = {}): ProjectedRun[] {
+    const now = params.nowMs ?? Date.now();
+    const activeRunCutoff = now - (params.activeRunMs ?? DEFAULT_STALE_ACTIVE_RUN_MS);
+    const rows = this.db.prepare(`
+      SELECT * FROM v2_runs
+      WHERE status IN ('queued', 'thinking', 'streaming', 'tool_running')
+        AND updated_at_ms < @activeRunCutoff
+        AND NOT EXISTS (
+          SELECT 1 FROM v2_tool_calls
+          WHERE v2_tool_calls.run_id = v2_runs.run_id
+            AND v2_tool_calls.session_key = v2_runs.session_key
+            AND v2_tool_calls.status = 'running'
+        )
+      ORDER BY updated_at_ms ASC
+    `).all({ activeRunCutoff });
+    return (rows as Record<string, unknown>[]).map(rowToRun);
   }
 
   finalizeStaleActivity(params: { nowMs?: number; activeRunMs?: number; runningToolMs?: number } = {}) {

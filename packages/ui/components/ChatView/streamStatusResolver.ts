@@ -64,6 +64,7 @@ export function resolveNextStreamStatus(input: ResolveStreamStatusInput): Stream
   const { semanticType, explicitStatus, impliesActiveRun, currentStatus, hasAnswerAfterLastUser, allowTerminalWithoutAnswer = false } = input
 
   const explicitActive = explicitStatus ? ACTIVE.has(explicitStatus) : false
+  const recoveredStaleRun = semanticType === "chat.run.stale_finalized"
 
   // (1) Settle a completed run whose terminal signal was lost.
   if (semanticType === "chat.assistant.final" && hasAnswerAfterLastUser && !explicitActive) {
@@ -76,7 +77,7 @@ export function resolveNextStreamStatus(input: ResolveStreamStatusInput): Stream
 
   // (3) Do not surface a terminal status while still waiting for the first
   //     answer of an active turn (prevents a premature "done" flicker).
-  if (rawNext && TERMINAL.has(rawNext) && ACTIVE.has(currentStatus) && !hasAnswerAfterLastUser && !allowTerminalWithoutAnswer) {
+  if (rawNext && TERMINAL.has(rawNext) && ACTIVE.has(currentStatus) && !hasAnswerAfterLastUser && !allowTerminalWithoutAnswer && !recoveredStaleRun) {
     return currentStatus
   }
 

@@ -5090,8 +5090,10 @@ async function usageProviders(context: AppContext) {
 }
 
 async function usageResponse(context: AppContext, days: number) {
-  const providers = await usageProviders(context);
-  const gatewayCost = await gatewayUsageCost(context, days);
+  const [providers, gatewayCost] = await Promise.all([
+    usageProviders(context),
+    gatewayUsageCost(context, days),
+  ]);
   const usage = usageFromSessions(days);
   if (gatewayCost) {
     const correctedGatewayCost = mergeEstimatedCosts(gatewayCost, usage);
@@ -5099,6 +5101,7 @@ async function usageResponse(context: AppContext, days: number) {
       range: { days },
       summary: frontendUsageSummary(gatewayUsageSummary(correctedGatewayCost)),
       providers,
+      daily: frontendDaily(gatewayUsageDays(correctedGatewayCost)).slice(-days),
       usage: [],
       source: "gateway-usage-cost",
       unavailable: false,
@@ -5110,6 +5113,7 @@ async function usageResponse(context: AppContext, days: number) {
     range: { days },
     summary: frontendUsageSummary(usage.summary),
     providers,
+    daily: frontendDaily(usage.days),
     usage: usage.usage.slice(-500),
     source: usage.source,
     unavailable: usage.unavailable,

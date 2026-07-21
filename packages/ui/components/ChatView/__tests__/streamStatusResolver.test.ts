@@ -102,6 +102,18 @@ describe("resolveNextStreamStatus", () => {
     ).toBe("done")
   })
 
+  test("settles a stale-run recovery even when the gateway never produced an assistant answer", () => {
+    expect(
+      resolveNextStreamStatus({
+        ...base,
+        semanticType: "chat.run.stale_finalized",
+        explicitStatus: "done",
+        currentStatus: "streaming",
+        hasAnswerAfterLastUser: false,
+      }),
+    ).toBe("done")
+  })
+
   test("does not settle on final if the patch itself is still active", () => {
     expect(
       resolveNextStreamStatus({

@@ -235,6 +235,27 @@ export class ChatLiveIngest {
     };
   }
 
+  /**
+   * A gateway can lose both its final message event and terminal run event.
+   * Periodically settle only runs that have been silent beyond the configured
+   * stale window, then publish the terminal transition through the patch bus.
+   */
+  reconcileStaleRuns(params: { nowMs?: number; activeRunMs?: number } = {}) {
+    let finalized = 0;
+    for (const candidate of this.context.runs.listStaleFinalizableRuns(params)) {
+      const run = this.context.runs.finalizeRunIfStale(candidate.runId, params);
+      if (!run) continue;
+      this.broadcastRunStatus(run.sessionKey, run, "chat.run.stale_finalized");
+      finalized += 1;
+      this.log.warn("stale-run.finalized", {
+        sessionKey: run.sessionKey,
+        runId: run.runId,
+        inactiveForMs: (params.nowMs ?? Date.now()) - candidate.updatedAtMs,
+      });
+    }
+    return { runsFinalized: finalized };
+  }
+
   private handleGatewayEvent(event: GatewayEvent) {
     this.log.info("gateway.event", { event: event.event, hasPayload: isObject(event.payload) });
     if (event.event === "session.message") {

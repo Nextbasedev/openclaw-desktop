@@ -156,6 +156,8 @@ const ACTIVE_STREAM_STATUSES = new Set<StreamStatus>([
 ])
 
 const FOLLOW_SCROLL_THRESHOLD_PX = 96
+// Four quick pulses acknowledge a newly pinned message, then the control rests.
+const PIN_FEEDBACK_DURATION_MS = 3_000
 
 type StatusIconMeta = {
   icon: IconType
@@ -679,6 +681,7 @@ export function ChatView({
   const [reactions, setReactions] = useState<Record<string, "up" | "down">>({})
   const [pinnedIds, setPinnedIds] = useState<string[]>([])
   const [pinnedPanelOpen, setPinnedPanelOpen] = useState(false)
+  const [pinFeedbackActive, setPinFeedbackActive] = useState(false)
   const [flashId, setFlashId] = useState<string | null>(null)
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
@@ -714,6 +717,7 @@ export function ChatView({
   const queuedMessagesRef = useRef<QueuedChatMessage[]>([])
   const queueDrainInFlightRef = useRef(false)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pinFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pinButtonRef = useRef<HTMLButtonElement>(null)
   const pendingScrollAnchorRef = useRef<{
     anchorMessageId: string
@@ -1081,6 +1085,7 @@ export function ChatView({
   useEffect(() => {
     return () => {
       if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current)
+      if (pinFeedbackTimeoutRef.current) clearTimeout(pinFeedbackTimeoutRef.current)
     }
   }, [])
 
@@ -1581,18 +1586,6 @@ export function ChatView({
     return state.messages.find((message) => message.messageId === messageId)
   }
 
-  function handleEdit(messageId: string, newText: string) {
-    setState((current) => ({
-      ...current,
-      messages: current.messages.map((message) =>
-        message.messageId === messageId
-          ? { ...message, text: newText, sendStatus: undefined, sendError: null }
-          : message
-      ),
-    }))
-    void handleSend({ text: newText })
-  }
-
   function handleRetrySend(messageId: string) {
     const message = findMessageById(messageId)
     if (!message || message.role !== "user") return
@@ -1649,12 +1642,25 @@ export function ChatView({
   }
 
   const handlePin = useCallback((messageId: string) => {
+    const isPinning = !pinnedIds.includes(messageId)
     setPinnedIds((current) =>
       current.includes(messageId)
         ? current.filter((id) => id !== messageId)
         : [...current, messageId]
     )
-  }, [])
+
+    if (pinFeedbackTimeoutRef.current) clearTimeout(pinFeedbackTimeoutRef.current)
+    if (!isPinning) {
+      setPinFeedbackActive(false)
+      return
+    }
+
+    setPinFeedbackActive(true)
+    pinFeedbackTimeoutRef.current = setTimeout(() => {
+      setPinFeedbackActive(false)
+      pinFeedbackTimeoutRef.current = null
+    }, PIN_FEEDBACK_DURATION_MS)
+  }, [pinnedIds])
 
   const handlePinnedMessageSelect = useCallback((messageId: string) => {
     const container = scrollContainerRef.current
@@ -2975,9 +2981,11 @@ export function ChatView({
               "group relative flex size-8 cursor-pointer items-center justify-center rounded-sm transition-all",
               pinnedPanelOpen
                 ? "text-foreground shadow-inner"
-                : pinnedMessages.length > 0
-                  ? "animate-pulse text-foreground"
-                  : "text-muted-foreground/60 hover:text-foreground"
+                : pinFeedbackActive
+                  ? "animate-[pulse_750ms_ease-in-out_4] text-foreground"
+                  : pinnedMessages.length > 0
+                    ? "text-foreground"
+                    : "text-muted-foreground/60 hover:text-foreground"
             )}
           >
             <Icons.Pin
@@ -3098,11 +3106,6 @@ export function ChatView({
                 {(message.text.trim() || message.attachments?.length) ? (
                   <MessageBubble
                     message={message}
-                    onEdit={
-                      message.role === "user" && message.messageId === renderedMessages[latestRenderedUserIndex]?.messageId
-                        ? handleEdit
-                        : undefined
-                    }
                     onRetrySend={message.role === "user" ? handleRetrySend : undefined}
                     onReply={handleReply}
                     onPin={handlePin}
