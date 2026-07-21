@@ -4623,6 +4623,24 @@ function modelRefFromThinkingSession(session: CompatRecord): string | null {
   return provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model;
 }
 
+function thinkingPolicyLevelsForSession(session: CompatRecord, sessions: unknown): ThinkingLevelOption[] {
+  let levels = normalizeThinkingLevelOptions(session.thinkingOptions);
+  if (!levels.length) levels = normalizeThinkingLevelOptions(session.thinkingLevels);
+  if (levels.length || !Array.isArray(sessions)) return levels;
+
+  const modelRef = modelRefFromThinkingSession(session);
+  if (!modelRef) return levels;
+  for (const candidateValue of sessions) {
+    if (!candidateValue || typeof candidateValue !== "object") continue;
+    const candidate = candidateValue as CompatRecord;
+    if (modelRefFromThinkingSession(candidate) !== modelRef) continue;
+    levels = normalizeThinkingLevelOptions(candidate.thinkingOptions);
+    if (!levels.length) levels = normalizeThinkingLevelOptions(candidate.thinkingLevels);
+    if (levels.length) return levels;
+  }
+  return levels;
+}
+
 function isUnknownGatewayMethod(error: unknown, method: string): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return new RegExp(`\\bunknown method:\\s*${method.replace(".", "\\.")}\\b`, "i").test(message);
@@ -4657,6 +4675,7 @@ function gatewaySessionFromList(
  */
 async function chatThinkingOptionsResponse(context: AppContext, sessionKey: string) {
   let session: CompatRecord | null = null;
+  let gatewaySessions: unknown = [];
   let source: "gateway-session" | "gateway-sessions-list" | "gateway-session-defaults" | "gateway-session-missing" = "gateway-session-missing";
   try {
     const response = await context.gateway.request<{ session?: unknown }>(
@@ -4678,6 +4697,7 @@ async function chatThinkingOptionsResponse(context: AppContext, sessionKey: stri
       { limit: 200, includeGlobal: true, includeUnknown: true },
       12_000,
     );
+    gatewaySessions = response?.sessions;
     const fallback = gatewaySessionFromList(response, sessionKey);
     session = fallback.session;
     source = fallback.source;
@@ -4696,8 +4716,7 @@ async function chatThinkingOptionsResponse(context: AppContext, sessionKey: stri
     };
   }
 
-  let levels = normalizeThinkingLevelOptions(session.thinkingOptions);
-  if (!levels.length) levels = normalizeThinkingLevelOptions(session.thinkingLevels);
+  const levels = thinkingPolicyLevelsForSession(session, gatewaySessions);
   const configuredLevel = typeof session.thinkingLevel === "string" && session.thinkingLevel.trim()
     ? session.thinkingLevel.trim()
     : null;

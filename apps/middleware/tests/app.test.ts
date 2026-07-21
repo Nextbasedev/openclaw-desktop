@@ -266,6 +266,42 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("thinking options inherit the current model policy while a new session is absent from Gateway history", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method) => {
+      if (method === "sessions.describe") throw new Error("unknown method: sessions.describe");
+      if (method === "sessions.list") {
+        return {
+          defaults: { modelProvider: "openai", model: "gpt-5.6-terra" },
+          sessions: [{
+            key: "agent:main:desktop:existing-session",
+            modelProvider: "openai",
+            model: "gpt-5.6-terra",
+            thinkingOptions: ["off", "minimal", "low", "medium", "high"],
+          }],
+        };
+      }
+      throw new Error(`Unexpected Gateway method: ${method}`);
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_thinking_get",
+      payload: { input: { sessionKey: "agent:main:desktop:new-session" } },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      ok: true,
+      supported: true,
+      modelId: "openai/gpt-5.6-terra",
+      source: "gateway-session-defaults",
+      levels: expect.arrayContaining([expect.objectContaining({ id: "high", label: "high" })]),
+    });
+    await app.close();
+  });
+
   test("skill commands return structured 400 errors for invalid inputs", async () => {
     const app = await createApp(testConfig());
 
