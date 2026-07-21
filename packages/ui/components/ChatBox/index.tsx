@@ -132,6 +132,13 @@ function normalizeThinkingConfig(payload: ThinkingOptionsPayload): ThinkingConfi
   }
 }
 
+function explicitThinkingLevelFromCommand(text: string, config: ThinkingConfig | null): string | null {
+  const match = text.trim().match(/^\/(?:think|thinking|t)\s+(\S+)\s*$/i)
+  if (!match || !config) return null
+  const requested = match[1].toLowerCase()
+  return config.levels.find((level) => level.id.toLowerCase() === requested)?.id ?? null
+}
+
 type Props = {
   initialPrompt?: string
   errorMessage?: string | null
@@ -733,6 +740,21 @@ export function ChatBox({
         textLength: payload.text.length,
       })
       await onSend?.(payload)
+      const manualThinkingLevel = explicitThinkingLevelFromCommand(payload.text, thinkingConfig)
+      if (manualThinkingLevel && sessionKey) {
+        void invoke<ThinkingOptionsPayload>("middleware_chat_thinking_set", {
+          input: { sessionKey, thinkingLevel: manualThinkingLevel },
+        }).then((response) => {
+          const next = normalizeThinkingConfig(response)
+          if (next) setThinkingConfig(next)
+          invalidateDedupe(`chat-thinking:${sessionKey}`)
+        }).catch((error) => {
+          frontendLog("composer", "composer.thinking-command-sync.fail", {
+            thinkingLevel: manualThinkingLevel,
+            error: error instanceof Error ? error.message : String(error),
+          }, "warn")
+        })
+      }
       frontendLog("composer", "composer.send.success", {})
       dispatchComposer({ type: "send_success" })
       clearAttachments()
