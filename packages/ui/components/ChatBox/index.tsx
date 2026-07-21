@@ -110,17 +110,18 @@ type ThinkingOptionsPayload = {
 const thinkingConfigCache = new Map<string, ThinkingConfig>()
 
 function thinkingConfigCacheKey(sessionKey: string, modelId: string | null | undefined) {
-  return modelId ? `${sessionKey}:${modelId.toLowerCase()}` : null
+  return modelId ? `${sessionKey}:${modelId.toLowerCase()}` : sessionKey
 }
 
 function cachedThinkingConfig(sessionKey: string | null, modelId: string | null | undefined) {
-  const key = sessionKey ? thinkingConfigCacheKey(sessionKey, modelId) : null
-  return key ? thinkingConfigCache.get(key) ?? null : null
+  if (!sessionKey) return null
+  return thinkingConfigCache.get(thinkingConfigCacheKey(sessionKey, modelId)) ?? null
 }
 
 function cacheThinkingConfig(sessionKey: string | null, config: ThinkingConfig | null) {
-  const key = sessionKey && config?.modelId ? thinkingConfigCacheKey(sessionKey, config.modelId) : null
-  if (key && config) thinkingConfigCache.set(key, config)
+  if (!sessionKey || !config) return
+  thinkingConfigCache.set(thinkingConfigCacheKey(sessionKey, null), config)
+  if (config.modelId) thinkingConfigCache.set(thinkingConfigCacheKey(sessionKey, config.modelId), config)
 }
 
 function isVoiceConfigurationError(error: unknown) {
@@ -227,8 +228,10 @@ export function ChatBox({
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
   const [thinkingOpen, setThinkingOpen] = React.useState(false)
-  const [thinkingConfig, setThinkingConfig] = React.useState<ThinkingConfig | null>(null)
-  const [thinkingLoading, setThinkingLoading] = React.useState(false)
+  const [thinkingConfig, setThinkingConfig] = React.useState<ThinkingConfig | null>(
+    () => cachedThinkingConfig(sessionKey, null),
+  )
+  const [thinkingUpdating, setThinkingUpdating] = React.useState(false)
   const [thinkingError, setThinkingError] = React.useState<string | null>(null)
   const [sessionModelId, setSessionModelId] = React.useState<string | null>(() => {
     if (!draftKey || typeof localStorage === "undefined") return null
@@ -592,19 +595,19 @@ export function ChatBox({
     if (!sessionKey) {
       setThinkingConfig(null)
       setThinkingError(null)
-      setThinkingLoading(false)
       return
     }
     const cached = !force ? cachedThinkingConfig(sessionKey, modelId) : null
     if (cached) {
       setThinkingConfig(cached)
       setThinkingError(null)
-      setThinkingLoading(false)
       return
     }
+    // Never expose a fetch spinner in the composer. A session without a warm
+    // cache simply shows the neutral Thinking label until this completes.
+    setThinkingConfig(null)
     const requestKey = `chat-thinking:${sessionKey}`
     if (force) invalidateDedupe(requestKey)
-    setThinkingLoading(true)
     setThinkingError(null)
     try {
       const response = await dedupeRequest(
@@ -620,8 +623,6 @@ export function ChatBox({
       if (requestId !== thinkingRequestIdRef.current) return
       setThinkingConfig(null)
       setThinkingError(error instanceof Error ? error.message : "Unable to load thinking options")
-    } finally {
-      if (requestId === thinkingRequestIdRef.current) setThinkingLoading(false)
     }
   }, [selectedModelRef, sessionKey])
 
@@ -633,8 +634,21 @@ export function ChatBox({
   }, [loadThinkingOptions])
 
   const handleThinkingSelect = React.useCallback(async (thinkingLevel: string | null) => {
-    if (!sessionKey) return
-    setThinkingLoading(true)
+    if (!sessionKey || thinkingUpdating) return
+    const previousConfig = thinkingConfig
+    const optimisticConfig = previousConfig
+      ? { ...previousConfig, thinkingLevel }
+      : previousConfig
+
+    // Update the control before the network request; the Gateway patch runs
+    // quietly and restores the previous selection if it fails.
+    if (optimisticConfig) {
+      cacheThinkingConfig(sessionKey, optimisticConfig)
+      setThinkingConfig(optimisticConfig)
+    }
+    setThinkingOpen(false)
+    setModelOpen(false)
+    setThinkingUpdating(true)
     setThinkingError(null)
     try {
       const response = await invoke<ThinkingOptionsPayload>("middleware_chat_thinking_set", {
@@ -644,18 +658,18 @@ export function ChatBox({
       if (next) {
         cacheThinkingConfig(sessionKey, next)
         setThinkingConfig(next)
-      } else {
-        setThinkingConfig((current) => current ? { ...current, thinkingLevel } : current)
       }
-      setThinkingOpen(false)
-      setModelOpen(false)
       invalidateDedupe(`chat-thinking:${sessionKey}`)
     } catch (error) {
+      if (previousConfig) {
+        cacheThinkingConfig(sessionKey, previousConfig)
+        setThinkingConfig(previousConfig)
+      }
       setThinkingError(error instanceof Error ? error.message : "Unable to update thinking level")
     } finally {
-      setThinkingLoading(false)
+      setThinkingUpdating(false)
     }
-  }, [sessionKey])
+  }, [sessionKey, thinkingConfig, thinkingUpdating])
 
   function updateSlashMenu(value: string) {
     const match = value.match(/^([/@])(\S*)$/)
@@ -1230,7 +1244,6 @@ export function ChatBox({
               setSessionModelId(modelId)
               const cachedThinking = cachedThinkingConfig(sessionKey, modelId)
               setThinkingConfig(cachedThinking)
-              setThinkingLoading(false)
               setThinkingError(null)
               if (draftKey && typeof localStorage !== "undefined") {
                 try { localStorage.setItem(`openclaw-session-model:v1:${draftKey}`, modelId) } catch {}
@@ -1258,7 +1271,7 @@ export function ChatBox({
             showThinkingSelector={Boolean(sessionKey)}
             thinkingOpen={thinkingOpen}
             onThinkingOpenChange={setThinkingOpen}
-            thinkingUpdating={thinkingLoading}
+            thinkingUpdating={thinkingUpdating}
             thinkingError={thinkingError}
             onThinkingSelect={handleThinkingSelect}
             onThinkingRefresh={() => {

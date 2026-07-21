@@ -286,7 +286,7 @@ export function ActionBar({
                 className="flex h-8 max-w-[104px] cursor-pointer items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-all hover:bg-white/[0.04] hover:text-foreground disabled:cursor-wait disabled:opacity-55"
                 aria-label="Select thinking level"
               >
-                <span className="truncate">{thinkingUpdating ? "Thinking…" : thinking?.supported ? thinkingLabel : "Thinking"}</span>
+                <span className="truncate">{thinking?.supported ? thinkingLabel : "Thinking"}</span>
                 <HugeiconsIcon icon={ArrowDown01Icon} size={12} />
               </button>
             </PopoverTrigger>
@@ -310,11 +310,9 @@ export function ActionBar({
               ) : (
                 <div className="px-2.5 py-1">
                   <p className="text-[11px] leading-relaxed text-muted-foreground/70">
-                    {thinkingUpdating
-                      ? "Loading this model’s supported levels…"
-                      : thinkingError
-                        ? "Couldn’t load thinking levels."
-                        : "This model does not expose configurable thinking levels."}
+                    {thinkingError
+                      ? "Couldn’t load thinking levels."
+                      : "This model does not expose configurable thinking levels."}
                   </p>
                   {thinkingError && onThinkingRefresh && (
                     <button
