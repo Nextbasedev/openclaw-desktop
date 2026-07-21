@@ -2921,6 +2921,7 @@ export function ChatView({
       historyMessages={composerHistoryMessages}
       onSend={handleSend}
       onModelSelect={handleModelSelect}
+      sessionKey={sessionKey}
       disabled={state.loading}
       isGenerating={isGenerating}
       onAbort={handleAbort}

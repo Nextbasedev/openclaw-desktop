@@ -126,4 +126,4 @@ Legacy compatibility layer — ~4500 lines. Maps the old v1 API surface to v2 in
 |--------|------|---------|
 | POST | `/api/commands/:command` | Dispatches to ~40 `middleware_*` commands |
 
-Commands include: `middleware_chat_send`, `middleware_chat_history`, `middleware_chat_regenerate`, `middleware_models_list`, `middleware_models_set_default`, `middleware_skills_*`, `middleware_pins_*`, `middleware_memory_*`, `middleware_usage*`, `middleware_voice_*`, `middleware_sync_pull_now`, `middleware_version_info`, `middleware_pty_spawn_workspace`, etc.
+Commands include: `middleware_chat_send`, `middleware_chat_history`, `middleware_chat_regenerate`, `middleware_chat_model_set`, `middleware_chat_thinking_get`, `middleware_chat_thinking_set`, `middleware_models_list`, `middleware_models_set_default`, `middleware_skills_*`, `middleware_pins_*`, `middleware_memory_*`, `middleware_usage*`, `middleware_voice_*`, `middleware_sync_pull_now`, `middleware_version_info`, `middleware_pty_spawn_workspace`, etc.

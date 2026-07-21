@@ -4591,6 +4591,84 @@ async function modelsResponse(context: AppContext, cfg: CompatRecord) {
   }
 }
 
+type ThinkingLevelOption = { id: string; label: string };
+
+function normalizeThinkingLevelOptions(value: unknown): ThinkingLevelOption[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const levels: ThinkingLevelOption[] = [];
+  for (const valueItem of value) {
+    const item = valueItem && typeof valueItem === "object" ? valueItem as CompatRecord : null;
+    const id = typeof valueItem === "string"
+      ? valueItem.trim()
+      : typeof item?.id === "string" ? item.id.trim() : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    levels.push({
+      id,
+      label: typeof item?.label === "string" && item.label.trim() ? item.label.trim() : id,
+    });
+  }
+  return levels;
+}
+
+function modelRefFromThinkingSession(session: CompatRecord): string | null {
+  const provider = typeof session.modelProvider === "string"
+    ? session.modelProvider.trim()
+    : typeof session.provider === "string" ? session.provider.trim() : "";
+  const model = typeof session.model === "string"
+    ? session.model.trim()
+    : typeof session.modelId === "string" ? session.modelId.trim() : "";
+  if (!model) return null;
+  return provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model;
+}
+
+/**
+ * Read the exact thinking policy the Gateway resolved for a session's current
+ * model.  This is deliberately session-scoped: `models.list` only exposes a
+ * coarse `reasoning` flag, while `/think` options are provider/model specific.
+ */
+async function chatThinkingOptionsResponse(context: AppContext, sessionKey: string) {
+  const response = await context.gateway.request<{ session?: unknown }>(
+    "sessions.describe",
+    { key: sessionKey },
+    12_000,
+  );
+  const session = response?.session && typeof response.session === "object"
+    ? response.session as CompatRecord
+    : null;
+  if (!session) {
+    return {
+      ok: true,
+      sessionKey,
+      supported: false,
+      modelId: null,
+      levels: [],
+      thinkingLevel: null,
+      thinkingDefault: null,
+      source: "gateway-session-missing",
+    };
+  }
+
+  const levels = normalizeThinkingLevelOptions(session.thinkingLevels);
+  const configuredLevel = typeof session.thinkingLevel === "string" && session.thinkingLevel.trim()
+    ? session.thinkingLevel.trim()
+    : null;
+  const defaultLevel = typeof session.thinkingDefault === "string" && session.thinkingDefault.trim()
+    ? session.thinkingDefault.trim()
+    : null;
+  return {
+    ok: true,
+    sessionKey,
+    supported: levels.length > 1,
+    modelId: modelRefFromThinkingSession(session),
+    levels,
+    thinkingLevel: configuredLevel,
+    thinkingDefault: defaultLevel,
+    source: "gateway-session",
+  };
+}
+
 
 function openclawWorkspaceRoot() {
   const cfg = readOCPlatformConfig();
@@ -6108,6 +6186,48 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return dailyUsage(context, Number(input.days) || 30);
       case "middleware_models_list":
         return modelsResponse(context, readOCPlatformConfig());
+      case "middleware_chat_thinking_get": {
+        const sessionKey = String(input.sessionKey ?? "").trim();
+        if (!sessionKey) return reply.code(400).send({ ok: false, error: { message: "sessionKey is required" } });
+        try {
+          return await chatThinkingOptionsResponse(context, sessionKey);
+        } catch (error) {
+          return reply.code(502).send({
+            ok: false,
+            error: { message: error instanceof Error ? error.message : "Unable to load thinking options" },
+          });
+        }
+      }
+      case "middleware_chat_thinking_set": {
+        const sessionKey = String(input.sessionKey ?? "").trim();
+        const rawLevel = input.thinkingLevel;
+        const thinkingLevel = rawLevel == null ? null : String(rawLevel).trim();
+        if (!sessionKey) return reply.code(400).send({ ok: false, error: { message: "sessionKey is required" } });
+        if (rawLevel != null && !thinkingLevel) return reply.code(400).send({ ok: false, error: { message: "thinkingLevel must be a non-empty string or null" } });
+        try {
+          await context.gateway.request("sessions.patch", { key: sessionKey, thinkingLevel }, 12_000);
+          try {
+            return await chatThinkingOptionsResponse(context, sessionKey);
+          } catch (error) {
+            return {
+              ok: true,
+              sessionKey,
+              supported: false,
+              modelId: null,
+              levels: [],
+              thinkingLevel,
+              thinkingDefault: null,
+              source: "gateway-session-refresh-unavailable",
+              warning: error instanceof Error ? error.message : "Thinking options will refresh shortly",
+            };
+          }
+        } catch (error) {
+          return reply.code(502).send({
+            ok: false,
+            error: { message: error instanceof Error ? error.message : "Unable to update thinking level" },
+          });
+        }
+      }
       case "middleware_models_set_default": {
         const modelId = String(input.modelId || input.modelRef || "").trim();
         if (!modelId) return reply.code(400).send({ ok: false, error: { message: "modelId is required" } });
@@ -6201,7 +6321,15 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         if (!sessionKey || !modelId) return reply.code(400).send({ ok: false, error: { message: "sessionKey and modelId required" } });
         try {
           await context.gateway.request("sessions.patch", { key: sessionKey, model: modelId });
-          return { ok: true };
+          try {
+            return { ok: true, thinking: await chatThinkingOptionsResponse(context, sessionKey) };
+          } catch (error) {
+            return {
+              ok: true,
+              thinking: null,
+              warning: error instanceof Error ? error.message : "Thinking options will refresh shortly",
+            };
+          }
         } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Model switch failed" } }); }
       }
       case "middleware_chat_send": {

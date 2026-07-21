@@ -4,7 +4,7 @@ import * as React from "react"
 import { motion, AnimatePresence } from "framer-motion"
 
 import { cn } from "@/lib/utils"
-import { ActionBar } from "./ActionBar"
+import { ActionBar, type ThinkingConfig } from "./ActionBar"
 import type { SessionTokenUsage } from "@/lib/sessionContextUsage"
 import { AttachmentPreviewList } from "./AttachmentPreviewList"
 import { SlashCommandMenu, getFilteredCommands } from "./SlashCommandMenu"
@@ -98,11 +98,38 @@ type VoiceTranscribePayload = {
   transcript?: string
 }
 
+type ThinkingOptionsPayload = {
+  ok?: boolean
+  supported?: boolean
+  modelId?: string | null
+  levels?: Array<{ id?: string; label?: string }>
+  thinkingLevel?: string | null
+  thinkingDefault?: string | null
+}
+
 function isVoiceConfigurationError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "")
   return /not configured|configure voice|add a voice provider|no api key|api key found/i.test(
     message
   )
+}
+
+function normalizeThinkingConfig(payload: ThinkingOptionsPayload): ThinkingConfig | null {
+  const levels = (payload.levels ?? [])
+    .flatMap((level) => {
+      const id = typeof level?.id === "string" ? level.id.trim() : ""
+      if (!id) return []
+      const label = typeof level.label === "string" && level.label.trim() ? level.label.trim() : id
+      return [{ id, label }]
+    })
+  if (levels.length === 0) return null
+  return {
+    modelId: typeof payload.modelId === "string" && payload.modelId.trim() ? payload.modelId.trim() : null,
+    levels,
+    thinkingLevel: typeof payload.thinkingLevel === "string" && payload.thinkingLevel.trim() ? payload.thinkingLevel.trim() : null,
+    thinkingDefault: typeof payload.thinkingDefault === "string" && payload.thinkingDefault.trim() ? payload.thinkingDefault.trim() : null,
+    supported: payload.supported === true && levels.length > 1,
+  }
 }
 
 type Props = {
@@ -116,6 +143,7 @@ type Props = {
   replyTo?: ReplyTo | null
   onCancelReply?: () => void
   onModelSelect?: (modelId: string) => void | Promise<void>
+  sessionKey?: string | null
   modelSwitching?: boolean
   glowOnMount?: boolean
   draftKey?: string | null
@@ -155,6 +183,7 @@ export function ChatBox({
   replyTo,
   onCancelReply,
   onModelSelect,
+  sessionKey = null,
   modelSwitching = false,
   glowOnMount = false,
   draftKey = null,
@@ -179,6 +208,10 @@ export function ChatBox({
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
+  const [thinkingOpen, setThinkingOpen] = React.useState(false)
+  const [thinkingConfig, setThinkingConfig] = React.useState<ThinkingConfig | null>(null)
+  const [thinkingLoading, setThinkingLoading] = React.useState(false)
+  const [thinkingError, setThinkingError] = React.useState<string | null>(null)
   const [sessionModelId, setSessionModelId] = React.useState<string | null>(() => {
     if (!draftKey || typeof localStorage === "undefined") return null
     try { return localStorage.getItem(`openclaw-session-model:v1:${draftKey}`) } catch { return null }
@@ -523,6 +556,74 @@ export function ChatBox({
   }, [draftKey])
 
   const selectedModelRef = sessionModelId ?? currentModel
+  const selectedModel = models.find((model) => isActiveModel(selectedModelRef, model)) ?? null
+  const displayedThinkingConfig = thinkingConfig
+    && thinkingConfig.modelId
+    && selectedModel
+    && isActiveModel(thinkingConfig.modelId, selectedModel)
+    ? thinkingConfig
+    : null
+  const thinkingRequestIdRef = React.useRef(0)
+  const loadThinkingOptions = React.useCallback(async (force = false) => {
+    const requestId = ++thinkingRequestIdRef.current
+    if (!sessionKey) {
+      setThinkingConfig(null)
+      setThinkingError(null)
+      setThinkingLoading(false)
+      return
+    }
+    const requestKey = `chat-thinking:${sessionKey}`
+    if (force) invalidateDedupe(requestKey)
+    setThinkingLoading(true)
+    setThinkingError(null)
+    try {
+      const response = await dedupeRequest(
+        requestKey,
+        () => invoke<ThinkingOptionsPayload>("middleware_chat_thinking_get", { input: { sessionKey } }),
+        { ttlMs: 2_000 },
+      )
+      if (requestId !== thinkingRequestIdRef.current) return
+      setThinkingConfig(normalizeThinkingConfig(response))
+    } catch (error) {
+      if (requestId !== thinkingRequestIdRef.current) return
+      setThinkingConfig(null)
+      setThinkingError(error instanceof Error ? error.message : "Unable to load thinking options")
+    } finally {
+      if (requestId === thinkingRequestIdRef.current) setThinkingLoading(false)
+    }
+  }, [sessionKey])
+
+  React.useEffect(() => {
+    void loadThinkingOptions(false)
+    return () => {
+      thinkingRequestIdRef.current += 1
+    }
+  }, [loadThinkingOptions])
+
+  const handleThinkingSelect = React.useCallback(async (thinkingLevel: string | null) => {
+    if (!sessionKey) return
+    setThinkingLoading(true)
+    setThinkingError(null)
+    try {
+      const response = await invoke<ThinkingOptionsPayload>("middleware_chat_thinking_set", {
+        input: { sessionKey, thinkingLevel },
+      })
+      const next = normalizeThinkingConfig(response)
+      if (next) {
+        setThinkingConfig(next)
+      } else {
+        setThinkingConfig((current) => current ? { ...current, thinkingLevel } : current)
+      }
+      setThinkingOpen(false)
+      setModelOpen(false)
+      invalidateDedupe(`chat-thinking:${sessionKey}`)
+    } catch (error) {
+      setThinkingError(error instanceof Error ? error.message : "Unable to update thinking level")
+    } finally {
+      setThinkingLoading(false)
+    }
+  }, [sessionKey])
+
   function updateSlashMenu(value: string) {
     const match = value.match(/^([/@])(\S*)$/)
     if (match) {
@@ -1094,22 +1195,36 @@ export function ChatBox({
             onModelSelect={(model) => {
               const modelId = `${model.provider}/${model.id}`
               setSessionModelId(modelId)
+              setThinkingConfig(null)
+              setThinkingError(null)
               if (draftKey && typeof localStorage !== "undefined") {
                 try { localStorage.setItem(`openclaw-session-model:v1:${draftKey}`, modelId) } catch {}
               }
-              setModelOpen(false)
+              if (!sessionKey) setModelOpen(false)
               const applyModel = onModelSelect
                 ? onModelSelect(modelId)
                 : Promise.resolve()
-              Promise.resolve(applyModel).catch((error) => {
-                setAttachmentError(
-                  error instanceof Error
-                    ? error.message
-                    : "Failed to switch model"
-                )
-                setSessionModelId(null)
-              })
+              void Promise.resolve(applyModel)
+                .then(() => loadThinkingOptions(true))
+                .catch((error) => {
+                  setAttachmentError(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to switch model"
+                  )
+                  setSessionModelId(null)
+                  if (draftKey && typeof localStorage !== "undefined") {
+                    try { localStorage.removeItem(`openclaw-session-model:v1:${draftKey}`) } catch {}
+                  }
+                  void loadThinkingOptions(true)
+                })
             }}
+            thinking={displayedThinkingConfig}
+            thinkingOpen={thinkingOpen}
+            onThinkingOpenChange={setThinkingOpen}
+            thinkingUpdating={thinkingLoading}
+            thinkingError={thinkingError}
+            onThinkingSelect={handleThinkingSelect}
             isRecording={voiceState === "recording"}
             onVoiceToggle={handleVoiceToggle}
             voiceSupported={recorderSupported}

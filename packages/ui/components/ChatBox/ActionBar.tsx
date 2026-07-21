@@ -21,6 +21,19 @@ import { WebSearchIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
 import type { ModelEntry } from "@/hooks/useModels"
 import { ModelLogo } from "@/components/model/ModelLogo"
 
+export type ThinkingLevelOption = {
+  id: string
+  label: string
+}
+
+export type ThinkingConfig = {
+  modelId: string | null
+  levels: ThinkingLevelOption[]
+  thinkingLevel: string | null
+  thinkingDefault: string | null
+  supported: boolean
+}
+
 type ActionBarProps = {
   hasInput: boolean
   onSend?: () => void
@@ -40,6 +53,12 @@ type ActionBarProps = {
   modelError?: string | null
   onModelRefresh?: () => void
   onModelSelect: (model: ModelEntry) => void
+  thinking?: ThinkingConfig | null
+  thinkingOpen?: boolean
+  onThinkingOpenChange?: (open: boolean) => void
+  thinkingUpdating?: boolean
+  thinkingError?: string | null
+  onThinkingSelect?: (thinkingLevel: string | null) => void
   isRecording?: boolean
   onVoiceToggle?: () => void
   voiceSupported?: boolean
@@ -69,6 +88,12 @@ export function ActionBar({
   modelError,
   onModelRefresh,
   onModelSelect,
+  thinking = null,
+  thinkingOpen = false,
+  onThinkingOpenChange,
+  thinkingUpdating = false,
+  thinkingError = null,
+  onThinkingSelect,
   isRecording,
   onVoiceToggle,
   voiceSupported = true,
@@ -78,6 +103,7 @@ export function ActionBar({
   disableUpload = false,
   sessionUsage = null,
 }: ActionBarProps) {
+  const [hoveredModelKey, setHoveredModelKey] = React.useState<string | null>(null)
   const activeModel = models.find((m) => {
     if (!currentModelId) return false
     const bare = currentModelId.includes("/")
@@ -91,6 +117,16 @@ export function ActionBar({
       arr.findIndex(
         (x) => x.name.toLowerCase() === m.name.toLowerCase(),
       ) === i,
+  )
+  const thinkingCurrentId = thinking?.thinkingLevel ?? thinking?.thinkingDefault ?? null
+  const thinkingCurrentOption = thinking?.levels.find((level) => level.id === thinkingCurrentId) ?? null
+  const thinkingLabel = thinkingCurrentOption?.label ?? thinkingCurrentId ?? "Thinking"
+  const hoveredModel = uniqueModels.find((model) => `${model.provider}/${model.id}` === hoveredModelKey) ?? null
+  const hoveredModelUsesCurrentThinking = Boolean(
+    thinking?.supported
+      && hoveredModel
+      && thinking.modelId
+      && isModelRef(thinking.modelId, hoveredModel),
   )
   return (
     <div className="flex items-center justify-between px-3 pb-3 pt-2">
@@ -158,7 +194,13 @@ export function ActionBar({
       {/* Right controls */}
       <div className="flex items-center gap-0.5 sm:gap-1">
         {/* Model selector */}
-        <Popover open={modelOpen} onOpenChange={onModelOpenChange}>
+        <Popover
+          open={modelOpen}
+          onOpenChange={(open) => {
+            if (open && activeModel) setHoveredModelKey(`${activeModel.provider}/${activeModel.id}`)
+            onModelOpenChange(open)
+          }}
+        >
           <PopoverTrigger asChild>
             <button
               type="button"
@@ -174,14 +216,15 @@ export function ActionBar({
             align="end"
             sideOffset={8}
             className={cn(
-              "z-[120] w-72 gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none",
+              "z-[120] w-[450px] gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none",
               "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
               "backdrop-blur-[40px] backdrop-saturate-[180%]",
               "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
               "data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[side=top]:data-[state=open]:slide-in-from-bottom-1",
             )}
           >
-            <div className="max-h-60 overflow-y-auto pr-1">
+            <div className="flex min-h-52">
+            <div className="max-h-60 min-w-0 flex-1 overflow-y-auto pr-1">
               {modelLoading && (
                 <p className="px-3 py-2 text-xs text-muted-foreground">
                   Loading models...
@@ -211,6 +254,8 @@ export function ActionBar({
                         ? "bg-foreground/8 font-medium text-foreground"
                         : "text-foreground/80 hover:bg-foreground/8 hover:text-foreground"
                     )}
+                    onMouseEnter={() => setHoveredModelKey(`${model.provider}/${model.id}`)}
+                    onFocus={() => setHoveredModelKey(`${model.provider}/${model.id}`)}
                     onClick={() => onModelSelect(model)}
                   >
                     <ModelLogo model={model} size="sm" />
@@ -241,8 +286,50 @@ export function ActionBar({
                 </div>
               )}
             </div>
+              <ModelThinkingSubmenu
+                model={hoveredModel}
+                config={thinking}
+                active={hoveredModelUsesCurrentThinking}
+                updating={thinkingUpdating}
+                onSelect={onThinkingSelect}
+              />
+            </div>
           </PopoverContent>
         </Popover>
+
+        {thinking?.supported && onThinkingSelect && onThinkingOpenChange && (
+          <Popover open={thinkingOpen} onOpenChange={onThinkingOpenChange}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={thinkingUpdating}
+                className="flex h-8 max-w-[104px] cursor-pointer items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-all hover:bg-white/[0.04] hover:text-foreground disabled:cursor-wait disabled:opacity-55"
+                aria-label="Select thinking level"
+              >
+                <span className="truncate">{thinkingLabel}</span>
+                <HugeiconsIcon icon={ArrowDown01Icon} size={12} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="top"
+              align="end"
+              sideOffset={8}
+              className={cn(
+                "z-[120] w-48 gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none",
+                "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
+                "backdrop-blur-[40px] backdrop-saturate-[180%]",
+                "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+              )}
+            >
+              <ThinkingLevelList
+                config={thinking}
+                updating={thinkingUpdating}
+                onSelect={onThinkingSelect}
+              />
+              {thinkingError && <p className="px-2.5 pb-1 pt-1.5 text-[11px] text-rose-400">{thinkingError}</p>}
+            </PopoverContent>
+          </Popover>
+        )}
 
         {/*
           Voice-to-text button intentionally removed from the message input UI.
@@ -281,6 +368,83 @@ export function ActionBar({
         )}
       </div>
     </div>
+  )
+}
+
+function isModelRef(ref: string, model: ModelEntry) {
+  const bare = ref.includes("/") ? ref.split(/\/(.+)/)[1] : ref
+  return model.id === ref || `${model.provider}/${model.id}` === ref || model.id === bare
+}
+
+function ThinkingLevelList({
+  config,
+  updating,
+  onSelect,
+}: {
+  config: ThinkingConfig
+  updating: boolean
+  onSelect: (thinkingLevel: string | null) => void
+}) {
+  const currentId = config.thinkingLevel ?? config.thinkingDefault
+  return (
+    <div className="space-y-0.5">
+      <button
+        type="button"
+        disabled={updating}
+        onClick={() => onSelect(null)}
+        className={cn(
+          "flex w-full cursor-pointer items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors disabled:cursor-wait disabled:opacity-55",
+          config.thinkingLevel == null ? "bg-foreground/8 text-foreground" : "text-foreground/75 hover:bg-foreground/8 hover:text-foreground",
+        )}
+      >
+        <span>Default</span>
+        {config.thinkingDefault && <span className="text-[10px] text-muted-foreground">{config.thinkingDefault}</span>}
+      </button>
+      {config.levels.map((level) => (
+        <button
+          key={level.id}
+          type="button"
+          disabled={updating}
+          onClick={() => onSelect(level.id)}
+          className={cn(
+            "flex w-full cursor-pointer items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors disabled:cursor-wait disabled:opacity-55",
+            currentId === level.id ? "bg-foreground/8 text-foreground" : "text-foreground/75 hover:bg-foreground/8 hover:text-foreground",
+          )}
+        >
+          <span>{level.label}</span>
+          {currentId === level.id && <HugeiconsIcon icon={Tick02Icon} size={13} className="shrink-0" />}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function ModelThinkingSubmenu({
+  model,
+  config,
+  active,
+  updating,
+  onSelect,
+}: {
+  model: ModelEntry | null
+  config: ThinkingConfig | null
+  active: boolean
+  updating: boolean
+  onSelect?: (thinkingLevel: string | null) => void
+}) {
+  return (
+    <aside className="ml-1 flex w-[164px] shrink-0 flex-col border-l border-foreground/8 px-1.5 py-1">
+      <p className="px-1.5 pb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">Thinking</p>
+      {!model && <p className="px-1.5 text-[11px] leading-relaxed text-muted-foreground/65">Hover a model to view its setting.</p>}
+      {model && active && config && onSelect && (
+        <ThinkingLevelList config={config} updating={updating} onSelect={onSelect} />
+      )}
+      {model && !active && (
+        <p className="px-1.5 text-[11px] leading-relaxed text-muted-foreground/65">
+          Select {model.name} to load its supported levels.
+        </p>
+      )}
+    </aside>
   )
 }
 
