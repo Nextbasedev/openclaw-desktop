@@ -1220,11 +1220,15 @@ export function ChatBox({
                 })
             }}
             thinking={displayedThinkingConfig}
+            showThinkingSelector={Boolean(sessionKey)}
             thinkingOpen={thinkingOpen}
             onThinkingOpenChange={setThinkingOpen}
             thinkingUpdating={thinkingLoading}
             thinkingError={thinkingError}
             onThinkingSelect={handleThinkingSelect}
+            onThinkingRefresh={() => {
+              void loadThinkingOptions(true)
+            }}
             isRecording={voiceState === "recording"}
             onVoiceToggle={handleVoiceToggle}
             voiceSupported={recorderSupported}
