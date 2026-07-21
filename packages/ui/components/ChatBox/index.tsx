@@ -710,24 +710,6 @@ export function ChatBox({
       isPreparingAttachments
     )
       return
-    if (/^\/(?:think|thinking|t):?$/i.test(text) && attachments.length === 0) {
-      if (!sessionKey) {
-        setAttachmentError("Start a chat before choosing a thinking level")
-        return
-      }
-      setInput("")
-      clearPersistedDraft()
-      setHistoryIndex(null)
-      draftBeforeHistoryRef.current = ""
-      setSlashMenuOpen(false)
-      setThinkingOpen(true)
-      void loadThinkingOptions(true)
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus()
-        autoResize()
-      })
-      return
-    }
     const payload: ChatComposerSubmit = {
       text: text || "Please transcribe and respond to the attached audio.",
       attachments:
