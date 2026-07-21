@@ -174,12 +174,15 @@ describe("middleware app", () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
     let thinkingLevel: string | null = "medium";
-    let describeFails = false;
+    let listFails = false;
     const request = vi.spyOn(context.gateway, "request").mockImplementation(async (method, params) => {
       if (method === "sessions.describe") {
-        if (describeFails) throw new Error("describe unavailable");
+        throw new Error("unknown method: sessions.describe");
+      }
+      if (method === "sessions.list") {
+        if (listFails) throw new Error("sessions.list unavailable");
         return {
-          session: {
+          sessions: [{
             key: "agent:main:desktop:thinking-test",
             modelProvider: "openai",
             model: "gpt-5.5",
@@ -192,7 +195,7 @@ describe("middleware app", () => {
               { id: "medium", label: "Medium" },
               { id: "high", label: "High" },
             ],
-          },
+          }],
         };
       }
       if (method === "sessions.patch") {
@@ -216,6 +219,7 @@ describe("middleware app", () => {
       modelId: "openai/gpt-5.5",
       thinkingLevel: "medium",
       thinkingDefault: "low",
+      source: "gateway-sessions-list",
       levels: expect.arrayContaining([expect.objectContaining({ id: "high", label: "High" })]),
     });
 
@@ -243,14 +247,14 @@ describe("middleware app", () => {
     // A model switch must still succeed when the optional follow-up metadata
     // read is unavailable; otherwise this new UI refresh would regress model
     // selection for older/offline Gateways.
-    describeFails = true;
+    listFails = true;
     const switchModel = await app.inject({
       method: "POST",
       url: "/api/commands/middleware_chat_model_set",
       payload: { input: { sessionKey: "agent:main:desktop:thinking-test", modelId: "openai/gpt-5.6" } },
     });
     expect(switchModel.statusCode).toBe(200);
-    expect(switchModel.json()).toMatchObject({ ok: true, thinking: null, warning: "describe unavailable" });
+    expect(switchModel.json()).toMatchObject({ ok: true, thinking: null, warning: "sessions.list unavailable" });
 
     const setWithoutRefresh = await app.inject({
       method: "POST",
@@ -263,7 +267,7 @@ describe("middleware app", () => {
       thinkingLevel: "low",
       levels: [],
       source: "gateway-session-refresh-unavailable",
-      warning: "describe unavailable",
+      warning: "sessions.list unavailable",
     });
     await app.close();
   });

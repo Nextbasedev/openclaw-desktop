@@ -4623,20 +4623,66 @@ function modelRefFromThinkingSession(session: CompatRecord): string | null {
   return provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model;
 }
 
+function isUnknownGatewayMethod(error: unknown, method: string): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return new RegExp(`\\bunknown method:\\s*${method.replace(".", "\\.")}\\b`, "i").test(message);
+}
+
+function gatewaySessionFromList(
+  response: { sessions?: unknown; defaults?: unknown },
+  sessionKey: string,
+): { session: CompatRecord | null; source: "gateway-sessions-list" | "gateway-session-defaults" | "gateway-session-missing" } {
+  const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
+  const exactSession = sessions.find((entry) => {
+    const session = entry && typeof entry === "object" ? entry as CompatRecord : null;
+    return typeof session?.key === "string" && session.key === sessionKey;
+  });
+  if (exactSession && typeof exactSession === "object") {
+    return { session: exactSession as CompatRecord, source: "gateway-sessions-list" };
+  }
+  const defaults = response?.defaults && typeof response.defaults === "object"
+    ? response.defaults as CompatRecord
+    : null;
+  return {
+    session: defaults,
+    source: defaults ? "gateway-session-defaults" : "gateway-session-missing",
+  };
+}
+
 /**
  * Read the exact thinking policy the Gateway resolved for a session's current
- * model.  This is deliberately session-scoped: `models.list` only exposes a
- * coarse `reasoning` flag, while `/think` options are provider/model specific.
+ * model. `sessions.describe` is preferred, while older Gateways expose the
+ * same policy on `sessions.list`. `models.list` only exposes a coarse
+ * reasoning flag, while `/think` options are provider/model specific.
  */
 async function chatThinkingOptionsResponse(context: AppContext, sessionKey: string) {
-  const response = await context.gateway.request<{ session?: unknown }>(
-    "sessions.describe",
-    { key: sessionKey },
-    12_000,
-  );
-  const session = response?.session && typeof response.session === "object"
-    ? response.session as CompatRecord
-    : null;
+  let session: CompatRecord | null = null;
+  let source: "gateway-session" | "gateway-sessions-list" | "gateway-session-defaults" | "gateway-session-missing" = "gateway-session-missing";
+  try {
+    const response = await context.gateway.request<{ session?: unknown }>(
+      "sessions.describe",
+      { key: sessionKey },
+      12_000,
+    );
+    if (response?.session && typeof response.session === "object") {
+      session = response.session as CompatRecord;
+      source = "gateway-session";
+    }
+  } catch (error) {
+    if (!isUnknownGatewayMethod(error, "sessions.describe")) throw error;
+  }
+
+  if (!session) {
+    const response = await context.gateway.request<{ sessions?: unknown; defaults?: unknown }>(
+      "sessions.list",
+      { limit: 200, includeGlobal: true, includeUnknown: true },
+      12_000,
+    );
+    const fallback = gatewaySessionFromList(response, sessionKey);
+    session = fallback.session;
+    source = fallback.source;
+  }
+
   if (!session) {
     return {
       ok: true,
@@ -4646,7 +4692,7 @@ async function chatThinkingOptionsResponse(context: AppContext, sessionKey: stri
       levels: [],
       thinkingLevel: null,
       thinkingDefault: null,
-      source: "gateway-session-missing",
+      source,
     };
   }
 
@@ -4665,7 +4711,7 @@ async function chatThinkingOptionsResponse(context: AppContext, sessionKey: stri
     levels,
     thinkingLevel: configuredLevel,
     thinkingDefault: defaultLevel,
-    source: "gateway-session",
+    source,
   };
 }
 
