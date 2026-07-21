@@ -22,6 +22,7 @@ import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-eng
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import type { PatchFrame } from "@/lib/chat-engine-v2/types"
 import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParser"
+import { latestGatewayThinkingLevel } from "@/lib/gatewayThinkingLevel"
 import { dedupeChatMessages } from "@/lib/chatMessageDedupe"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import {
@@ -700,6 +701,10 @@ export function ChatView({
     }
     return prompts
   }, [state.messages])
+  const sessionThinkingLevel = useMemo(
+    () => latestGatewayThinkingLevel(state.messages),
+    [state.messages],
+  )
   const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>(() =>
     loadPersistedChatSendQueue(sessionKey)
   )
@@ -2922,6 +2927,7 @@ export function ChatView({
       onSend={handleSend}
       onModelSelect={handleModelSelect}
       sessionKey={sessionKey}
+      sessionThinkingLevel={sessionThinkingLevel}
       disabled={state.loading}
       isGenerating={isGenerating}
       onAbort={handleAbort}
