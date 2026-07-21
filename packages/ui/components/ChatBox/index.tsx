@@ -107,6 +107,22 @@ type ThinkingOptionsPayload = {
   thinkingDefault?: string | null
 }
 
+const thinkingConfigCache = new Map<string, ThinkingConfig>()
+
+function thinkingConfigCacheKey(sessionKey: string, modelId: string | null | undefined) {
+  return modelId ? `${sessionKey}:${modelId.toLowerCase()}` : null
+}
+
+function cachedThinkingConfig(sessionKey: string | null, modelId: string | null | undefined) {
+  const key = sessionKey ? thinkingConfigCacheKey(sessionKey, modelId) : null
+  return key ? thinkingConfigCache.get(key) ?? null : null
+}
+
+function cacheThinkingConfig(sessionKey: string | null, config: ThinkingConfig | null) {
+  const key = sessionKey && config?.modelId ? thinkingConfigCacheKey(sessionKey, config.modelId) : null
+  if (key && config) thinkingConfigCache.set(key, config)
+}
+
 function isVoiceConfigurationError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "")
   return /not configured|configure voice|add a voice provider|no api key|api key found/i.test(
@@ -564,17 +580,24 @@ export function ChatBox({
     && selectedModel
     && isActiveModel(thinkingConfig.modelId, selectedModel)
     ? (() => {
-      const currentLevel = sessionThinkingLevel
+      const currentLevel = !thinkingConfig.thinkingLevel && sessionThinkingLevel
         ? thinkingConfig.levels.find((level) => level.id.toLowerCase() === sessionThinkingLevel.toLowerCase())?.id ?? null
         : null
       return currentLevel ? { ...thinkingConfig, thinkingLevel: currentLevel } : thinkingConfig
     })()
     : null
   const thinkingRequestIdRef = React.useRef(0)
-  const loadThinkingOptions = React.useCallback(async (force = false) => {
+  const loadThinkingOptions = React.useCallback(async (force = false, modelId = selectedModelRef) => {
     const requestId = ++thinkingRequestIdRef.current
     if (!sessionKey) {
       setThinkingConfig(null)
+      setThinkingError(null)
+      setThinkingLoading(false)
+      return
+    }
+    const cached = !force ? cachedThinkingConfig(sessionKey, modelId) : null
+    if (cached) {
+      setThinkingConfig(cached)
       setThinkingError(null)
       setThinkingLoading(false)
       return
@@ -590,7 +613,9 @@ export function ChatBox({
         { ttlMs: 2_000 },
       )
       if (requestId !== thinkingRequestIdRef.current) return
-      setThinkingConfig(normalizeThinkingConfig(response))
+      const config = normalizeThinkingConfig(response)
+      cacheThinkingConfig(sessionKey, config)
+      setThinkingConfig(config)
     } catch (error) {
       if (requestId !== thinkingRequestIdRef.current) return
       setThinkingConfig(null)
@@ -598,7 +623,7 @@ export function ChatBox({
     } finally {
       if (requestId === thinkingRequestIdRef.current) setThinkingLoading(false)
     }
-  }, [sessionKey])
+  }, [selectedModelRef, sessionKey])
 
   React.useEffect(() => {
     void loadThinkingOptions(false)
@@ -617,6 +642,7 @@ export function ChatBox({
       })
       const next = normalizeThinkingConfig(response)
       if (next) {
+        cacheThinkingConfig(sessionKey, next)
         setThinkingConfig(next)
       } else {
         setThinkingConfig((current) => current ? { ...current, thinkingLevel } : current)
@@ -1202,7 +1228,9 @@ export function ChatBox({
             onModelSelect={(model) => {
               const modelId = `${model.provider}/${model.id}`
               setSessionModelId(modelId)
-              setThinkingConfig(null)
+              const cachedThinking = cachedThinkingConfig(sessionKey, modelId)
+              setThinkingConfig(cachedThinking)
+              setThinkingLoading(false)
               setThinkingError(null)
               if (draftKey && typeof localStorage !== "undefined") {
                 try { localStorage.setItem(`openclaw-session-model:v1:${draftKey}`, modelId) } catch {}
@@ -1212,7 +1240,7 @@ export function ChatBox({
                 ? onModelSelect(modelId)
                 : Promise.resolve()
               void Promise.resolve(applyModel)
-                .then(() => loadThinkingOptions(true))
+                .then(() => loadThinkingOptions(!cachedThinking, modelId))
                 .catch((error) => {
                   setAttachmentError(
                     error instanceof Error
