@@ -188,13 +188,7 @@ describe("middleware app", () => {
             model: "gpt-5.5",
             thinkingLevel,
             thinkingDefault: "low",
-            thinkingLevels: [
-              { id: "off", label: "Off" },
-              { id: "minimal", label: "Minimal" },
-              { id: "low", label: "Low" },
-              { id: "medium", label: "Medium" },
-              { id: "high", label: "High" },
-            ],
+            thinkingOptions: ["off", "minimal", "low", "medium", "high"],
           }],
         };
       }
@@ -220,7 +214,7 @@ describe("middleware app", () => {
       thinkingLevel: "medium",
       thinkingDefault: "low",
       source: "gateway-sessions-list",
-      levels: expect.arrayContaining([expect.objectContaining({ id: "high", label: "High" })]),
+      levels: expect.arrayContaining([expect.objectContaining({ id: "high", label: "high" })]),
     });
 
     const set = await app.inject({

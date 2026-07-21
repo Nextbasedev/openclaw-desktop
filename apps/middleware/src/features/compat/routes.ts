@@ -4696,7 +4696,8 @@ async function chatThinkingOptionsResponse(context: AppContext, sessionKey: stri
     };
   }
 
-  const levels = normalizeThinkingLevelOptions(session.thinkingLevels);
+  let levels = normalizeThinkingLevelOptions(session.thinkingOptions);
+  if (!levels.length) levels = normalizeThinkingLevelOptions(session.thinkingLevels);
   const configuredLevel = typeof session.thinkingLevel === "string" && session.thinkingLevel.trim()
     ? session.thinkingLevel.trim()
     : null;
