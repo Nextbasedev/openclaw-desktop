@@ -384,33 +384,30 @@ function ThinkingLevelList({
   const currentId = config.thinkingLevel ?? config.thinkingDefault
   return (
     <div className="space-y-0.5">
-      <button
-        type="button"
-        disabled={updating}
-        onClick={() => onSelect(null)}
-        className={cn(
-          "flex w-full cursor-pointer items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors disabled:cursor-wait disabled:opacity-55",
-          config.thinkingLevel == null ? "bg-foreground/8 text-foreground" : "text-foreground/75 hover:bg-foreground/8 hover:text-foreground",
-        )}
-      >
-        <span>Default</span>
-        {config.thinkingDefault && <span className="text-[10px] text-muted-foreground">{config.thinkingDefault}</span>}
-      </button>
-      {config.levels.map((level) => (
-        <button
-          key={level.id}
-          type="button"
-          disabled={updating}
-          onClick={() => onSelect(level.id)}
-          className={cn(
-            "flex w-full cursor-pointer items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors disabled:cursor-wait disabled:opacity-55",
-            currentId === level.id ? "bg-foreground/8 text-foreground" : "text-foreground/75 hover:bg-foreground/8 hover:text-foreground",
-          )}
-        >
-          <span>{level.label}</span>
-          {currentId === level.id && <HugeiconsIcon icon={Tick02Icon} size={13} className="shrink-0" />}
-        </button>
-      ))}
+      {config.levels.map((level) => {
+        const isDefault = level.id === config.thinkingDefault
+        const isSelected = currentId === level.id
+        return (
+          <button
+            key={level.id}
+            type="button"
+            disabled={updating}
+            onClick={() => onSelect(level.id)}
+            className={cn(
+              "flex w-full cursor-pointer items-center rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors disabled:cursor-wait disabled:opacity-55",
+              isSelected ? "bg-foreground/8 text-foreground" : "text-foreground/75 hover:bg-foreground/8 hover:text-foreground",
+            )}
+          >
+            <span>{level.label}</span>
+            {isDefault && (
+              <span className="ml-auto rounded-full border border-foreground/10 bg-foreground/[0.06] px-1.5 py-0.5 text-[9px] font-medium leading-none text-muted-foreground">
+                Default
+              </span>
+            )}
+            {isSelected && <HugeiconsIcon icon={Tick02Icon} size={13} className="ml-1 shrink-0" />}
+          </button>
+        )
+      })}
     </div>
   )
 }
