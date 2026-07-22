@@ -117,6 +117,30 @@ describe("patch replay", () => {
 });
 
 describe("chat live ingest", () => {
+  test("stale silent run recovery broadcasts a terminal patch without ending a live tool run", async () => {
+    const app = await createApp(config("stale-run-recovery"));
+    const context = contextOf(app);
+    const patches: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch as typeof patches[number]); });
+
+    context.runs.upsertRun({ runId: "stale-run", sessionKey: "stale-session", status: "streaming", startedAtMs: 1_000, updatedAtMs: 1_000 });
+    context.runs.upsertRun({ runId: "tool-run", sessionKey: "tool-session", status: "tool_running", startedAtMs: 1_000, updatedAtMs: 1_000 });
+    context.runs.upsertToolCall({ sessionKey: "tool-session", runId: "tool-run", toolCallId: "still-live", name: "exec", phase: "start", startedAtMs: 1_000, updatedAtMs: 1_000 });
+
+    expect(context.chatLive.reconcileStaleRuns({ nowMs: 10_000, activeRunMs: 1_000 })).toEqual({ runsFinalized: 1 });
+    expect(context.runs.getRun("stale-run")).toMatchObject({ status: "done", finishedAtMs: 10_000 });
+    expect(context.runs.getRun("tool-run")).toMatchObject({ status: "tool_running" });
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.status",
+        sessionKey: "stale-session",
+        payload: expect.objectContaining({ semanticType: "chat.run.stale_finalized", runStatus: "done" }),
+      }),
+    ]));
+
+    await app.close();
+  });
+
   test("session.message preserves the canonical imported source key in middleware patches", async () => {
     const app = await createApp(config("canonical-imported-source-key-live-patch"));
     const context = contextOf(app);
@@ -246,6 +270,96 @@ describe("chat live ingest", () => {
       role: "assistant",
       data: expect.objectContaining({ text: "Hello Dixit" }),
     });
+    await app.close();
+  });
+
+  test("stripped canonical final replaces the preceding live row even when proxy formatting differs", async () => {
+    const app = await createApp(config("stripped-final-replaces-live"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "streaming", statusLabel: "Streaming", startedAtMs: 100, updatedAtMs: 100 });
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({ type: "event", event: "chat", payload: { sessionKey: "s1", status: "streaming", text: "Hello world" } });
+    context.runs.updateRunStatus("run-1", "done", { statusLabel: null });
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: { role: "assistant", text: "Hello, world.", __openclaw: { id: "gateway-final", seq: 2 } },
+      },
+    });
+
+    expect(context.messages.listMessages("s1").filter((message) => message.role === "assistant")).toHaveLength(1);
+    expect(context.messages.findMessageById("s1", "live:run-1:assistant")).toBeNull();
+    expect(context.messages.findMessageById("s1", "gateway-final")).toMatchObject({ role: "assistant" });
+    await app.close();
+  });
+
+  test("does not render proxy progress prose attached to a tool-use assistant turn as a final reply", async () => {
+    const app = await createApp(config("tool-use-progress-prose"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+    await context.chatLive.ensureSessionSubscribed("s1");
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          text: "I've updated the proxy configuration. Restarting it now.",
+          content: [
+            { type: "text", text: "I've updated the proxy configuration. Restarting it now." },
+            { type: "toolCall", id: "restart-proxy", name: "exec", arguments: { command: "restart proxy" } },
+          ],
+          stopReason: "toolUse",
+          __openclaw: { id: "assistant-tool-progress", seq: 2, runId: "run-1" },
+        },
+      },
+    });
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 4,
+        message: {
+          role: "assistant",
+          text: "Proxy setup is complete and validated.",
+          __openclaw: { id: "assistant-final", seq: 4, runId: "run-1" },
+        },
+      },
+    });
+
+    const visibleAssistantTexts = context.messages.listMessages("s1")
+      .filter((message) => message.role === "assistant")
+      .map((message) => {
+        const data = message.data as { text?: unknown };
+        return typeof data.text === "string" ? data.text.trim() : "";
+      })
+      .filter(Boolean);
+
+    expect(visibleAssistantTexts).toEqual(["Proxy setup is complete and validated."]);
+    expect(context.runs.getToolCall("s1", "restart-proxy")).toMatchObject({ name: "exec", status: "running" });
     await app.close();
   });
 

@@ -40,6 +40,7 @@ export type AppContext = {
 };
 
 export const MIDDLEWARE_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
+const STALE_RUN_RECONCILE_INTERVAL_MS = 30_000;
 
 export async function createApp(config: MiddlewareConfig) {
   const app = Fastify({ logger: false, bodyLimit: MIDDLEWARE_BODY_LIMIT_BYTES });
@@ -74,6 +75,10 @@ export async function createApp(config: MiddlewareConfig) {
     startedAtMs: Date.now(),
   };
   context.chatLive = new ChatLiveIngest(context);
+  const staleRunReconcileTimer = setInterval(() => {
+    context.chatLive.reconcileStaleRuns();
+  }, STALE_RUN_RECONCILE_INTERVAL_MS);
+  staleRunReconcileTimer.unref();
   (app as typeof app & { v2Context?: AppContext }).v2Context = context;
 
   await app.register(cors, {
@@ -125,6 +130,7 @@ export async function createApp(config: MiddlewareConfig) {
   await registerPatchRoutes(app, context);
 
   app.addHook("onClose", async () => {
+    clearInterval(staleRunReconcileTimer);
     context.gateway.close();
     context.db.close();
   });

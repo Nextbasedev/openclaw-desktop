@@ -283,6 +283,14 @@ async function invokeRemoteMiddleware<T>(
       return middlewareFetch<T>(`/api/middleware/update/status${queryString({ branch: input.branch ? String(input.branch) : undefined })}`, { headers: { "Cache-Control": "no-cache" } })
     case "middleware_self_update_branches":
       return middlewareFetch<T>("/api/middleware/update/branches", { headers: { "Cache-Control": "no-cache" } })
+    case "middleware_usage":
+    case "middleware_usage_daily":
+      // Usage may need to scan local session transcripts on a cold cache.
+      return middlewareFetch<T>(`/api/commands/${command}`, {
+        method: "POST",
+        body: JSON.stringify({ input }),
+        timeoutMs: 20_000,
+      })
     case "middleware_workspace_tree":
       return middlewareFetch<T>(`/api/projects/${input.projectId}/workspace/tree?path=${encodeURIComponent(String(input.path ?? ""))}`)
     case "middleware_workspace_read":

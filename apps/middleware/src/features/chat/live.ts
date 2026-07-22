@@ -1,7 +1,7 @@
 import type { AppContext } from "../../app.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
-import { assistantAnswerTextFromMessage, messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
+import { assistantAnswerTextFromMessage, messageTextMatchesSent, normalizeAssistantToolProgress, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import { classifyGatewayMessageSemanticType, messageHasAssistantAnswerText, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import type { OpenClawMessage, ProjectedMessage } from "./types.js";
 import type { ProjectedRun } from "./repo.runs.js";
@@ -235,6 +235,27 @@ export class ChatLiveIngest {
     };
   }
 
+  /**
+   * A gateway can lose both its final message event and terminal run event.
+   * Periodically settle only runs that have been silent beyond the configured
+   * stale window, then publish the terminal transition through the patch bus.
+   */
+  reconcileStaleRuns(params: { nowMs?: number; activeRunMs?: number } = {}) {
+    let finalized = 0;
+    for (const candidate of this.context.runs.listStaleFinalizableRuns(params)) {
+      const run = this.context.runs.finalizeRunIfStale(candidate.runId, params);
+      if (!run) continue;
+      this.broadcastRunStatus(run.sessionKey, run, "chat.run.stale_finalized");
+      finalized += 1;
+      this.log.warn("stale-run.finalized", {
+        sessionKey: run.sessionKey,
+        runId: run.runId,
+        inactiveForMs: (params.nowMs ?? Date.now()) - candidate.updatedAtMs,
+      });
+    }
+    return { runsFinalized: finalized };
+  }
+
   private handleGatewayEvent(event: GatewayEvent) {
     this.log.info("gateway.event", { event: event.event, hasPayload: isObject(event.payload) });
     if (event.event === "session.message") {
@@ -273,7 +294,15 @@ export class ChatLiveIngest {
     const payloadSeq = typeof payload.messageSeq === "number" && Number.isFinite(payload.messageSeq) && payload.messageSeq > 0
       ? Math.floor(payload.messageSeq)
       : null;
-    const normalized = normalizeHistoryMessages(sessionKey, [message], Date.now(), payloadSeq ?? this.context.messages.nextMessageSeq(sessionKey));
+    // Some OpenAI-compatible proxies put a conversational status sentence in
+    // the same assistant turn as a tool call. That turn is not the user's
+    // answer: the model is explicitly yielding control to execute the tool.
+    // Keep the tool blocks, but remove its prose from the Desktop projection so
+    // the eventual no-tool assistant turn remains the one visible reply.
+    const gatewayProjection = projectGatewayMessage(message);
+    const displayMessage = normalizeAssistantToolProgress(message);
+    const displayProjection = displayMessage === message ? gatewayProjection : projectGatewayMessage(displayMessage);
+    const normalized = normalizeHistoryMessages(sessionKey, [displayMessage], Date.now(), payloadSeq ?? this.context.messages.nextMessageSeq(sessionKey));
     const projectedMessage = normalized[0];
     if (!projectedMessage) return;
     const confirmedDuplicate = !optimisticId ? this.findRecentConfirmedUserEcho(sessionKey, projectedMessage) : null;
@@ -312,7 +341,7 @@ export class ChatLiveIngest {
       this.log.info("message.replay.noop", { sessionKey, role: projectedMessage.role, messageId: projectedMessage.messageId, messageSeq: projectedMessage.openclawSeq });
       return;
     }
-    const emittedMessage = confirmed?.data ?? message;
+    const emittedMessage = confirmed?.data ?? displayMessage;
     const emittedSeq = confirmed?.openclawSeq ?? projectedMessage.openclawSeq;
     const activityAt = new Date(projectedMessage.updatedAtMs).toISOString();
     this.context.compat?.touchChatActivity({
@@ -320,9 +349,8 @@ export class ChatLiveIngest {
       at: activityAt,
       lastMessageText: textFromMessage(message),
     });
-    const gatewayProjection = projectGatewayMessage(message);
     this.projectToolsFromMessage(sessionKey, message, associatedRun, gatewayProjection);
-    const assistantHasFinalText = gatewayProjection.assistantHasFinalText;
+    const assistantHasFinalText = displayProjection.assistantHasFinalText;
     if (assistantHasFinalText && associatedRun) {
       this.scheduleHistoryBackfill(sessionKey, associatedRun.runId, "assistant_final_after_tool_calls");
     } else if (assistantHasFinalText && isSubagentSessionKey(sessionKey)) {
@@ -362,7 +390,7 @@ export class ChatLiveIngest {
       runStatus: runForPatch?.status,
     });
     const emitMessagePatch = () => {
-      if (!gatewayProjection.emitMessagePatch && !optimisticId) {
+      if (!displayProjection.emitMessagePatch && !optimisticId) {
         this.log.info("message.patch.skip_tool_result", { sessionKey, role: projectedMessage.role, messageId: projectedMessage.messageId, messageSeq: emittedSeq });
         return;
       }
@@ -373,7 +401,7 @@ export class ChatLiveIngest {
           sessionKey,
           semanticType: optimisticId
             ? "chat.user.confirmed"
-            : gatewayProjection.semanticType,
+            : displayProjection.semanticType,
           run: runForPatch,
           messageId: confirmed?.messageId ?? projectedMessage.messageId,
           payload: {
@@ -387,7 +415,7 @@ export class ChatLiveIngest {
             // never double-counts text. Guarded to assistant finals only.
             message:
               !optimisticId &&
-              gatewayProjection.semanticType === "chat.assistant.final" &&
+              displayProjection.semanticType === "chat.assistant.final" &&
               !(typeof emittedMessage?.text === "string" && emittedMessage.text.trim().length > 0)
                 ? { ...emittedMessage, text: assistantAnswerTextFromMessage(emittedMessage as Parameters<typeof textFromMessage>[0]) }
                 : emittedMessage,
@@ -428,6 +456,14 @@ export class ChatLiveIngest {
         const liveRunId = this.runIdFromLiveAssistantId(liveAssistant?.messageId ?? null);
         if (liveRunId) return this.context.runs.getRun(liveRunId);
       }
+      // Gateway's decorated history can strip runId and normalize/reflow the
+      // final text. When there is exactly one live placeholder, it is the only
+      // unambiguous owner left; fold it into this canonical assistant instead
+      // of leaving a second visible reply behind. Do not guess when multiple
+      // live runs exist.
+      const onlyLiveAssistant = this.context.messages.findOnlyLiveAssistant(sessionKey);
+      const onlyLiveRunId = this.runIdFromLiveAssistantId(onlyLiveAssistant?.messageId ?? null);
+      if (onlyLiveRunId) return this.context.runs.getRun(onlyLiveRunId);
     }
     return null;
   }

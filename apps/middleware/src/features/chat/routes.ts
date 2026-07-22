@@ -1290,12 +1290,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
     if (isStopCommandText(rawMessage)) {
       log.info("send.stop-command.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, runId });
-      void context.gateway.request<Record<string, unknown>>("chat.abort", { sessionKey: input.sessionKey, runId }, 30_000).catch((error) => {
-        log.warn("send.stop-command.gateway-chat-abort.fail", { sessionKey: input.sessionKey, runId, ...errorMeta(error) });
-      });
-      void context.gateway.request<Record<string, unknown>>("sessions.abort", { key: input.sessionKey }, 30_000).catch((error) => {
-        log.warn("send.stop-command.gateway-session-abort.fail", { sessionKey: input.sessionKey, runId, ...errorMeta(error) });
-      });
+      await context.gateway.request<Record<string, unknown>>("chat.abort", { sessionKey: input.sessionKey, runId }, 30_000);
 
       context.runs.updateRunStatus(runId, "aborted", { statusLabel: null });
       const completedTools = context.runs.completeRunningTools(input.sessionKey, runId, { status: "error", resultMeta: { reason: "aborted" }, updatedAtMs: nowMs() });
@@ -1815,12 +1810,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const parsed = z.object({ sessionKey: z.string().min(1), runId: z.string().optional() }).safeParse(request.body);
     if (!parsed.success) throw new HttpError(400, "Invalid chat abort body", "INVALID_BODY", parsed.error.flatten());
     log.info("abort.start", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId });
-    void context.gateway.request<Record<string, unknown>>("chat.abort", parsed.data, 30_000).catch((error) => {
-      log.warn("abort.gateway.fail", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId, ...errorMeta(error) });
-    });
-    void context.gateway.request<Record<string, unknown>>("sessions.abort", { key: parsed.data.sessionKey }, 30_000).catch((error) => {
-      log.warn("abort.gateway-session.fail", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId, ...errorMeta(error) });
-    });
+    await context.gateway.request<Record<string, unknown>>("chat.abort", parsed.data, 30_000);
     const projectedRun = parsed.data.runId
       ? context.runs.getRun(parsed.data.runId) ?? context.runs.findRunByGatewayRunId(parsed.data.runId)
       : context.runs.findLatestPendingRun(parsed.data.sessionKey);

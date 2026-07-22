@@ -1244,13 +1244,27 @@ describe("chat send routes", () => {
     await app.close();
   });
 
-  test("abort forwards to Gateway chat.abort", async () => {
+  test("abort forwards one acknowledged Gateway chat.abort without racing sessions.abort", async () => {
     const app = await createApp(config("abort"));
     const context = contextOf(app);
     const request = vi.spyOn(context.gateway, "request").mockResolvedValue({ aborted: true });
     const res = await app.inject({ method: "POST", url: "/api/chat/abort", payload: { sessionKey: "s1", runId: "r1" } });
     expect(res.statusCode).toBe(200);
     expect(request).toHaveBeenCalledWith("chat.abort", { sessionKey: "s1", runId: "r1" }, 30_000);
+    expect(request).not.toHaveBeenCalledWith("sessions.abort", expect.anything(), expect.anything());
+    await app.close();
+  });
+
+  test("abort does not mark the local run stopped when Gateway rejects the cancellation", async () => {
+    const app = await createApp(config("abort-rejected"));
+    const context = contextOf(app);
+    context.runs.upsertRun({ runId: "r1", sessionKey: "s1", status: "streaming", statusLabel: "Streaming", startedAtMs: 1, updatedAtMs: 1 });
+    vi.spyOn(context.gateway, "request").mockRejectedValue(new Error("reply session initialization conflicted"));
+
+    const res = await app.inject({ method: "POST", url: "/api/chat/abort", payload: { sessionKey: "s1", runId: "r1" } });
+
+    expect(res.statusCode).toBe(500);
+    expect(context.runs.getRun("r1")).toMatchObject({ status: "streaming" });
     await app.close();
   });
 
@@ -1277,7 +1291,7 @@ describe("chat send routes", () => {
     expect(request).not.toHaveBeenCalledWith("chat.send", expect.anything(), expect.anything());
     await waitFor(() => request.mock.calls.some(([method]) => method === "chat.abort"));
     expect(request).toHaveBeenCalledWith("chat.abort", expect.objectContaining({ sessionKey: "s1" }), 30_000);
-    expect(request).toHaveBeenCalledWith("sessions.abort", { key: "s1" }, 30_000);
+    expect(request).not.toHaveBeenCalledWith("sessions.abort", expect.anything(), expect.anything());
 
     const messages = context.messages.listMessages("s1");
     expect(messages.map((message) => ({ role: message.role, text: (message.data as { text?: string }).text }))).toEqual([

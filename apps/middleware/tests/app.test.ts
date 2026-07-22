@@ -170,6 +170,138 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("thinking commands use the Gateway session policy and persist a selected level", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    let thinkingLevel: string | null = "medium";
+    let listFails = false;
+    const request = vi.spyOn(context.gateway, "request").mockImplementation(async (method, params) => {
+      if (method === "sessions.describe") {
+        throw new Error("unknown method: sessions.describe");
+      }
+      if (method === "sessions.list") {
+        if (listFails) throw new Error("sessions.list unavailable");
+        return {
+          sessions: [{
+            key: "agent:main:desktop:thinking-test",
+            modelProvider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel,
+            thinkingDefault: "low",
+            thinkingOptions: ["off", "minimal", "low", "medium", "high"],
+          }],
+        };
+      }
+      if (method === "sessions.patch") {
+        const patch = params as { key?: string; thinkingLevel?: string | null; model?: string };
+        expect(patch.key).toBe("agent:main:desktop:thinking-test");
+        if ("thinkingLevel" in patch) thinkingLevel = patch.thinkingLevel ?? null;
+        return { ok: true };
+      }
+      throw new Error(`Unexpected Gateway method: ${method}`);
+    });
+
+    const get = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_thinking_get",
+      payload: { input: { sessionKey: "agent:main:desktop:thinking-test" } },
+    });
+    expect(get.statusCode).toBe(200);
+    expect(get.json()).toMatchObject({
+      ok: true,
+      supported: true,
+      modelId: "openai/gpt-5.5",
+      thinkingLevel: "medium",
+      thinkingDefault: "low",
+      source: "gateway-sessions-list",
+      levels: expect.arrayContaining([expect.objectContaining({ id: "high", label: "high" })]),
+    });
+
+    const set = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_thinking_set",
+      payload: { input: { sessionKey: "agent:main:desktop:thinking-test", thinkingLevel: "high" } },
+    });
+    expect(set.statusCode).toBe(200);
+    expect(set.json()).toMatchObject({ ok: true, thinkingLevel: "high" });
+
+    const clear = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_thinking_set",
+      payload: { input: { sessionKey: "agent:main:desktop:thinking-test", thinkingLevel: null } },
+    });
+    expect(clear.statusCode).toBe(200);
+    expect(clear.json()).toMatchObject({ ok: true, thinkingLevel: null, thinkingDefault: "low" });
+    expect(request).toHaveBeenCalledWith(
+      "sessions.patch",
+      { key: "agent:main:desktop:thinking-test", thinkingLevel: null },
+      12_000,
+    );
+
+    // A model switch must still succeed when the optional follow-up metadata
+    // read is unavailable; otherwise this new UI refresh would regress model
+    // selection for older/offline Gateways.
+    listFails = true;
+    const switchModel = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_model_set",
+      payload: { input: { sessionKey: "agent:main:desktop:thinking-test", modelId: "openai/gpt-5.6" } },
+    });
+    expect(switchModel.statusCode).toBe(200);
+    expect(switchModel.json()).toMatchObject({ ok: true, thinking: null, warning: "sessions.list unavailable" });
+
+    const setWithoutRefresh = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_thinking_set",
+      payload: { input: { sessionKey: "agent:main:desktop:thinking-test", thinkingLevel: "low" } },
+    });
+    expect(setWithoutRefresh.statusCode).toBe(200);
+    expect(setWithoutRefresh.json()).toMatchObject({
+      ok: true,
+      thinkingLevel: "low",
+      levels: [],
+      source: "gateway-session-refresh-unavailable",
+      warning: "sessions.list unavailable",
+    });
+    await app.close();
+  });
+
+  test("thinking options inherit the current model policy while a new session is absent from Gateway history", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method) => {
+      if (method === "sessions.describe") throw new Error("unknown method: sessions.describe");
+      if (method === "sessions.list") {
+        return {
+          defaults: { modelProvider: "openai", model: "gpt-5.6-terra" },
+          sessions: [{
+            key: "agent:main:desktop:existing-session",
+            modelProvider: "openai",
+            model: "gpt-5.6-terra",
+            thinkingOptions: ["off", "minimal", "low", "medium", "high"],
+          }],
+        };
+      }
+      throw new Error(`Unexpected Gateway method: ${method}`);
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_thinking_get",
+      payload: { input: { sessionKey: "agent:main:desktop:new-session" } },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      ok: true,
+      supported: true,
+      modelId: "openai/gpt-5.6-terra",
+      source: "gateway-session-defaults",
+      levels: expect.arrayContaining([expect.objectContaining({ id: "high", label: "high" })]),
+    });
+    await app.close();
+  });
+
   test("skill commands return structured 400 errors for invalid inputs", async () => {
     const app = await createApp(testConfig());
 

@@ -21,6 +21,19 @@ import { WebSearchIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
 import type { ModelEntry } from "@/hooks/useModels"
 import { ModelLogo } from "@/components/model/ModelLogo"
 
+export type ThinkingLevelOption = {
+  id: string
+  label: string
+}
+
+export type ThinkingConfig = {
+  modelId: string | null
+  levels: ThinkingLevelOption[]
+  thinkingLevel: string | null
+  thinkingDefault: string | null
+  supported: boolean
+}
+
 type ActionBarProps = {
   hasInput: boolean
   onSend?: () => void
@@ -40,6 +53,14 @@ type ActionBarProps = {
   modelError?: string | null
   onModelRefresh?: () => void
   onModelSelect: (model: ModelEntry) => void
+  thinking?: ThinkingConfig | null
+  showThinkingSelector?: boolean
+  thinkingOpen?: boolean
+  onThinkingOpenChange?: (open: boolean) => void
+  thinkingUpdating?: boolean
+  thinkingError?: string | null
+  onThinkingSelect?: (thinkingLevel: string | null) => void
+  onThinkingRefresh?: () => void
   isRecording?: boolean
   onVoiceToggle?: () => void
   voiceSupported?: boolean
@@ -69,6 +90,14 @@ export function ActionBar({
   modelError,
   onModelRefresh,
   onModelSelect,
+  thinking = null,
+  showThinkingSelector = false,
+  thinkingOpen = false,
+  onThinkingOpenChange,
+  thinkingUpdating = false,
+  thinkingError = null,
+  onThinkingSelect,
+  onThinkingRefresh,
   isRecording,
   onVoiceToggle,
   voiceSupported = true,
@@ -92,6 +121,9 @@ export function ActionBar({
         (x) => x.name.toLowerCase() === m.name.toLowerCase(),
       ) === i,
   )
+  const thinkingCurrentId = thinking?.thinkingLevel ?? thinking?.thinkingDefault ?? null
+  const thinkingCurrentOption = thinking?.levels.find((level) => level.id === thinkingCurrentId) ?? null
+  const thinkingLabel = thinkingCurrentOption?.label ?? thinkingCurrentId ?? "Thinking"
   return (
     <div className="flex items-center justify-between px-3 pb-3 pt-2">
       {/* Left controls */}
@@ -158,7 +190,10 @@ export function ActionBar({
       {/* Right controls */}
       <div className="flex items-center gap-0.5 sm:gap-1">
         {/* Model selector */}
-        <Popover open={modelOpen} onOpenChange={onModelOpenChange}>
+        <Popover
+          open={modelOpen}
+          onOpenChange={onModelOpenChange}
+        >
           <PopoverTrigger asChild>
             <button
               type="button"
@@ -181,7 +216,7 @@ export function ActionBar({
               "data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[side=top]:data-[state=open]:slide-in-from-bottom-1",
             )}
           >
-            <div className="max-h-60 overflow-y-auto pr-1">
+            <div className="max-h-60 min-w-0 flex-1 overflow-y-auto pr-1">
               {modelLoading && (
                 <p className="px-3 py-2 text-xs text-muted-foreground">
                   Loading models...
@@ -200,13 +235,13 @@ export function ActionBar({
                 </div>
               )}
               {uniqueModels.map((model) => {
-                const isActive = activeModel?.id === model.id
+                const isActive = activeModel?.id === model.id && activeModel.provider === model.provider
                 return (
                   <button
                     key={`${model.provider}/${model.id}`}
                     type="button"
                     className={cn(
-                      "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors text-left",
+                      "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors",
                       isActive
                         ? "bg-foreground/8 font-medium text-foreground"
                         : "text-foreground/80 hover:bg-foreground/8 hover:text-foreground"
@@ -220,9 +255,7 @@ export function ActionBar({
                         {model.reasoning ? `${model.provider} · reasoning` : model.provider}
                       </span>
                     </span>
-                    {isActive && (
-                      <HugeiconsIcon icon={Tick02Icon} size={14} className="shrink-0 text-foreground" />
-                    )}
+                    {isActive && <HugeiconsIcon icon={Tick02Icon} size={14} className="shrink-0 text-foreground" />}
                   </button>
                 )
               })}
@@ -243,6 +276,59 @@ export function ActionBar({
             </div>
           </PopoverContent>
         </Popover>
+
+        {showThinkingSelector && onThinkingOpenChange && (
+          <Popover open={thinkingOpen} onOpenChange={onThinkingOpenChange}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={thinkingUpdating}
+                className="flex h-8 max-w-[104px] cursor-pointer items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-all hover:bg-white/[0.04] hover:text-foreground disabled:cursor-wait disabled:opacity-55"
+                aria-label="Select thinking level"
+              >
+                <span className="truncate">{thinking?.supported ? thinkingLabel : "Thinking"}</span>
+                <HugeiconsIcon icon={ArrowDown01Icon} size={12} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="top"
+              align="end"
+              sideOffset={8}
+              className={cn(
+                "z-[120] w-48 gap-0 overflow-hidden rounded-2xl p-1.5 ring-0 outline-none",
+                "border border-black/[0.10] bg-[var(--glass-bg)] dark:border-black/70",
+                "backdrop-blur-[40px] backdrop-saturate-[180%]",
+                "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+              )}
+            >
+              {thinking?.supported && onThinkingSelect ? (
+                <ThinkingLevelList
+                  config={thinking}
+                  updating={thinkingUpdating}
+                  onSelect={onThinkingSelect}
+                />
+              ) : (
+                <div className="px-2.5 py-1">
+                  <p className="text-[11px] leading-relaxed text-muted-foreground/70">
+                    {thinkingError
+                      ? "Couldn’t load thinking levels."
+                      : "This model does not expose configurable thinking levels."}
+                  </p>
+                  {thinkingError && onThinkingRefresh && (
+                    <button
+                      type="button"
+                      onClick={onThinkingRefresh}
+                      className="mt-2 cursor-pointer rounded-md px-1 py-0.5 text-[11px] font-medium text-foreground/80 transition-colors hover:bg-foreground/8 hover:text-foreground"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+              )}
+              {thinkingError && thinking?.supported && <p className="px-2.5 pb-1 pt-1.5 text-[11px] text-rose-400">{thinkingError}</p>}
+            </PopoverContent>
+          </Popover>
+        )}
 
         {/*
           Voice-to-text button intentionally removed from the message input UI.
@@ -280,6 +366,46 @@ export function ActionBar({
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+function ThinkingLevelList({
+  config,
+  updating,
+  onSelect,
+}: {
+  config: ThinkingConfig
+  updating: boolean
+  onSelect: (thinkingLevel: string | null) => void
+}) {
+  const currentId = config.thinkingLevel ?? config.thinkingDefault
+  return (
+    <div className="space-y-0.5">
+      {config.levels.map((level) => {
+        const isDefault = level.id === config.thinkingDefault
+        const isSelected = currentId === level.id
+        return (
+          <button
+            key={level.id}
+            type="button"
+            disabled={updating}
+            onClick={() => onSelect(level.id)}
+            className={cn(
+              "flex w-full cursor-pointer items-center rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors disabled:cursor-wait disabled:opacity-55",
+              isSelected ? "bg-foreground/8 text-foreground" : "text-foreground/75 hover:bg-foreground/8 hover:text-foreground",
+            )}
+          >
+            <span>{level.label}</span>
+            {isDefault && (
+              <span className="ml-auto rounded-full border border-foreground/10 bg-foreground/[0.06] px-1.5 py-0.5 text-[9px] font-medium leading-none text-muted-foreground">
+                Default
+              </span>
+            )}
+            {isSelected && <HugeiconsIcon icon={Tick02Icon} size={13} className="ml-1 shrink-0" />}
+          </button>
+        )
+      })}
     </div>
   )
 }

@@ -27,6 +27,8 @@ export type UsageResponse = {
   range: { days: number }
   summary: UsageSummary
   providers: ProviderStatus[]
+  // Older middleware versions return the chart data from middleware_usage_daily.
+  daily?: DailyEntry[]
 }
 
 export type DailyEntry = {

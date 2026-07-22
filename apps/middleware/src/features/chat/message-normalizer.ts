@@ -11,6 +11,21 @@ export function containsAttachedFileBlock(value: string): boolean {
   return ATTACHED_FILE_BLOCK_RE.test(value);
 }
 
+export function normalizeAssistantToolProgress(message: OpenClawMessage): OpenClawMessage {
+  if (message.role !== "assistant" || !Array.isArray(message.content)) return message;
+  const meta = isObject(message.__openclaw) ? message.__openclaw as Record<string, unknown> : {};
+  const rawStopReason = message.stopReason ?? (message as Record<string, unknown>).stop_reason ?? meta.stopReason ?? meta.stop_reason;
+  const stopReason = typeof rawStopReason === "string" ? rawStopReason.trim().toLowerCase() : "";
+  if (!["tooluse", "tool_use", "toolcalls", "tool_calls"].includes(stopReason)) return message;
+  const hasToolCall = message.content.some((block) => isObject(block) && ["toolcall", "tool_call", "functioncall", "function_call"].includes(typeof block.type === "string" ? block.type.toLowerCase() : ""));
+  if (!hasToolCall) return message;
+  return {
+    ...message,
+    text: "",
+    content: message.content.filter((block) => !isObject(block) || !["text", "markdown", "output_text", "assistant_text"].includes(typeof block.type === "string" ? block.type.toLowerCase() : "")),
+  };
+}
+
 function isAttachmentLikeContentBlock(block: unknown): boolean {
   if (!isObject(block)) return false;
   const type = typeof block.type === "string" ? block.type.toLowerCase() : "";
@@ -302,6 +317,7 @@ export function normalizeHistoryMessages(sessionKey: string, messages: unknown[]
       return !containsAttachedFileBlock(textFromMessage(message));
     }))
     .filter(hasVisibleAssistantSignal)
+    .map(normalizeAssistantToolProgress)
     .map((message, index) => ({
       sessionKey,
       openclawSeq: readOpenClawSeq(message, firstFallbackSeq + index),
