@@ -282,7 +282,9 @@ export function ChatBox({
     attachmentError,
     isPreparingAttachments,
     fileInputRef,
-    clearAttachments,
+    takeAttachmentsForSend,
+    restoreAttachmentsAfterFailedSend,
+    discardSentAttachments,
     removeAttachment,
     setAttachmentError,
     handleUploadClick,
@@ -774,6 +776,7 @@ export function ChatBox({
     draftBeforeHistoryRef.current = ""
     if (textareaRef.current) textareaRef.current.style.height = "auto"
     dispatchComposer({ type: "send_start", payload, generating: false })
+    const attachmentSnapshot = takeAttachmentsForSend()
     try {
       frontendLog("composer", "composer.send.start", {
         attachmentCount: payload.attachments?.length ?? 0,
@@ -782,11 +785,12 @@ export function ChatBox({
       await onSend?.(payload)
       frontendLog("composer", "composer.send.success", {})
       dispatchComposer({ type: "send_success" })
-      clearAttachments()
+      discardSentAttachments(attachmentSnapshot)
       setAttachmentError(null)
       setSlashMenuOpen(false)
     } catch {
       frontendLog("composer", "composer.send.fail", {}, "error")
+      restoreAttachmentsAfterFailedSend(attachmentSnapshot)
       setInput(payload.text)
       dispatchComposer({
         type: "send_failed",

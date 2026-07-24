@@ -147,6 +147,39 @@ export function useChatComposerAttachments({
     })
   }, [])
 
+  // Move attachments out of the visible composer without releasing their
+  // previews. The caller owns the returned snapshot until the send settles:
+  // discard it on success or restore it on failure.
+  const takeAttachmentsForSend = React.useCallback(() => {
+    const snapshot = attachmentsRef.current
+    attachmentsRef.current = []
+    persistAttachmentDraft(lastStorageKeyRef.current, [])
+    setAttachments([])
+    return snapshot
+  }, [])
+
+  const restoreAttachmentsAfterFailedSend = React.useCallback(
+    (snapshot: ChatComposerAttachment[]) => {
+      if (snapshot.length === 0) return
+      setAttachments((current) => {
+        // Do not overwrite anything the user added while the send was in
+        // flight; the original draft can safely be appended in that case.
+        const next = current.length > 0 ? [...snapshot, ...current] : snapshot
+        attachmentsRef.current = next
+        persistAttachmentDraft(lastStorageKeyRef.current, next)
+        return next
+      })
+    },
+    [],
+  )
+
+  const discardSentAttachments = React.useCallback(
+    (snapshot: ChatComposerAttachment[]) => {
+      for (const attachment of snapshot) releaseAttachmentPreview(attachment)
+    },
+    [],
+  )
+
   const removeAttachment = React.useCallback((attachmentId: string) => {
     setAttachmentError(null)
     setAttachments((prev) => {
@@ -245,6 +278,9 @@ export function useChatComposerAttachments({
     isPreparingAttachments,
     fileInputRef,
     clearAttachments,
+    takeAttachmentsForSend,
+    restoreAttachmentsAfterFailedSend,
+    discardSentAttachments,
     removeAttachment,
     setAttachmentError,
     handleUploadClick,
