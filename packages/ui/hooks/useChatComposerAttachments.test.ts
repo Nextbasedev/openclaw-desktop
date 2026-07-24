@@ -12,25 +12,6 @@ describe("composer attachment drafts", () => {
     __clearComposerAttachmentDraftsForTests()
   })
 
-  test("keeps attachments isolated by draft storage key", () => {
-    const firstKey = "openclaw-composer-attachments-draft:v1:new-chat:draft:group-1:first"
-    const secondKey = "openclaw-composer-attachments-draft:v1:new-chat:draft:group-1:second"
-    const attachment: ChatComposerAttachment = {
-      id: "attachment-1",
-      name: "first.png",
-      mimeType: "image/png",
-      content: "iVBORw0KGgo=",
-      encoding: "base64",
-      size: 12,
-      previewKind: "image",
-    }
-
-    persistAttachmentDraft(firstKey, [attachment])
-
-    expect(loadPersistedAttachments(firstKey)).toHaveLength(1)
-    expect(loadPersistedAttachments(secondKey)).toEqual([])
-  })
-
   test("restores image attachments from memory when localStorage quota write fails", () => {
     const storageKey = "openclaw-composer-attachments-draft:v1:chat:test"
     const localStorageMock = {

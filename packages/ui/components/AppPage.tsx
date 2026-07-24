@@ -188,7 +188,7 @@ function chatBelongsToSpace(chat: ActiveChat | null | undefined, spaceId: string
 
 function createDraftTab(groupId: EditorGroupId): EditorTab {
   return {
-    id: `draft:${groupId}:${randomId()}`,
+    id: `draft:${groupId}`,
     title: "New Chat",
     subtitle: "Chat",
     kind: "draft",
@@ -3453,7 +3453,6 @@ function AppShell({
                   onDraftPrompt={handlePromptDraft}
                   onNavigateToChat={handleCronJobNavigate}
                   onForkNavigate={handleForkNavigate}
-                  newChatDraftKey={`new-chat:${editorGroups.groups[0]?.activeTabId ?? "draft"}`}
                 />
               ) : (
                 <EditorGroupsContainer
@@ -3516,7 +3515,6 @@ function AppShell({
                           onDraftPrompt={handlePromptDraft}
                           onNavigateToChat={handleCronJobNavigate}
                           onForkNavigate={handleForkNavigate}
-                          newChatDraftKey={`new-chat:${group.activeTabId}`}
                         />
                       )
                     }
@@ -3690,7 +3688,6 @@ function MainContent({
   onDraftPrompt,
   onNavigateToChat,
   onForkNavigate,
-  newChatDraftKey = "new-chat:draft",
 }: {
   activeTab: string
   activeTopic: ActiveTopic | null
@@ -3726,7 +3723,6 @@ function MainContent({
   onDraftPrompt?: (prompt: string) => void
   onNavigateToChat?: (chat: ActiveChat) => void | boolean | Promise<void | boolean>
   onForkNavigate?: (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => void
-  newChatDraftKey?: string
 }) {
   if (activeTab === "notifications") {
     return (
@@ -3835,7 +3831,7 @@ function MainContent({
         disabled={quickSending}
         onModelSelect={onDraftModelSelect}
         glowOnMount
-        draftKey={newChatDraftKey}
+        draftKey="new-chat:draft"
         showDraftSpaceBanner
         spaces={spaces}
         activeSpaceId={activeSpaceId}
