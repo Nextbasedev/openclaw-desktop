@@ -60,14 +60,14 @@ function JsonSyntax({ text }: { text: string }) {
       {parts.map((part, index) => {
         if (!part) return null
         const className = part.match(/^"(?:\\.|[^"\\])*"\s*:/)
-          ? "text-sky-700 dark:text-[#7DD3FC]"
+          ? "text-[#7DD3FC]"
           : part.match(/^"/)
-            ? "text-emerald-700 dark:text-[#9BCFAD]"
+            ? "text-[#9BCFAD]"
             : part.match(/^(true|false|null)$/)
-              ? "text-violet-700 dark:text-[#C084FC]"
+              ? "text-[#C084FC]"
               : part.match(/^-?\d/)
-                ? "text-amber-700 dark:text-[#FBBF24]"
-                : "text-slate-700 dark:text-[#A0AABB]"
+                ? "text-[#FBBF24]"
+                : "text-[#5E6A78]"
         return <span key={index} className={className}>{part}</span>
       })}
     </>
@@ -83,26 +83,26 @@ function ShellSyntax({ text }: { text: string }) {
         if (!part) return null
         const lower = part.toLowerCase()
         const className = part.match(/^\s+$/)
-          ? "text-slate-600 dark:text-[#A0AABB]"
+          ? "text-[#5E6A78]"
           : part.startsWith(">") || part.startsWith("$")
-            ? "text-emerald-700 dark:text-[#63E6BE]"
+            ? "text-[#63E6BE]"
             : lower.match(/^(error|failed|fatal)$/)
-              ? "text-red-700 dark:text-[#FF6B6B]"
+              ? "text-[#FF6B6B]"
               : lower.match(/^(warning|warn)$/)
-                ? "text-amber-700 dark:text-[#FBBF24]"
+                ? "text-[#FBBF24]"
                 : lower.match(/^(success|passed|compiled|completed)$/)
-                  ? "text-emerald-700 dark:text-[#63E6BE]"
+                  ? "text-[#63E6BE]"
                   : part.match(/^(?:\.{0,2}\/|~\/|\/)/)
-                    ? "text-blue-700 dark:text-[#8AB4F8]"
+                    ? "text-[#8AB4F8]"
                     : part.match(/^--?[\w-]+$/)
-                      ? "text-violet-700 dark:text-[#C084FC]"
+                      ? "text-[#C084FC]"
                       : part.match(/^(pnpm|npm|yarn|node|tsc|vite|next|wxt|git|grep|rg|python3?|bun|deno|cargo)$/i)
-                        ? "text-sky-700 dark:text-[#7DD3FC]"
+                        ? "text-[#7DD3FC]"
                         : part.match(/^[`"']/)
-                          ? "text-emerald-700 dark:text-[#9BCFAD]"
+                          ? "text-[#9BCFAD]"
                           : part.match(/^-?\d/)
-                            ? "text-amber-700 dark:text-[#FBBF24]"
-                            : "text-slate-700 dark:text-[#A0AABB]"
+                            ? "text-[#FBBF24]"
+                            : "text-[#A0AABB]"
         return <span key={index} className={className}>{part}</span>
       })}
     </>
@@ -134,18 +134,18 @@ function DetailBlock({
       <div
         className={cn(
           "border-b px-5 py-2.5",
-          isInput && "border-slate-200 bg-slate-100 dark:border-white/[0.06] dark:bg-white/[0.06]",
-          isOutput && "border-slate-200 bg-slate-50 dark:border-white/[0.04] dark:bg-white/[0.02]",
-          tone === "error" && "border-red-200 bg-red-50 dark:border-white/4 dark:bg-white/[0.02]"
+          isInput && "border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.06)]",
+          isOutput && "border-[rgba(255,255,255,0.04)] bg-[rgba(255,255,255,0.02)]",
+          tone === "error" && "border-white/4 bg-[rgba(255,255,255,0.02)]"
         )}
       >
         <div className="flex items-center gap-2">
           <span
             className={cn(
               "text-[11px] font-semibold tracking-[0.18em] uppercase",
-              isInput && "text-slate-600 dark:text-[#A0AABB]",
-              isOutput && "text-slate-600 dark:text-[#A0AABB]",
-              tone === "error" && "text-red-700 dark:text-[#FF6B6B]"
+              isInput && "text-[#A0AABB]",
+              isOutput && "text-[#384050]",
+              tone === "error" && "text-red-600 dark:text-[#FF6B6B]"
             )}
           >
             {label}
@@ -154,7 +154,7 @@ function DetailBlock({
       </div>
       <pre
         className={cn(
-          "overflow-auto bg-slate-50 px-5 py-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap dark:bg-[#0B0F16]/70",
+          "overflow-auto bg-[#0B0F16]/70 px-5 py-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap",
           expanded ? "max-h-[80vh]" : "max-h-48",
           tone === "error" && "text-red-700 dark:text-[#FF4D4D]/80"
         )}
@@ -229,7 +229,7 @@ export function ToolCallDetails({
   )
 
   return (
-    <div className="overflow-hidden rounded-b-lg border-x border-b border-slate-200 bg-white opacity-100 dark:border-white/2 dark:bg-[#0B0F16]/70">
+    <div className="overflow-hidden rounded-b-lg border-x border-b border-white/2 bg-[#0B0F16]/70 opacity-100">
       {inputText && (
         <DetailBlock label="Input" tone="input">
           {inputText}
@@ -256,7 +256,7 @@ export function ToolCallDetails({
                       setShowFull((v) => !v)
                     }}
                     disabled={fetching}
-                    className="w-full border-t border-slate-200 bg-slate-50 px-5 py-1.5 text-center text-[11px] font-medium text-blue-700 transition-colors hover:bg-slate-100 hover:text-blue-800 disabled:cursor-wait disabled:opacity-60 dark:border-white/2 dark:bg-white/5 dark:text-[#93C5FD]/75 dark:hover:bg-white/[0.07] dark:hover:text-[#93C5FD]"
+                    className="w-full border-t border-white/2 bg-white/5 px-5 py-1.5 text-center text-[11px] font-medium text-blue-700 transition-colors hover:bg-white/[0.07] hover:text-blue-800 disabled:cursor-wait disabled:opacity-60 dark:text-[#93C5FD]/75 dark:hover:text-[#93C5FD]"
                   >
                     {fetching
                       ? "Loading full output..."
@@ -269,7 +269,7 @@ export function ToolCallDetails({
                 )}
               </>
             ) : showWaitingForOutput ? (
-              <div className="bg-slate-50 px-5 py-4 text-[12px] text-blue-700 transition-opacity duration-300 dark:bg-white/5 dark:text-[#93C5FD]/75">
+              <div className="bg-white/5 px-5 py-4 text-[12px] text-blue-700 transition-opacity duration-300 dark:text-[#93C5FD]/75">
                 Waiting for this tool to return output...
               </div>
             ) : showErrorFallback ? (
@@ -277,7 +277,7 @@ export function ToolCallDetails({
                 {call.resultText || "Tool execution failed."}
               </DetailBlock>
             ) : showEmptyState ? (
-              <div className="bg-slate-50 px-5 py-4 text-[12px] text-muted-foreground transition-opacity duration-300 dark:bg-white/5 dark:text-[#9CA3AF]/75">
+              <div className="bg-white/5 px-5 py-4 text-[12px] text-muted-foreground transition-opacity duration-300 dark:text-[#9CA3AF]/75">
                 No inline input or output was captured for this tool.
               </div>
             ) : null}
