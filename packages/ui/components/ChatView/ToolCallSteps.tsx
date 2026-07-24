@@ -249,10 +249,12 @@ function ToolRow({
         }}
         className={cn(
           "group flex min-h-8 w-full items-center gap-2 px-3 py-1.5 text-left",
-          open ? "rounded-t-md rounded-b-none bg-white/5" : "rounded-md bg-white/5",
-          "border border-white/2",
+          open
+            ? "rounded-t-md rounded-b-none bg-slate-100 dark:bg-white/5"
+            : "rounded-md bg-slate-50 dark:bg-white/5",
+          "border border-slate-200 dark:border-white/2",
           "cursor-pointer transition-colors duration-100",
-          "hover:bg-white/[0.07]"
+          "hover:bg-slate-100 dark:hover:bg-white/[0.07]"
         )}
       >
         <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none", badge.className)}>
@@ -266,7 +268,7 @@ function ToolRow({
             approval needed
           </span>
         )}
-        <span className="shrink-0 font-mono text-[10px] text-[#a8a6a1] dark:text-[#555553] tabular-nums">
+        <span className="shrink-0 font-mono text-[10px] text-slate-500 dark:text-[#555553] tabular-nums">
           {metrics}
         </span>
         <span
@@ -291,8 +293,8 @@ function ToolRow({
           className={cn(
             "flex size-5 shrink-0 items-center justify-center rounded transition-colors",
             hasDetails
-              ? "cursor-pointer text-muted-foreground/35 hover:bg-white/5 hover:text-foreground"
-              : "text-foreground/20"
+              ? "cursor-pointer text-muted-foreground/60 hover:bg-slate-200 hover:text-foreground dark:hover:bg-white/5"
+              : "text-foreground/35"
           )}
         >
           {hasDetails && open ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
@@ -410,7 +412,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
           onInteract?.()
           setStepsOpen((open) => !open)
         }}
-        className="mb-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded py-1 text-left text-muted-foreground/45 transition-colors hover:text-muted-foreground/75"
+        className="mb-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded py-1 text-left text-muted-foreground/70 transition-colors hover:text-muted-foreground dark:text-muted-foreground/45 dark:hover:text-muted-foreground/75"
         aria-expanded={stepsOpen}
       >
         <LuWrench className="size-3.5" />
