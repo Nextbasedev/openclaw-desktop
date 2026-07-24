@@ -143,8 +143,8 @@ function DetailBlock({
           <span
             className={cn(
               "text-[11px] font-semibold tracking-[0.18em] uppercase",
-              isInput && "text-[#A0AABB]",
-              isOutput && "text-[#384050]",
+              isInput && "text-[#B7C0CD]",
+              isOutput && "text-[#B7C0CD]",
               tone === "error" && "text-red-600 dark:text-[#FF6B6B]"
             )}
           >
@@ -256,7 +256,7 @@ export function ToolCallDetails({
                       setShowFull((v) => !v)
                     }}
                     disabled={fetching}
-                    className="w-full border-t border-white/2 bg-white/5 px-5 py-1.5 text-center text-[11px] font-medium text-blue-700 transition-colors hover:bg-white/[0.07] hover:text-blue-800 disabled:cursor-wait disabled:opacity-60 dark:text-[#93C5FD]/75 dark:hover:text-[#93C5FD]"
+                    className="w-full border-t border-white/2 bg-white/5 px-5 py-1.5 text-center text-[11px] font-medium text-[#93C5FD]/75 transition-colors hover:bg-white/[0.07] hover:text-[#93C5FD] disabled:cursor-wait disabled:opacity-60"
                   >
                     {fetching
                       ? "Loading full output..."
