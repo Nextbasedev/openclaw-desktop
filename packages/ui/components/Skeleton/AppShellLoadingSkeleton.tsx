@@ -23,7 +23,7 @@ function ChatRowBone({ active = false, short = false }: { active?: boolean; shor
 export function AppShellLoadingSkeleton() {
   return (
     <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <header className="relative flex h-11 shrink-0 items-center bg-[#151515] px-3 max-md:justify-between">
+      <header className="relative flex h-11 shrink-0 items-center bg-card px-3 max-md:justify-between dark:bg-[#151515]">
         <div className="flex w-[220px] shrink-0 items-center gap-3 max-md:w-auto">
           <Bone className="h-3 w-20" />
           <Bone className="h-5 w-12 rounded-full max-md:hidden" />
