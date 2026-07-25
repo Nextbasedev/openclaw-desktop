@@ -153,7 +153,7 @@ type Props = {
   initialPrompt?: string
   errorMessage?: string | null
   historyMessages?: string[]
-  onSend?: (payload: ChatComposerSubmit) => void | Promise<void>
+  onSend?: (payload: ChatComposerSubmit) => boolean | void | Promise<boolean | void>
   disabled?: boolean
   isGenerating?: boolean
   onAbort?: () => void
@@ -218,7 +218,8 @@ export function ChatBox({
   topAccessory,
 }: Props) {
   const draftStorageKey = draftKey ? `openclaw-composer-draft:v1:${draftKey}` : null
-  const draftAttachmentStorageKey = draftKey ? `openclaw-composer-attachments-draft:v1:${draftKey}` : null
+  const shouldPersistAttachmentDraft = Boolean(draftKey && !draftKey.startsWith("new-chat:"))
+  const draftAttachmentStorageKey = shouldPersistAttachmentDraft && draftKey ? `openclaw-composer-attachments-draft:v1:${draftKey}` : null
   const [input, setInput] = React.useState(() => {
     if (initialPrompt != null) return initialPrompt
     if (!draftStorageKey || typeof localStorage === "undefined") return ""
@@ -283,6 +284,7 @@ export function ChatBox({
     isPreparingAttachments,
     fileInputRef,
     clearAttachments,
+    restoreAttachments,
     removeAttachment,
     setAttachmentError,
     handleUploadClick,
@@ -768,6 +770,7 @@ export function ChatBox({
       autonomyMode: "manual",
       execPolicy: execPolicyForAutonomyMode("manual"),
     }
+    clearAttachments()
     setInput("")
     clearPersistedDraft()
     setHistoryIndex(null)
@@ -779,15 +782,25 @@ export function ChatBox({
         attachmentCount: payload.attachments?.length ?? 0,
         textLength: payload.text.length,
       })
-      await onSend?.(payload)
+      const accepted = await onSend?.(payload)
+      if (accepted === false) {
+        setInput(payload.text)
+        if (payload.attachments?.length) restoreAttachments(payload.attachments)
+        dispatchComposer({ type: "send_success" })
+        requestAnimationFrame(() => {
+          textareaRef.current?.focus()
+          autoResize()
+        })
+        return
+      }
       frontendLog("composer", "composer.send.success", {})
       dispatchComposer({ type: "send_success" })
-      clearAttachments()
       setAttachmentError(null)
       setSlashMenuOpen(false)
     } catch {
       frontendLog("composer", "composer.send.fail", {}, "error")
       setInput(payload.text)
+      if (payload.attachments?.length) restoreAttachments(payload.attachments)
       dispatchComposer({
         type: "send_failed",
         error: "Message failed to send. Try again.",

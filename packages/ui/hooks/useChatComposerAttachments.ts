@@ -147,6 +147,17 @@ export function useChatComposerAttachments({
     })
   }, [])
 
+  const restoreAttachments = React.useCallback((nextAttachments: ChatSendAttachment[]) => {
+    setAttachments((prev) => {
+      for (const attachment of prev) {
+        releaseAttachmentPreview(attachment)
+      }
+      const next = nextAttachments.map(hydrateChatComposerAttachment)
+      persistAttachmentDraft(lastStorageKeyRef.current, next)
+      return next
+    })
+  }, [])
+
   const removeAttachment = React.useCallback((attachmentId: string) => {
     setAttachmentError(null)
     setAttachments((prev) => {
@@ -245,6 +256,7 @@ export function useChatComposerAttachments({
     isPreparingAttachments,
     fileInputRef,
     clearAttachments,
+    restoreAttachments,
     removeAttachment,
     setAttachmentError,
     handleUploadClick,

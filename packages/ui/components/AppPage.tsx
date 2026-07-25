@@ -3448,6 +3448,10 @@ function AppShell({
                   onSubagentOpen={handleSubagentOpen}
                   pendingPrompt={pendingPrompt}
                   composerError={composerError}
+                  draftInstanceKey={(() => {
+                    const focused = editorGroups.groups.find((group) => group.id === editorGroups.focusedGroupId)
+                    return focused?.activeTabId && isDraftTabId(focused.activeTabId) ? focused.activeTabId : undefined
+                  })()}
                   onTopicQuickSend={handleTopicQuickSend}
                   onDraftModelSelect={handleDraftModelSelect}
                   onDraftPrompt={handlePromptDraft}
@@ -3510,6 +3514,7 @@ function AppShell({
                           onSubagentOpen={handleSubagentOpen}
                           pendingPrompt={group.id === editorGroups.focusedGroupId ? pendingPrompt : null}
                           composerError={group.id === editorGroups.focusedGroupId ? composerError : null}
+                          draftInstanceKey={group.activeTabId}
                           onTopicQuickSend={handleTopicQuickSend}
                           onDraftModelSelect={handleDraftModelSelect}
                           onDraftPrompt={handlePromptDraft}
@@ -3553,6 +3558,10 @@ function AppShell({
                 onSubagentOpen={handleSubagentOpen}
                 pendingPrompt={pendingPrompt}
                 composerError={composerError}
+                draftInstanceKey={(() => {
+                  const focused = editorGroups.groups.find((group) => group.id === editorGroups.focusedGroupId)
+                  return focused?.activeTabId && isDraftTabId(focused.activeTabId) ? focused.activeTabId : undefined
+                })()}
                 onTopicQuickSend={handleTopicQuickSend}
                 onDraftModelSelect={handleDraftModelSelect}
                 onDraftPrompt={handlePromptDraft}
@@ -3683,6 +3692,7 @@ function MainContent({
   onSubagentOpen,
   pendingPrompt,
   composerError,
+  draftInstanceKey,
   onTopicQuickSend,
   onDraftModelSelect,
   onDraftPrompt,
@@ -3718,6 +3728,7 @@ function MainContent({
   onSubagentOpen?: (sessionKey: string | null, agentId?: string | null) => void
   pendingPrompt?: string | null
   composerError?: string | null
+  draftInstanceKey?: string | null
   onTopicQuickSend?: (payload: ChatComposerSubmit) => void | Promise<void>
   onDraftModelSelect?: (modelId: string) => void | Promise<void>
   onDraftPrompt?: (prompt: string) => void
@@ -3824,14 +3835,14 @@ function MainContent({
     <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
       <AnimatedGreeting />
       <ChatBox
-        key={pendingPrompt ?? "chat-draft"}
+        key={pendingPrompt ?? draftInstanceKey ?? "chat-draft"}
         initialPrompt={pendingPrompt ?? undefined}
         errorMessage={composerError}
         onSend={onQuickSend}
         disabled={quickSending}
         onModelSelect={onDraftModelSelect}
         glowOnMount
-        draftKey="new-chat:draft"
+        draftKey={`new-chat:${activeSpaceId ?? "default"}:${draftInstanceKey ?? "draft"}`}
         showDraftSpaceBanner
         spaces={spaces}
         activeSpaceId={activeSpaceId}
