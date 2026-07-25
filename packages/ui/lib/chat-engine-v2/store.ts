@@ -29,6 +29,8 @@ export type SessionState = {
   // the answer lands, instead of being dropped (which would hang the run on
   // "Responding…"). null when there is no pending terminal status.
   pendingDoneStatus: { status: StreamStatus; label: string | null } | null
+  suppressAssistantAfterAbort: boolean
+  suppressedAssistantMessageIdsAfterAbort: Set<string>
 }
 
 type Listener = (state: SessionState, frame?: PatchFrame) => void
@@ -87,11 +89,13 @@ function cloneState(state: SessionState): SessionState {
     lastPatchAtMs: state.lastPatchAtMs,
     activityStartedAtMs: state.activityStartedAtMs,
     pendingDoneStatus: state.pendingDoneStatus,
+    suppressAssistantAfterAbort: state.suppressAssistantAfterAbort,
+    suppressedAssistantMessageIdsAfterAbort: new Set(state.suppressedAssistantMessageIdsAfterAbort),
   }
 }
 
 function defaultState(): SessionState {
-  return { cursor: 0, messages: [], historyCoverage: "none", messageCount: null, status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0, pendingDoneStatus: null }
+  return { cursor: 0, messages: [], historyCoverage: "none", messageCount: null, status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0, pendingDoneStatus: null, suppressAssistantAfterAbort: false, suppressedAssistantMessageIdsAfterAbort: new Set() }
 }
 
 function normalizedSpawnText(value: string | null | undefined) {
@@ -1339,6 +1343,59 @@ function isAssistantErrorMessagePatch(frame: PatchFrame) {
   return message.stopReason === "error" && !text
 }
 
+function isAssistantAbortNoticePatch(frame: PatchFrame) {
+  const message = patchMessage(frame)
+  if (!message || message.role !== "assistant") return false
+  const text = textFromUnknown(message.text ?? message.content).trim()
+  return /\babort(?:ed|ing)?\b/i.test(text) || message.stopReason === "aborted"
+}
+
+function isAssistantAbortNoticeMessage(message: ChatMessage) {
+  if (message.role !== "assistant") return false
+  return /\babort(?:ed|ing)?\b/i.test(message.text.trim()) || message.stopReason === "aborted"
+}
+
+function isSuppressibleAssistantMessageAfterAbort(message: ChatMessage) {
+  if (message.role !== "assistant") return false
+  return !isAssistantAbortNoticeMessage(message)
+}
+
+function isSuppressiblePatchAfterAbort(frame: PatchFrame) {
+  const message = patchMessage(frame)
+  if (message?.role === "assistant") return !isAssistantAbortNoticePatch(frame)
+  const semanticType = patchSemanticType(frame)
+  if (frame.patch.type.startsWith("chat.assistant.") || semanticType.startsWith("chat.assistant.")) return true
+  if (frame.patch.type.startsWith("chat.tool.") || semanticType.startsWith("chat.tool.")) return true
+  return false
+}
+
+function suppressibleAssistantPatchMessageId(frame: PatchFrame) {
+  const message = patchMessage(frame)
+  if (!message || message.role !== "assistant" || isAssistantAbortNoticePatch(frame)) return null
+  return messageStableId(message, frame)
+}
+
+function markVisibleRunningToolsAborted(state: SessionState) {
+  const completedAt = Date.now()
+  state.messages = state.messages.map((message) => {
+    if (message.role !== "assistant" || !message.toolCalls?.length) return message
+    let changed = false
+    const toolCalls = message.toolCalls.map((tool) => {
+      if (tool.status !== "running") return tool
+      changed = true
+      return {
+        ...tool,
+        status: "error" as const,
+        awaitingResult: false,
+        completedAt: tool.completedAt ?? completedAt,
+        duration: tool.duration ?? formatToolDuration(tool.startedAt, completedAt),
+        resultText: tool.resultText ?? "Agent was aborted before this tool reported a result.",
+      }
+    })
+    return changed ? { ...message, toolCalls } : message
+  })
+}
+
 function markLatestAssistantErrorForReveal(state: SessionState) {
   for (let i = state.messages.length - 1; i >= 0; i--) {
     const message = state.messages[i]
@@ -1774,6 +1831,23 @@ function handlePatch(frame: PatchFrame) {
     }, "debug")
     return
   }
+  if (isUserMessagePatch(frame)) {
+    state.suppressAssistantAfterAbort = false
+  } else if (state.suppressAssistantAfterAbort && isSuppressiblePatchAfterAbort(frame)) {
+    const suppressedMessageId = suppressibleAssistantPatchMessageId(frame)
+    if (suppressedMessageId) state.suppressedAssistantMessageIdsAfterAbort.add(suppressedMessageId)
+    state.cursor = Math.max(state.cursor, frame.patch.cursor)
+    state.status = "idle"
+    state.statusLabel = null
+    state.activityStartedAtMs = 0
+    frontendLog("stream", "global-chat-session.aborted-assistant-patch-suppressed", {
+      sessionKey,
+      patchCursor: frame.patch.cursor,
+      patchType: frame.patch.type,
+      semanticType: patchSemanticType(frame),
+    }, "debug")
+    return
+  }
   const toolOnlyBeforeSignature = isToolOnlyPatch(frame)
     ? visualStateSignature(state)
     : null
@@ -2020,12 +2094,32 @@ export function seedGlobalChatSession(params: {
 }) {
   if (params.queryClient) queryClientRef = params.queryClient
   const state = getOrCreate(params.sessionKey)
+  const existingMessageIds = new Set(state.messages.map((message) => message.messageId))
+  let incomingMessages = params.messages
+  if (state.suppressAssistantAfterAbort || state.suppressedAssistantMessageIdsAfterAbort.size > 0) {
+    incomingMessages = params.messages.filter((message) => {
+      if (state.suppressedAssistantMessageIdsAfterAbort.has(message.messageId)) return false
+      if (existingMessageIds.has(message.messageId)) return true
+      const shouldSuppress = state.suppressAssistantAfterAbort && isSuppressibleAssistantMessageAfterAbort(message)
+      if (shouldSuppress) state.suppressedAssistantMessageIdsAfterAbort.add(message.messageId)
+      return !shouldSuppress
+    })
+    if (incomingMessages.length !== params.messages.length) {
+      frontendLog("stream", "global-chat-session.aborted-assistant-seed-suppressed", {
+        sessionKey: params.sessionKey,
+        suppressedCount: params.messages.length - incomingMessages.length,
+        incomingCursor: params.cursor ?? 0,
+      }, "debug")
+    }
+  }
   const incomingCursor = params.cursor ?? 0
   const incomingHistoryCoverage = params.historyCoverage ?? "full"
-  const incomingMessageCount = params.messageCount ?? params.messages.length
+  const incomingMessageCount = params.messageCount == null
+    ? incomingMessages.length
+    : Math.max(0, params.messageCount - (params.messages.length - incomingMessages.length))
   const hasLiveState = ACTIVE_STATUSES.has(state.status) || hasActiveToolOrSubagent(state)
   const incomingIsTerminal = Boolean(params.status && !ACTIVE_STATUSES.has(params.status))
-  const incomingDropsMessages = params.messages.length < state.messages.length
+  const incomingDropsMessages = incomingMessages.length < state.messages.length
   const incomingToolIds = new Set((params.pendingTools ?? []).map((tool) => tool.id))
   const incomingDropsRunningTool = state.pendingTools.some((tool) => tool.status === "running" && !incomingToolIds.has(tool.id))
   const hasNewerCursor = state.cursor > incomingCursor && state.messages.length > 0
@@ -2041,7 +2135,7 @@ export function seedGlobalChatSession(params: {
     (incomingDropsMessages || incomingDropsRunningTool)
   const shouldPreserveLocalMessages = hasNewerCursor || hasSameCursorLiveState || incomingPartialDropsLocalMessages
   const shouldPreserveLocalActivity = hasNewerCursor || (hasSameCursorLiveState && !incomingMayBePartial) || (incomingPartialDropsLocalMessages && !incomingIsTerminal)
-  state.messages = mergeSeedMessages(state.messages, params.messages)
+  state.messages = mergeSeedMessages(state.messages, incomingMessages)
   state.cursor = Math.max(state.cursor, incomingCursor)
   if (!shouldPreserveLocalMessages || incomingHistoryCoverage === "full") {
     state.historyCoverage = incomingHistoryCoverage
@@ -2050,6 +2144,7 @@ export function seedGlobalChatSession(params: {
   if (params.status && !shouldPreserveLocalActivity) {
     const wasActive = ACTIVE_STATUSES.has(state.status)
     state.status = params.status
+    if (ACTIVE_STATUSES.has(params.status)) state.suppressAssistantAfterAbort = false
     const now = Date.now()
     state.activityStartedAtMs = ACTIVE_STATUSES.has(params.status)
       ? (wasActive && state.activityStartedAtMs ? state.activityStartedAtMs : now)
@@ -2087,6 +2182,7 @@ export function updateGlobalChatSessionActivity(params: {
   spawnedSubagents?: SpawnedSubagent[]
   status?: StreamStatus
   statusLabel?: string | null
+  suppressAssistantMessagesAfterAbort?: boolean
 }) {
   const state = getOrCreate(params.sessionKey)
   if (params.pendingTools) state.pendingTools = params.pendingTools
@@ -2105,6 +2201,12 @@ export function updateGlobalChatSessionActivity(params: {
   }
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
   if (appliedStatus) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
+  if (params.suppressAssistantMessagesAfterAbort) {
+    state.suppressAssistantAfterAbort = true
+    markVisibleRunningToolsAborted(state)
+  } else if (params.status && ACTIVE_STATUSES.has(params.status)) {
+    state.suppressAssistantAfterAbort = false
+  }
   if (appliedStatus) finalizeActiveToolsForTerminalStatus(state, state.status)
   frontendLog("status", "global-chat-session.activity-update", {
     sessionKey: params.sessionKey,

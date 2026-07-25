@@ -2707,7 +2707,15 @@ export function useChatMessages(
           pendingTools: [],
           status: "idle",
           statusLabel: null,
+          suppressAssistantMessagesAfterAbort: true,
         })
+        setStatus("idle")
+        setStatusLabel(null)
+        setWasAborted(true)
+        sendingGuardRef.current = false
+        setIsSending(false)
+        frontendLog("chat", "chat.stop-command.settled", { sessionKey })
+        return true
       }
 
       const replyTo = payload.replyTo ?? undefined
@@ -3075,6 +3083,7 @@ export function useChatMessages(
         spawnedSubagents: Array.from(spawnMapRef.current.values()),
         status: "idle",
         statusLabel: null,
+        suppressAssistantMessagesAfterAbort: true,
       })
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error))
