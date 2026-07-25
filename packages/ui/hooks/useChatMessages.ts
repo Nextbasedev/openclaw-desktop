@@ -2654,6 +2654,57 @@ export function useChatMessages(
       const runsAlongsideGeneration = Boolean(
         isGenerating && payload.runWhileGenerating && !isStopCommand
       )
+      if (isStopCommand) {
+        const globalActivity = getGlobalChatSession(sessionKey)
+        const hasActiveWork = isGenerating ||
+          isActiveRunStatus(statusRef.current) ||
+          isActiveRunStatus(globalActivity?.status) ||
+          sendingGuardRef.current ||
+          pendingToolMapRef.current.size > 0 ||
+          pendingTools.some((tool) => tool.status === "running") ||
+          Array.from(spawnMapRef.current.values()).some((spawn) => isActiveSubagent(spawn.status))
+        frontendLog("chat", "chat.stop-command.abort-before-send", {
+          sessionKey,
+          status: statusRef.current,
+          globalStatus: globalActivity?.status ?? null,
+          hasActiveWork,
+        })
+        setStatus("stopping")
+        setStatusLabel(null)
+        updateGlobalChatSessionActivity({
+          sessionKey,
+          pendingTools: [],
+          status: "stopping",
+          statusLabel: null,
+          suppressAssistantMessagesAfterAbort: true,
+        })
+        if (hasActiveWork) {
+          try {
+            await abortChatV2({ sessionKey })
+          } catch (error) {
+            frontendLog("chat", "chat.stop-command.abort-fail", {
+              sessionKey,
+              error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+            }, "warn")
+          }
+        }
+        pendingToolMapRef.current.clear()
+        setPendingTools([])
+        updateGlobalChatSessionActivity({
+          sessionKey,
+          pendingTools: [],
+          status: "idle",
+          statusLabel: null,
+          suppressAssistantMessagesAfterAbort: true,
+        })
+        setStatus("idle")
+        setStatusLabel(null)
+        setWasAborted(true)
+        sendingGuardRef.current = false
+        setIsSending(false)
+        frontendLog("chat", "chat.stop-command.settled", { sessionKey, hasActiveWork })
+        return true
+      }
       if ((!trimmed && !hasAttachments) || (sendingGuardRef.current && !runsAlongsideGeneration)) return false
       frontendLog("composer", "chat.send.start", {
         sessionKey,
@@ -2680,42 +2731,6 @@ export function useChatMessages(
         }
         setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
         doneAfterYieldRef.current = 0
-      }
-
-      if (isGenerating && isStopCommand) {
-        frontendLog("chat", "chat.stop-command.abort-before-send", { sessionKey, status: statusRef.current })
-        setStatus("stopping")
-        setStatusLabel(null)
-        updateGlobalChatSessionActivity({
-          sessionKey,
-          pendingTools: [],
-          status: "stopping",
-          statusLabel: null,
-        })
-        try {
-          await abortChatV2({ sessionKey })
-        } catch (error) {
-          frontendLog("chat", "chat.stop-command.abort-fail", {
-            sessionKey,
-            error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
-          }, "warn")
-        }
-        pendingToolMapRef.current.clear()
-        setPendingTools([])
-        updateGlobalChatSessionActivity({
-          sessionKey,
-          pendingTools: [],
-          status: "idle",
-          statusLabel: null,
-          suppressAssistantMessagesAfterAbort: true,
-        })
-        setStatus("idle")
-        setStatusLabel(null)
-        setWasAborted(true)
-        sendingGuardRef.current = false
-        setIsSending(false)
-        frontendLog("chat", "chat.stop-command.settled", { sessionKey })
-        return true
       }
 
       const replyTo = payload.replyTo ?? undefined

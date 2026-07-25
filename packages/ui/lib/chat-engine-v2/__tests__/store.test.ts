@@ -3045,6 +3045,47 @@ describe("global V2 chat engine store", () => {
     ]))
   })
 
+  test("suppresses assistant patches as soon as stop enters stopping state", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "long task" }],
+      cursor: 1,
+      status: "thinking",
+      statusLabel: "Thinking",
+    })
+
+    updateGlobalChatSessionActivity({
+      sessionKey: "s1",
+      pendingTools: [],
+      status: "stopping",
+      statusLabel: null,
+      suppressAssistantMessagesAfterAbort: true,
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          projectionVersion: 3,
+          semanticType: "chat.assistant.final",
+          runStatus: "done",
+          status: "done",
+          statusLabel: null,
+          messageId: "a-final",
+          message: { role: "assistant", text: "Late answer after stop." },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.messages).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ messageId: "a-final" }),
+    ]))
+  })
+
   test("suppresses late bootstrap assistant answers after local abort until the next user turn", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
