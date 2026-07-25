@@ -18,7 +18,7 @@ import {
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "@/lib/chat-engine-v2/applyPatches"
 import { resolveNextStreamStatus } from "./streamStatusResolver"
 import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
-import { getGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity } from "@/lib/chat-engine-v2/store"
+import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import type { PatchFrame } from "@/lib/chat-engine-v2/types"
 import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParser"
@@ -1414,37 +1414,7 @@ export function ChatView({
     if (!text && !payload.attachments?.length) return
     const hasAttachments = (payload.attachments?.length ?? 0) > 0
     const isStopCommand = !hasAttachments && !payload.replyTo && isStopSlashCommand(text)
-    if (isStopCommand) {
-      const globalSession = getGlobalChatSession(sessionKey)
-      const hasActiveGlobalRun = Boolean(globalSession && ACTIVE_STREAM_STATUSES.has(globalSession.status))
-      const hasActiveLocalRun = isGenerating || ACTIVE_STREAM_STATUSES.has(state.streamStatus)
-      const hasActiveTools = state.messages.some((message) => message.toolCalls?.some((tool) => tool.status === "running"))
-      const hasActiveSubagents = spawnedSubagents.some((spawn) => spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working")
-      if (!hasActiveGlobalRun && !hasActiveLocalRun && !hasActiveTools && !hasActiveSubagents) return
-      updateGlobalChatSessionActivity({
-        sessionKey,
-        pendingTools: [],
-        status: "stopping",
-        statusLabel: null,
-        suppressAssistantMessagesAfterAbort: true,
-      })
-      await handleAbort({ settleIdle: false })
-      updateGlobalChatSessionActivity({
-        sessionKey,
-        pendingTools: [],
-        status: "idle",
-        statusLabel: null,
-        suppressAssistantMessagesAfterAbort: true,
-      })
-      setState((current) => ({
-        ...current,
-        composerError: null,
-        streamStatus: "idle",
-        statusLabel: null,
-      }))
-      return
-    }
-    if (isGenerating && !payload.runWhileGenerating) {
+    if (isGenerating && !payload.runWhileGenerating && !isStopCommand) {
       if (!canEnqueueChatMessage(queuedMessagesRef.current)) {
         const message = `Queue limit reached. Max ${MAX_QUEUED_CHAT_MESSAGES} messages can be queued.`
         setState((current) => ({ ...current, composerError: message }))
