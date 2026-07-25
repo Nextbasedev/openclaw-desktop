@@ -20,9 +20,9 @@ afterEach(() => {
 })
 
 describe("stripAssistantOutputDirectives", () => {
-  it("removes reply delivery directives from assistant text", () => {
+  it("removes only reply delivery directive tokens from assistant text", () => {
     assert.equal(stripAssistantOutputDirectives("[[reply_to_current]] Hola, amigo."), "Hola, amigo.")
-    assert.equal(stripAssistantOutputDirectives("Strip [[reply_to_current]] Hola, amigo."), "Hola, amigo.")
+    assert.equal(stripAssistantOutputDirectives("Strip [[reply_to_current]] Hola, amigo."), "Strip Hola, amigo.")
     assert.equal(stripAssistantOutputDirectives("[[reply_to:11228]]\nHello"), "Hello")
   })
 

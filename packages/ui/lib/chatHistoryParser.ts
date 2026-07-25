@@ -397,15 +397,17 @@ function normalizeAssistantText(text: string): string {
   return `Error: ${formatChatErrorMessage(withoutDirectives)}`
 }
 
-const ASSISTANT_OUTPUT_DIRECTIVE_RE =
-  /^\s*(?:Strip\s+)?\[\[\s*(?:reply_to_current|reply_to\s*:[^\]]+|audio_as_voice)\s*\]\]\s*/i
-const ASSISTANT_OUTPUT_DIRECTIVE_LINE_RE =
-  /^\s*(?:Strip\s+)?\[\[\s*(?:reply_to_current|reply_to\s*:[^\]]+|audio_as_voice)\s*\]\]\s*$/gim
+const ASSISTANT_OUTPUT_DIRECTIVE_TOKEN_RE =
+  /\[\[\s*(?:reply_to_current|reply_to\s*:[^\]]+|audio_as_voice)\s*\]\]/gi
 
 export function stripAssistantOutputDirectives(text: string): string {
-  let result = text.replace(ASSISTANT_OUTPUT_DIRECTIVE_RE, "")
-  result = result.replace(ASSISTANT_OUTPUT_DIRECTIVE_LINE_RE, "")
-  return result.replace(/^\n+/, "").trimEnd()
+  return text
+    .replace(ASSISTANT_OUTPUT_DIRECTIVE_TOKEN_RE, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/^\s*\n+/, "")
+    .replace(/^\s+(?=\S)/, "")
+    .replace(/ {2,}/g, " ")
+    .trimEnd()
 }
 
 function visibleMessageText(raw: RawHistoryMessage): string {
