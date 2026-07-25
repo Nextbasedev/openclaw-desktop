@@ -21,6 +21,22 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("history normalization strips assistant delivery directive tokens only", () => {
+    const normalized = normalizeHistoryMessages("s1", [
+      { role: "assistant", text: "[[reply_to_current]] Hola, amigo.", __openclaw: { id: "a1", seq: 1 } },
+      { role: "assistant", text: "Strip [[reply_to:11228]] Hola, amigo.", __openclaw: { id: "a2", seq: 2 } },
+      { role: "assistant", content: [{ type: "text", text: "[[audio_as_voice]] Voice note text" }], __openclaw: { id: "a3", seq: 3 } },
+      { role: "user", text: "[[reply_to_current]] user typed literal token", __openclaw: { id: "u1", seq: 4 } },
+    ]);
+
+    expect(normalized.map((message) => message.data.text ?? (message.data.content as Array<{ text?: string }> | undefined)?.[0]?.text)).toEqual([
+      "Hola, amigo.",
+      "Strip Hola, amigo.",
+      "Voice note text",
+      "[[reply_to_current]] user typed literal token",
+    ]);
+  });
+
   test("history normalization drops blank assistant retry shells but keeps errors and tools", () => {
     const normalized = normalizeHistoryMessages("s1", [
       { role: "user", content: [{ type: "text", text: "image prompt" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "abc" } }], __openclaw: { id: "u1", seq: 1 } },

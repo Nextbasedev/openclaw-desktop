@@ -5,10 +5,62 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 const ATTACHED_FILE_BLOCK_RE = /(?:<attached-file\b[^>]*>[\s\S]*?(?:<\/attached-file>|$)|&lt;attached-file\b[\s\S]*?(?:&lt;\/attached-file&gt;|$))/gi;
+const ASSISTANT_OUTPUT_DIRECTIVE_TOKEN_RE = /\[\[\s*(?:reply_to_current|reply_to\s*:[^\]]+|audio_as_voice)\s*\]\]/gi;
 
 export function containsAttachedFileBlock(value: string): boolean {
   ATTACHED_FILE_BLOCK_RE.lastIndex = 0;
   return ATTACHED_FILE_BLOCK_RE.test(value);
+}
+
+export function stripAssistantOutputDirectiveTokens(value: string): string {
+  return value
+    .replace(ASSISTANT_OUTPUT_DIRECTIVE_TOKEN_RE, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/^\s*\n+/, "")
+    .replace(/^\s+(?=\S)/, "")
+    .replace(/ {2,}/g, " ")
+    .trimEnd();
+}
+
+function sanitizeAssistantOutputMessage(message: OpenClawMessage): OpenClawMessage {
+  if (message.role !== "assistant") return message;
+  let changed = false;
+  const next: OpenClawMessage = { ...message };
+
+  if (typeof next.text === "string") {
+    const text = stripAssistantOutputDirectiveTokens(next.text);
+    if (text !== next.text) {
+      next.text = text;
+      changed = true;
+    }
+  }
+
+  if (typeof next.content === "string") {
+    const content = stripAssistantOutputDirectiveTokens(next.content);
+    if (content !== next.content) {
+      next.content = content;
+      changed = true;
+    }
+  } else if (Array.isArray(next.content)) {
+    const content = next.content.map((block) => {
+      if (typeof block === "string") {
+        const text = stripAssistantOutputDirectiveTokens(block);
+        if (text !== block) changed = true;
+        return text;
+      }
+      if (isObject(block) && typeof block.text === "string") {
+        const text = stripAssistantOutputDirectiveTokens(block.text);
+        if (text !== block.text) {
+          changed = true;
+          return { ...block, text };
+        }
+      }
+      return block;
+    });
+    if (changed) next.content = content;
+  }
+
+  return changed ? next : message;
 }
 
 export function normalizeAssistantToolProgress(message: OpenClawMessage): OpenClawMessage {
@@ -67,9 +119,9 @@ export function textFromMessage(message: OpenClawMessage): string {
 // gateway used (e.g. mirroring into the live patch payload so live-finalize
 // matches the reload/history render).
 export function assistantAnswerTextFromMessage(message: Parameters<typeof textFromMessage>[0]): string {
-  if (typeof message.text === "string" && message.text.trim().length > 0) return message.text;
+  if (typeof message.text === "string" && message.text.trim().length > 0) return stripAssistantOutputDirectiveTokens(message.text);
   const content = message.content;
-  if (typeof content === "string") return content;
+  if (typeof content === "string") return stripAssistantOutputDirectiveTokens(content);
   if (Array.isArray(content)) {
     return content.map((block) => {
       if (typeof block === "string") return block;
@@ -77,7 +129,7 @@ export function assistantAnswerTextFromMessage(message: Parameters<typeof textFr
       if (isObject(block) && typeof block.text === "string") {
         const type = typeof block.type === "string" ? block.type.trim().toLowerCase() : "text";
         if (type === "text" || type === "markdown" || type === "output_text" || type === "assistant_text") {
-          return block.text;
+          return stripAssistantOutputDirectiveTokens(block.text);
         }
       }
       return "";
@@ -311,6 +363,7 @@ function collapseImageFallbackAttempts(messages: OpenClawMessage[]) {
 export function normalizeHistoryMessages(sessionKey: string, messages: unknown[], nowMs = Date.now(), firstFallbackSeq = 1): ProjectedMessage[] {
   return collapseImageFallbackAttempts(messages
     .filter((message): message is OpenClawMessage => Boolean(message) && typeof message === "object" && !Array.isArray(message))
+    .map(sanitizeAssistantOutputMessage)
     .filter((message) => !isInternalSubagentCompletionMessage(message))
     .filter((message) => {
       if (message.role === "user") return true;
