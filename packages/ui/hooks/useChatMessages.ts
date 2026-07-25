@@ -2710,6 +2710,7 @@ export function useChatMessages(
           pendingTools: [],
           status: "idle",
           statusLabel: null,
+          suppressAssistantMessagesAfterAbort: true,
         })
         sendingGuardRef.current = false
         setIsSending(false)
@@ -3082,6 +3083,7 @@ export function useChatMessages(
         spawnedSubagents: Array.from(spawnMapRef.current.values()),
         status: "idle",
         statusLabel: null,
+        suppressAssistantMessagesAfterAbort: true,
       })
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error))

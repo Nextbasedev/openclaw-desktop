@@ -11,6 +11,7 @@ import {
   subscribeGlobalChatSession,
   sweepStaleGlobalChatSessions,
   trimSessionMessageWindow,
+  updateGlobalChatSessionActivity,
 } from "../store"
 
 vi.mock("../client", () => ({
@@ -2975,6 +2976,130 @@ describe("global V2 chat engine store", () => {
         text: "Fixed.",
         toolCalls: [expect.objectContaining({ id: "tool-1", tool: "exec", status: "success" })],
       }),
+    ]))
+  })
+
+  test("suppresses late assistant and tool patches after local abort", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [
+        { messageId: "u1", role: "user", text: "describe yourself" },
+        { messageId: "a-tools", role: "assistant", text: "", toolCalls: [{ id: "tool-1", tool: "memory_search", status: "running" }] },
+      ],
+      cursor: 1,
+      status: "tool_running",
+      statusLabel: "memory_search",
+      pendingTools: [{ id: "tool-1", tool: "memory_search", status: "running" }],
+    })
+
+    updateGlobalChatSessionActivity({
+      sessionKey: "s1",
+      pendingTools: [],
+      status: "idle",
+      statusLabel: null,
+      suppressAssistantMessagesAfterAbort: true,
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          sessionKey: "s1",
+          toolCall: { toolCallId: "tool-1", name: "memory_search", phase: "result", status: "success", text: "identity Herry" },
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 3_000,
+        payload: {
+          projectionVersion: 3,
+          semanticType: "chat.assistant.final",
+          runStatus: "done",
+          status: "done",
+          statusLabel: null,
+          messageId: "a-final",
+          message: { role: "assistant", text: "I'm Herry, your personal AI assistant." },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state).toMatchObject({ status: "idle", statusLabel: null, pendingTools: [] })
+    expect(state?.messages).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ messageId: "a-final" }),
+    ]))
+    expect(state?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a-tools",
+        toolCalls: [expect.objectContaining({ id: "tool-1", status: "error" })],
+      }),
+    ]))
+  })
+
+  test("suppresses late bootstrap assistant answers after local abort until the next user turn", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [
+        { messageId: "u1", role: "user", text: "describe yourself" },
+        { messageId: "a-abort", role: "assistant", text: "Agent was aborted.", stopReason: "aborted" },
+      ],
+      cursor: 1,
+      status: "idle",
+    })
+    updateGlobalChatSessionActivity({
+      sessionKey: "s1",
+      status: "idle",
+      suppressAssistantMessagesAfterAbort: true,
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [
+        { messageId: "u1", role: "user", text: "describe yourself" },
+        { messageId: "a-abort", role: "assistant", text: "Agent was aborted.", stopReason: "aborted" },
+        { messageId: "a-late", role: "assistant", text: "I'm Herry, your personal AI assistant." },
+      ],
+      cursor: 5,
+      status: "done",
+    })
+
+    expect(getGlobalChatSession("s1")?.messages).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ messageId: "a-late" }),
+    ]))
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 6,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 6_000,
+        payload: { message: { role: "user", text: "new question" } },
+      },
+    })
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [
+        { messageId: "u1", role: "user", text: "describe yourself" },
+        { messageId: "a-abort", role: "assistant", text: "Agent was aborted.", stopReason: "aborted" },
+        { messageId: "u2", role: "user", text: "new question" },
+        { messageId: "a-new", role: "assistant", text: "Fresh answer." },
+      ],
+      cursor: 7,
+      status: "done",
+    })
+
+    expect(getGlobalChatSession("s1")?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ messageId: "a-new", text: "Fresh answer." }),
     ]))
   })
 
