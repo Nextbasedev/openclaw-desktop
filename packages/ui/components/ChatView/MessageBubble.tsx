@@ -827,10 +827,10 @@ function MessageAttachments({
   if (!attachments || attachments.length === 0) return null
 
   const imageAttachments = attachments.filter(
-    (attachment) => getChatAttachmentKind(attachment) === "image"
+    (attachment) => getChatAttachmentKind(attachment) === "image" && Boolean(chatAttachmentHref(attachment))
   )
   const otherAttachments = attachments.filter(
-    (attachment) => getChatAttachmentKind(attachment) !== "image"
+    (attachment) => getChatAttachmentKind(attachment) !== "image" || !chatAttachmentHref(attachment)
   )
 
   return (
