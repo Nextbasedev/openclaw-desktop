@@ -1507,13 +1507,6 @@ export function ChatView({
               messageId: payload.replyTo.messageId,
               role: payload.replyTo.role,
               snippet: payload.replyTo.text.slice(0, 500),
-              attachments: payload.replyTo.attachments?.map((attachment) => ({
-                name: attachment.name,
-                mimeType: attachment.mimeType,
-                content: attachment.content,
-                url: attachment.url,
-                size: attachment.size,
-              })),
             }
           : undefined,
         autonomyMode: payload.autonomyMode ?? null,
@@ -1687,7 +1680,18 @@ export function ChatView({
     const message = findMessageById(messageId)
     if (!message) return
     const selected = selectedText?.trim()
-    setReplyTo(selected ? { ...message, text: selected } : message)
+    setReplyTo({
+      messageId: message.messageId,
+      role: message.role,
+      text: selected || message.text,
+      attachments: message.attachments?.map((attachment) => ({
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        content: attachment.content,
+        url: attachment.url,
+        size: attachment.size,
+      })),
+    })
   }
 
   function handleExport(messageId: string) {

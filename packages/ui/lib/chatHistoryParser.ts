@@ -791,6 +791,34 @@ function normalizeReplyTo(raw: unknown): ReplyTo | undefined {
   return { messageId, role, text, attachments }
 }
 
+function hasRenderableReplyAttachment(attachments: ReplyTo["attachments"] | undefined) {
+  return Boolean(attachments?.some((attachment) => attachment.content || attachment.url))
+}
+
+function hydrateReplyAttachmentPreviews(messages: ChatMessage[]) {
+  const messagesById = new Map(messages.map((message) => [message.messageId, message]))
+  return messages.map((message) => {
+    const replyTo = message.replyTo
+    if (!replyTo) return message
+    if (hasRenderableReplyAttachment(replyTo.attachments)) return message
+    const target = messagesById.get(replyTo.messageId)
+    if (!target?.attachments?.length) return message
+    return {
+      ...message,
+      replyTo: {
+        ...replyTo,
+        attachments: target.attachments.map((attachment) => ({
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          content: attachment.content,
+          url: attachment.url,
+          size: attachment.size,
+        })),
+      },
+    }
+  })
+}
+
 function readMessageAttachments(raw: RawHistoryMessage): ChatMessage["attachments"] {
   const fromTopLevel: NonNullable<ChatMessage["attachments"]> = []
   if (Array.isArray(raw.attachments)) {
@@ -1127,5 +1155,5 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
     subagents.push(publicSpawn)
   }
 
-  return { messages, subagents }
+  return { messages: hydrateReplyAttachmentPreviews(messages), subagents }
 }
