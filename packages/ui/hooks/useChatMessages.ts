@@ -2702,12 +2702,19 @@ export function useChatMessages(
         }
         pendingToolMapRef.current.clear()
         setPendingTools([])
+        setStatus("idle")
+        setStatusLabel(null)
+        setWasAborted(true)
         updateGlobalChatSessionActivity({
           sessionKey,
           pendingTools: [],
           status: "idle",
           statusLabel: null,
         })
+        sendingGuardRef.current = false
+        setIsSending(false)
+        frontendLog("composer", "chat.stop-command.settled", { sessionKey })
+        return true
       }
 
       const replyTo = payload.replyTo ?? undefined
