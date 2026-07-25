@@ -449,7 +449,9 @@ function isActivelyStreamingAssistant(params: {
   isGenerating: boolean
 }) {
   const { message, index, messages, isGenerating } = params
-  return isGenerating && message.role === "assistant" && index === messages.length - 1
+  if (!isGenerating || message.role !== "assistant") return false
+  const latestUserIndex = messages.map((item) => item.role).lastIndexOf("user")
+  return index > latestUserIndex
 }
 
 function GeneratingStatus({ label, tool }: { label: string; tool?: string | null }) {
