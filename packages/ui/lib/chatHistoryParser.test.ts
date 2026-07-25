@@ -5,6 +5,7 @@ import {
   cleanUserMessageText,
   isTransientSlashCommandHistory,
   parseChatHistory,
+  stripAssistantOutputDirectives,
   stripGatewayPrefixes,
 } from "./chatHistoryParser"
 
@@ -16,6 +17,23 @@ function clean(text: string): string {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe("stripAssistantOutputDirectives", () => {
+  it("removes reply delivery directives from assistant text", () => {
+    assert.equal(stripAssistantOutputDirectives("[[reply_to_current]] Hola, amigo."), "Hola, amigo.")
+    assert.equal(stripAssistantOutputDirectives("Strip [[reply_to_current]] Hola, amigo."), "Hola, amigo.")
+    assert.equal(stripAssistantOutputDirectives("[[reply_to:11228]]\nHello"), "Hello")
+  })
+
+  it("strips directives during assistant history parsing but preserves user text", () => {
+    const parsed = parseChatHistory([
+      { role: "assistant", text: "[[reply_to_current]] Hola, amigo.", __openclaw: { id: "a1", seq: 1 } },
+      { role: "user", text: "[[reply_to_current]] should stay if user typed it", __openclaw: { id: "u1", seq: 2 } },
+    ])
+    assert.equal(parsed.messages[0].text, "Hola, amigo.")
+    assert.equal(parsed.messages[1].text, "[[reply_to_current]] should stay if user typed it")
+  })
 })
 
 describe("stripGatewayPrefixes", () => {
