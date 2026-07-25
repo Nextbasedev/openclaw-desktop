@@ -10,6 +10,7 @@ import { extractText } from "../components/ChatView/utils"
 import { extractSubagentSessionKey, extractSubagentSessionKeys } from "./subagentSession"
 import { mergeAssistantText } from "./chatMessageDedupe"
 import { buildInboundMediaUrl } from "./middlewareMedia"
+import { hydrateReplyAttachmentPreviews } from "./chatReplyAttachmentHydration"
 
 const BLOCKQUOTE_RE = /^((?:>[^\n]*(?:\n|$))+)\n([\s\S]+)$/
 const REFERENCE_BLOCK_RE = /Reference\s+\d+:\s*(?:\n)?([\s\S]*?)(?=\n\nReference\s+\d+:|$)/gi
@@ -791,53 +792,6 @@ function normalizeReplyTo(raw: unknown): ReplyTo | undefined {
   return { messageId, role, text, attachments }
 }
 
-function replyAttachmentMatchesMessageAttachment(
-  replyAttachment: NonNullable<ReplyTo["attachments"]>[number],
-  messageAttachment: NonNullable<ChatMessage["attachments"]>[number],
-) {
-  const sameName = replyAttachment.name === messageAttachment.name
-  const sameMime = !replyAttachment.mimeType || !messageAttachment.mimeType || replyAttachment.mimeType === messageAttachment.mimeType
-  const sameSize = typeof replyAttachment.size !== "number" || typeof messageAttachment.size !== "number" || replyAttachment.size === messageAttachment.size
-  return sameName && sameMime && sameSize
-}
-
-function hasRenderableReplyAttachment(attachments: ReplyTo["attachments"] | undefined) {
-  return Boolean(attachments?.some((attachment) => attachment.content || attachment.url))
-}
-
-function hydrateReplyAttachmentPreviews(messages: ChatMessage[]) {
-  const messagesById = new Map(messages.map((message) => [message.messageId, message]))
-  return messages.map((message) => {
-    const replyTo = message.replyTo
-    if (!replyTo) return message
-    const referenced = messagesById.get(replyTo.messageId)
-    const hydratedReplyAttachments = hasRenderableReplyAttachment(replyTo.attachments)
-      ? replyTo.attachments
-      : referenced?.attachments?.map((attachment) => ({
-          name: attachment.name,
-          mimeType: attachment.mimeType,
-          content: attachment.content,
-          url: attachment.url,
-          size: attachment.size,
-        })) ?? replyTo.attachments
-    const filteredMessageAttachments = hydratedReplyAttachments?.length && message.attachments?.length
-      ? message.attachments.filter((attachment) =>
-          !hydratedReplyAttachments.some((replyAttachment) =>
-            replyAttachmentMatchesMessageAttachment(replyAttachment, attachment)
-          )
-        )
-      : message.attachments
-    if (hydratedReplyAttachments === replyTo.attachments && filteredMessageAttachments === message.attachments) return message
-    return {
-      ...message,
-      attachments: filteredMessageAttachments,
-      replyTo: {
-        ...replyTo,
-        attachments: hydratedReplyAttachments,
-      },
-    }
-  })
-}
 
 function readMessageAttachments(raw: RawHistoryMessage): ChatMessage["attachments"] {
   const fromTopLevel: NonNullable<ChatMessage["attachments"]> = []

@@ -20,6 +20,7 @@ import { resolveNextStreamStatus } from "./streamStatusResolver"
 import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
 import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
+import { hydrateReplyAttachmentPreviews } from "@/lib/chatReplyAttachmentHydration"
 import type { PatchFrame } from "@/lib/chat-engine-v2/types"
 import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParser"
 import { latestGatewayThinkingLevel } from "@/lib/gatewayThinkingLevel"
@@ -1735,7 +1736,7 @@ export function ChatView({
   )
 
   const renderedMessages = useMemo(
-    () => orderChatMessages(dedupeChatMessages(state.messages)),
+    () => hydrateReplyAttachmentPreviews(orderChatMessages(dedupeChatMessages(state.messages))),
     [state.messages]
   )
   // Sub-agents derived from the parent message stream. Parent patches tell us
