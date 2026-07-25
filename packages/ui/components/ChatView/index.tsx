@@ -18,7 +18,7 @@ import {
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "@/lib/chat-engine-v2/applyPatches"
 import { resolveNextStreamStatus } from "./streamStatusResolver"
 import * as activeRunRegistry from "@/lib/chat-engine-v2/activeRunRegistry"
-import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
+import { getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import type { PatchFrame } from "@/lib/chat-engine-v2/types"
 import { parseChatHistory, type RawHistoryMessage } from "@/lib/chatHistoryParser"
@@ -132,6 +132,7 @@ type Props = {
     sessionKey: string
     projectId?: string | null
     topicId?: string | null
+    initialMessages?: ChatMessage[]
   }) => void
   isBackgroundSession?: boolean
 }
@@ -567,6 +568,7 @@ export function ChatView({
   sessionTitle,
   initialPrompt,
   initialMessages,
+  forkContext,
   onFirstMessageSent,
   onSelectTool,
   onForkNavigate,
@@ -609,10 +611,16 @@ export function ChatView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   )
+  const hasInitialMessagesBootstrap = useMemo(
+    () => Boolean(initialMessages?.length),
+    // Capture-at-mount for the same reason as hasOptimisticBootstrap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
   // Snapshot the initial messages once so a later parent-side
   // setInitialMessages(undefined) doesn't strip the bubble out from under us.
   const initialMessagesSnapshotRef = useRef<ChatMessage[] | undefined>(
-    hasOptimisticBootstrap ? initialMessages : undefined
+    hasInitialMessagesBootstrap ? initialMessages : undefined
   )
 
   // Hydrate from the active-run registry on mount. If we have a snapshot for
@@ -625,7 +633,7 @@ export function ChatView({
   // left off.
   const hydrateFromRegistry = useMemo(
     () =>
-      !hasOptimisticBootstrap && !isBackgroundSession
+      !hasInitialMessagesBootstrap && !isBackgroundSession
         ? activeRunRegistry.get(sessionKey)
         : null,
     // Capture-at-mount: the rest of this component's lifecycle handles
@@ -636,14 +644,16 @@ export function ChatView({
   )
 
   const [state, setState] = useState<HistoryState>(() => {
-    if (hasOptimisticBootstrap) {
+    if (hasInitialMessagesBootstrap) {
+      const seededMessages = initialMessages ?? []
+      const initialStatus = hasOptimisticBootstrap ? "thinking" : "idle"
       return {
         loading: false,
         error: null,
         composerError: null,
-        messages: initialMessages ?? [],
-        streamStatus: "thinking",
-        statusLabel: "Thinking",
+        messages: seededMessages,
+        streamStatus: initialStatus,
+        statusLabel: hasOptimisticBootstrap ? "Thinking" : null,
       }
     }
     if (hydrateFromRegistry) {
@@ -826,19 +836,25 @@ export function ChatView({
     // final "thinking" state from the initial setState above, so this
     // useEffect must NOT re-set state to loading:true — doing so would
     // flash the ChatLoadingSkeleton over the optimistic bubble.
-    if (hasOptimisticBootstrap) {
+    if (hasInitialMessagesBootstrap) {
       const seededMessages = initialMessagesSnapshotRef.current ?? []
       const lastSeeded = seededMessages[seededMessages.length - 1]
+      const firstSeeded = seededMessages[0]
+      const seededOldestSeq =
+        firstSeeded && typeof firstSeeded.gatewayIndex === "number"
+          ? firstSeeded.gatewayIndex
+          : null
       const seededNewestSeq =
         lastSeeded && typeof lastSeeded.gatewayIndex === "number"
           ? lastSeeded.gatewayIndex
           : null
-      // No messages have been confirmed by the gateway yet — use an empty
-      // initial page so older/newer evaluators don't try to fetch.
+      // Optimistic first-send has no confirmed gateway history yet; fork
+      // bootstrap is an intentional local transcript and should be treated as
+      // the full initial page so it opens immediately without a cold fetch.
       setWindowState(
         applyInitialPage({
-          returnedCount: 0,
-          oldestSeq: null,
+          returnedCount: hasOptimisticBootstrap ? 0 : seededMessages.length,
+          oldestSeq: hasOptimisticBootstrap ? null : seededOldestSeq,
           newestSeq: seededNewestSeq,
           requestedLimit: liveTailQuery().limit,
         })
@@ -854,7 +870,7 @@ export function ChatView({
         "chat",
         "chat-rebuild.send.optimistic-render",
         {
-          origin: "chatview-optimistic-bootstrap",
+          origin: hasOptimisticBootstrap ? "chatview-optimistic-bootstrap" : "chatview-initial-messages-bootstrap",
           timestamp: Date.now(),
           sessionKey,
           seededCount: seededMessages.length,
@@ -1079,11 +1095,11 @@ export function ChatView({
     return () => {
       cancelled = true
     }
-    // hasOptimisticBootstrap is captured by closure and is stable for the
+    // hasInitialMessagesBootstrap is captured by closure and is stable for the
     // lifetime of this mount (set once from initialMessages; parent remounts
     // ChatView per session via key={chatId:sessionKey}). Including it in deps
     // would re-run the bootstrap effect if the parent later cleared
-    // initialMessages, which would wipe our optimistic bubble.
+    // initialMessages, which would wipe our optimistic/fork bootstrap.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isBackgroundSession, sessionKey])
 
@@ -1640,9 +1656,27 @@ export function ChatView({
   }
 
   function handleFork(messageId: string) {
+    const forkMessages = orderChatMessages(dedupeChatMessages(state.messages))
+    const forkIndex = forkMessages.findIndex((message) => message.messageId === messageId)
+    const forkTranscript = forkIndex >= 0 ? forkMessages.slice(0, forkIndex + 1) : forkMessages
+    const forkSessionKey = `${sessionKey}:fork:${messageId}`
+    seedGlobalChatSession({
+      sessionKey: forkSessionKey,
+      messages: forkTranscript,
+      status: "idle",
+      statusLabel: null,
+      pendingTools: [],
+      spawnedSubagents: [],
+      historyCoverage: "full",
+      messageCount: forkTranscript.length,
+    })
     onForkNavigate?.({
+      id: `fork:${encodeURIComponent(forkSessionKey)}`,
       name: "Forked chat",
-      sessionKey: `${sessionKey}:fork:${messageId}`,
+      sessionKey: forkSessionKey,
+      projectId: forkContext?.type === "topic" ? forkContext.projectId : null,
+      topicId: forkContext?.type === "topic" ? forkSessionKey : null,
+      initialMessages: forkTranscript,
     })
   }
 

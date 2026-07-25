@@ -23,6 +23,7 @@ import { useSpaces } from "@/hooks/useSpaces"
 import { useTopicSession } from "@/hooks/useTopicSession"
 import ConnectPage from "@/components/ConnectPage"
 import { ChatView } from "@/components/ChatView"
+import type { ChatMessage } from "@/components/ChatView/types"
 import { useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
 import { LogsDialog } from "@/components/logs/LogsDialog"
@@ -74,6 +75,7 @@ import { AppContextMenu } from "@/components/AppContextMenu"
 type SettingsSection = SettingSection
 type EditorGroupId = "group-1" | "group-2"
 type SpaceSwitchOptions = { openSidebar?: boolean }
+type ForkNavigatePayload = { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null; spaceId?: string | null; initialMessages?: ChatMessage[] }
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
 const INSPECTOR_ROUTE_TABS = new Set<InspectorTabId>([
@@ -1932,7 +1934,7 @@ function AppShell({
   }, [activeChat, activeSessionKey, activeSessionTitle, activeSpaceId, handleChatSelect])
 
   const handleForkNavigate = useCallback(
-    (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null; spaceId?: string | null }) => {
+    (chat: ForkNavigatePayload) => {
       setChatRefreshTrigger((n) => n + 1)
       if (chat.projectId && chat.topicId && activeTopic?.projectId === chat.projectId) {
         const forkTopic = {
@@ -1944,15 +1946,45 @@ function AppShell({
         setActiveTopic(forkTopic)
         setActiveSessionKey(chat.sessionKey)
         setActiveSessionTitle(chat.name)
-        setInitialMessages(undefined)
+        setInitialMessages(chat.initialMessages)
         window.history.pushState(null, "", routeUrl(`/${chat.projectId}/${chat.topicId}`))
         return
       }
       if (chat.id) {
+        if (chat.initialMessages?.length) {
+          const forkChat: ActiveChat = { id: chat.id, name: chat.name, sessionKey: chat.sessionKey, spaceId: chat.spaceId ?? activeSpaceId ?? undefined }
+          const title = chatTitleOrFallback(chat.name)
+          setPendingPrompt(null)
+          setComposerError(null)
+          setActiveTab("chat")
+          setActiveTopic(null)
+          setActiveChat(forkChat)
+          setActiveSessionKey(chat.sessionKey)
+          setActiveSessionTitle(title)
+          setInitialMessages(chat.initialMessages)
+          dispatchGroups({
+            type: "ADD_TAB",
+            groupId: editorGroups.focusedGroupId,
+            tab: {
+              id: `chat:${forkChat.id}`,
+              title,
+              subtitle: "Chat",
+              kind: "chat",
+              chat: forkChat,
+            },
+          })
+          dispatchGroups({
+            type: "SET_SESSION_DATA",
+            groupId: editorGroups.focusedGroupId,
+            sessionData: { chat: forkChat, sessionKey: chat.sessionKey, title },
+          })
+          window.history.pushState(null, "", routeUrl(`/${forkChat.id}`))
+          return
+        }
         handleChatSelect({ id: chat.id, name: chat.name, sessionKey: chat.sessionKey, spaceId: chat.spaceId ?? undefined })
       }
     },
-    [activeTopic, handleChatSelect],
+    [activeSpaceId, activeTopic, editorGroups.focusedGroupId, handleChatSelect],
   )
 
   const handleTopicClear = useCallback(() => {
@@ -3475,6 +3507,7 @@ function AppShell({
                           forkContext={{ type: "chat" }}
                           activeSpaceId={activeSpaceId}
                           onSubagentOpen={isFocusedActiveSession ? handleSubagentOpen : undefined}
+                          onForkNavigate={handleForkNavigate}
                         />
                       )
                     }
