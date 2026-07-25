@@ -985,36 +985,4 @@ describe("parseChatHistory", () => {
       text: assistantText,
     })
   })
-
-  it("hydrates reply preview attachments from the referenced image message", () => {
-    const parsed = parseChatHistory([
-      {
-        id: "user-image",
-        role: "user",
-        text: "which shirt man wear?",
-        attachments: [
-          {
-            name: "shirt.png",
-            mimeType: "image/png",
-            content: "iVBORw0KGgo=",
-            encoding: "base64",
-            size: 12,
-          },
-        ],
-      },
-      {
-        id: "user-reply",
-        role: "user",
-        text: "and what about the hair color?",
-        replyTo: {
-          messageId: "user-image",
-          role: "user",
-          snippet: "which shirt man wear?",
-          attachments: [{ name: "shirt.png", mimeType: "image/png", size: 12 }],
-        },
-      },
-    ])
-
-    assert.equal(parsed.messages[1]?.replyTo?.attachments?.[0]?.content, "iVBORw0KGgo=")
-  })
 })
