@@ -252,9 +252,11 @@ function ApprovalPromptCard({
 function CopyButton({
   text,
   className: cls,
+  tooltip = "Copy",
 }: {
   text: string
   className?: string
+  tooltip?: string
 }) {
   const [copied, setCopied] = useState(false)
 
@@ -265,22 +267,53 @@ function CopyButton({
   }, [text])
 
   return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className={cn(
-        "flex size-6 items-center justify-center rounded-md",
-        "transition-colors duration-150",
-        "cursor-pointer text-foreground/40 hover:text-foreground dark:text-foreground/30 dark:hover:text-white",
-        cls
-      )}
-    >
-      {copied ? (
-        <LuCheck className="size-3.5" />
-      ) : (
-        <LuCopy className="size-3.5" />
-      )}
-    </button>
+    <GlassActionTooltip label={copied ? "Copied" : tooltip}>
+      <button
+        type="button"
+        onClick={handleCopy}
+        className={cn(
+          "flex size-6 items-center justify-center rounded-md",
+          "transition-colors duration-150",
+          "cursor-pointer text-foreground/40 hover:text-foreground dark:text-foreground/30 dark:hover:text-white",
+          cls
+        )}
+        aria-label={tooltip}
+      >
+        {copied ? (
+          <LuCheck className="size-3.5" />
+        ) : (
+          <LuCopy className="size-3.5" />
+        )}
+      </button>
+    </GlassActionTooltip>
+  )
+}
+
+function GlassActionTooltip({
+  label,
+  children,
+  side = "top",
+}: {
+  label: string
+  children: ReactNode
+  side?: "top" | "bottom"
+}) {
+  return (
+    <span className="group/tooltip relative inline-flex">
+      {children}
+      <span
+        role="tooltip"
+        className={cn(
+          "pointer-events-none absolute left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium text-foreground/85 opacity-0 transition-all duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100",
+          "border border-black/[0.10] bg-[var(--glass-bg)] shadow-[0_12px_32px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)] backdrop-blur-[28px] backdrop-saturate-[180%] dark:border-black/70",
+          side === "top"
+            ? "bottom-full mb-1.5 translate-y-1 group-hover/tooltip:translate-y-0 group-focus-within/tooltip:translate-y-0"
+            : "top-full mt-1.5 -translate-y-1 group-hover/tooltip:translate-y-0 group-focus-within/tooltip:translate-y-0"
+        )}
+      >
+        {label}
+      </span>
+    </span>
   )
 }
 
@@ -1743,40 +1776,46 @@ export const MessageBubble = memo(function MessageBubble({
             )}
             <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100">
               {!isGenerating && onEdit && !editing && (
-                <button
-                  type="button"
-                  onClick={startEdit}
-                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/40 transition-colors hover:text-foreground dark:text-foreground/30 dark:hover:text-white"
-                >
-                  <LuPenLine className="size-3.5" />
-                </button>
+                <GlassActionTooltip label="Edit">
+                  <button
+                    type="button"
+                    onClick={startEdit}
+                    className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/40 transition-colors hover:text-foreground dark:text-foreground/30 dark:hover:text-white"
+                    aria-label="Edit"
+                  >
+                    <LuPenLine className="size-3.5" />
+                  </button>
+                </GlassActionTooltip>
               )}
               <CopyButton text={message.text} />
               {onReply && (
-                <button
-                  type="button"
-                  onClick={() => onReply(message.messageId)}
-                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/40 transition-colors hover:text-foreground dark:text-foreground/30 dark:hover:text-white"
-                  aria-label="Reply"
-                >
-                  <LuReply className="size-3.5" />
-                </button>
+                <GlassActionTooltip label="Reply">
+                  <button
+                    type="button"
+                    onClick={() => onReply(message.messageId)}
+                    className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/40 transition-colors hover:text-foreground dark:text-foreground/30 dark:hover:text-white"
+                    aria-label="Reply"
+                  >
+                    <LuReply className="size-3.5" />
+                  </button>
+                </GlassActionTooltip>
               )}
               {onPin && (
-                <button
-                  type="button"
-                  onClick={() => onPin(message.messageId)}
-                  className={cn(
-                    "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
-                    isPinned
-                      ? "text-foreground"
-                      : "text-foreground/40 hover:text-foreground dark:text-foreground/30 dark:hover:text-white"
-                  )}
-                  aria-label={isPinned ? "Unpin message" : "Pin message"}
-                  title={isPinned ? "Unpin" : "Pin"}
-                >
-                  <LuPin className={cn("size-3", isPinned && "fill-current")} />
-                </button>
+                <GlassActionTooltip label={isPinned ? "Unpin" : "Pin"}>
+                  <button
+                    type="button"
+                    onClick={() => onPin(message.messageId)}
+                    className={cn(
+                      "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
+                      isPinned
+                        ? "text-foreground"
+                        : "text-foreground/40 hover:text-foreground dark:text-foreground/30 dark:hover:text-white"
+                    )}
+                    aria-label={isPinned ? "Unpin message" : "Pin message"}
+                  >
+                    <LuPin className={cn("size-3", isPinned && "fill-current")} />
+                  </button>
+                </GlassActionTooltip>
               )}
             </div>
             {hasBranches && !editing && onSwitchBranch && (
