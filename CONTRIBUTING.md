@@ -1,4 +1,4 @@
-Thanks for your interest in cpntribute this desktop app.
+Thanks for your interest in contribute this desktop app.
 
 # Contributing to OpenClaw Desktop
 
