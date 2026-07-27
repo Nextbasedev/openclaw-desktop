@@ -80,9 +80,10 @@ Context:
 Source:
 - Repo: https://github.com/Nextbasedev/openclaw-desktop.git
 - Branch: master
+- Required repository state: fetch origin/master, check out master, and fast-forward it before building or starting Middleware. Do not use another branch or an uncommitted checkout.
 
 Read and follow this Local setup guide before running setup or returning a URL/code:
-https://github.com/Nextbasedev/openclaw-desktop/blob/prompt-fix/docs/setup/local-setup.md
+https://github.com/Nextbasedev/openclaw-desktop/blob/master/docs/setup/local-setup.md
 
 Use the guide's local discovery, health validation, error handling, and final-response rules. If Desktop and Middleware are not on this same computer, do not invent a local URL or pairing code; direct the user to Remote connection.`
 
@@ -95,9 +96,10 @@ Context:
 Source:
 - Repo: https://github.com/Nextbasedev/openclaw-desktop.git
 - Branch: master
+- Required repository state: fetch origin/master, check out master, and fast-forward it before building or starting Middleware. Do not use another branch or an uncommitted checkout.
 
 Read and follow this setup guide before running setup or returning a URL/code:
-https://github.com/Nextbasedev/openclaw-desktop/blob/prompt-fix/docs/setup/setup.md
+https://github.com/Nextbasedev/openclaw-desktop/blob/master/docs/setup/setup.md
 
 Use the guide's Auto discovery, pairing, validation, error handling, and final-response rules. Return only the guide's final response format.`
 

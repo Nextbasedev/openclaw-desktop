@@ -14,6 +14,18 @@ Do **not** install packages, log in, create tunnels, restart services, change DN
 
 > A full first-time install/build can exceed one minute. The one-minute target applies to finding and validating an already-running Middleware and configured network path.
 
+## Required repository state
+
+Build and run Middleware only from the repository's up-to-date `master` branch. Before installing dependencies, building, or starting Middleware in an existing checkout, run:
+
+```bash
+git fetch origin master
+git checkout master
+git pull --ff-only origin master
+```
+
+If any command fails because the checkout has local changes or cannot fast-forward, stop and report that exact blocker. Do not use another branch, a stale `master`, or uncommitted code to run Middleware.
+
 ## 1. Confirm the server is ready
 
 1. Confirm Node.js 22+ and pnpm are available.

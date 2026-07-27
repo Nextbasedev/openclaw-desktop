@@ -12,6 +12,18 @@
 
 **Important:** Local connection is only for the same computer. A LAN IP, Tailscale address, Cloudflare hostname, or ngrok URL is not local from Desktop's point of view. Do not paste those into the Local form; use Remote connection and the VPS/network setup guide instead.
 
+## Required repository state
+
+Build and run Middleware only from the repository's up-to-date `master` branch. Before installing dependencies, building, or starting Middleware in an existing checkout, run:
+
+```bash
+git fetch origin master
+git checkout master
+git pull --ff-only origin master
+```
+
+If any command fails because the checkout has local changes or cannot fast-forward, stop and report that exact blocker. Do not use another branch, a stale `master`, or uncommitted code to run Middleware.
+
 ## 1. Fast local setup
 
 1. Confirm Node.js 22+ and pnpm are installed.
@@ -62,7 +74,7 @@ Move to **Remote connection** if any condition below is true:
 
 Follow the remote guide for those cases:
 
-https://github.com/Nextbasedev/openclaw-desktop/blob/prompt-fix/docs/setup/setup.md
+https://github.com/Nextbasedev/openclaw-desktop/blob/master/docs/setup/setup.md
 
 The Remote guide discovers Tailscale, Cloudflare Tunnel, and ngrok; creates/requires a pairing code; validates the exact URL; and handles network failures.
 
