@@ -3,8 +3,26 @@
 import { cn } from "@/lib/utils"
 import type { InlineToolCall } from "./types"
 
+function isInferredFallbackResult(value: unknown) {
+  if (!value) return false
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const record = value as { inferred?: unknown; reason?: unknown }
+    return record.inferred === true && typeof record.reason === "string"
+  }
+  if (typeof value !== "string") return false
+  const trimmed = value.trim()
+  if (!trimmed.startsWith("{")) return false
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    return isInferredFallbackResult(parsed)
+  } catch {
+    return false
+  }
+}
+
 function formatDetail(value: unknown, limit: number) {
   if (value === undefined || value === null || value === "") return ""
+  if (isInferredFallbackResult(value)) return ""
   let text = ""
   try {
     text = typeof value === "string" ? value : JSON.stringify(value, null, 2)

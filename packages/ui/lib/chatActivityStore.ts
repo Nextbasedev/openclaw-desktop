@@ -3,7 +3,7 @@
 import type { InlineToolCall, SpawnedSubagent, StreamStatus } from "../components/ChatView/types"
 import { isActiveSubagent } from "./subagentLifecycle"
 
-type ChatActivitySnapshot = {
+export type ChatActivitySnapshot = {
   status: StreamStatus
   statusLabel: string | null
   pendingTools: InlineToolCall[]
@@ -11,7 +11,14 @@ type ChatActivitySnapshot = {
   updatedAt: number
 }
 
+type ChatActivityListener = (sessionKey: string, snapshot: ChatActivitySnapshot | null) => void
+
 const activity = new Map<string, ChatActivitySnapshot>()
+const listeners = new Set<ChatActivityListener>()
+
+function emitActivity(sessionKey: string, snapshot: ChatActivitySnapshot | null) {
+  for (const listener of [...listeners]) listener(sessionKey, snapshot)
+}
 
 function hasLiveTool(tools: InlineToolCall[]) {
   return tools.some((tool) => tool.status === "running")
@@ -35,9 +42,12 @@ export function cacheChatActivity(
     hasLiveSubagent(snapshot.spawnedSubagents)
   if (!live) {
     activity.delete(sessionKey)
+    emitActivity(sessionKey, null)
     return
   }
-  activity.set(sessionKey, { ...snapshot, updatedAt: Date.now() })
+  const next = { ...snapshot, updatedAt: Date.now() }
+  activity.set(sessionKey, next)
+  emitActivity(sessionKey, next)
 }
 
 export function markOptimisticChatActivity(
@@ -58,8 +68,19 @@ export function getCachedChatActivity(sessionKey: string) {
 
 export function clearCachedChatActivity(sessionKey: string) {
   activity.delete(sessionKey)
+  emitActivity(sessionKey, null)
+}
+
+export function getAllCachedChatActivity() {
+  return new Map(activity)
+}
+
+export function subscribeChatActivity(listener: ChatActivityListener) {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
 }
 
 export function clearChatActivityStoreForTests() {
   activity.clear()
+  for (const listener of [...listeners]) listener("", null)
 }

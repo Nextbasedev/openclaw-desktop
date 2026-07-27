@@ -11,6 +11,7 @@ export type {
   SearchChatResult,
   SearchMessageResult,
   SearchProjectResult,
+  SearchSpaceResult,
   SearchTopicResult,
 } from "./searchTypes"
 
@@ -22,7 +23,7 @@ export async function searchGlobal(
 ): Promise<GlobalSearchResponse> {
   const normalizedQuery = normalizeQuery(query)
   if (!normalizedQuery) {
-    return { projects: [], topics: [], chats: [], messages: [] }
+    return { spaces: [], projects: [], topics: [], chats: [], messages: [] }
   }
 
   const safeLimit = Math.max(1, Math.min(limit, 20))

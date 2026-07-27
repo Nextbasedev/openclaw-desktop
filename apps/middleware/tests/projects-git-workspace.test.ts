@@ -54,15 +54,38 @@ describe("projects/git/workspace", () => {
     expect(diff.body.patch).toContain("+change")
   })
 
-  it("reads and writes workspace files with path traversal protection", async () => {
+  it("reads, writes, stats, moves, downloads, and deletes workspace files with path traversal protection", async () => {
     const repo = createRepo(); const app = makeApp(repo)
     const created = await auth(request(app).post("/api/projects")).send({ name: "repo", workspaceRoot: repo, repoRoot: repo })
     const projectId = created.body.project.id
+
+    const capabilities = await auth(request(app).get(`/api/projects/${projectId}/workspace/capabilities`))
+    expect(capabilities.status).toBe(200)
+    expect(capabilities.body.capabilities).toMatchObject({ canStat: true, canCreateDir: true, canMoveEntry: true, canDownloadFile: true, canDeleteEntry: true })
+
+    const mkdir = await auth(request(app).post(`/api/projects/${projectId}/workspace/mkdir`)).send({ path: "src" })
+    expect(mkdir.status).toBe(200)
 
     const write = await auth(request(app).put(`/api/projects/${projectId}/workspace/file`)).send({ path: "src/test.txt", content: "hello" })
     expect(write.status).toBe(200)
     const read = await auth(request(app).get(`/api/projects/${projectId}/workspace/file`).query({ path: "src/test.txt" }))
     expect(read.body.file.content).toBe("hello")
+
+    const stat = await auth(request(app).get(`/api/projects/${projectId}/workspace/stat`).query({ path: "src/test.txt" }))
+    expect(stat.status).toBe(200)
+    expect(stat.body.entry).toMatchObject({ name: "test.txt", path: "src/test.txt", type: "file" })
+
+    const download = await auth(request(app).get(`/api/projects/${projectId}/workspace/download`).query({ path: "src/test.txt" }))
+    expect(download.status).toBe(200)
+    expect(download.body.toString()).toBe("hello")
+
+    const move = await auth(request(app).post(`/api/projects/${projectId}/workspace/move`)).send({ fromPath: "src/test.txt", toPath: "src/renamed.txt" })
+    expect(move.status).toBe(200)
+    expect(fs.existsSync(path.join(repo, "src/renamed.txt"))).toBe(true)
+
+    const deleted = await auth(request(app).delete(`/api/projects/${projectId}/workspace/file`).query({ path: "src/renamed.txt" }))
+    expect(deleted.status).toBe(200)
+    expect(fs.existsSync(path.join(repo, "src/renamed.txt"))).toBe(false)
 
     const blocked = await auth(request(app).get(`/api/projects/${projectId}/workspace/file`).query({ path: "../../etc/passwd" }))
     expect(blocked.status).toBe(403)

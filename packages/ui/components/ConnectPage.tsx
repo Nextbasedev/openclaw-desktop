@@ -10,6 +10,7 @@ import {
   testMiddlewareConnection,
   claimMiddlewarePairing,
   detectLocalMiddleware,
+  isOpenClawConnected,
   type MiddlewareHealth,
 } from "@/lib/middleware-client"
 
@@ -49,7 +50,7 @@ function isLikelyPairingCode(value: string): boolean {
 function isLoopbackMiddlewareUrl(value: string): boolean {
   try {
     const host = new URL(value).hostname
-    return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "0.0.0.0"
+    return host === "127.0.0.1" || host === "localhost" || host === "tauri.localhost" || host === "::1" || host === "0.0.0.0"
   } catch {
     return false
   }
@@ -91,7 +92,7 @@ export default function ConnectPage() {
         setToken(saved.token)
         try {
           const health = await testMiddlewareConnection(saved)
-          if (!health.openclaw?.connected) {
+          if (!isOpenClawConnected(health)) {
             setSessionConnected(false)
             setStatus(statusFromConnection(false, saved.url, saved.token))
             setConnectResult(null)
@@ -154,7 +155,7 @@ export default function ConnectPage() {
     } else {
       health = await testMiddlewareConnection(connection)
     }
-    if (!health.openclaw?.connected) {
+    if (!isOpenClawConnected(health)) {
       throw new Error("Middleware is reachable, but OpenClaw is not running there")
     }
     if (save) saveMiddlewareConnection(connection)

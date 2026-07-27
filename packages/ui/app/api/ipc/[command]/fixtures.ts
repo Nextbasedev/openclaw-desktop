@@ -337,16 +337,6 @@ export function cronFixtureResponse(command: string, input: unknown) {
     case "middleware_pty_write":
     case "middleware_pty_resize":
       return { ok: true }
-    case "middleware_chat_history":
-      return {
-        messages: conversationMessages(
-          findJobBySession(
-            typeof effective.sessionKey === "string"
-              ? effective.sessionKey
-              : null,
-          ),
-        ),
-      }
     case "middleware_branch_list":
       return { branches: [] }
     default:

@@ -9,6 +9,7 @@ import {
   searchBackfill,
   searchGlobal,
   type GlobalSearchResponse,
+  type SearchSpaceResult,
 } from "@/lib/api/search"
 import {
   LuSearch,
@@ -58,6 +59,7 @@ type CommandPaletteProps = {
     snippet: string
     query?: string
   }) => void | Promise<void>
+  onNavigateSpace: (space: SearchSpaceResult) => void | Promise<void>
   onNewChat: () => void
   onSendPrompt: (prompt: string) => void
   onOpenSettings: () => void
@@ -100,6 +102,7 @@ const PROMPT_SUGGESTIONS: { chip: string; prompt: string }[] = [
 type FlatItem =
   | { type: "recent"; id: string; session: Session }
   | { type: "action"; id: string; action: QuickAction }
+  | { type: "space"; id: string; space: GlobalSearchResponse["spaces"][number] }
   | { type: "project"; id: string; project: GlobalSearchResponse["projects"][number] }
   | { type: "topic"; id: string; topic: GlobalSearchResponse["topics"][number] }
   | { type: "chat"; id: string; chat: GlobalSearchResponse["chats"][number] }
@@ -113,6 +116,7 @@ export function CommandPalette({
   onNavigateTopic,
   onNavigateDirectChat,
   onNavigateSearchMessage,
+  onNavigateSpace,
   onNewChat,
   onSendPrompt,
   onOpenSettings,
@@ -123,6 +127,7 @@ export function CommandPalette({
   const [debouncedQuery, setDebouncedQuery] = useState("")
   const [recentSessions, setRecentSessions] = useState<Session[]>([])
   const [searchResults, setSearchResults] = useState<GlobalSearchResponse>({
+    spaces: [],
     projects: [],
     topics: [],
     chats: [],
@@ -194,14 +199,14 @@ export function CommandPalette({
   useEffect(() => {
     if (!open) return
     if (!hasSearchQuery) {
-      setSearchResults({ projects: [], topics: [], chats: [], messages: [] })
+      setSearchResults({ spaces: [], projects: [], topics: [], chats: [], messages: [] })
       setSearchLoading(false)
       return
     }
 
     let cancelled = false
     setSearchLoading(true)
-    setSearchResults({ projects: [], topics: [], chats: [], messages: [] })
+    setSearchResults({ spaces: [], projects: [], topics: [], chats: [], messages: [] })
     searchGlobal(debouncedQuery, 5)
       .then((result) => {
         if (cancelled) return
@@ -224,11 +229,11 @@ export function CommandPalette({
             if (!cancelled) setSearchResults(result)
           })
       })
-      .catch(() => {
-        if (!cancelled) {
-          setSearchResults({ projects: [], topics: [], chats: [], messages: [] })
-        }
-      })
+        .catch(() => {
+          if (!cancelled) {
+            setSearchResults({ spaces: [], projects: [], topics: [], chats: [], messages: [] })
+          }
+        })
       .finally(() => {
         if (!cancelled) setSearchLoading(false)
       })
@@ -251,6 +256,11 @@ export function CommandPalette({
   const allItems = useMemo<FlatItem[]>(() => {
     if (showSearchResults) {
       return [
+        ...searchResults.spaces.map((space) => ({
+          type: "space" as const,
+          id: `space:${space.id}`,
+          space,
+        })),
         ...searchResults.projects.map((project) => ({
           type: "project" as const,
           id: `project:${project.id}`,
@@ -287,6 +297,10 @@ export function CommandPalette({
     }
     if (item.type === "project") {
       void onNavigateProject(item.project.id)
+      return
+    }
+    if (item.type === "space") {
+      void onNavigateSpace(item.space)
       return
     }
     if (item.type === "topic") {
@@ -351,10 +365,12 @@ export function CommandPalette({
       }
     }
   }, [
+    debouncedQuery,
     onClose,
     onNavigateChat,
     onNavigateDirectChat,
     onNavigateProject,
+    onNavigateSpace,
     onNavigateSearchMessage,
     onNavigateTopic,
     onNewChat,
@@ -460,6 +476,29 @@ export function CommandPalette({
               {showSearchLoading && (
                 <div className="px-3 py-3">
                   <SearchLoadingSkeleton />
+                </div>
+              )}
+
+              {showSearchResults && searchResults.spaces.length > 0 && (
+                <div className="px-2 py-1.5">
+                  <p className="px-2.5 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground dark:text-white/35">
+                    Spaces
+                  </p>
+                  {searchResults.spaces.map((space) => {
+                    itemIndex++
+                    const idx = itemIndex
+                    return (
+                      <PaletteRow
+                        key={space.id}
+                        icon={<LuFolder size={14} />}
+                        label={space.name}
+                        subtitle="Space"
+                        selected={selectedIndex === idx}
+                        testId={`command-space-${space.id}`}
+                        onClick={() => dispatchItem({ type: "space", id: `space:${space.id}`, space })}
+                      />
+                    )
+                  })}
                 </div>
               )}
 
@@ -628,7 +667,7 @@ export function CommandPalette({
 
           {!showSearchLoading && hasSearchQuery && allItems.length === 0 && (
             <div className="px-5 py-8 text-center text-[13px] text-muted-foreground dark:text-white/35">
-              No projects, topics, chats, or messages found.
+              No spaces, projects, topics, chats, or messages found.
             </div>
           )}
 

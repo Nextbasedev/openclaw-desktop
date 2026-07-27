@@ -7,6 +7,11 @@ import {
   VscFolder,
   VscFolderOpened,
   VscFile,
+  VscFileBinary,
+  VscFileCode,
+  VscFileMedia,
+  VscFilePdf,
+  VscFileZip,
   VscJson,
   VscMarkdown,
   VscCode,
@@ -64,7 +69,7 @@ import { RepoPickerDialog } from "@/components/sidebar/RepoPickerDialog"
 interface FsEntry {
   name: string
   path: string
-  type?: "file" | "directory"
+  type?: "file" | "directory" | "dir"
   isFile?: boolean
   isDir?: boolean
   size: number
@@ -82,13 +87,13 @@ interface FileNode {
 function mapRemoteEntriesToNodes(entries: FsEntry[]): FileNode[] {
   return entries
     .sort((a, b) => {
-      const aDir = a.type === "directory" || a.type === ("dir" as any) || a.isDir === true
-      const bDir = b.type === "directory" || b.type === ("dir" as any) || b.isDir === true
+      const aDir = a.type === "directory" || a.type === "dir" || a.isDir === true
+      const bDir = b.type === "directory" || b.type === "dir" || b.isDir === true
       if (aDir !== bDir) return aDir ? -1 : 1
       return a.name.localeCompare(b.name)
     })
     .map((entry) => {
-      const isDir = entry.type === "directory" || entry.type === ("dir" as any) || entry.isDir === true
+      const isDir = entry.type === "directory" || entry.type === "dir" || entry.isDir === true
       return {
         id: entry.path,
         name: entry.name,
@@ -179,13 +184,50 @@ function IconBtn({
 
 /* ── File icon by extension ── */
 
-function FileIcon({ name }: { name: string }) {
+type WorkspaceFileIconKind =
+  | "markdown"
+  | "json"
+  | "code"
+  | "image"
+  | "archive"
+  | "pdf"
+  | "binary"
+  | "shell"
+  | "text"
+  | "config"
+  | "generic"
+
+export function getWorkspaceFileIconKind(name: string): WorkspaceFileIconKind {
+  const lower = name.toLowerCase()
   const ext = getExt(name)
-  if (ext === "md") return <VscMarkdown className="size-4 shrink-0 text-blue-400/80" />
-  if (ext === "json") return <VscJson className="size-4 shrink-0 text-amber-400/80" />
-  if (["ts", "tsx", "js", "jsx"].includes(ext))
-    return <VscCode className="size-4 shrink-0 text-sky-400/80" />
-  return <VscFile className="size-4 shrink-0 text-muted-foreground/60" />
+
+  if (["readme", "license", "dockerfile", "makefile", "procfile"].includes(lower)) return "text"
+  if (["env", "gitignore", "gitattributes", "editorconfig", "npmrc", "prettierrc", "eslintrc"].includes(ext)) return "config"
+  if (["md", "mdx"].includes(ext)) return "markdown"
+  if (["json", "jsonc", "lock"].includes(ext) || lower.endsWith("lock.json")) return "json"
+  if (["js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts", "html", "css", "scss", "sass", "less", "vue", "svelte", "rs", "go", "py", "rb", "php", "java", "kt", "swift", "c", "cpp", "h", "hpp"].includes(ext)) return "code"
+  if (["sh", "bash", "zsh", "fish", "ps1", "bat", "cmd"].includes(ext)) return "shell"
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif", "heic"].includes(ext)) return "image"
+  if (["zip", "gz", "tgz", "rar", "7z", "tar", "bz2", "xz"].includes(ext)) return "archive"
+  if (ext === "pdf") return "pdf"
+  if (["bin", "exe", "dll", "dmg", "app", "so", "dylib", "wasm"].includes(ext)) return "binary"
+  if (["txt", "log", "csv", "tsv", "xml", "yml", "yaml", "toml", "ini", "conf"].includes(ext)) return "text"
+  return "generic"
+}
+
+function FileIcon({ name }: { name: string }) {
+  const kind = getWorkspaceFileIconKind(name)
+  if (kind === "markdown") return <VscMarkdown className="size-4 shrink-0 text-[#519aba]" />
+  if (kind === "json") return <VscJson className="size-4 shrink-0 text-[#cbcb41]" />
+  if (kind === "code") return <VscCode className="size-4 shrink-0 text-[#519aba]" />
+  if (kind === "shell") return <VscFileCode className="size-4 shrink-0 text-[#8dc149]" />
+  if (kind === "image") return <VscFileMedia className="size-4 shrink-0 text-[#a074c4]" />
+  if (kind === "archive") return <VscFileZip className="size-4 shrink-0 text-[#f55385]" />
+  if (kind === "pdf") return <VscFilePdf className="size-4 shrink-0 text-[#cc3e44]" />
+  if (kind === "binary") return <VscFileBinary className="size-4 shrink-0 text-[#a074c4]" />
+  if (kind === "config") return <VscJson className="size-4 shrink-0 text-[#cbcb41]" />
+  if (kind === "text") return <VscFile className="size-4 shrink-0 text-[#519aba]" />
+  return <VscFile className="size-4 shrink-0 text-[#6d8086]" />
 }
 
 /* ── Tree node ── */
@@ -554,7 +596,7 @@ function FilePreviewPane({
 
   const handleDownload = useCallback(() => {
     const url = sessionKey
-      ? remoteWorkspaceDownloadUrl(sessionKey, filePath)
+      ? remoteWorkspaceDownloadUrl(sessionKey, filePath, projectId)
       : URL.createObjectURL(new Blob([content], { type: "text/plain" }))
     const a = document.createElement("a")
     a.href = url
@@ -567,7 +609,7 @@ function FilePreviewPane({
     }
     setDownloaded(true)
     window.setTimeout(() => setDownloaded(false), 2000)
-  }, [content, fileName, filePath, sessionKey])
+  }, [content, fileName, filePath, projectId, sessionKey])
 
   const handleRename = useCallback(async () => {
     if (!canMove) return
@@ -582,6 +624,7 @@ function FilePreviewPane({
       const nextPath = joinWorkspacePath(workspaceDirname(filePath), trimmed)
       await moveRemoteWorkspaceEntry({
         sessionKey: sessionKey ?? "",
+        projectId,
         fromPath: filePath,
         toPath: nextPath,
       })
@@ -590,7 +633,7 @@ function FilePreviewPane({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Rename failed")
     }
-  }, [canMove, fileName, filePath, onPathChange, renameValue, sessionKey])
+  }, [canMove, fileName, filePath, onPathChange, projectId, renameValue, sessionKey])
 
   const handleDelete = useCallback(async () => {
     if (!canDelete) return
@@ -598,13 +641,14 @@ function FilePreviewPane({
     try {
       await deleteRemoteWorkspaceEntry({
         sessionKey: sessionKey ?? "",
+        projectId,
         path: filePath,
       })
       onDelete?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed")
     }
-  }, [canDelete, filePath, onDelete, sessionKey])
+  }, [canDelete, filePath, onDelete, projectId, sessionKey])
 
   if (loading) {
     return (
@@ -1087,7 +1131,7 @@ export function WorkspaceTab({
     setExpandedIds(new Set())
     setWorkspaceRoot("")
     setTreeLoading(true)
-    void fetchRemoteWorkspaceCapabilities(effectiveSessionKey)
+    void fetchRemoteWorkspaceCapabilities(projectId)
       .then((result) => setCapabilities(result.capabilities))
       .catch(() => setCapabilities(null))
     void loadRoot("")
@@ -1278,6 +1322,7 @@ export function WorkspaceTab({
       if (newItemType === "folder") {
         await createRemoteWorkspaceDirectory({
           sessionKey: effectiveSessionKey,
+          projectId,
           path: targetPath,
         })
       } else {
@@ -1300,6 +1345,7 @@ export function WorkspaceTab({
     loadRoot,
     newItemName,
     newItemType,
+    projectId,
     selectedDirectoryPath,
     workspaceRoot,
   ])

@@ -2,6 +2,7 @@ import { invoke } from "@/lib/ipc"
 import { dedupeRequest } from "@/lib/requestDedupe"
 import { fetchChats } from "./chats"
 import { fetchProjects } from "./projects"
+import { fetchSpaces } from "./spaces"
 import { fetchTopics } from "./topics"
 import type { GlobalSearchResponse, SearchDatasets } from "./searchTypes"
 
@@ -31,11 +32,18 @@ function sortByNameMatch<T extends { name: string; updatedAt?: string }>(
   })
 }
 
+function omitUpdatedAt<T extends { updatedAt?: string }>(item: T): Omit<T, "updatedAt"> {
+  const { updatedAt, ...rest } = item
+  void updatedAt
+  return rest
+}
+
 export async function loadSearchDatasets(): Promise<SearchDatasets> {
   return dedupeRequest(
     "search:datasets",
     async () => {
-      const [projectResult, chatResult, sessionResult] = await Promise.all([
+      const [spaceResult, projectResult, chatResult, sessionResult] = await Promise.all([
+        fetchSpaces(false).catch(() => ({ spaces: [] })),
         fetchProjects().catch(() => ({ projects: [] })),
         fetchChats(false).catch(() => ({ chats: [] })),
         invoke<{ sessions: SearchDatasets["sessions"] }>("middleware_sessions_list", {
@@ -54,6 +62,7 @@ export async function loadSearchDatasets(): Promise<SearchDatasets> {
       )
 
       return {
+        spaces: (spaceResult.spaces ?? []).filter((space) => !space.archived),
         projects,
         chats: (chatResult.chats ?? []).filter((chat) => !chat.archived),
         topics: topicGroups.flat().filter((topic) => !topic.archived),
@@ -103,6 +112,19 @@ export function searchNameResults(
     )
   }
 
+  const spaces = sortByNameMatch(
+    data.spaces
+      .filter((space) => space.name.toLowerCase().includes(query))
+      .map((space) => ({
+        id: space.id,
+        name: space.name,
+        updatedAt: space.updatedAt,
+      })),
+    query,
+  )
+    .slice(0, limit)
+    .map(omitUpdatedAt)
+
   const projects = sortByNameMatch(
     data.projects
       .filter((project) => project.name.toLowerCase().includes(query))
@@ -129,7 +151,7 @@ export function searchNameResults(
     query,
   )
     .slice(0, limit)
-    .map(({ updatedAt: _updatedAt, ...topic }) => topic)
+    .map(omitUpdatedAt)
 
   const chats = sortByNameMatch(
     data.chats
@@ -156,7 +178,7 @@ export function searchNameResults(
     query,
   )
     .slice(0, limit)
-    .map(({ updatedAt: _updatedAt, ...chat }) => chat)
+    .map(omitUpdatedAt)
 
-  return { projects, topics, chats }
+  return { spaces, projects, topics, chats }
 }

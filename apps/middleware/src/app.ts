@@ -115,7 +115,11 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   const records = recordRoutes(store)
   const commands = commandRoutes(store)
 
-  app.use(cors({ origin: true, credentials: false }))
+  app.use(cors({
+    origin: true,
+    credentials: false,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  }))
   app.use(express.json({ limit: "150mb" }))
   app.use((req, res, next) => {
     if (req.path.includes("/git/") || req.path.startsWith("/api/repos/")) {
@@ -177,7 +181,6 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
       spaces: spacesPayload.spaces,
       activeSpaceId,
       chats: records.chatsList({ archived: false, spaceId: activeSpaceId }).chats,
-      projects: projects.list({ spaceId: activeSpaceId }).projects,
       sessions: records.sessionsList({}).sessions,
     })
   })
@@ -203,7 +206,24 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.patch("/api/chats/:chatId", (req, res) => res.json(records.chatsUpdate(req.params.chatId, req.body)))
   app.post("/api/chats/:chatId/rename", (req, res) => res.json(records.chatsRename(req.params.chatId, String(req.body?.name ?? "New Chat"))))
   app.post("/api/chats/:chatId/archive", (req, res) => res.json(records.chatsArchive(req.params.chatId, req.body?.archived ?? true)))
-  app.delete("/api/chats/:chatId", (req, res) => res.json(records.chatsDelete(req.params.chatId)))
+  app.delete("/api/chats/:chatId", async (req, res) => {
+    const result = records.chatsDelete(req.params.chatId)
+    if (result.sessionKey) {
+      void connectGateway(["operator.write", "operator.admin"])
+        .then(async (gateway) => {
+          try {
+            await Promise.allSettled([
+              gateway.request("sessions.abort", { sessionKey: result.sessionKey }, 2_000),
+              gateway.request("sessions.delete", { key: result.sessionKey, deleteTranscript: true }, 2_000),
+            ])
+          } finally {
+            gateway.close()
+          }
+        })
+        .catch(() => { /* gateway may be unavailable; middleware state is already deleted */ })
+    }
+    res.json(result)
+  })
   app.post("/api/chats/:chatId/session", (req, res) => res.json(records.chatsAttachSession(req.params.chatId, String(req.body?.sessionKey ?? ""))))
 
   app.get("/api/spaces", (_req, res) => res.json(records.spacesList()))
@@ -231,12 +251,31 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.get("/api/projects/:projectId/git/branches", (req, res) => res.json(git.branches(req.params.projectId)))
   app.post("/api/projects/:projectId/git/checkout", (req, res) => res.json(git.checkout(req.params.projectId, String(req.body?.branch ?? req.body?.branchName ?? ""))))
 
+  const sendWorkspaceDownload = (res: express.Response, item: { file: string; name: string; size: number }) => {
+    res.setHeader("Content-Type", "application/octet-stream")
+    res.setHeader("Content-Length", String(item.size))
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(item.name)}"`)
+    res.sendFile(item.file)
+  }
+
+  app.get("/api/workspace/capabilities", (_req, res) => res.json(workspace.capabilities()))
   app.get("/api/workspace/tree", (req, res) => res.json(workspace.treeRoot(String(req.query.path ?? ""))))
+  app.get("/api/workspace/stat", (req, res) => res.json(workspace.statRoot(String(req.query.path ?? ""))))
   app.get("/api/workspace/file", (req, res) => res.json(workspace.readRoot(String(req.query.path ?? ""))))
   app.put("/api/workspace/file", (req, res) => res.json(workspace.writeRoot(String(req.body?.path ?? ""), String(req.body?.content ?? ""))))
+  app.post("/api/workspace/mkdir", (req, res) => res.json(workspace.mkdirRoot(String(req.body?.path ?? ""))))
+  app.post("/api/workspace/move", (req, res) => res.json(workspace.moveRoot(String(req.body?.fromPath ?? req.body?.from ?? ""), String(req.body?.toPath ?? req.body?.to ?? ""))))
+  app.delete("/api/workspace/file", (req, res) => res.json(workspace.deleteRoot(String(req.body?.path ?? req.query.path ?? ""))))
+  app.get("/api/workspace/download", (req, res) => sendWorkspaceDownload(res, workspace.downloadRoot(String(req.query.path ?? ""))))
+  app.get("/api/projects/:projectId/workspace/capabilities", (_req, res) => res.json(workspace.capabilities()))
   app.get("/api/projects/:projectId/workspace/tree", (req, res) => res.json(workspace.tree(req.params.projectId, String(req.query.path ?? ""))))
+  app.get("/api/projects/:projectId/workspace/stat", (req, res) => res.json(workspace.stat(req.params.projectId, String(req.query.path ?? ""))))
   app.get("/api/projects/:projectId/workspace/file", (req, res) => res.json(workspace.read(req.params.projectId, String(req.query.path ?? ""))))
   app.put("/api/projects/:projectId/workspace/file", (req, res) => res.json(workspace.write(req.params.projectId, String(req.body?.path ?? ""), String(req.body?.content ?? ""))))
+  app.post("/api/projects/:projectId/workspace/mkdir", (req, res) => res.json(workspace.mkdir(req.params.projectId, String(req.body?.path ?? ""))))
+  app.post("/api/projects/:projectId/workspace/move", (req, res) => res.json(workspace.move(req.params.projectId, String(req.body?.fromPath ?? req.body?.from ?? ""), String(req.body?.toPath ?? req.body?.to ?? ""))))
+  app.delete("/api/projects/:projectId/workspace/file", (req, res) => res.json(workspace.delete(req.params.projectId, String(req.body?.path ?? req.query.path ?? ""))))
+  app.get("/api/projects/:projectId/workspace/download", (req, res) => sendWorkspaceDownload(res, workspace.download(req.params.projectId, String(req.query.path ?? ""))))
 
   app.post("/api/terminal/spawn", async (req, res, next) => { try { res.json(await terminal.spawnWorkspace(req.body)) } catch (error) { next(error) } })
   app.post("/api/projects/:projectId/terminal/spawn", async (req, res, next) => { try { res.json(await terminal.spawn(req.params.projectId, req.body)) } catch (error) { next(error) } })
@@ -288,6 +327,22 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
       const subagentToSpawn = new Map<string, string>()
       const pendingSubagentKeys: string[] = []
       const seenToolEvents = new Set<string>()
+      const activeRunIds = new Set<string>()
+
+      const setRunLifecycle = (phase: unknown, runId: unknown) => {
+        if (typeof phase !== "string") return null
+        const id = typeof runId === "string" && runId ? runId : "__unknown__"
+        if (phase === "start") {
+          activeRunIds.add(id)
+          return "thinking" as const
+        }
+        if (phase === "end" || phase === "error") {
+          activeRunIds.delete(id)
+          return phase === "error" ? "error" as const : "done" as const
+        }
+        return null
+      }
+      const hasActiveRun = () => activeRunIds.size > 0
 
       const isSubagentKey = (key: unknown): key is string => typeof key === "string" && key.includes(":subagent:")
       const matchesSession = (key: unknown) => {
@@ -357,6 +412,21 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
           if (isSubagentKey(key)) linkSubagent(key)
         }
 
+        if (message.event === "sessions.changed") {
+          if (!matchesSession(payload?.sessionKey)) return
+          if (isSubagentKey(payload?.sessionKey)) return
+          const state = setRunLifecycle(payload?.phase, payload?.runId)
+          if (state) {
+            send("chat.status", {
+              type: "chat.status",
+              sessionKey,
+              state,
+              runId: payload?.runId ?? null,
+            })
+          }
+          return
+        }
+
         if (message.event === "session.message" && payload?.message) {
           if (!matchesSession(payload.sessionKey)) return
           const content = payload.message.content
@@ -386,7 +456,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
           if (payload.message.role === "assistant") {
             emitToolCallsFromContent(send, sessionKey, content)
             send("chat.message", { type: "chat.message", sessionKey, messageId: payload.message.id ?? payload.messageId ?? null, role: payload.message.role, content, text, createdAt: payload.message.createdAt ?? null, model: payload.message.model ?? null, usage: payload.message.usage ?? null, stopReason: payload.message.stopReason ?? null })
-            send("chat.status", { type: "chat.status", sessionKey, state: text ? "done" : "streaming" })
+            if (!hasActiveRun()) send("chat.status", { type: "chat.status", sessionKey, state: text ? "done" : "streaming" })
           } else {
             emitToolResultFromMessage(send, sessionKey, payload.message)
             const childKey = extractSubagentKey(content ?? payload.message)
@@ -438,12 +508,30 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
             subagentOf: spawnToolCallId ? `spawn:${spawnToolCallId}` : null,
           })
           if (!isSubagent) {
-            send("chat.status", {
-              type: "chat.status",
-              sessionKey,
-              state: data?.phase === "error" ? "error" : data?.phase === "result" ? "thinking" : "tool_running",
-              label: data?.name ?? null,
-            })
+            if (data?.phase === "error") {
+              send("chat.status", {
+                type: "chat.status",
+                sessionKey,
+                state: "error",
+                label: data?.name ?? null,
+              })
+            } else if (data?.phase === "result") {
+              if (hasActiveRun()) {
+                send("chat.status", {
+                  type: "chat.status",
+                  sessionKey,
+                  state: "thinking",
+                  label: data?.name ?? null,
+                })
+              }
+            } else {
+              send("chat.status", {
+                type: "chat.status",
+                sessionKey,
+                state: "tool_running",
+                label: data?.name ?? null,
+              })
+            }
           }
         } else if (message.event === "agent") {
           const eventSessionKey = payload?.sessionKey

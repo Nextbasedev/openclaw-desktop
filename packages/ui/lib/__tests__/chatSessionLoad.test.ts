@@ -2,13 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   activeChatStreamCount,
   CHAT_STREAM_CLOSE_GRACE_MS,
+  clearChatStreamsForTests,
   subscribeChatStream,
 } from "../chatStream"
-import {
-  clearChatSessionStoreForTests,
-  publishChatSessionMessages,
-  subscribeChatSessionMessages,
-} from "../chatSessionStore"
 
 type Listener = (event: MessageEvent) => void
 
@@ -38,12 +34,12 @@ describe("chat tab load characteristics", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     MockEventSource.instances = []
-    clearChatSessionStoreForTests()
     vi.stubGlobal("EventSource", MockEventSource)
   })
 
   afterEach(() => {
     vi.runOnlyPendingTimers()
+    clearChatStreamsForTests()
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
@@ -67,26 +63,4 @@ describe("chat tab load characteristics", () => {
     expect(activeChatStreamCount()).toBe(0)
   })
 
-  it("fans out 50 shared message updates to 3 tab subscribers", () => {
-    const subscribers = [vi.fn(), vi.fn(), vi.fn()]
-    const unsubscribers = subscribers.map((subscriber) =>
-      subscribeChatSessionMessages("agent:main:shared", subscriber),
-    )
-
-    for (let i = 0; i < 50; i++) {
-      publishChatSessionMessages("agent:main:shared", [
-        { messageId: `a${i}`, role: "assistant", text: `message ${i}` },
-      ])
-    }
-
-    for (const subscriber of subscribers) {
-      expect(subscriber).toHaveBeenCalledTimes(50)
-      expect(subscriber).toHaveBeenLastCalledWith(
-        [{ messageId: "a49", role: "assistant", text: "message 49" }],
-        undefined,
-      )
-    }
-
-    unsubscribers.forEach((unsubscribe) => unsubscribe())
-  })
 })

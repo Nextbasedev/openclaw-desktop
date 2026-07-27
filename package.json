@@ -4,7 +4,8 @@
   "private": true,
   "description": "OpenClaw Desktop — Neural Operations Center",
   "scripts": {
-    "dev": "node scripts/run-ui-dev.cjs",
+    "dev": "node scripts/run-dev.cjs",
+    "dev:ui": "node scripts/run-ui-dev.cjs",
     "dev:tauri": "pnpm --filter desktop tauri dev",
     "build": "pnpm --filter ui build",
     "build:tauri": "pnpm --filter desktop tauri build",
@@ -24,6 +25,9 @@
     "dev:middleware": "pnpm --filter @openclaw/desktop-middleware dev",
     "build:middleware": "pnpm --filter @openclaw/desktop-middleware build",
     "test:middleware": "pnpm --filter @openclaw/desktop-middleware test",
+    "dev:middleware:v2": "pnpm --filter @openclaw/desktop-middleware-v2 dev",
+    "build:middleware:v2": "pnpm --filter @openclaw/desktop-middleware-v2 build",
+    "test:middleware:v2": "pnpm --filter @openclaw/desktop-middleware-v2 test",
     "dev:local": "node scripts/dev-local.cjs",
     "dev:remote": "node scripts/dev-remote.cjs"
   },

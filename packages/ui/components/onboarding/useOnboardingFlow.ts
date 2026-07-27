@@ -104,9 +104,10 @@ export type FlowState = {
   }
 }
 
-export function useOnboardingFlow() {
+export function useOnboardingFlow(options: { autoLoad?: boolean } = {}) {
+  const autoLoad = options.autoLoad ?? true
   const [flowState, setFlowState] = useState<FlowState | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(autoLoad)
   const [error, setError] = useState<string | null>(null)
 
   const loadFlow = useCallback(async () => {
@@ -123,8 +124,9 @@ export function useOnboardingFlow() {
   }, [])
 
   useEffect(() => {
+    if (!autoLoad) return
     loadFlow()
-  }, [loadFlow])
+  }, [autoLoad, loadFlow])
 
   const checkCore = useCallback(async (action: "check" | "apply") => {
     return invoke<{

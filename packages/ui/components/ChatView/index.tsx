@@ -1,17 +1,11 @@
 "use client"
 
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
+import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
 import { SubagentBar } from "./SubagentBar"
 import { SubagentFullChat } from "./SubagentFullChat"
@@ -20,10 +14,6 @@ import { MessageFeedbackDialog } from "./MessageFeedbackDialog"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
-import {
-  clearInlineHighlights,
-  highlightInlineQuery,
-} from "./searchInlineHighlight"
 import { type ChatComposerSubmit } from "@/lib/chatAttachments"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
 import {
@@ -34,12 +24,20 @@ import {
   visibleMessages,
 } from "@/lib/messageActions"
 import { invoke } from "@/lib/ipc"
+import { resolveExecApprovalV2 } from "@/lib/chat-engine-v2/client"
 import { emit } from "@/lib/events"
+import { frontendLog } from "@/lib/clientLogs"
+import { windowChatMessages } from "@/lib/messageWindow"
 import { toast } from "react-toastify"
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
+import { MdKeyboardDoubleArrowDown } from "react-icons/md"
 import { motion, AnimatePresence } from "framer-motion"
-import { LuArrowDown } from "react-icons/lu"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
+import {
+  groupAssistantToolCallsByMessage,
+  mergeToolCallsForDisplay,
+} from "@/lib/chatToolDisplay"
 import type {
   ChatMessage,
   EditPreviewState,
@@ -73,22 +71,8 @@ type Props = {
     projectId?: string | null
     topicId?: string | null
   }) => void
-  searchHighlightTarget?: {
-    sessionKey: string
-    messageId?: string
-    snippet: string
-    query?: string
-  } | null
   /** When true the view is mounted in a hidden div (background session). */
   isBackgroundSession?: boolean
-}
-
-function normalizeHighlightSnippet(snippet: string) {
-  return snippet
-    .replace(/\s*\.\.\.\s*/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase()
 }
 
 function summarizeToolInput(tool: InlineToolCall) {
@@ -236,7 +220,6 @@ export function ChatView({
   onSubagentOpen,
   forkContext,
   onForkNavigate,
-  searchHighlightTarget,
   isBackgroundSession = false,
 }: Props) {
   const {
@@ -244,15 +227,14 @@ export function ChatView({
     status,
     statusLabel,
     loading,
+    historyLoadVersion,
     loadError,
     errorMessage,
     isSending,
     isGenerating,
-    isAtBottom,
     bottomRef,
     scrollContainerRef,
     onScroll,
-    jumpToBottom,
     handleSend,
     handleAbort,
     handleEdit,
@@ -276,6 +258,7 @@ export function ChatView({
   // Use a ref for unlisten functions so Strict Mode double-mounts
   // don't leave dangling listeners behind.
   const toastUnlistenRef = useRef<{ reply?: () => void; open?: () => void }>({})
+  const lastRunErrorToastRef = useRef<string | null>(null)
 
   useEffect(() => {
     const setup = async () => {
@@ -336,6 +319,19 @@ export function ChatView({
     }
   }, [sessionKey])
 
+  useEffect(() => {
+    if (status !== "error") {
+      lastRunErrorToastRef.current = null
+      return
+    }
+
+    const message = errorMessage || "Something went wrong. Try again."
+    const toastKey = `${sessionKey}:${message}`
+    if (lastRunErrorToastRef.current === toastKey) return
+    lastRunErrorToastRef.current = toastKey
+    toast.error(message)
+  }, [errorMessage, sessionKey, status])
+
   const [internalSubagentKey, setInternalSubagentKey] = useState<string | null>(
     null
   )
@@ -354,12 +350,9 @@ export function ChatView({
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
   const [modelSwitching, setModelSwitching] = useState(false)
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
-  const messageContentRef = useRef<HTMLDivElement>(null)
-  const previousMessageCountRef = useRef(messages.length)
-  const suppressResizeFollowUntilRef = useRef(0)
-  const suppressToolInteractionFollowUntilRef = useRef(0)
-  const initialScrollDoneRef = useRef(false)
-  const lastAppliedHighlightRef = useRef<string | null>(null)
+  const virtuosoRef = useRef<VirtuosoHandle>(null)
+  const [messageWindowSize, setMessageWindowSize] = useState(240)
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -368,9 +361,9 @@ export function ChatView({
 
   useEffect(() => {
     // Reset everything when the session changes
-    initialScrollDoneRef.current = false
     dispatchMessageAction(initialMessageActionState)
     setDbPins({ pins: [], loaded: false })
+    setMessageWindowSize(240)
 
     invoke<{ pins: Array<{ messageId: string; messageText: string }> }>(
       "middleware_pins_list",
@@ -378,13 +371,14 @@ export function ChatView({
         sessionKey,
       }
     )
-      .then(({ pins }) => {
+      .then((res) => {
+        const pins = Array.isArray(res?.pins) ? res.pins : []
         setDbPins({ pins, loaded: true })
         // Apply fetched pins immediately. If IDs match exactly, they'll show up.
         // If IDs mismatch, the reconciliation effect will fix them.
         dispatchMessageAction((prev) => ({
           ...prev,
-          pinnedIds: pins.map((p) => p.messageId),
+          pinnedIds: pins.map((p: { messageId: string }) => p.messageId),
         }))
       })
       .catch(() => {
@@ -433,55 +427,6 @@ export function ChatView({
       }))
     }
   }, [messages, dbPins.pins, dbPins.loaded, messageActionState.pinnedIds])
-
-  useEffect(() => {
-    if (!searchHighlightTarget || searchHighlightTarget.sessionKey !== sessionKey) {
-      return
-    }
-    const highlightKey = `${searchHighlightTarget.sessionKey}:${searchHighlightTarget.messageId ?? searchHighlightTarget.snippet}`
-    if (lastAppliedHighlightRef.current === highlightKey) return
-
-    const exactMessage = searchHighlightTarget.messageId
-      ? messages.find((message) => message.messageId === searchHighlightTarget.messageId)
-      : null
-    const snippet = normalizeHighlightSnippet(searchHighlightTarget.snippet)
-    const fallbackMessage = exactMessage
-      ? null
-      : messages.find((message) =>
-          message.text.toLowerCase().includes(snippet),
-        )
-    const targetMessage = exactMessage ?? fallbackMessage
-    if (!targetMessage) return
-
-    lastAppliedHighlightRef.current = highlightKey
-    const timer = window.setTimeout(() => {
-      const messageElement = document.getElementById(
-        `message-${targetMessage.messageId}`,
-      )
-      clearInlineHighlights(messageElement)
-    }, 2600)
-    requestAnimationFrame(() => {
-      const messageElement = document.getElementById(
-        `message-${targetMessage.messageId}`,
-      )
-      messageElement?.scrollIntoView({ behavior: "smooth", block: "center" })
-      if (!messageElement) return
-      clearInlineHighlights(messageElement)
-      const inlineQuery =
-        searchHighlightTarget.query?.trim() ||
-        normalizeHighlightSnippet(searchHighlightTarget.snippet)
-      if (inlineQuery) {
-        highlightInlineQuery(messageElement, inlineQuery)
-      }
-    })
-    return () => {
-      window.clearTimeout(timer)
-      const messageElement = document.getElementById(
-        `message-${targetMessage.messageId}`,
-      )
-      clearInlineHighlights(messageElement)
-    }
-  }, [messages, searchHighlightTarget, sessionKey])
   const activeSubKey =
     externalSubagentKey ??
     internalSubagentKey ??
@@ -503,12 +448,62 @@ export function ChatView({
   })
 
   useEffect(() => {
+    frontendLog("chat", "chat-view.mount", {
+      sessionKey,
+      sessionTitle,
+      isBackgroundSession,
+    })
+    return () =>
+      frontendLog("chat", "chat-view.unmount", {
+        sessionKey,
+        isBackgroundSession,
+      })
+  }, [isBackgroundSession, sessionKey, sessionTitle])
+
+  useEffect(() => {
+    frontendLog(
+      "status",
+      "chat-view.render-state",
+      {
+        sessionKey,
+        status,
+        statusLabel,
+        loading,
+        loadError: Boolean(loadError),
+        isSending,
+        isGenerating,
+        messageCount: messages.length,
+        pendingToolCount: pendingTools.length,
+        spawnedSubagentCount: spawnedSubagents.length,
+      },
+      "debug"
+    )
+  }, [
+    isGenerating,
+    isSending,
+    loadError,
+    loading,
+    messages.length,
+    pendingTools.length,
+    sessionKey,
+    spawnedSubagents.length,
+    status,
+    statusLabel,
+  ])
+
+  useEffect(() => {
     setComposerSeed(initialPrompt ?? "")
   }, [initialPrompt])
 
   const openSubagent = useCallback(
     (sub: SpawnedSubagent) => {
       if (!sub.sessionKey || sub.sessionKey === sessionKey) return
+      frontendLog("session", "subagent.open", {
+        parentSessionKey: sessionKey,
+        childSessionKey: sub.sessionKey,
+        status: sub.status,
+        toolCallId: sub.toolCallId,
+      })
       setActiveSubagent({ ...sub, sessionKey: sub.sessionKey })
       setInternalSubagentKey(sub.sessionKey)
       onSubagentOpen?.(sub.sessionKey)
@@ -517,10 +512,14 @@ export function ChatView({
   )
 
   const closeSubagent = useCallback(() => {
+    frontendLog("session", "subagent.close", {
+      parentSessionKey: sessionKey,
+      childSessionKey: activeSubKey,
+    })
     setActiveSubagent(null)
     setInternalSubagentKey(null)
     onSubagentOpen?.(null)
-  }, [onSubagentOpen])
+  }, [activeSubKey, onSubagentOpen, sessionKey])
 
   const activeSubagentFallbackText = useMemo(() => {
     if (!activeSubagent || !isSubagentSessionKey(activeSubagent.sessionKey)) {
@@ -545,29 +544,21 @@ export function ChatView({
 
   const firstFiredRef = useRef(false)
 
-  const formatSelectedReferences = useCallback(
-    (selections: NonNullable<ReplyTo["selections"]>) =>
-      selections
-        .map((item, index) => {
-          const lines = [`Reference ${index + 1}:`, item.text]
-          if (item.comment) lines.push(`Comment: ${item.comment}`)
-          return lines.join("\n")
-        })
-        .join("\n\n"),
-    []
-  )
-
   const resolveExecApproval = useCallback(
     async (
       approvalId: string,
       decision: "allow-once" | "allow-always" | "deny"
     ) => {
-      await invoke("middleware_exec_approval_resolve", {
-        input: { approvalId, decision },
-      })
-      emit("chat:activity")
+      try {
+        await resolveExecApprovalV2({ approvalId, decision })
+      } catch {
+        await invoke("middleware_exec_approval_resolve", {
+          input: { approvalId, decision },
+        })
+      }
+      emit("chat:activity", { sessionKey })
     },
-    []
+    [sessionKey]
   )
 
   const handleSessionModelSelect = useCallback(
@@ -578,7 +569,7 @@ export function ChatView({
         await invoke("middleware_chat_model_set", {
           input: { sessionKey, modelId },
         })
-        emit("chat:activity")
+        emit("chat:activity", { sessionKey })
         toast.update(toastId, {
           render: `Switched model to ${modelId}`,
           type: "success",
@@ -603,6 +594,13 @@ export function ChatView({
 
   const wrappedSend = useCallback(
     async (payload: ChatComposerSubmit) => {
+      frontendLog("composer", "chat-view.send.request", {
+        sessionKey,
+        hasText: Boolean(payload.text.trim()),
+        textLength: payload.text.trim().length,
+        attachmentCount: payload.attachments?.length ?? 0,
+        isModelSwitching: modelSwitching,
+      })
       if (modelSwitching) {
         toast.info("Switching model… please wait before sending.")
         return
@@ -611,7 +609,9 @@ export function ChatView({
         !firstFiredRef.current &&
         messages.length === 0 &&
         Boolean(onFirstMessageSent)
-      await handleSend(payload)
+      emit("chat:activity", { sessionKey })
+      const sent = await handleSend(payload)
+      if (sent === false) return
       if (shouldNotifyFirstSend && onFirstMessageSent) {
         firstFiredRef.current = true
         onFirstMessageSent(payload.text)
@@ -622,13 +622,77 @@ export function ChatView({
       setReplyTo(null)
       setComposerSeed("")
     },
-    [handleSend, messages.length, modelSwitching, onFirstMessageSent]
+    [handleSend, messages.length, modelSwitching, onFirstMessageSent, sessionKey]
   )
 
-  const renderedMessages = useMemo(
+  const retrySend = useCallback(
+    (messageId: string) => {
+      const message = messages.find((m) => m.messageId === messageId)
+      if (!message?.retryPayload) return
+      void handleSend(message.retryPayload, messageId)
+    },
+    [handleSend, messages]
+  )
+
+  const visibleAllMessages = useMemo(
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
+  const messageWindow = useMemo(
+    () =>
+      windowChatMessages(
+        visibleAllMessages,
+        messageActionState.pinnedIds,
+        messageWindowSize
+      ),
+    [visibleAllMessages, messageActionState.pinnedIds, messageWindowSize]
+  )
+  const renderedMessages = messageWindow.messages
+  const lastHistoryScrollVersionRef = useRef(0)
+
+  useEffect(() => {
+    if (isBackgroundSession) return
+    if (historyLoadVersion <= lastHistoryScrollVersionRef.current) return
+    if (renderedMessages.length === 0) return
+
+    lastHistoryScrollVersionRef.current = historyLoadVersion
+    const lastIndex = renderedMessages.length - 1
+    const scrollToLatest = () => {
+      virtuosoRef.current?.scrollToIndex({
+        index: lastIndex,
+        align: "end",
+        behavior: "auto",
+      })
+      const el = scrollContainerRef.current
+      if (el) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
+      }
+    }
+
+    let secondFrame: number | null = null
+    const frame = requestAnimationFrame(() => {
+      scrollToLatest()
+      secondFrame = requestAnimationFrame(scrollToLatest)
+    })
+    const settleTimer = window.setTimeout(scrollToLatest, 150)
+    return () => {
+      cancelAnimationFrame(frame)
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame)
+      window.clearTimeout(settleTimer)
+    }
+  }, [
+    historyLoadVersion,
+    isBackgroundSession,
+    renderedMessages.length,
+    scrollContainerRef,
+  ])
+
+  const latestRenderedUserIndex = useMemo(() => {
+    for (let i = renderedMessages.length - 1; i >= 0; i--) {
+      if (renderedMessages[i].role === "user") return i
+    }
+    return -1
+  }, [renderedMessages])
   const userMessageHistory = useMemo(
     () =>
       messages
@@ -641,25 +705,6 @@ export function ChatView({
     () => pinnedMessages(messages, messageActionState),
     [messages, messageActionState]
   )
-  const referencedTextsByMessageId = useMemo(() => {
-    const byMessageId = new Map<string, string[]>()
-    const addSelection = (messageId: string, text: string) => {
-      const trimmed = text.trim()
-      if (!trimmed) return
-      byMessageId.set(messageId, [...(byMessageId.get(messageId) ?? []), trimmed])
-    }
-
-    for (const message of messages) {
-      for (const selection of message.replyTo?.selections ?? []) {
-        addSelection(selection.messageId, selection.text)
-      }
-    }
-    for (const selection of replyTo?.selections ?? []) {
-      addSelection(selection.messageId, selection.text)
-    }
-
-    return byMessageId
-  }, [messages, replyTo])
 
   const replyToMessage = useCallback(
     (messageId: string) => {
@@ -681,49 +726,14 @@ export function ChatView({
     (messageId: string, text: string, comment?: string) => {
       const selected = text.trim()
       if (!selected) return
-      const trimmedComment = comment?.trim()
-      setReplyTo((current) => {
-        const nextSelection = {
-          messageId,
-          text: selected,
-          comment: trimmedComment || undefined,
-        }
-        const selections = current?.selections
-          ? [...current.selections, nextSelection]
-          : [nextSelection]
-        return {
-          messageId: `${messageId}:selection:${selections.length}`,
-          role: "assistant",
-          text: formatSelectedReferences(selections),
-          selections,
-        }
+      setReplyTo({
+        messageId: `${messageId}:selection`,
+        role: "assistant",
+        text: selected,
       })
-      if (trimmedComment) {
-        setComposerSeed(trimmedComment)
-      }
+      setComposerSeed(comment?.trim() ?? "")
     },
-    [formatSelectedReferences]
-  )
-
-  const removeSelectedReference = useCallback(
-    (indexToRemove: number) => {
-      setReplyTo((current) => {
-        if (!current?.selections) return current
-        const selections = current.selections.filter(
-          (_selection, index) => index !== indexToRemove
-        )
-        if (selections.length === 0) return null
-        return {
-          ...current,
-          messageId: `${
-            selections.at(-1)?.messageId ?? current.messageId
-          }:selection:${selections.length}`,
-          text: formatSelectedReferences(selections),
-          selections,
-        }
-      })
-    },
-    [formatSelectedReferences]
+    []
   )
 
   const cancelReply = useCallback(() => {
@@ -849,80 +859,40 @@ export function ChatView({
     [sessionKey, messageActionState.reactions]
   )
 
+  const loadOlderMessages = useCallback(() => {
+    setMessageWindowSize((current) =>
+      Math.min(current + 240, visibleAllMessages.length)
+    )
+  }, [visibleAllMessages.length])
+
   const handleScroll = useCallback(() => {
     onScroll()
-    if (activePopoverId) setActivePopoverId(null)
-  }, [onScroll, activePopoverId])
-
-  const suppressToolInteractionFollow = useCallback(() => {
-    suppressToolInteractionFollowUntilRef.current = Date.now() + 700
-  }, [])
-
-  useEffect(() => {
-    const previousCount = previousMessageCountRef.current
-    previousMessageCountRef.current = messages.length
-    const latestMessage = messages.at(-1)
-
-    if (messages.length > previousCount && latestMessage?.role === "user") {
-      suppressResizeFollowUntilRef.current = Date.now() + 450
-    }
-  }, [messages])
-
-  useLayoutEffect(() => {
-    if (initialScrollDoneRef.current) return
     const el = scrollContainerRef.current
-    if (!el || messages.length === 0) return
-    el.scrollTop = el.scrollHeight
-    initialScrollDoneRef.current = true
-  }, [messages, scrollContainerRef])
+    if (el) {
+      setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
+    }
+    if (activePopoverId) setActivePopoverId(null)
+  }, [onScroll, scrollContainerRef, activePopoverId])
+
+  const jumpToLatestMessage = useCallback(() => {
+    setShowJumpToBottom(false)
+    const lastIndex = renderedMessages.length - 1
+    if (lastIndex >= 0) {
+      virtuosoRef.current?.scrollToIndex({
+        index: lastIndex,
+        align: "end",
+        behavior: "smooth",
+      })
+      return
+    }
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+  }, [bottomRef, renderedMessages.length])
 
   useEffect(() => {
-    const content = messageContentRef.current
-    if (!content || typeof ResizeObserver === "undefined") return
-
-    let frame: number | null = null
-    const observer = new ResizeObserver(() => {
-      if (frame !== null) cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        const el = scrollContainerRef.current
-        if (!el) return
-        const distanceFromBottom =
-          el.scrollHeight - el.scrollTop - el.clientHeight
-        const shouldLetSmoothSendScrollFinish =
-          Date.now() < suppressResizeFollowUntilRef.current
-        const shouldPreserveToolInteractionScroll =
-          Date.now() < suppressToolInteractionFollowUntilRef.current
-
-        if (shouldPreserveToolInteractionScroll) return
-
-        if (!initialScrollDoneRef.current) {
-          el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
-          initialScrollDoneRef.current = true
-          return
-        }
-
-        if (isSending || shouldLetSmoothSendScrollFinish) {
-          jumpToBottom()
-          return
-        }
-
-        if (isGenerating || distanceFromBottom < 260) {
-          if (distanceFromBottom < 80) {
-            el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
-            return
-          }
-          jumpToBottom()
-        }
-      })
-    })
-
-    observer.observe(content)
-
-    return () => {
-      if (frame !== null) cancelAnimationFrame(frame)
-      observer.disconnect()
-    }
-  }, [isSending, isGenerating, scrollContainerRef, jumpToBottom])
+    const el = scrollContainerRef.current
+    if (!el) return
+    setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
+  }, [isGenerating, renderedMessages.length, scrollContainerRef])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
@@ -1047,6 +1017,250 @@ export function ChatView({
     return null
   }, [renderedMessages])
 
+  const assistantMessages = messages.filter((m) => m.role === "assistant")
+  const lastTwoAssistantIds = new Set(
+    assistantMessages.slice(-2).map((m) => m.messageId)
+  )
+  const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
+    tools.filter(
+      (t) =>
+        t.tool !== "sessions_spawn" &&
+        t.tool !== "subagents" &&
+        t.tool !== "sessions_yield"
+    )
+
+  const { grouped: groupedToolCalls, suppressed: suppressedToolCallMessages } =
+    useMemo(
+      () => groupAssistantToolCallsByMessage(renderedMessages),
+      [renderedMessages]
+    )
+
+  const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
+  for (const sub of spawnedSubagents) {
+    spawnsByToolCallId.set(sub.toolCallId, sub)
+  }
+
+  function getSubagentsForMessage(
+    toolCalls?: import("./types").InlineToolCall[]
+  ): SpawnedSubagent[] {
+    if (!toolCalls) return []
+    const matched: SpawnedSubagent[] = []
+    for (const tc of toolCalls) {
+      if (tc.tool === "sessions_spawn") {
+        const sub = spawnsByToolCallId.get(tc.id)
+        if (sub) matched.push(sub)
+      }
+    }
+    return matched
+  }
+
+  const subagentsByTriggerUserId = new Map<string, SpawnedSubagent[]>()
+  const orphanSubagentsByAssistantId = new Map<string, SpawnedSubagent[]>()
+  let nearestUserId: string | null = null
+
+  for (const msg of renderedMessages) {
+    if (msg.role === "user") {
+      nearestUserId = msg.messageId
+      continue
+    }
+
+    const msgSubagents = getSubagentsForMessage(msg.toolCalls)
+    if (msgSubagents.length === 0) continue
+
+    if (nearestUserId) {
+      const existing = subagentsByTriggerUserId.get(nearestUserId) ?? []
+      subagentsByTriggerUserId.set(nearestUserId, [
+        ...existing,
+        ...msgSubagents,
+      ])
+    } else {
+      orphanSubagentsByAssistantId.set(msg.messageId, msgSubagents)
+    }
+  }
+
+  const scrollToRenderedMessage = useCallback(
+    (messageId: string) => {
+      const index = renderedMessages.findIndex(
+        (msg) => msg.messageId === messageId
+      )
+      if (index < 0) return false
+      virtuosoRef.current?.scrollToIndex({
+        index,
+        align: "center",
+        behavior: "smooth",
+      })
+      return true
+    },
+    [renderedMessages]
+  )
+
+  const renderMessageRow = useCallback(
+    (index: number, msg: ChatMessage) => {
+      const isLast = index === renderedMessages.length - 1
+      const showPending =
+        isLast && isGenerating && pendingTools.length > 0 && msg.role === "user"
+      const isActivelyStreaming =
+        isLast && isGenerating && msg.role === "assistant"
+      let hasLaterAssistantInSameTurn = false
+      if (msg.role === "assistant") {
+        for (const next of renderedMessages.slice(index + 1)) {
+          if (next.role === "user") break
+          if (next.role === "assistant" && next.text.trim()) {
+            hasLaterAssistantInSameTurn = true
+            break
+          }
+        }
+      }
+      const isActiveTurnAssistant =
+        msg.role === "assistant" && index > latestRenderedUserIndex
+      const suppressAssistantActions =
+        msg.role === "assistant" &&
+        (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
+      const filteredPending = toolCallsWithoutSpawn(pendingTools)
+      const messageToolCalls =
+        msg.role === "assistant" && suppressedToolCallMessages.has(msg.messageId)
+          ? []
+          : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
+      const filteredToolCalls =
+        msg.role === "assistant"
+          ? mergeToolCallsForDisplay(
+              toolCallsWithoutSpawn(messageToolCalls),
+              isActivelyStreaming ? filteredPending : []
+            )
+          : toolCallsWithoutSpawn(messageToolCalls)
+      const anchoredUserSubagents =
+        msg.role === "user"
+          ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
+          : []
+      const orphanAssistantSubagents =
+        msg.role === "assistant"
+          ? (orphanSubagentsByAssistantId.get(msg.messageId) ?? [])
+          : []
+      const liveSubagents =
+        msg.role === "user" && isLast && isGenerating
+          ? getSubagentsForMessage(pendingTools)
+          : []
+      const userSubagents =
+        anchoredUserSubagents.length > 0 ? anchoredUserSubagents : liveSubagents
+
+      return (
+        <div
+          id={`message-${msg.messageId}`}
+          className="mx-auto max-w-3xl px-4 py-2.5"
+        >
+          {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
+            <div className="mb-2">
+              <SubagentCard
+                subagents={orphanAssistantSubagents}
+                onOpen={openSubagent}
+              />
+            </div>
+          )}
+          {msg.role === "assistant" && msg.reasoningText && (
+            <ThinkingBlock
+              text={msg.reasoningText}
+              defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
+            />
+          )}
+          {(() => {
+            const assistantHasText = msg.role === "assistant" && msg.text.trim().length > 0
+            const toolSteps = msg.role === "assistant" && filteredToolCalls && filteredToolCalls.length > 0
+              ? (
+                  <div className="mb-2 max-w-[85%]">
+                    <ToolCallSteps
+                      tools={filteredToolCalls}
+                      defaultOpen={lastTwoAssistantIds.has(msg.messageId) && !assistantHasText}
+                      onSelectTool={onSelectTool}
+                      onResolveApproval={resolveExecApproval}
+                    />
+                  </div>
+                )
+              : null
+            const bubble = (msg.role === "user" || msg.text) ? (
+              <MessageBubble
+                message={msg}
+                onEdit={
+                  msg.role === "user" && msg.messageId === lastEditableUserId
+                    ? handleEdit
+                    : undefined
+                }
+                onRetrySend={retrySend}
+                onSwitchBranch={switchBranch}
+                onReply={replyToMessage}
+                onPin={togglePin}
+                onDelete={deleteMessage}
+                onReact={msg.role === "assistant" ? reactToMessage : undefined}
+                onExport={exportOneMessage}
+                onTextAnimationComplete={markTextAnimationComplete}
+                onFork={msg.role === "assistant" ? forkFromMessage : undefined}
+                onResolveApproval={resolveExecApproval}
+                onAskSelectedText={
+                  msg.role === "assistant" ? askAboutSelectedText : undefined
+                }
+                isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
+                reaction={messageActionState.reactions[msg.messageId]}
+                isGenerating={isGenerating}
+                isActivelyStreaming={isActivelyStreaming}
+                suppressActions={suppressAssistantActions}
+                popoverOpen={activePopoverId === msg.messageId}
+                onPopoverOpenChange={(open) =>
+                  setActivePopoverId(open ? msg.messageId : null)
+                }
+              />
+            ) : null
+            return <>{toolSteps}{bubble}</>
+          })()}
+          {msg.role === "user" && userSubagents.length > 0 && (
+            <div className="mt-3">
+              <SubagentCard subagents={userSubagents} onOpen={openSubagent} />
+            </div>
+          )}
+          {showPending && filteredPending.length > 0 && (
+            <div className="mt-4 max-w-[85%]">
+              <ToolCallSteps
+                tools={filteredPending}
+                defaultOpen
+                onSelectTool={onSelectTool}
+                onResolveApproval={resolveExecApproval}
+              />
+            </div>
+          )}
+        </div>
+      )
+    },
+    [
+      activePopoverId,
+      askAboutSelectedText,
+      deleteMessage,
+      exportOneMessage,
+      forkFromMessage,
+      getSubagentsForMessage,
+      handleEdit,
+      isGenerating,
+      lastEditableUserId,
+      lastTwoAssistantIds,
+      latestRenderedUserIndex,
+      markTextAnimationComplete,
+      messageActionState.pinnedIds,
+      messageActionState.reactions,
+      onSelectTool,
+      openSubagent,
+      orphanSubagentsByAssistantId,
+      pendingTools,
+      reactToMessage,
+      groupedToolCalls,
+      suppressedToolCallMessages,
+      renderedMessages.length,
+      replyToMessage,
+      resolveExecApproval,
+      retrySend,
+      setActivePopoverId,
+      subagentsByTriggerUserId,
+      switchBranch,
+      togglePin,
+    ]
+  )
+
   if (activeSubKey && activeSubagent) {
     return (
       <SubagentFullChat
@@ -1131,13 +1345,13 @@ export function ChatView({
           isGenerating={isGenerating}
           historyMessages={userMessageHistory}
           onAbort={handleAbort}
-          initialPrompt={composerSeed}
+          initialPrompt={composerSeed || undefined}
           replyTo={replyTo}
           onCancelReply={cancelReply}
-          onRemoveReplySelection={removeSelectedReference}
           onModelSelect={handleSessionModelSelect}
           modelSwitching={modelSwitching}
           glowOnMount
+          draftKey={sessionKey}
         />
         {statusText && (
           <div className="flex items-center pl-1">
@@ -1147,95 +1361,8 @@ export function ChatView({
             </span>
           </div>
         )}
-        {status === "error" && (
-          <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
-            <p className="text-sm text-red-400">
-              {errorMessage || "Something went wrong. Try again."}
-            </p>
-          </div>
-        )}
       </div>
     )
-  }
-
-  const assistantMessages = messages.filter((m) => m.role === "assistant")
-  const lastTwoAssistantIds = new Set(
-    assistantMessages.slice(-2).map((m) => m.messageId)
-  )
-  const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
-    tools.filter(
-      (t) =>
-        t.tool !== "sessions_spawn" &&
-        t.tool !== "subagents" &&
-        t.tool !== "sessions_yield"
-    )
-
-  const mergeToolCallsForDisplay = (
-    base?: import("./types").InlineToolCall[],
-    live?: import("./types").InlineToolCall[],
-  ) => {
-    const merged = new Map<string, import("./types").InlineToolCall>()
-    for (const tool of base ?? []) {
-      merged.set(tool.id || `${tool.tool}:${merged.size}`, tool)
-    }
-    for (const tool of live ?? []) {
-      const key = tool.id || `${tool.tool}:${merged.size}`
-      const existing = merged.get(key)
-      if (!existing) {
-        merged.set(key, tool)
-        continue
-      }
-      const mergedTool = { ...existing, ...tool }
-      if (existing.duration && !tool.duration) mergedTool.duration = existing.duration
-      if (existing.duration && existing.status !== "running") {
-        mergedTool.duration = existing.duration
-      }
-      merged.set(key, mergedTool)
-    }
-    return Array.from(merged.values())
-  }
-
-  const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
-  for (const sub of spawnedSubagents) {
-    spawnsByToolCallId.set(sub.toolCallId, sub)
-  }
-
-  function getSubagentsForMessage(
-    toolCalls?: import("./types").InlineToolCall[]
-  ): SpawnedSubagent[] {
-    if (!toolCalls) return []
-    const matched: SpawnedSubagent[] = []
-    for (const tc of toolCalls) {
-      if (tc.tool === "sessions_spawn") {
-        const sub = spawnsByToolCallId.get(tc.id)
-        if (sub) matched.push(sub)
-      }
-    }
-    return matched
-  }
-
-  const subagentsByTriggerUserId = new Map<string, SpawnedSubagent[]>()
-  const orphanSubagentsByAssistantId = new Map<string, SpawnedSubagent[]>()
-  let nearestUserId: string | null = null
-
-  for (const msg of renderedMessages) {
-    if (msg.role === "user") {
-      nearestUserId = msg.messageId
-      continue
-    }
-
-    const msgSubagents = getSubagentsForMessage(msg.toolCalls)
-    if (msgSubagents.length === 0) continue
-
-    if (nearestUserId) {
-      const existing = subagentsByTriggerUserId.get(nearestUserId) ?? []
-      subagentsByTriggerUserId.set(nearestUserId, [
-        ...existing,
-        ...msgSubagents,
-      ])
-    } else {
-      orphanSubagentsByAssistantId.set(msg.messageId, msgSubagents)
-    }
   }
 
   return (
@@ -1278,9 +1405,7 @@ export function ChatView({
             onTogglePin={togglePin}
             triggerRef={pinButtonRef}
             onNavigateToMessage={(id) => {
-              document
-                .getElementById(`message-${id}`)
-                ?.scrollIntoView({ behavior: "smooth", block: "center" })
+              void scrollToRenderedMessage(id)
             }}
           />
         </div>
@@ -1292,193 +1417,108 @@ export function ChatView({
         onSubmit={handleFeedbackSubmit}
       />
 
-      <div
-        ref={scrollContainerRef}
+      <Virtuoso
+        ref={virtuosoRef}
+        data={renderedMessages}
+        className="flex-1"
+        scrollerRef={(ref) => {
+          scrollContainerRef.current =
+            ref instanceof HTMLDivElement ? ref : null
+        }}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto"
-      >
-        <div ref={messageContentRef} className="mx-auto max-w-3xl px-4 py-8">
-          <div className="flex flex-col gap-5">
-            {renderedMessages.map((msg, i) => {
-              const isLast = i === renderedMessages.length - 1
-              const showPending =
-                isLast &&
-                isGenerating &&
-                pendingTools.length > 0 &&
-                msg.role === "user"
-              const isActivelyStreaming =
-                isLast && isGenerating && msg.role === "assistant"
-
-              const filteredPending = toolCallsWithoutSpawn(pendingTools)
-              const filteredToolCalls =
-                msg.role === "assistant"
-                  ? mergeToolCallsForDisplay(
-                      toolCallsWithoutSpawn(msg.toolCalls ?? []),
-                      isActivelyStreaming ? filteredPending : [],
-                    )
-                  : toolCallsWithoutSpawn(msg.toolCalls ?? [])
-
-              const anchoredUserSubagents =
-                msg.role === "user"
-                  ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
-                  : []
-              const orphanAssistantSubagents =
-                msg.role === "assistant"
-                  ? (orphanSubagentsByAssistantId.get(msg.messageId) ?? [])
-                  : []
-              const liveSubagents =
-                msg.role === "user" && isLast && isGenerating
-                  ? getSubagentsForMessage(pendingTools)
-                  : []
-              const userSubagents =
-                anchoredUserSubagents.length > 0
-                  ? anchoredUserSubagents
-                  : liveSubagents
-
-              return (
-                <div
-                  key={msg.messageId}
-                  id={`message-${msg.messageId}`}
-                  className={cn("scroll-mt-24 rounded-2xl transition-all duration-500")}
-                >
-                  {msg.role === "assistant" &&
-                    filteredToolCalls &&
-                    filteredToolCalls.length > 0 && (
-                      <div className="mb-2 max-w-[85%]">
-                        <ToolCallSteps
-                          tools={filteredToolCalls}
-                          defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
-                          onSelectTool={onSelectTool}
-                          onInteract={suppressToolInteractionFollow}
-                          onResolveApproval={resolveExecApproval}
-                        />
-                      </div>
-                    )}
-                  {msg.role === "assistant" &&
-                    orphanAssistantSubagents.length > 0 && (
-                      <div className="mb-2">
-                        <SubagentCard
-                          subagents={orphanAssistantSubagents}
-                          onOpen={openSubagent}
-                        />
-                      </div>
-                    )}
-                  {(msg.role === "user" || msg.text) && (
-                    <MessageBubble
-                      message={msg}
-                      onEdit={
-                        msg.role === "user" &&
-                        msg.messageId === lastEditableUserId
-                          ? handleEdit
-                          : undefined
-                      }
-                      onSwitchBranch={switchBranch}
-                      onReply={replyToMessage}
-                      onPin={togglePin}
-                      onDelete={deleteMessage}
-                      onReact={
-                        msg.role === "assistant" ? reactToMessage : undefined
-                      }
-                      onExport={exportOneMessage}
-                      onTextAnimationComplete={markTextAnimationComplete}
-                      onFork={
-                        msg.role === "assistant" ? forkFromMessage : undefined
-                      }
-                      onResolveApproval={resolveExecApproval}
-                      onAskSelectedText={
-                        msg.role === "assistant"
-                          ? askAboutSelectedText
-                          : undefined
-                      }
-                      referencedTexts={referencedTextsByMessageId.get(msg.messageId)}
-                      isPinned={messageActionState.pinnedIds.includes(
-                        msg.messageId
-                      )}
-                      reaction={messageActionState.reactions[msg.messageId]}
-                      isGenerating={isGenerating}
-                      isActivelyStreaming={isActivelyStreaming}
-                      popoverOpen={activePopoverId === msg.messageId}
-                      onPopoverOpenChange={(open) =>
-                        setActivePopoverId(open ? msg.messageId : null)
-                      }
-                    />
-                  )}
-                  {msg.role === "user" && userSubagents.length > 0 && (
-                    <div className="mt-3">
-                      <SubagentCard
-                        subagents={userSubagents}
-                        onOpen={openSubagent}
-                      />
-                    </div>
-                  )}
-                  {showPending && filteredPending.length > 0 && (
-                    <div className="mt-4 max-w-[85%]">
-                      <ToolCallSteps
-                        tools={filteredPending}
-                        defaultOpen
-                        onSelectTool={onSelectTool}
-                        onInteract={suppressToolInteractionFollow}
-                        onResolveApproval={resolveExecApproval}
-                      />
-                    </div>
-                  )}
+        initialTopMostItemIndex={{ index: "LAST", align: "end" }}
+        alignToBottom
+        followOutput={(isAtBottom) => {
+          if (isSending) return "smooth"
+          if (isGenerating) return isAtBottom ? "auto" : false
+          return isAtBottom ? "smooth" : false
+        }}
+        computeItemKey={(_, msg) => msg.messageId}
+        increaseViewportBy={{ top: 900, bottom: 1200 }}
+        components={{
+          Header: () => (
+            <div className="mx-auto max-w-3xl px-4 pt-8">
+              {messageWindow.hiddenBefore > 0 && (
+                <div className="mx-auto mb-2 flex w-fit items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                  <span>
+                    Showing latest {renderedMessages.length} of{" "}
+                    {messageWindow.total} messages
+                  </span>
+                  <button
+                    type="button"
+                    onClick={loadOlderMessages}
+                    className="cursor-pointer font-medium text-foreground underline-offset-2 hover:underline"
+                  >
+                    Load older messages
+                  </button>
                 </div>
-              )
-            })}
-          </div>
-
-          <AnimatePresence initial={false}>
-            {editPreview && (
-              <EditPreviewPanel
-                key={editPreview.branchSessionKey}
-                preview={editPreview}
-                onSelect={selectEditBranch}
-              />
-            )}
-          </AnimatePresence>
-
-          {statusText && (
-            <div className="mt-4 flex items-center pl-1">
-              <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                {statusText.replace(/\.{3}$/, "")}
-                <span className="thinking-ellipsis" aria-hidden="true" />
-              </span>
+              )}
             </div>
-          )}
+          ),
+          Footer: () => (
+            <div className="mx-auto max-w-3xl px-4 pb-8">
+              <AnimatePresence initial={false}>
+                {editPreview && (
+                  <EditPreviewPanel
+                    key={editPreview.branchSessionKey}
+                    preview={editPreview}
+                    onSelect={selectEditBranch}
+                  />
+                )}
+              </AnimatePresence>
 
-          {status === "error" && (
-            <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
-              <p className="text-sm text-red-400">
-                {errorMessage || "Something went wrong. Try again."}
-              </p>
+              {statusText && (
+                <div className="mt-4 flex items-center pl-1">
+                  <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+                    {statusText.replace(/\.{3}$/, "")}
+                    <span className="thinking-ellipsis" aria-hidden="true" />
+                  </span>
+                </div>
+              )}
+
+              <div ref={bottomRef} className="h-8" />
             </div>
-          )}
+          ),
+        }}
+        itemContent={renderMessageRow}
+      />
 
-
-          <div ref={bottomRef} className="h-8" />
-        </div>
-
-        <div className="sticky bottom-4 z-30 flex justify-end px-4 pb-4 pointer-events-none">
-          <AnimatePresence initial={false}>
-            {!isAtBottom && (
+      <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
+        <AnimatePresence>
+          {showJumpToBottom && (
+            <motion.div
+              initial={{ opacity: 0, y: 8, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.96 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+              className="pointer-events-none absolute inset-x-0 -top-9 z-30 flex justify-center"
+            >
               <motion.button
                 type="button"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                onClick={jumpToBottom}
-                className="pointer-events-auto grid size-10 place-items-center rounded-full border border-border/60 bg-card/95 text-foreground shadow-[0_10px_28px_rgba(0,0,0,0.28)] ring-1 ring-white/10 backdrop-blur-xl transition-[border-color,background-color,box-shadow] hover:border-border hover:bg-muted/95 hover:shadow-[0_12px_32px_rgba(0,0,0,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-                aria-label="Jump to latest message"
+                aria-label="Scroll to latest message"
+                title="Scroll to latest message"
+                onClick={jumpToLatestMessage}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.94 }}
+                className={cn(
+                  "group pointer-events-auto flex h-8 w-16 cursor-pointer items-center justify-center rounded-[18px]",
+                  "bg-white/[0.04] text-foreground/80 shadow-[0_12px_34px_-28px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-2xl",
+                  "transition-colors hover:bg-white/[0.06] hover:text-foreground",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
+                )}
               >
-                <LuArrowDown className="block size-4 shrink-0" strokeWidth={2.25} />
+                <motion.span
+                  aria-hidden="true"
+                  animate={{ y: [0, 5, 0] }}
+                  transition={{ duration: 1.8, ease: "easeInOut", repeat: Infinity }}
+                  className="flex origin-center scale-x-125 bg-transparent"
+                >
+                  <MdKeyboardDoubleArrowDown size={30} />
+                </motion.span>
               </motion.button>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
-
-      <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
+            </motion.div>
+          )}
+        </AnimatePresence>
         {spawnedSubagents.length > 0 && (
           <div className="mb-2">
             <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
@@ -1489,13 +1529,13 @@ export function ChatView({
           disabled={false}
           isGenerating={isGenerating}
           onAbort={handleAbort}
-          initialPrompt={composerSeed}
+          initialPrompt={composerSeed || undefined}
           replyTo={replyTo}
           onCancelReply={cancelReply}
-          onRemoveReplySelection={removeSelectedReference}
           onModelSelect={handleSessionModelSelect}
           modelSwitching={modelSwitching}
           historyMessages={userMessageHistory}
+          draftKey={sessionKey}
         />
       </div>
     </div>

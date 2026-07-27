@@ -34,12 +34,12 @@ function delay(ms) {
 }
 
 async function waitForNextServer(url) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     if (await checkNextServer(url)) {
       return true;
     }
 
-    await delay(1000);
+    await delay(500);
   }
 
   return false;
@@ -116,19 +116,21 @@ function prepareNextDevLock() {
   return true;
 }
 
-function spawnPnpm(args) {
+function spawnPnpm(args, options = {}) {
   if (process.platform === "win32") {
     const command = ["pnpm", ...args].map(quoteWindowsArg).join(" ");
 
     return spawn("cmd.exe", ["/d", "/s", "/c", command], {
       stdio: "inherit",
       env: process.env,
+      ...options,
     });
   }
 
   return spawn("pnpm", args, {
     stdio: "inherit",
     env: process.env,
+    ...options,
   });
 }
 
@@ -151,7 +153,8 @@ async function main() {
     process.exit(1);
   }
 
-  const child = spawnPnpm(["--filter", "ui", "dev"]);
+  console.log("Starting Next.js UI dev server on http://localhost:3000");
+  const child = spawnPnpm(["dev"], { cwd: uiDir });
 
   child.on("exit", (code, signal) => {
     if (signal) {

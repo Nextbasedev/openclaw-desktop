@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { VscClose, VscAdd } from "react-icons/vsc"
 import { ActivityTab } from "./ActivityTab"
 import { WorkspaceTab } from "./WorkspaceTab"
-import { GitTab } from "./GitTab"
+import { GitTab, type GitTabSelection } from "./GitTab"
 import { XTerminal } from "@/components/terminal/XTerminal"
 import { Icons } from "@/components/icons"
 
@@ -60,6 +60,7 @@ export function InspectorView({
     { id: "term-1", title: "Terminal 1" },
   ])
   const [activeTermId, setActiveTermId] = useState("term-1")
+  const [gitSelection, setGitSelection] = useState<GitTabSelection | null>(null)
   const termScrollRef = useRef<HTMLDivElement>(null)
 
   const addTermTab = useCallback(() => {
@@ -174,6 +175,8 @@ export function InspectorView({
           <GitTab
             key={projectId ?? "global"}
             projectId={projectId ?? null}
+            selection={gitSelection}
+            onSelectionChange={setGitSelection}
           />
         )}
         {activeTab === "terminal" && (

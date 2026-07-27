@@ -150,9 +150,9 @@ export function SubagentFullChat({
     }
     return Array.from(byId.values())
   }, [messages])
-  const conversationMessages = messages
-    .map((msg) => ({ ...msg, toolCalls: undefined }))
-    .filter((msg) => msg.text.trim().length > 0)
+  const conversationMessages = messages.filter(
+    (msg) => msg.text.trim().length > 0 || (msg.toolCalls?.length ?? 0) > 0
+  )
   const hasFallback =
     fallbackPrompt.trim().length > 0 || fallbackText.trim().length > 0
   const displayMessages =
@@ -244,27 +244,17 @@ export function SubagentFullChat({
             </div>
           ) : (
             <div className="flex flex-col gap-5">
-              {displayMessages.map((msg, index) => {
-                const shouldShowTools =
-                  toolCalls.length > 0 &&
-                  msg.role === "assistant" &&
-                  !displayMessages
-                    .slice(0, index)
-                    .some((item) => item.role === "assistant")
-
-                return (
-                  <div key={msg.id} className="contents">
-                    {shouldShowTools && (
-                      <SubagentToolsStrip tools={toolCalls} />
-                    )}
-                    <MsgBubble msg={msg} />
-                  </div>
-                )
-              })}
-              {toolCalls.length > 0 &&
-                !displayMessages.some((msg) => msg.role === "assistant") && (
-                  <SubagentToolsStrip tools={toolCalls} />
-                )}
+              {displayMessages.map((msg) => (
+                <div key={msg.id} className="contents">
+                  {msg.text.trim().length > 0 && <MsgBubble msg={msg} />}
+                  {(msg.toolCalls?.length ?? 0) > 0 && (
+                    <SubagentToolsStrip tools={msg.toolCalls ?? []} />
+                  )}
+                </div>
+              ))}
+              {toolCalls.length > 0 && displayMessages.length === 0 && (
+                <SubagentToolsStrip tools={toolCalls} />
+              )}
             </div>
           )}
 

@@ -2,8 +2,8 @@
 
 import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
-import { invoke } from "@/lib/ipc"
 import { cleanUserMessageText } from "@/lib/chatHistoryParser"
+import { fetchChatBootstrapV2 } from "@/lib/chat-engine-v2/client"
 
 export type SubagentToolCall = {
   id: string
@@ -163,12 +163,10 @@ export function useSubagentMessages(
   const fetchMessages = useCallback(async (key: string, timeoutMs = 6_000) => {
     const requestSeq = ++requestSeqRef.current
     try {
-      const history = await invoke<{ messages: RawMsg[] }>(
-        "middleware_chat_history",
-        { input: { sessionKey: key, timeoutMs } },
-      )
+      void timeoutMs
+      const history = await fetchChatBootstrapV2(key)
       if (cancelledRef.current || requestSeq !== requestSeqRef.current) return
-      setMessages(parseMessages(history.messages ?? []))
+      setMessages(parseMessages((history.messages as RawMsg[]) ?? []))
     } catch {}
   }, [])
 

@@ -26,6 +26,18 @@ describe("chat stream hub event mapping", () => {
     expect(output).toContain("done")
   })
 
+  it("emits streaming and done states for live chat delta/final events", () => {
+    const c = client()
+    hub.handleGatewayEvent({ type: "event", event: "chat", payload: { sessionKey: "agent:main:a", runId: "r1", state: "delta", message: { content: [{ type: "text", text: "partial" }] } } } as any)
+    hub.handleGatewayEvent({ type: "event", event: "chat", payload: { sessionKey: "agent:main:a", runId: "r1", state: "final", message: { content: [{ type: "text", text: "final answer" }] }, usage: { total: 12 }, stopReason: "stop" } } as any)
+    const output = c.writes.join("\n")
+    expect(output).toContain("chat.message")
+    expect(output).toContain("partial")
+    expect(output).toContain("final answer")
+    expect(output).toContain("streaming")
+    expect(output).toContain("done")
+  })
+
   it("ignores user messages for visible assistant output", () => {
     const c = client()
     hub.handleGatewayEvent({ type: "event", event: "session.message", payload: { sessionKey: "agent:main:a", message: { id: "u1", role: "user", text: "secret" } } } as any)
@@ -51,6 +63,32 @@ describe("chat stream hub event mapping", () => {
     expect(output).toContain("live output")
     expect(output).toContain("isError")
     expect(output).toContain("failed")
+  })
+
+  it("uses sessions.changed lifecycle as the source of truth for terminal status", () => {
+    const c = client()
+    hub.handleGatewayEvent({ type: "event", event: "sessions.changed", payload: { sessionKey: "agent:main:a", runId: "r1", phase: "start" } } as any)
+    hub.handleGatewayEvent({ type: "event", event: "session.message", payload: { sessionKey: "agent:main:a", message: { id: "m1", role: "assistant", text: "partial", content: [{ type: "text", text: "partial" }] } } } as any)
+    hub.handleGatewayEvent({ type: "event", event: "session.tool", payload: { sessionKey: "agent:main:a", runId: "r1", data: { phase: "result", name: "read", toolCallId: "tc1" } } } as any)
+    hub.handleGatewayEvent({ type: "event", event: "sessions.changed", payload: { sessionKey: "agent:main:a", runId: "r1", phase: "end" } } as any)
+
+    const output = c.writes.join("\n")
+    expect(output).toContain('"state":"thinking"')
+    expect(output).toContain('"state":"done"')
+    expect(output).not.toContain('"state":"done","label"')
+  })
+
+  it("does not revive thinking from a tool result after the lifecycle has ended", () => {
+    const c = client()
+    hub.handleGatewayEvent({ type: "event", event: "sessions.changed", payload: { sessionKey: "agent:main:a", runId: "r1", phase: "start" } } as any)
+    hub.handleGatewayEvent({ type: "event", event: "sessions.changed", payload: { sessionKey: "agent:main:a", runId: "r1", phase: "end" } } as any)
+    hub.handleGatewayEvent({ type: "event", event: "session.tool", payload: { sessionKey: "agent:main:a", runId: "r1", data: { phase: "result", name: "read", toolCallId: "tc1" } } } as any)
+
+    const output = c.writes.join("\n")
+    const doneIndex = output.lastIndexOf('"state":"done"')
+    const thinkingAfterDone = output.slice(doneIndex + 1).includes('"state":"thinking"')
+    expect(doneIndex).toBeGreaterThan(-1)
+    expect(thinkingAfterDone).toBe(false)
   })
 
   it("ignores unrelated subagent events except link bookkeeping placeholder", () => {

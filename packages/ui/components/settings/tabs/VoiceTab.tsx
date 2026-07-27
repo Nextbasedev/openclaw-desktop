@@ -356,7 +356,7 @@ export function VoiceTab() {
             <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
               Audio provider
             </p>
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="grid gap-0 sm:grid-cols-3">
               {providers.map((provider) => {
                 const selected = current.provider === provider
                 const copy = PROVIDER_COPY[provider]
@@ -380,7 +380,7 @@ export function VoiceTab() {
                       }
                     }}
                     className={cn(
-                      "flex items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors disabled:pointer-events-none disabled:opacity-60",
+                      "cursor-pointer flex items-center gap-3 rounded-0 border px-4 py-3 text-left transition-colors disabled:pointer-events-none disabled:opacity-60",
                       selected
                         ? "border-foreground/25 bg-foreground text-background"
                         : "border-border/50 bg-background/45 text-foreground hover:bg-foreground/[0.04]",
@@ -564,6 +564,7 @@ export function VoiceTab() {
         <button
           type="button"
           onClick={() => setAdvancedOpen((open) => !open)}
+          aria-expanded={advancedOpen}
           className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-foreground/[0.035]"
         >
           <span className="flex items-center gap-2 text-[13px] font-medium text-foreground">
@@ -572,52 +573,73 @@ export function VoiceTab() {
           </span>
           <LuChevronDown
             size={15}
-            className={cn("text-muted-foreground transition-transform", advancedOpen && "rotate-180")}
+            className={cn(
+              "text-muted-foreground transition-transform duration-300 ease-out",
+              advancedOpen && "rotate-180",
+            )}
           />
         </button>
 
-        {advancedOpen && (
-          <div className="space-y-4 border-t border-border/35 px-4 py-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-[12px] font-medium text-muted-foreground">
-                Language hint
-                <input
-                  value={current.language}
-                  disabled={!voiceSettingsAvailable || loading || saving}
-                  onChange={(event) => setSettings({ ...current, language: event.target.value })}
-                  onBlur={(event) => { void save({ ...current, language: event.target.value }) }}
-                  className="mt-2 w-full rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
-                  placeholder="auto, en, hi..."
-                />
-              </label>
-
-              <div className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-foreground/[0.035] px-3 py-2.5">
-                <div>
-                  <p className="text-[12px] font-medium text-foreground">Echo transcript</p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">Show transcript in chat.</p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={current.echoTranscript}
-                  disabled={!voiceSettingsAvailable || loading || saving}
-                  onClick={() => { void save({ ...current, echoTranscript: !current.echoTranscript }) }}
-                  className={cn(
-                    "relative inline-flex h-[22px] w-[40px] shrink-0 items-center rounded-full transition-colors disabled:opacity-60",
-                    current.echoTranscript ? "bg-foreground" : "bg-muted",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "block size-[18px] rounded-full bg-background shadow-sm transition-transform",
-                      current.echoTranscript ? "translate-x-5" : "translate-x-0.5",
-                    )}
+        <div className="activity-expand" data-open={advancedOpen}>
+          <div>
+            <div className="activity-expand-inner border-t border-border/35 px-4 py-4">
+              <div className="grid gap-0 md:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
+                <label className="block rounded-0 border border-border/45 bg-background/55 p-3 text-[12px] font-medium text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
+                  <span className="block text-foreground">Language hint</span>
+                  <span className="mt-1 block text-[11px] font-normal leading-relaxed text-muted-foreground">
+                    Help transcription lock onto a language code like <code className="text-foreground">en</code> or <code className="text-foreground">hi</code>.
+                  </span>
+                  <input
+                    value={current.language}
+                    disabled={!voiceSettingsAvailable || loading || saving}
+                    onChange={(event) => setSettings({ ...current, language: event.target.value })}
+                    onBlur={(event) => { void save({ ...current, language: event.target.value }) }}
+                    className="mt-3 w-full rounded-md border border-border/60 bg-background/80 px-3 py-2.5 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
+                    placeholder="auto, en, hi..."
                   />
-                </button>
+                </label>
+
+                <div className="flex min-h-[120px] flex-col justify-between rounded-0 border border-border/45 bg-foreground/[0.04] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
+                  <div className="pr-2">
+                    <p className="text-[12px] font-medium text-foreground">Echo transcript</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      Show the captured transcript in chat after the mic message is processed.
+                    </p>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-border/40 bg-background/60 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-medium text-foreground">
+                        {current.echoTranscript ? "Enabled" : "Disabled"}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                        {current.echoTranscript ? "Transcript appears in chat." : "Transcript stays hidden."}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={current.echoTranscript}
+                      disabled={!voiceSettingsAvailable || loading || saving}
+                      onClick={() => { void save({ ...current, echoTranscript: !current.echoTranscript }) }}
+                      className={cn(
+                        "relative inline-flex h-[24px] w-[42px] shrink-0 items-center rounded-full transition-[background-color] duration-200 disabled:opacity-60",
+                        current.echoTranscript ? "bg-foreground" : "bg-muted",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "block size-[18px] rounded-full bg-background shadow-sm transition-transform duration-200 ease-out",
+                          current.echoTranscript ? "translate-x-5" : "translate-x-1",
+                        )}
+                      />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        )}
+        </div>
       </section>
 
       <section className="rounded-lg border border-border/50 bg-foreground/[0.035] px-4 py-3">

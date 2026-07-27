@@ -7,9 +7,10 @@ export type ChatListResponse = {
 
 export async function fetchChats(
   archived = false,
+  spaceId?: string,
 ): Promise<ChatListResponse> {
   return invoke<ChatListResponse>("middleware_chats_list", {
-    input: { archived },
+    input: { archived, spaceId },
   })
 }
 

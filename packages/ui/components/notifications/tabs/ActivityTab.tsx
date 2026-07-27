@@ -151,13 +151,15 @@ export function ActivityTab({ onNavigateToChat }: ActivityTabProps) {
           ),
         ])
         if (cancelled) return
-        for (const job of jobsResult.jobs) {
+        const jobs = Array.isArray(jobsResult.jobs) ? jobsResult.jobs : []
+        const events = Array.isArray(activityResult.events) ? activityResult.events : []
+        for (const job of jobs) {
           if (job.name) jobNamesRef.current.set(job.jobId, job.name)
         }
-        for (const event of activityResult.events) {
+        for (const event of events) {
           if (event.name) jobNamesRef.current.set(event.jobId, event.name)
         }
-        setEvents(visibleActivityEvents(activityResult.events.map((event) => ({
+        setEvents(visibleActivityEvents(events.map((event) => ({
           ...event,
           name: resolveEventName(event, jobNamesRef.current),
         }))))

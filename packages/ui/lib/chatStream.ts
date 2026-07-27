@@ -1,6 +1,7 @@
 "use client"
 
 import { streamUrl } from "./ipc"
+import { frontendLog, sanitizeForLog, sanitizeUrlForLog } from "./clientLogs"
 
 type ChatStreamEvent = {
   type: string
@@ -58,9 +59,9 @@ function getOrCreateStream(sessionKey: string): StreamEntry {
     return existing
   }
 
-  const source = new EventSource(
-    streamUrl(`/api/stream/chat/${sessionKey}`),
-  )
+  const url = streamUrl(`/api/stream/chat/${sessionKey}`)
+  frontendLog("stream", "legacy-chat-stream.start", { sessionKey, url: sanitizeUrlForLog(url) })
+  const source = new EventSource(url)
   const entry: StreamEntry = {
     sessionKey,
     source,
@@ -69,12 +70,21 @@ function getOrCreateStream(sessionKey: string): StreamEntry {
     closeTimer: null,
   }
 
+  source.onopen = () => {
+    frontendLog("stream", "legacy-chat-stream.open", { sessionKey }, "debug")
+  }
   for (const eventName of CHAT_STREAM_EVENTS) {
     source.addEventListener(eventName, (event) => {
+      frontendLog("stream", "legacy-chat-stream.event", {
+        sessionKey,
+        eventName,
+        data: sanitizeForLog((event as MessageEvent).data),
+      }, "debug")
       emitToListeners(entry, event as MessageEvent)
     })
   }
   source.onerror = () => {
+    frontendLog("stream", "legacy-chat-stream.error", { sessionKey }, "error")
     for (const listener of entry.errorListeners) listener()
   }
 
@@ -90,14 +100,25 @@ export function subscribeChatStream(
   const entry = getOrCreateStream(sessionKey)
   entry.listeners.add(listener)
   if (onError) entry.errorListeners.add(onError)
+  frontendLog("stream", "legacy-chat-stream.subscribe", {
+    sessionKey,
+    listenerCount: entry.listeners.size,
+    errorListenerCount: entry.errorListeners.size,
+  }, "debug")
 
   return () => {
     entry.listeners.delete(listener)
     if (onError) entry.errorListeners.delete(onError)
+    frontendLog("stream", "legacy-chat-stream.unsubscribe", {
+      sessionKey,
+      listenerCount: entry.listeners.size,
+      errorListenerCount: entry.errorListeners.size,
+    }, "debug")
     if (entry.listeners.size > 0 || entry.errorListeners.size > 0) return
 
     entry.closeTimer = setTimeout(() => {
       if (entry.listeners.size > 0 || entry.errorListeners.size > 0) return
+      frontendLog("stream", "legacy-chat-stream.close", { sessionKey, reason: "idle-grace-expired" })
       entry.source.close()
       streams.delete(sessionKey)
     }, CHAT_STREAM_CLOSE_GRACE_MS)

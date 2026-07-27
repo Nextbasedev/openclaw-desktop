@@ -45,11 +45,13 @@ export type SessionNavigationTarget =
     }
 
 async function createStandaloneSession(label: string) {
-  const result = await invoke<{ session: { key: string } }>(
+  const result = await invoke<{ session: { key?: string; sessionKey?: string } }>(
     "middleware_sessions_create",
     { input: { agentId: "main", label } },
   )
-  return result.session.key
+  const sessionKey = result.session.key ?? result.session.sessionKey
+  if (!sessionKey) throw new Error("Session creation did not return a sessionKey")
+  return sessionKey
 }
 
 export async function ensureChatSession(chat: ActiveChat) {
