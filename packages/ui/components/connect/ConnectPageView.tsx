@@ -92,7 +92,7 @@ const VPS_OPENCLAW_PROMPT = `Set up OpenClaw Desktop Middleware for REMOTE/VPS m
 Context:
 - OpenClaw Desktop will connect to Middleware running on this VPS/server.
 - Desktop needs full OpenClaw access through Middleware: chats, sessions, cron, projects, workspace files, git, terminal, streams, usage, settings, and approvals.
-
+ 
 Source:
 - Repo: https://github.com/Nextbasedev/openclaw-desktop.git
 - Branch: master
