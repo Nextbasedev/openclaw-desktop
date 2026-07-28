@@ -35,6 +35,36 @@ function CopyBtn({ text }: { text: string }) {
 
 let mermaidId = 0
 
+function sanitizeMermaidSvg(svg: string): string {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(svg, "image/svg+xml")
+  const svgEl = doc.querySelector("svg")
+  if (!svgEl) throw new Error("Mermaid did not produce a valid SVG")
+
+  // Mermaid diagrams originate in chat content. Do not allow that content to
+  // introduce executable SVG, embedded documents, or external navigation.
+  doc.querySelectorAll("script, foreignObject, iframe, object, embed, audio, video").forEach((el) => el.remove())
+  doc.querySelectorAll("*").forEach((el) => {
+    for (const attribute of Array.from(el.attributes)) {
+      const name = attribute.name.toLowerCase()
+      const value = attribute.value.trim()
+      if (name.startsWith("on")) {
+        el.removeAttribute(attribute.name)
+        continue
+      }
+      if ((name === "href" || name === "xlink:href") && !value.startsWith("#")) {
+        el.removeAttribute(attribute.name)
+      }
+    }
+  })
+
+  svgEl.removeAttribute("width")
+  svgEl.style.minWidth = "600px"
+  svgEl.style.height = "auto"
+  svgEl.style.fontSize = "18px"
+  return svgEl.outerHTML
+}
+
 export function MermaidBlock({ code }: { code: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [svg, setSvg] = useState<string | null>(null)
@@ -47,6 +77,7 @@ export function MermaidBlock({ code }: { code: string }) {
       const mermaid = mod.default
       mermaid.initialize({
         startOnLoad: false,
+        securityLevel: "strict",
         theme: "dark",
         darkMode: true,
         fontFamily: "inherit",
@@ -87,14 +118,7 @@ export function MermaidBlock({ code }: { code: string }) {
         ;(el as HTMLElement).style.fill = "#ffffff"
         ;(el as HTMLElement).style.color = "#ffffff"
       })
-      const svgEl = doc.querySelector("svg")
-      if (svgEl) {
-        svgEl.removeAttribute("width")
-        svgEl.style.minWidth = "600px"
-        svgEl.style.height = "auto"
-        svgEl.style.fontSize = "18px"
-      }
-      setSvg(svgEl?.outerHTML ?? result.svg)
+      setSvg(sanitizeMermaidSvg(doc.querySelector("svg")?.outerHTML ?? result.svg))
     }).catch((err) => {
       if (!cancelled) setError(String(err))
     })

@@ -1,5 +1,6 @@
 import { frontendLog, redactText, sanitizeUrlForLog } from "./clientLogs"
 import { dedupeRequest, invalidateDedupe } from "./requestDedupe"
+import { assertMiddlewareUrlIsSafeForBrowser } from "./middlewareUrlSecurity"
 
 const URL_KEY = "openclaw.middleware.url"
 const TOKEN_KEY = "openclaw.middleware.token"
@@ -45,19 +46,6 @@ function getBrowserHostname() {
   return window.location?.hostname || null
 }
 
-function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
-  const browserHostname = getBrowserHostname()
-  if (!browserHostname || isLoopbackHost(browserHostname)) return rawUrl
-  try {
-    const url = new URL(rawUrl)
-    if (!isLoopbackHost(url.hostname)) return rawUrl
-    url.hostname = browserHostname
-    return url.toString()
-  } catch {
-    return rawUrl
-  }
-}
-
 function trimTrailingSlash(value: string) {
   return value.trim().replace(/\/+$/, "")
 }
@@ -97,7 +85,7 @@ export function getMiddlewareConnection(): MiddlewareConnection | null {
   const url = localStorage.getItem(URL_KEY)?.trim() ?? ""
   const token = localStorage.getItem(TOKEN_KEY)?.trim() ?? ""
   if (!url) return null
-  return { url: trimTrailingSlash(rewriteLoopbackForRemoteBrowser(url)), token }
+  return { url: trimTrailingSlash(url), token }
 }
 
 function clearWorkspaceScopeCache() {
@@ -298,7 +286,8 @@ async function middlewareFetchNetwork<T>(path: string, init: MiddlewareRequestIn
   const startedAt = performance.now()
   const method = (init.method ?? "GET").toUpperCase()
   const token = connection.token.trim()
-  const url = trimTrailingSlash(rewriteLoopbackForRemoteBrowser(connection.url))
+  const url = trimTrailingSlash(connection.url)
+  assertMiddlewareUrlIsSafeForBrowser(url)
   const timeout = init.signal ? null : timeoutSignal(init.timeoutMs ?? DEFAULT_MIDDLEWARE_FETCH_TIMEOUT_MS)
   const { timeoutMs: _timeoutMs, ...fetchInit } = init
   frontendLog("api", "middleware.fetch.start", middlewareLogContext(method, path, url, token), "debug")
@@ -342,7 +331,8 @@ export async function middlewareFetch<T>(path: string, init: MiddlewareRequestIn
   const method = (init.method ?? "GET").toUpperCase()
   if (!shouldDedupeMiddlewareRead(method, path, init)) return middlewareFetchNetwork<T>(path, init, connection)
   const token = connection.token.trim()
-  const url = trimTrailingSlash(rewriteLoopbackForRemoteBrowser(connection.url))
+  const url = trimTrailingSlash(connection.url)
+  assertMiddlewareUrlIsSafeForBrowser(url)
   return dedupeRequest(
     middlewareFetchDedupeKey(method, url, token, path),
     () => middlewareFetchNetwork<T>(path, init, connection),
@@ -355,7 +345,8 @@ export function isOpenClawConnected(health: MiddlewareHealth | null | undefined)
 }
 
 export async function testMiddlewareConnection(input: MiddlewareConnection): Promise<MiddlewareHealth> {
-  const url = trimTrailingSlash(rewriteLoopbackForRemoteBrowser(input.url))
+  const url = trimTrailingSlash(input.url)
+  assertMiddlewareUrlIsSafeForBrowser(url)
   frontendLog("connection", "middleware.connect.start", { url: sanitizeUrlForLog(url), hasToken: Boolean(input.token.trim()) })
   try {
     const health = await middlewareFetch<MiddlewareHealth>("/health", { headers: { "Cache-Control": "no-cache" }, timeoutMs: CONNECTION_PROBE_TIMEOUT_MS }, { url, token: "" })

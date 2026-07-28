@@ -238,11 +238,11 @@ describe("middleware onboarding client", () => {
     expect(getMiddlewareConnection()).toEqual({ url: "http://127.0.0.1:8787", token: "abc" })
   })
 
-  it("rewrites stale loopback middleware URLs when opened from a remote host", () => {
+  it("keeps loopback middleware URLs when opened from a remote host", () => {
     Object.defineProperty(window, "location", { value: { hostname: "100.79.189.15" }, configurable: true })
     saveMiddlewareConnection({ url: "http://127.0.0.1:8787/", token: "abc" })
 
-    expect(getMiddlewareConnection()).toEqual({ url: "http://100.79.189.15:8787", token: "abc" })
+    expect(getMiddlewareConnection()).toEqual({ url: "http://127.0.0.1:8787", token: "abc" })
   })
 
   it("claims remote pairing code and receives token", async () => {

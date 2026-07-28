@@ -21,12 +21,12 @@ describe("middleware client", () => {
     expect(getMiddlewareUrl()).toBe("http://192.0.2.10:8787")
   })
 
-  it("rewrites loopback v2 URL to the browser host on port 8787", async () => {
+  it("does not rewrite a loopback v2 URL to the public browser host", async () => {
     vi.stubGlobal("window", { location: { hostname: "192.0.2.10" }, console, addEventListener: vi.fn() })
     vi.stubGlobal("localStorage", { getItem: vi.fn(() => null) })
     process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL = "http://127.0.0.1:8787"
     const { getMiddlewareUrl } = await import("../client")
-    expect(getMiddlewareUrl()).toBe("http://192.0.2.10:8787")
+    expect(getMiddlewareUrl()).toBe("http://127.0.0.1:8787")
   })
   it("does not rewrite loopback URLs inside the Tauri localhost origin", async () => {
     vi.stubGlobal("window", { location: { hostname: "tauri.localhost" }, console, addEventListener: vi.fn() })
@@ -34,6 +34,18 @@ describe("middleware client", () => {
     process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL = "http://127.0.0.1:8787"
     const { getMiddlewareUrl } = await import("../client")
     expect(getMiddlewareUrl()).toBe("http://127.0.0.1:8787")
+  })
+
+  it("rejects an insecure remote middleware URL from an HTTPS page", async () => {
+    vi.stubGlobal("window", { location: { hostname: "app.example.com", protocol: "https:" }, console, addEventListener: vi.fn() })
+    vi.stubGlobal("localStorage", { getItem: vi.fn(() => null) })
+    process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL = "http://middleware.example.com"
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { fetchChatBootstrapV2 } = await import("../client")
+    await expect(fetchChatBootstrapV2("session-1")).rejects.toThrow("HTTPS middleware URL")
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("uses the active Connect page middleware URL before the v2 override", async () => {

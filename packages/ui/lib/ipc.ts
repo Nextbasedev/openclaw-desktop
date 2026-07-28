@@ -1,3 +1,5 @@
+import { assertMiddlewareUrlIsSafeForBrowser } from "./middlewareUrlSecurity"
+
 const DEFAULT_SERVER_URL = "http://127.0.0.1:8787"
 const CONFIGURED_SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL?.trim()
 const SERVER_URL = CONFIGURED_SERVER_URL || DEFAULT_SERVER_URL
@@ -21,20 +23,6 @@ function isLoopbackServerUrl(url: string): boolean {
     return isLoopbackHost(parsed.hostname)
   } catch {
     return false
-  }
-}
-
-function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
-  if (typeof window === "undefined") return rawUrl
-  const browserHostname = window.location?.hostname
-  if (!browserHostname || isLoopbackHost(browserHostname)) return rawUrl
-  try {
-    const url = new URL(rawUrl)
-    if (!isLoopbackHost(url.hostname)) return rawUrl
-    url.hostname = browserHostname
-    return url.toString()
-  } catch {
-    return rawUrl
   }
 }
 
@@ -66,7 +54,8 @@ function middlewareStreamUrl(path: string): string | null {
     const storedUrl = localStorage.getItem("openclaw.middleware.url")?.replace(/\/+$/, "")
     const token = localStorage.getItem("openclaw.middleware.token")?.trim() ?? ""
     if (!storedUrl) return null
-    const url = rewriteLoopbackForRemoteBrowser(storedUrl)
+    const url = storedUrl
+    assertMiddlewareUrlIsSafeForBrowser(url)
     const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : ""
     if (path === "/api/stream/cron") return `${url}/api/stream/cron${tokenQuery}`
     const ptyMatch = path.match(/^\/api\/stream\/pty\/([^/]+)$/)

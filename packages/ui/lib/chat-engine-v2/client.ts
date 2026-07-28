@@ -1,6 +1,7 @@
 import { frontendLog, redactText, sanitizeForLog, sanitizeUrlForLog } from "../clientLogs"
 import { logChatStreamRecoveryDecision } from "../chatTimelineDiagnostics"
 import { getMiddlewareConnection } from "../middleware-client"
+import { assertMiddlewareUrlIsSafeForBrowser } from "../middlewareUrlSecurity"
 import { registerScheduledRequest, type RequestPriority } from "../requestScheduler"
 import type { SessionTokenUsage } from "../sessionContextUsage"
 import { UI_INITIAL_WINDOW } from "./constants"
@@ -15,33 +16,15 @@ function trimTrailingSlash(value: string) {
   return value.trim().replace(/\/+$/, "")
 }
 
-function isLoopbackHost(hostname: string) {
-  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "tauri.localhost" || hostname === "::1"
-}
-
-function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
-  if (typeof window === "undefined") return rawUrl
-  if (isLoopbackHost(window.location.hostname)) return rawUrl
-  try {
-    const url = new URL(rawUrl)
-    if (!isLoopbackHost(url.hostname)) return rawUrl
-    url.hostname = window.location.hostname
-    url.port = "8787"
-    return url.toString()
-  } catch {
-    return rawUrl
-  }
-}
-
 export function getMiddlewareUrl(): string {
   if (typeof window !== "undefined") {
     const connectedMiddlewareUrl = localStorage.getItem(CONNECTED_MIDDLEWARE_URL_KEY)?.trim()
-    if (connectedMiddlewareUrl) return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(connectedMiddlewareUrl))
+    if (connectedMiddlewareUrl) return trimTrailingSlash(connectedMiddlewareUrl)
 
     const stored = localStorage.getItem(V2_URL_KEY)?.trim()
-    if (stored) return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(stored))
+    if (stored) return trimTrailingSlash(stored)
   }
-  return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL?.trim() || DEFAULT_MIDDLEWARE_URL))
+  return trimTrailingSlash(process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL?.trim() || DEFAULT_MIDDLEWARE_URL)
 }
 
 function sanitizeMiddlewarePath(path: string): string {
@@ -97,6 +80,7 @@ async function fetchJson<T>(path: string, init?: RequestInit & { schedulerPriori
   const startedAt = performance.now()
   const method = (init?.method ?? "GET").toUpperCase()
   const baseUrl = getMiddlewareUrl()
+  assertMiddlewareUrlIsSafeForBrowser(baseUrl)
   frontendLog("api", "middleware.fetch.start", middlewareLogContext(method, path, baseUrl, {
     body: summarizeV2Body(init?.body),
   }), "debug")
@@ -245,7 +229,9 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
   const connect = () => {
     if (closedByCaller) return
     const connectionCursor = cursor
-    const url = new URL(`${getMiddlewareUrl()}/api/stream/ws`)
+    const middlewareUrl = getMiddlewareUrl()
+    assertMiddlewareUrlIsSafeForBrowser(middlewareUrl)
+    const url = new URL(`${middlewareUrl}/api/stream/ws`)
     url.searchParams.set("afterCursor", String(connectionCursor))
     const wsUrl = url.toString().replace(/^http/, "ws")
     frontendLog("stream", reconnectAttempt === 0 ? "patch-stream.start" : "patch-stream.reconnect", {
