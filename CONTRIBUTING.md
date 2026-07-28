@@ -1,6 +1,6 @@
 # Contributing to OpenClaw Desktop
 
-Thanks for contributing to OpenClaw Desktop. It is a Tauri 2 desktop client with a Next.js 16 / React 19 frontend and a local Fastify middleware service.
+Thank you for your interest in contributing to Understand Anything! This document provides guidelines and instructions for contributing to the project.
 
 ## Before you start
 
