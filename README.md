@@ -5,7 +5,7 @@
 <h1 align="center">OpenClaw Desktop</h1>
 
 <p align="center">
-  A native desktop client for working with <a href="https://github.com/openclaw/openclaw">OpenClaw</a>.
+  A native desktop client for working with OpenClaw</a>.
 </p>
 
 <p align="center">
@@ -48,34 +48,7 @@ The middleware owns the Gateway connection and projects chat state to the UI. Th
 
 ```bash
 pnpm install
-pnpm dev:tauri
-```
-
-For focused development:
-
-```bash
-pnpm dev:ui           # Next.js UI on http://localhost:3000
-pnpm dev:middleware   # Fastify middleware in watch mode
-```
-
-### Build and verify
-
-```bash
-pnpm build             # static UI export
-pnpm build:tauri       # desktop bundle
-pnpm lint
-pnpm lint:architecture
-pnpm typecheck
-pnpm test
-```
-
-Use package-scoped checks when possible:
-
-```bash
-pnpm --filter ui typecheck
-pnpm --filter ui build
-pnpm --filter @openclaw/desktop-middleware typecheck
-pnpm --filter @openclaw/desktop-middleware test
+pnpm dev
 ```
 
 ---
@@ -99,8 +72,6 @@ docs/                  contributor workflows, constraints, and lessons
 - [Contributing](./CONTRIBUTING.md)
 - [Security policy](./SECURITY.md)
 - [Project guidance](./AGENTS.md)
-- [Constraints](./docs/constraints)
-- [Development workflows](./docs/skills)
 
 ---
 
