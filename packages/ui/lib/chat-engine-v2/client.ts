@@ -1,7 +1,7 @@
 import { frontendLog, redactText, sanitizeForLog, sanitizeUrlForLog } from "../clientLogs"
 import { logChatStreamRecoveryDecision } from "../chatTimelineDiagnostics"
 import { getMiddlewareConnection } from "../middleware-client"
-import { assertMiddlewareUrlIsSafeForBrowser } from "../middlewareUrlSecurity"
+import { isMiddlewareUrlSafeForBrowser } from "../middlewareUrlSecurity"
 import { registerScheduledRequest, type RequestPriority } from "../requestScheduler"
 import type { SessionTokenUsage } from "../sessionContextUsage"
 import { UI_INITIAL_WINDOW } from "./constants"
@@ -80,7 +80,6 @@ async function fetchJson<T>(path: string, init?: RequestInit & { schedulerPriori
   const startedAt = performance.now()
   const method = (init?.method ?? "GET").toUpperCase()
   const baseUrl = getMiddlewareUrl()
-  assertMiddlewareUrlIsSafeForBrowser(baseUrl)
   frontendLog("api", "middleware.fetch.start", middlewareLogContext(method, path, baseUrl, {
     body: summarizeV2Body(init?.body),
   }), "debug")
@@ -230,7 +229,13 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
     if (closedByCaller) return
     const connectionCursor = cursor
     const middlewareUrl = getMiddlewareUrl()
-    assertMiddlewareUrlIsSafeForBrowser(middlewareUrl)
+    if (!isMiddlewareUrlSafeForBrowser(middlewareUrl)) {
+      frontendLog("stream", "patch-stream.blocked-insecure-middleware", {
+        afterCursor: connectionCursor,
+        message: "Configure an HTTPS middleware URL before opening the stream.",
+      }, "warn")
+      return
+    }
     const url = new URL(`${middlewareUrl}/api/stream/ws`)
     url.searchParams.set("afterCursor", String(connectionCursor))
     const wsUrl = url.toString().replace(/^http/, "ws")

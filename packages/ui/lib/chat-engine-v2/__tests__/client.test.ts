@@ -36,16 +36,16 @@ describe("middleware client", () => {
     expect(getMiddlewareUrl()).toBe("http://127.0.0.1:8787")
   })
 
-  it("rejects an insecure remote middleware URL from an HTTPS page", async () => {
-    vi.stubGlobal("window", { location: { hostname: "app.example.com", protocol: "https:" }, console, addEventListener: vi.fn() })
+  it("does not crash or open a WebSocket when the middleware URL is insecure", async () => {
+    vi.stubGlobal("window", { location: { hostname: "app.example.com", protocol: "https:" }, console, addEventListener: vi.fn(), setTimeout: vi.fn() })
     vi.stubGlobal("localStorage", { getItem: vi.fn(() => null) })
     process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL = "http://middleware.example.com"
-    const fetchMock = vi.fn()
-    vi.stubGlobal("fetch", fetchMock)
+    const socket = vi.fn()
+    vi.stubGlobal("WebSocket", socket)
 
-    const { fetchChatBootstrapV2 } = await import("../client")
-    await expect(fetchChatBootstrapV2("session-1")).rejects.toThrow("HTTPS middleware URL")
-    expect(fetchMock).not.toHaveBeenCalled()
+    const { openPatchStreamV2 } = await import("../client")
+    expect(() => openPatchStreamV2(0, vi.fn())).not.toThrow()
+    expect(socket).not.toHaveBeenCalled()
   })
 
   it("uses the active Connect page middleware URL before the v2 override", async () => {

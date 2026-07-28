@@ -287,7 +287,6 @@ async function middlewareFetchNetwork<T>(path: string, init: MiddlewareRequestIn
   const method = (init.method ?? "GET").toUpperCase()
   const token = connection.token.trim()
   const url = trimTrailingSlash(connection.url)
-  assertMiddlewareUrlIsSafeForBrowser(url)
   const timeout = init.signal ? null : timeoutSignal(init.timeoutMs ?? DEFAULT_MIDDLEWARE_FETCH_TIMEOUT_MS)
   const { timeoutMs: _timeoutMs, ...fetchInit } = init
   frontendLog("api", "middleware.fetch.start", middlewareLogContext(method, path, url, token), "debug")
@@ -332,7 +331,6 @@ export async function middlewareFetch<T>(path: string, init: MiddlewareRequestIn
   if (!shouldDedupeMiddlewareRead(method, path, init)) return middlewareFetchNetwork<T>(path, init, connection)
   const token = connection.token.trim()
   const url = trimTrailingSlash(connection.url)
-  assertMiddlewareUrlIsSafeForBrowser(url)
   return dedupeRequest(
     middlewareFetchDedupeKey(method, url, token, path),
     () => middlewareFetchNetwork<T>(path, init, connection),

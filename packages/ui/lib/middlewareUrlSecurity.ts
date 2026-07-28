@@ -4,16 +4,20 @@
  * they do not run from an HTTPS page.
  */
 export function assertMiddlewareUrlIsSafeForBrowser(rawUrl: string): void {
-  if (typeof window === "undefined" || window.location.protocol !== "https:") return
+  if (isMiddlewareUrlSafeForBrowser(rawUrl)) return
+
+  throw new Error("This HTTPS app can only connect to an HTTPS middleware URL. Deploy the middleware behind TLS and use its https:// URL.")
+}
+
+export function isMiddlewareUrlSafeForBrowser(rawUrl: string): boolean {
+  if (typeof window === "undefined" || window.location.protocol !== "https:") return true
 
   let url: URL
   try {
     url = new URL(rawUrl)
   } catch {
-    throw new Error("Middleware URL must be a valid HTTPS URL.")
+    return false
   }
 
-  if (url.protocol === "http:") {
-    throw new Error("This HTTPS app can only connect to an HTTPS middleware URL. Deploy the middleware behind TLS and use its https:// URL.")
-  }
+  return url.protocol === "https:"
 }
