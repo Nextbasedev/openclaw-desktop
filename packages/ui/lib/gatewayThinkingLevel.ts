@@ -17,11 +17,20 @@ function thinkingLevelFromGatewayText(text: string): string | null {
  * the level actually active in this chat rather than a model-global default.
  */
 export function latestGatewayThinkingLevel(messages: GatewayThinkingMessage[]): string | null {
+  return latestGatewayThinkingOptions(messages)?.current ?? null
+}
+
+/** Read the authoritative `/think` response when it is present in the session. */
+export function latestGatewayThinkingOptions(messages: GatewayThinkingMessage[]): { current: string | null; options: string[] } | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
     if (message.role !== "assistant") continue
-    const level = thinkingLevelFromGatewayText(message.text)
-    if (level) return level
+    const current = thinkingLevelFromGatewayText(message.text)
+    const optionsLine = message.text.match(/options:\s*([^\n.]+)/i)?.[1]
+    const options = optionsLine
+      ? optionsLine.split(",").map((option) => option.trim().toLowerCase()).filter(Boolean)
+      : []
+    if (current || options.length > 0) return { current, options }
   }
   return null
 }

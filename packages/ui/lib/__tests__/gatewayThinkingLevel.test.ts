@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { latestGatewayThinkingLevel } from "../gatewayThinkingLevel"
+import { latestGatewayThinkingLevel, latestGatewayThinkingOptions } from "../gatewayThinkingLevel"
 
 describe("latestGatewayThinkingLevel", () => {
   test("uses the latest /think reply from the current session transcript", () => {
@@ -20,5 +20,11 @@ describe("latestGatewayThinkingLevel", () => {
     expect(latestGatewayThinkingLevel([
       { role: "assistant", text: "I think this is ready." },
     ])).toBeNull()
+  })
+
+  test("reads the current level and available options from the latest /think reply", () => {
+    expect(latestGatewayThinkingOptions([
+      { role: "assistant", text: "Current thinking level: medium.\nOptions: default, off, minimal, low, medium, high, xhigh." },
+    ])).toEqual({ current: "medium", options: ["default", "off", "minimal", "low", "medium", "high", "xhigh"] })
   })
 })

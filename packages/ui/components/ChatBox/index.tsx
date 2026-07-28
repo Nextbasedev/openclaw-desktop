@@ -115,7 +115,11 @@ function thinkingConfigCacheKey(sessionKey: string, modelId: string | null | und
 
 function cachedThinkingConfig(sessionKey: string | null, modelId: string | null | undefined) {
   if (!sessionKey) return null
-  return thinkingConfigCache.get(thinkingConfigCacheKey(sessionKey, modelId)) ?? null
+  const key = thinkingConfigCacheKey(sessionKey, modelId)
+  // A model-specific request must never fall back to another model's cached
+  // policy: that is how an old `off`/default value was rendered after switching
+  // to a model whose current session level was `medium`.
+  return thinkingConfigCache.get(key) ?? null
 }
 
 function cacheThinkingConfig(sessionKey: string | null, config: ThinkingConfig | null) {
@@ -608,7 +612,7 @@ export function ChatBox({
     // Never expose a fetch spinner in the composer. A session without a warm
     // cache simply shows the neutral Thinking label until this completes.
     setThinkingConfig(null)
-    const requestKey = `chat-thinking:${sessionKey}`
+    const requestKey = `chat-thinking:${sessionKey}:${modelId?.toLowerCase() ?? "default"}`
     if (force) invalidateDedupe(requestKey)
     setThinkingError(null)
     try {
