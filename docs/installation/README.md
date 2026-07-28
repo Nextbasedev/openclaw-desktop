@@ -7,7 +7,7 @@ If the user already has old Middleware v1 data, migrate it first using [`MIGRATE
 ## Source
 
 - Repo: `https://github.com/Nextbasedev/openclaw-desktop.git`
-- Branch: `dev-3`
+- Branch: `master`
 - Middleware package: `@openclaw/desktop-middleware`
 - Middleware app directory: `apps/middleware`
 
@@ -35,9 +35,9 @@ openclaw gateway start
 ```bash
 git clone https://github.com/Nextbasedev/openclaw-desktop.git
 cd openclaw-desktop
-git fetch origin dev-3
-git checkout dev-3
-git pull --ff-only origin dev-3
+git fetch origin master
+git checkout master
+git pull --ff-only origin master
 pnpm install --frozen-lockfile
 pnpm --filter @openclaw/desktop-middleware build
 ```

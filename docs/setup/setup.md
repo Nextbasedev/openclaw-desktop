@@ -26,7 +26,13 @@ git pull --ff-only origin master
 
 If any command fails because the checkout has local changes or cannot fast-forward, stop and report that exact blocker. Do not use another branch, a stale `master`, or uncommitted code to run Middleware.
 
-## 1. Confirm the server is ready
+## Setup mode versus discovery mode
+
+The fast path is a read-only discovery pass. A user may explicitly authorize a first-time setup, build, or Middleware restart. That authorization permits only the requested Middleware work; it does **not** authorize changing Tailscale, Cloudflare Tunnel, ngrok, DNS, firewall rules, or the managed OpenClaw Gateway.
+
+Always validate local Middleware-to-Gateway compatibility before treating a remote network method as the blocker. A reachable Tailscale or tunnel URL does not make Desktop ready when `gateway.connected` is false.
+
+## 1. Confirm the server and Gateway integration are ready
 
 1. Confirm Node.js 22+ and pnpm are available.
 2. Confirm OpenClaw Gateway is running:
@@ -48,7 +54,18 @@ If any command fails because the checkout has local changes or cannot fast-forwa
    MIDDLEWARE_PAIRING_CODE=<6-8-uppercase-code>
    ```
 
-4. If Middleware is not running, build and start `apps/middleware` using the repository installation instructions, preferably as an auto-restarting service. Do not claim a network URL until Middleware is healthy.
+4. If Middleware is not running and setup/start was authorized, build and start `apps/middleware` using the repository installation instructions, preferably as an auto-restarting service. Do not claim a Desktop-ready network URL until Middleware is healthy.
+5. Request the local Middleware `/health` endpoint before network discovery. Require:
+   - `ok: true`
+   - `service: "openclaw-middleware"`
+   - `gateway.connected: true`
+6. If `gateway.connected` is false, classify the local integration failure before checking or blaming the network:
+   - **Gateway unavailable** — Gateway process, endpoint, or local reachability failed.
+   - **Gateway authentication/configuration failure** — device approval, identity, token, or scope configuration failed.
+   - **Gateway compatibility failure** — the WebSocket handshake reports protocol or version mismatch.
+   - **Middleware startup/configuration failure** — Middleware cannot bind, start, or load its configuration.
+
+For a compatibility failure, preserve the Middleware Git SHA/version, OpenClaw Gateway version, Gateway endpoint, and exact handshake error. Do not restart, upgrade, downgrade, or reconfigure the managed Gateway unless the user explicitly authorizes that change.
 
 ## 2. Create or recover a pairing code
 
@@ -160,10 +177,32 @@ Verified: not run
 Blocker: <exact blocker>
 ```
 
+### Middleware reachable but not Desktop-ready
+
+Use this format when a local Gateway failure prevents Desktop pairing, including when Tailscale or another network path has already been verified. The candidate URL is useful for diagnosis but is **not** a Desktop-ready URL.
+
+```text
+Setup status: blocked — <Gateway unavailable | Gateway authentication/configuration | Gateway compatibility | Middleware startup/configuration>
+Middleware process: <running | failed>
+Gateway integration: <unavailable | authentication/configuration failure | incompatible | not checked>
+Middleware revision: <Git SHA/version | unavailable>
+Gateway version: <version | unavailable>
+Gateway endpoint: <ws://127.0.0.1:18789 | actual endpoint>
+Gateway error: <exact error>
+Network status: <verified | unavailable | not tested>
+Candidate URL: <verified reachable URL | not available>
+Desktop-ready URL: not available
+Pairing code: withheld — Gateway integration not validated
+Required action: <smallest safe remediation>
+Verified: <checks that actually passed>
+Blocker: <exact blocker>
+```
+
 ## Troubleshooting rules
 
 - A valid-looking URL is not valid until its own `/health` response and smoke test pass.
-- If Middleware health succeeds but `gateway.connected` is false, the network path is not ready; fix/start the local OpenClaw Gateway.
+- If Middleware health succeeds but `gateway.connected` is false, the **Gateway integration** is not ready. Report a verified remote URL as a candidate URL when applicable, but do not return it or its pairing code as Desktop-ready.
+- If the Gateway error says `protocol mismatch` or otherwise identifies a protocol/version incompatibility, use the `Middleware reachable but not Desktop-ready` response. Include both component versions and the exact error; do not label Tailscale, a tunnel, DNS, or firewall as the root blocker unless its own check failed.
 - If the smoke test only fails because no model/API key is configured, report that Middleware/networking works and identify model/provider configuration as the blocker.
 - For every other smoke-test failure, report the exact failure and do not return URL/code as ready.
 - Do not expose the OpenClaw Gateway directly. Desktop connects only to Middleware.
@@ -187,7 +226,8 @@ Middleware permits Desktop browser/WebView origins through its CORS configuratio
 | --- | --- | --- |
 | URL has no `http://` or `https://` | Parse the final URL before testing | Return no credentials; provide the complete URL format. |
 | `/health` times out, refuses connection, or returns HTML | Check Middleware process, host binding, port `8787`, DNS, firewall, and proxy route | Mark the method unhealthy and continue Auto discovery. Never return the URL. |
-| `/health` returns JSON but `gateway.connected` is false | Run `openclaw gateway status` on the VPS | Report that Middleware is reachable but OpenClaw Gateway is unavailable; do not mark setup ready. |
+| `/health` returns JSON but `gateway.connected` is false | Run `openclaw gateway status` and preserve the health/handshake error | Classify Gateway unavailable, authentication/configuration, or compatibility failure. Report a verified remote URL only as a candidate; do not mark setup ready. |
+| Gateway error says `protocol mismatch` or a version incompatibility | Record Middleware Git SHA/version, Gateway version, endpoint, and exact error | Report `Gateway integration: incompatible`; do not change a managed Gateway without explicit authorization and do not blame networking. |
 | `/health` redirects or has TLS/certificate failure | Confirm the exact HTTPS hostname and certificate validity | Return the exact certificate/proxy blocker; do not downgrade HTTPS or bypass certificate validation. |
 | Pairing claim is `401`, `403`, or says invalid/expired | Verify the current `MIDDLEWARE_PAIRING_CODE` and claim it only once | Return no saved connection. Generate/recover a current code only with user approval. |
 | `/api/version` is `401` or `403` after pairing | Confirm the pair response token is used against the same URL | Treat the pairing/token as invalid; do not tell the user to retry an old code indefinitely. |
@@ -222,6 +262,7 @@ Auto must emit short progress updates so users know what is happening:
 
 ```text
 Checking server and Middleware health…
+Checking Middleware ↔ OpenClaw Gateway compatibility… <passed | unavailable | authentication/configuration failure | incompatible>
 Checking Tailscale… <passed | logged out | offline | no usable address | unhealthy>
 Checking Cloudflare Tunnel… <passed | missing | stopped | no hostname | wrongly routed | unhealthy>
 Checking ngrok… <passed | missing | unauthenticated | stopped | wrongly routed | unhealthy>
@@ -231,5 +272,6 @@ Running Desktop smoke test…
 
 - Stop immediately after the first method passes the full health and smoke-test validation.
 - If a method is configured but fails, keep its exact failure in `Checks` and continue to the next method.
+- If a remote method passes its URL health request but local Gateway integration fails, preserve the passing network result and return the partial-response format above. Withhold the pairing code until Gateway integration and the smoke test pass.
 - If nothing passes, return the blocked response format from this guide. Never return a plausible-looking URL, a stale pairing code, or a blank success message.
 - The final response must name the selected method, exact URL, Desktop check status, and one actionable blocker when incomplete.
