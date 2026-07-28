@@ -60,10 +60,10 @@ The middleware owns the Gateway connection and projects chat state to the UI. De
 
 | Setup | Requirements |
 |---|---|
-| **Use the app** | An OpenClaw Gateway running locally or on a server, plus a middleware URL that the desktop app can reach. |
+| **Use the app** | Simply download exe file for windows or dmg file for your macOS system, An OpenClaw Gateway running locally or on a server, plus a middleware URL that the desktop app can reach. |
 | **Local connection** | OpenClaw Gateway and middleware on the same computer. The default middleware address is `http://127.0.0.1:8787`. |
-| **Remote / VPS connection** | OpenClaw Gateway and middleware running on the server, plus a reachable middleware URL and pairing code. Tailscale is optional but a good private-network option. |
-| **Build from source** | Node.js 22+, pnpm 9+, Rust, and the platform dependencies required by Tauri. |
+| **Remote / VPS connection** | OpenClaw Gateway and middleware running on the server, plus a reachable middleware URL and pairing code. using tailscale with your good private-network option. |
+| **Build from source** | Node.js 22+, pnpm 9+, and the platform dependencies required by Tauri. |
 
 **SQLite:** no separate SQLite server or setup is required. By default, middleware creates its local state database at `~/.openclaw/middleware/state.sqlite` on the machine where middleware runs.
 
