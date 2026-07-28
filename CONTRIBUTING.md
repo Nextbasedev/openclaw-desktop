@@ -28,16 +28,6 @@ pnpm dev                         # local desktop development entry point
 pnpm build                       # UI static export
 pnpm lint
 pnpm typecheck
-pnpm test
-```
-
-Run package-scoped checks whenever possible:
-
-```bash
-pnpm --filter ui typecheck
-pnpm --filter ui build
-pnpm --filter @openclaw/desktop-middleware typecheck
-pnpm --filter @openclaw/desktop-middleware test
 ```
 
 ## Project layout
