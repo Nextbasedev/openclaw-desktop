@@ -1,10 +1,26 @@
-# OpenClaw Desktop
+<p align="center">
+  <img src="./docs/assets/openclaw-desktop-hero.jpg" alt="OpenClaw Desktop" width="100%" />
+</p>
 
-A native desktop client for working with [OpenClaw](https://github.com/openclaw/openclaw). It combines a Tauri desktop shell, a Next.js interface, and a local middleware service that connects to an OpenClaw Gateway.
+<h1 align="center">OpenClaw Desktop</h1>
 
-## Overview
+<p align="center">
+  A native desktop client for working with <a href="https://github.com/openclaw/openclaw">OpenClaw</a>.
+</p>
 
-OpenClaw Desktop keeps the desktop interface and Gateway integration separate:
+<p align="center">
+  <a href="#-development">🛠️ Development</a> ·
+  <a href="#-repository-layout">🧭 Repository</a> ·
+  <a href="#-documentation">📚 Documentation</a> ·
+  <a href="./CONTRIBUTING.md">🤝 Contributing</a> ·
+  <a href="./SECURITY.md">🔒 Security</a>
+</p>
+
+---
+
+## ✨ Overview
+
+OpenClaw Desktop combines a Tauri desktop shell, a Next.js interface, and a local Fastify middleware service that connects to an OpenClaw Gateway.
 
 ```text
 Tauri desktop shell
@@ -16,9 +32,11 @@ Local Fastify middleware + SQLite projection
 OpenClaw Gateway (WebSocket)
 ```
 
-The middleware owns the connection to the Gateway and projects chat state to the UI. The desktop bundle includes the middleware resources needed by the app.
+The middleware owns the Gateway connection and projects chat state to the UI. The desktop bundle includes the middleware resources needed by the app.
 
-## Development
+---
+
+## 🛠️ Development
 
 ### Requirements
 
@@ -60,7 +78,9 @@ pnpm --filter @openclaw/desktop-middleware typecheck
 pnpm --filter @openclaw/desktop-middleware test
 ```
 
-## Repository layout
+---
+
+## 🧭 Repository layout
 
 ```text
 apps/middleware/       Fastify middleware, SQLite projection, Gateway bridge
@@ -72,7 +92,9 @@ packages/shared/       shared TypeScript types and schemas
 docs/                  contributor workflows, constraints, and lessons
 ```
 
-## Documentation
+---
+
+## 📚 Documentation
 
 - [Contributing](./CONTRIBUTING.md)
 - [Security policy](./SECURITY.md)
@@ -80,10 +102,12 @@ docs/                  contributor workflows, constraints, and lessons
 - [Constraints](./docs/constraints)
 - [Development workflows](./docs/skills)
 
-## Contributing
+---
+
+## 🤝 Contributing
 
 Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request. Keep changes focused, verify the affected packages, and document durable behavior rules when they are introduced.
 
-## Security
+## 🔒 Security
 
 Please report vulnerabilities according to [SECURITY.md](./SECURITY.md). Do not post exploit details, credentials, pairing codes, private URLs, or tokens in public issues.
