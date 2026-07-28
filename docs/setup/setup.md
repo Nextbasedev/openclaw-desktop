@@ -49,6 +49,7 @@ Always validate local Middleware-to-Gateway compatibility before treating a remo
    PORT=8787
    NODE_ENV=production
    OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789
+   OPENCLAW_GATEWAY_TOKEN=<approved-Gateway-token>
    WORKSPACE_ROOT=$HOME/.openclaw/workspace
    MIDDLEWARE_TOKEN=<stable-random-secret>
    MIDDLEWARE_PAIRING_CODE=<6-8-uppercase-code>
@@ -66,6 +67,8 @@ Always validate local Middleware-to-Gateway compatibility before treating a remo
    - **Middleware startup/configuration failure** — Middleware cannot bind, start, or load its configuration.
 
 For a compatibility failure, preserve the Middleware Git SHA/version, OpenClaw Gateway version, Gateway endpoint, and exact handshake error. Do not restart, upgrade, downgrade, or reconfigure the managed Gateway unless the user explicitly authorizes that change.
+
+When Gateway authentication uses a managed secret reference instead of a literal token in `openclaw.json`, load `OPENCLAW_GATEWAY_TOKEN` from its approved managed environment source for the Middleware process. Never print, copy into the repository, or return that token.
 
 ## 2. Create or recover a pairing code
 
