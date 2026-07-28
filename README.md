@@ -1,14 +1,89 @@
-This is openclaw desktop app
-.
+# OpenClaw Desktop
 
-🤝 Contributing
-Contributions are welcome! Here's how to get started:
+A native desktop client for working with [OpenClaw](https://github.com/openclaw/openclaw). It combines a Tauri desktop shell, a Next.js interface, and a local middleware service that connects to an OpenClaw Gateway.
 
-Fork the repository
-Create a feature branch (git checkout -b feature/my-feature)
-Run the tests (pnpm --filter @understand-anything/core test)
-Commit your changes and open a pull request
-Please open an issue first for major changes so we can discuss the approach.
+## Overview
 
-Stop reading code blind. Start understanding everything.
+OpenClaw Desktop keeps the desktop interface and Gateway integration separate:
 
+```text
+Tauri desktop shell
+        ↓
+Next.js user interface
+        ↓
+Local Fastify middleware + SQLite projection
+        ↓
+OpenClaw Gateway (WebSocket)
+```
+
+The middleware owns the connection to the Gateway and projects chat state to the UI. The desktop bundle includes the middleware resources needed by the app.
+
+## Development
+
+### Requirements
+
+- Node.js 22 or newer
+- pnpm 9 or newer
+- Access to an OpenClaw Gateway for connection and integration testing
+
+### Run locally
+
+```bash
+pnpm install
+pnpm dev:tauri
+```
+
+For focused development:
+
+```bash
+pnpm dev:ui           # Next.js UI on http://localhost:3000
+pnpm dev:middleware   # Fastify middleware in watch mode
+```
+
+### Build and verify
+
+```bash
+pnpm build             # static UI export
+pnpm build:tauri       # desktop bundle
+pnpm lint
+pnpm lint:architecture
+pnpm typecheck
+pnpm test
+```
+
+Use package-scoped checks when possible:
+
+```bash
+pnpm --filter ui typecheck
+pnpm --filter ui build
+pnpm --filter @openclaw/desktop-middleware typecheck
+pnpm --filter @openclaw/desktop-middleware test
+```
+
+## Repository layout
+
+```text
+apps/middleware/       Fastify middleware, SQLite projection, Gateway bridge
+packages/ui/           Next.js 16 / React 19 interface
+packages/desktop/      Tauri shell and Rust source
+packages/middleware/   legacy Gateway client library
+packages/server/       Node server package
+packages/shared/       shared TypeScript types and schemas
+docs/                  contributor workflows, constraints, and lessons
+```
+
+## Documentation
+
+- [Contributing](./CONTRIBUTING.md)
+- [Security policy](./SECURITY.md)
+- [Project guidance](./AGENTS.md)
+- [Constraints](./docs/constraints)
+- [Development workflows](./docs/skills)
+
+## Contributing
+
+Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request. Keep changes focused, verify the affected packages, and document durable behavior rules when they are introduced.
+
+## Security
+
+Please report vulnerabilities according to [SECURITY.md](./SECURITY.md). Do not post exploit details, credentials, pairing codes, private URLs, or tokens in public issues.
