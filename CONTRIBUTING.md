@@ -25,13 +25,8 @@ pnpm install
 
 ```bash
 pnpm dev                         # local desktop development entry point
-pnpm dev:ui                      # Next.js UI on :3000
-pnpm dev:middleware              # Fastify middleware watch mode
-pnpm dev:tauri                   # Tauri desktop app
 pnpm build                       # UI static export
-pnpm build:tauri                 # packaged Tauri build
 pnpm lint
-pnpm lint:architecture
 pnpm typecheck
 pnpm test
 ```
@@ -43,8 +38,6 @@ pnpm --filter ui typecheck
 pnpm --filter ui build
 pnpm --filter @openclaw/desktop-middleware typecheck
 pnpm --filter @openclaw/desktop-middleware test
-pnpm --filter server typecheck
-pnpm --filter server test
 ```
 
 ## Project layout
@@ -62,7 +55,7 @@ pnpm --filter server test
 
 ## Development workflow
 
-1. Start from the intended, up-to-date base branch and create a focused working branch. Do not push directly to `main`.
+1. Start from the intended, up-to-date base branch and create a focused working branch. Do not push directly to `master`.
 2. Read the relevant workflow, constraints, and existing code before editing.
 3. Make the smallest complete change that solves the problem.
 4. Update tests or validation when behavior changes.
@@ -95,9 +88,7 @@ test(ui): cover middleware pairing client
 - Preserve local-only, imported, manual, and desktop-created sessions during sync.
 - Treat the middleware patch bus as the source of truth for chat state; warm cache is only a bounded fast-paint preview.
 - Keep tool calls run-scoped.
-- Scope persistent layout and cache keys by `openclawWindowId`.
 - Do not hardcode limits in error messages; import the shared constants instead.
-- Do not use broad macOS `NSAllowsArbitraryLoads`; prefer narrowly scoped ATS exceptions such as `NSAllowsArbitraryLoadsInWebContent` when required.
 
 ## Bug reports
 
@@ -126,7 +117,7 @@ Please describe:
 
 ## Security
 
-Do not open public issues for vulnerabilities, leaked secrets, authentication problems, or remote-code-execution concerns. Follow [SECURITY.md](./SECURITY.md) if available, or contact the maintainers privately.
+Do not open public issues for vulnerabilities, leaked secrets, authentication problems, or remote-code-execution concerns. Follow [SECURITY.md](./SECURITY.md) if available, or contact privately.
 
 ## Review expectations
 
